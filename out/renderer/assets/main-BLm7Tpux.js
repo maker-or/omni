@@ -1,4 +1,4 @@
-import { A as require_jsx_runtime, C as motion, D as cn, E as useTheme, F as __toESM, M as require_client, N as require_react_dom, O as ArrowLeft, P as require_react, S as springs, T as ThemeProvider, _ as useSurface, a as useComposedRefs, b as useShape, c as n$18, d as SelectContent, f as SelectItem, g as SurfaceProvider, h as surfaceClasses, i as createSlottable, j as require_compiler_runtime, k as createLucideIcon, l as p$1, m as Elevated, n as Button, p as SelectTrigger, r as createSlot, s as ProjectIcon, t as fontWeights, u as Select, w as AnimatePresence, x as useProximityHover, y as shapeMap } from "./font-weight-NT2n2nHd.js";
+import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-DuwbNIgG.js";
 //#region node_modules/react-resizable-panels/dist/react-resizable-panels.js
 var import_client = require_client();
 var import_compiler_runtime = require_compiler_runtime();
@@ -9058,7 +9058,7 @@ var __vitePreload = function preload(baseModule, deps, importerUrl) {
 //#region @/components/ui/file-thumbnail.tsx
 var pdfjsPromise = null;
 async function loadPdfjs() {
-	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-Dm7IAn7z.js").then((mod) => {
+	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-DZU_2ySb.js").then((mod) => {
 		if (!mod.GlobalWorkerOptions.workerSrc) mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${mod.version}/build/pdf.worker.min.mjs`;
 		return mod;
 	}), [], import.meta.url);
@@ -12408,6 +12408,148 @@ var InputMessage = (0, import_react.forwardRef)(({ value, onValueChange, onSend,
 });
 InputMessage.displayName = "InputMessage";
 //#endregion
+//#region @/components/ui/chat-message.tsx
+var ChatMessage = (0, import_react.forwardRef)((t0, ref) => {
+	const $ = (0, import_compiler_runtime.c)(36);
+	let actions;
+	let children;
+	let className;
+	let files;
+	let from;
+	let props;
+	let t1;
+	let time;
+	if ($[0] !== t0) {
+		({from, files, thumbnailSize: t1, time, actions, children, className, ...props} = t0);
+		$[0] = t0;
+		$[1] = actions;
+		$[2] = children;
+		$[3] = className;
+		$[4] = files;
+		$[5] = from;
+		$[6] = props;
+		$[7] = t1;
+		$[8] = time;
+	} else {
+		actions = $[1];
+		children = $[2];
+		className = $[3];
+		files = $[4];
+		from = $[5];
+		props = $[6];
+		t1 = $[7];
+		time = $[8];
+	}
+	const thumbnailSize = t1 === void 0 ? 64 : t1;
+	const shape = useShape();
+	const isUser = from === "user";
+	const showTime = isUser && time != null;
+	let t2;
+	let t3;
+	if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
+		t2 = {
+			opacity: 0,
+			y: 8,
+			scale: .96
+		};
+		t3 = {
+			opacity: 1,
+			y: 0,
+			scale: 1
+		};
+		$[9] = t2;
+		$[10] = t3;
+	} else {
+		t2 = $[9];
+		t3 = $[10];
+	}
+	const t4 = isUser ? "bottom right" : "bottom left";
+	let t5;
+	if ($[11] !== t4) {
+		t5 = { transformOrigin: t4 };
+		$[11] = t4;
+		$[12] = t5;
+	} else t5 = $[12];
+	const t6 = isUser ? "items-end self-end" : "items-start self-start";
+	let t7;
+	if ($[13] !== className || $[14] !== t6) {
+		t7 = cn("group flex max-w-[80%] flex-col gap-1.5", t6, className);
+		$[13] = className;
+		$[14] = t6;
+		$[15] = t7;
+	} else t7 = $[15];
+	let t8;
+	if ($[16] !== files || $[17] !== isUser || $[18] !== thumbnailSize) {
+		t8 = files && files.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: cn("flex flex-wrap gap-1.5", isUser ? "justify-end" : "justify-start"),
+			children: files.map((file, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileThumbnail, {
+				file,
+				size: thumbnailSize
+			}, `${file.name}-${file.size}-${file.lastModified}-${i}`))
+		});
+		$[16] = files;
+		$[17] = isUser;
+		$[18] = thumbnailSize;
+		$[19] = t8;
+	} else t8 = $[19];
+	let t9;
+	if ($[20] !== children || $[21] !== isUser || $[22] !== shape) {
+		t9 = children != null && children !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: cn("py-2 text-[14px] whitespace-pre-wrap break-words text-pretty", isUser ? cn(shape.bg, "px-3.5 bg-[color-mix(in_oklab,var(--accent),var(--background)_45%)] text-accent-foreground") : "text-foreground"),
+			children
+		});
+		$[20] = children;
+		$[21] = isUser;
+		$[22] = shape;
+		$[23] = t9;
+	} else t9 = $[23];
+	let t10;
+	if ($[24] !== actions || $[25] !== showTime || $[26] !== time) {
+		t10 = (showTime || actions != null) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: cn("flex items-center gap-2 px-1 text-[12px] leading-none text-muted-foreground select-none", "opacity-0 pointer-events-none transition-opacity duration-150", "group-hover:opacity-100 group-hover:pointer-events-auto", "group-focus-within:opacity-100 group-focus-within:pointer-events-auto"),
+			children: [showTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "tabular-nums",
+				children: time
+			}), actions != null && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "flex items-center gap-0.5",
+				children: actions
+			})]
+		});
+		$[24] = actions;
+		$[25] = showTime;
+		$[26] = time;
+		$[27] = t10;
+	} else t10 = $[27];
+	let t11;
+	if ($[28] !== props || $[29] !== ref || $[30] !== t10 || $[31] !== t5 || $[32] !== t7 || $[33] !== t8 || $[34] !== t9) {
+		t11 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(motion.div, {
+			ref,
+			layout: "position",
+			initial: t2,
+			animate: t3,
+			transition: springs.moderate,
+			style: t5,
+			className: t7,
+			...props,
+			children: [
+				t8,
+				t9,
+				t10
+			]
+		});
+		$[28] = props;
+		$[29] = ref;
+		$[30] = t10;
+		$[31] = t5;
+		$[32] = t7;
+		$[33] = t8;
+		$[34] = t9;
+		$[35] = t11;
+	} else t11 = $[35];
+	return t11;
+});
+ChatMessage.displayName = "ChatMessage";
+//#endregion
 //#region src/App.tsx
 function App() {
 	const $ = (0, import_compiler_runtime.c)(19);
@@ -12498,7 +12640,7 @@ function App() {
 	let t9;
 	if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
 		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
-			id: "agent",
+			"data-pipper-id": "agent panel",
 			minSize: "40%",
 			className: "overflow-hidden",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentView, {})
@@ -12519,11 +12661,12 @@ function App() {
 			orientation: "horizontal",
 			defaultLayout: t8,
 			className: "flex-1 flex min-h-0",
+			"data-pipper-id": "workspace panel",
 			children: [
 				t9,
 				t10,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
-					id: "others",
+					"data-pipper-id": "others panel",
 					minSize: "40%",
 					className: "overflow-hidden",
 					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OthersView, {})
@@ -12543,137 +12686,8 @@ function App() {
 	} else t12 = $[18];
 	return t12;
 }
-function ThreadChatView(t0) {
-	const $ = (0, import_compiler_runtime.c)(18);
-	const { threadId, activeProjectName } = t0;
-	let t1;
-	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-		t1 = [];
-		$[0] = t1;
-	} else t1 = $[0];
-	const [messages, setMessages] = (0, import_react.useState)(t1);
-	const [inputValue, setInputValue] = (0, import_react.useState)("");
-	let t2;
-	let t3;
-	if ($[1] !== activeProjectName || $[2] !== threadId) {
-		t2 = () => {
-			let active = true;
-			window.omni.messages.list(threadId).then((msgs) => {
-				if (!active) return;
-				setMessages(msgs);
-				if (msgs.length === 1 && msgs[0].role === "user") setTimeout(async () => {
-					const assistantMsg = await window.omni.messages.create({
-						thread_id: threadId,
-						role: "assistant",
-						content: `I received your message: "${msgs[0].content}". I am ready to help you with the project "${activeProjectName || "active project"}".`
-					});
-					if (active) setMessages((current) => [...current, assistantMsg]);
-				}, 1e3);
-			});
-			return () => {
-				active = false;
-			};
-		};
-		t3 = [threadId, activeProjectName];
-		$[1] = activeProjectName;
-		$[2] = threadId;
-		$[3] = t2;
-		$[4] = t3;
-	} else {
-		t2 = $[3];
-		t3 = $[4];
-	}
-	(0, import_react.useEffect)(t2, t3);
-	let t4;
-	if ($[5] !== activeProjectName || $[6] !== threadId) {
-		t4 = async (text) => {
-			if (!text.trim()) return;
-			const userMsg = await window.omni.messages.create({
-				thread_id: threadId,
-				role: "user",
-				content: text
-			});
-			setMessages((current_0) => [...current_0, userMsg]);
-			setInputValue("");
-			setTimeout(async () => {
-				const assistantMsg_0 = await window.omni.messages.create({
-					thread_id: threadId,
-					role: "assistant",
-					content: `I received your message: "${text}". I am ready to help you with the project "${activeProjectName || "active project"}".`
-				});
-				setMessages((current_1) => [...current_1, assistantMsg_0]);
-			}, 1e3);
-		};
-		$[5] = activeProjectName;
-		$[6] = threadId;
-		$[7] = t4;
-	} else t4 = $[7];
-	const handleSendMessage = t4;
-	let t5;
-	if ($[8] !== messages) {
-		t5 = messages.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "flex-1 flex flex-col items-center justify-center text-center text-muted-foreground/60 p-4 select-none",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$18, {
-				size: 24,
-				className: "mb-2"
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "text-xs font-mono",
-				children: "No messages yet. Send a message to start the conversation!"
-			})]
-		}) : messages.map(_temp);
-		$[8] = messages;
-		$[9] = t5;
-	} else t5 = $[9];
-	let t6;
-	if ($[10] !== t5) {
-		t6 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "flex-1 overflow-y-auto p-4 flex flex-col gap-3 min-h-0",
-			children: t5
-		});
-		$[10] = t5;
-		$[11] = t6;
-	} else t6 = $[11];
-	let t7;
-	if ($[12] !== handleSendMessage || $[13] !== inputValue) {
-		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "p-3 border-t border-border/60 shrink-0 bg-surface-1",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputMessage, {
-				value: inputValue,
-				onValueChange: setInputValue,
-				placeholder: "Type a message to the agent...",
-				onSend: handleSendMessage
-			})
-		});
-		$[12] = handleSendMessage;
-		$[13] = inputValue;
-		$[14] = t7;
-	} else t7 = $[14];
-	let t8;
-	if ($[15] !== t6 || $[16] !== t7) {
-		t8 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "h-full flex flex-col min-h-0 bg-surface-1",
-			children: [t6, t7]
-		});
-		$[15] = t6;
-		$[16] = t7;
-		$[17] = t8;
-	} else t8 = $[17];
-	return t8;
-}
-function _temp(msg) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: cn("max-w-[80%] rounded-lg p-3 text-[13px] leading-relaxed shadow-sm font-sans border", msg.role === "user" ? "self-end bg-accent text-foreground border-border/80" : "self-start bg-muted/40 text-foreground border-border/40"),
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "text-[10px] font-mono text-muted-foreground mb-1 select-none",
-			children: msg.role === "user" ? "User" : "Agent"
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "whitespace-pre-wrap",
-			children: msg.content
-		})]
-	}, msg.id);
-}
 function AgentView() {
-	const $ = (0, import_compiler_runtime.c)(92);
+	const $ = (0, import_compiler_runtime.c)(108);
 	const { activeProject, loadActiveProject } = useProjectStore();
 	const { threads, activeThreadId, loadThreads, setActiveThreadId, createThread } = useThreadStore();
 	let t0;
@@ -12683,43 +12697,50 @@ function AgentView() {
 	} else t0 = $[0];
 	const [projectsList, setProjectsList] = (0, import_react.useState)(t0);
 	const [isDropdownOpen, setIsDropdownOpen] = (0, import_react.useState)(false);
-	const [emptyStateInput, setEmptyStateInput] = (0, import_react.useState)("");
+	const [inputValue, setInputValue] = (0, import_react.useState)("");
+	let t1;
+	if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
+		t1 = [];
+		$[1] = t1;
+	} else t1 = $[1];
+	const [messages, setMessages] = (0, import_react.useState)(t1);
 	const dropdownRef = (0, import_react.useRef)(null);
 	const buttonRef = (0, import_react.useRef)(null);
-	let t1;
+	const ChevronDownIcon = useIcon("chevron-down");
 	let t2;
-	if ($[1] !== loadThreads) {
-		t1 = () => {
+	let t3;
+	if ($[2] !== loadThreads) {
+		t2 = () => {
 			loadThreads();
 		};
-		t2 = [loadThreads];
-		$[1] = loadThreads;
-		$[2] = t1;
+		t3 = [loadThreads];
+		$[2] = loadThreads;
 		$[3] = t2;
+		$[4] = t3;
 	} else {
-		t1 = $[2];
 		t2 = $[3];
+		t3 = $[4];
 	}
-	(0, import_react.useEffect)(t1, t2);
-	let t3;
+	(0, import_react.useEffect)(t2, t3);
 	let t4;
-	if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-		t3 = () => {
+	let t5;
+	if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
+		t4 = () => {
 			(async function loadProjects() {
 				if (window.omni?.projects?.list) setProjectsList(await window.omni.projects.list());
 			})();
 		};
-		t4 = [];
-		$[4] = t3;
+		t5 = [];
 		$[5] = t4;
+		$[6] = t5;
 	} else {
-		t3 = $[4];
 		t4 = $[5];
+		t5 = $[6];
 	}
-	(0, import_react.useEffect)(t3, t4);
-	let t5;
-	if ($[6] !== activeProject?.id || $[7] !== activeThreadId || $[8] !== loadActiveProject || $[9] !== threads) {
-		t5 = () => {
+	(0, import_react.useEffect)(t4, t5);
+	let t6;
+	if ($[7] !== activeProject?.id || $[8] !== activeThreadId || $[9] !== loadActiveProject || $[10] !== threads) {
+		t6 = () => {
 			if (activeThreadId && threads.length > 0) {
 				const activeThread = threads.find((t) => t.id === activeThreadId);
 				if (activeThread && activeThread.project_id !== activeProject?.id) window.omni.projects.setActive(activeThread.project_id).then(() => {
@@ -12727,30 +12748,56 @@ function AgentView() {
 				});
 			}
 		};
-		$[6] = activeProject?.id;
-		$[7] = activeThreadId;
-		$[8] = loadActiveProject;
-		$[9] = threads;
-		$[10] = t5;
-	} else t5 = $[10];
-	let t6;
-	if ($[11] !== activeProject || $[12] !== activeThreadId || $[13] !== loadActiveProject || $[14] !== threads) {
-		t6 = [
+		$[7] = activeProject?.id;
+		$[8] = activeThreadId;
+		$[9] = loadActiveProject;
+		$[10] = threads;
+		$[11] = t6;
+	} else t6 = $[11];
+	let t7;
+	if ($[12] !== activeProject || $[13] !== activeThreadId || $[14] !== loadActiveProject || $[15] !== threads) {
+		t7 = [
 			activeThreadId,
 			threads,
 			activeProject,
 			loadActiveProject
 		];
-		$[11] = activeProject;
-		$[12] = activeThreadId;
-		$[13] = loadActiveProject;
-		$[14] = threads;
-		$[15] = t6;
-	} else t6 = $[15];
-	(0, import_react.useEffect)(t5, t6);
-	let t7;
-	if ($[16] !== activeProject?.id || $[17] !== loadActiveProject || $[18] !== setActiveThreadId || $[19] !== threads) {
-		t7 = async (threadId) => {
+		$[12] = activeProject;
+		$[13] = activeThreadId;
+		$[14] = loadActiveProject;
+		$[15] = threads;
+		$[16] = t7;
+	} else t7 = $[16];
+	(0, import_react.useEffect)(t6, t7);
+	let t8;
+	let t9;
+	if ($[17] !== activeThreadId) {
+		t8 = () => {
+			if (!activeThreadId) {
+				setMessages([]);
+				return;
+			}
+			let active = true;
+			window.omni.messages.list(activeThreadId).then((msgs) => {
+				if (!active) return;
+				setMessages(msgs);
+			});
+			return () => {
+				active = false;
+			};
+		};
+		t9 = [activeThreadId];
+		$[17] = activeThreadId;
+		$[18] = t8;
+		$[19] = t9;
+	} else {
+		t8 = $[18];
+		t9 = $[19];
+	}
+	(0, import_react.useEffect)(t8, t9);
+	let t10;
+	if ($[20] !== activeProject?.id || $[21] !== loadActiveProject || $[22] !== setActiveThreadId || $[23] !== threads) {
+		t10 = async (threadId) => {
 			setActiveThreadId(threadId);
 			const selectedThread = threads.find((t_0) => t_0.id === threadId);
 			if (selectedThread && selectedThread.project_id !== activeProject?.id) {
@@ -12760,113 +12807,126 @@ function AgentView() {
 				}
 			}
 		};
-		$[16] = activeProject?.id;
-		$[17] = loadActiveProject;
-		$[18] = setActiveThreadId;
-		$[19] = threads;
-		$[20] = t7;
-	} else t7 = $[20];
-	const handleSelectThread = t7;
-	let t8;
-	if ($[21] !== activeProject || $[22] !== createThread || $[23] !== loadActiveProject || $[24] !== setActiveThreadId || $[25] !== threads) {
-		t8 = async (text) => {
+		$[20] = activeProject?.id;
+		$[21] = loadActiveProject;
+		$[22] = setActiveThreadId;
+		$[23] = threads;
+		$[24] = t10;
+	} else t10 = $[24];
+	const handleSelectThread = t10;
+	let t11;
+	if ($[25] !== activeProject || $[26] !== activeThreadId || $[27] !== createThread || $[28] !== setActiveThreadId || $[29] !== threads) {
+		t11 = async (text) => {
 			if (!text.trim() || !activeProject) return;
-			const title = `${activeProject.name} #${threads.filter((t_1) => t_1.project_id === activeProject.id).length + 1}`;
-			if (createThread) {
-				const thread = await createThread(activeProject.id, title);
-				if (thread) {
-					setEmptyStateInput("");
-					await window.omni.messages.create({
-						thread_id: thread.id,
-						role: "user",
-						content: text.trim()
-					});
-					setActiveThreadId(thread.id);
-					if (window.omni?.projects?.setActive) {
-						await window.omni.projects.setActive(activeProject.id);
-						await loadActiveProject();
+			let targetThreadId = activeThreadId;
+			if (!targetThreadId) {
+				const title = `${activeProject.name} #${threads.filter((t_1) => t_1.project_id === activeProject.id).length + 1}`;
+				if (createThread) {
+					const thread = await createThread(activeProject.id, title);
+					if (thread) {
+						targetThreadId = thread.id;
+						setActiveThreadId(thread.id);
 					}
 				}
 			}
+			if (!targetThreadId) return;
+			const userMsg = await window.omni.messages.create({
+				thread_id: targetThreadId,
+				role: "user",
+				content: text.trim()
+			});
+			if (targetThreadId === activeThreadId) setMessages((current) => [...current, userMsg]);
+			setInputValue("");
+			setTimeout(async () => {
+				const assistantMsg = await window.omni.messages.create({
+					thread_id: targetThreadId,
+					role: "assistant",
+					content: `I received your message: "${text.trim()}". I am ready to help you with the project "${activeProject.name}".`
+				});
+				const currentActiveId = useThreadStore.getState().activeThreadId;
+				if (targetThreadId === currentActiveId) setMessages((current_0) => [...current_0, assistantMsg]);
+			}, 1e3);
 		};
-		$[21] = activeProject;
-		$[22] = createThread;
-		$[23] = loadActiveProject;
-		$[24] = setActiveThreadId;
-		$[25] = threads;
-		$[26] = t8;
-	} else t8 = $[26];
-	const handleStartThread = t8;
-	let t9;
-	if ($[27] === Symbol.for("react.memo_cache_sentinel")) {
-		t9 = async () => {
+		$[25] = activeProject;
+		$[26] = activeThreadId;
+		$[27] = createThread;
+		$[28] = setActiveThreadId;
+		$[29] = threads;
+		$[30] = t11;
+	} else t11 = $[30];
+	const handleSend = t11;
+	let t12;
+	if ($[31] === Symbol.for("react.memo_cache_sentinel")) {
+		t12 = async () => {
 			setIsDropdownOpen(false);
 			if (window.omni?.launch?.show) await window.omni.launch.show("add");
 		};
-		$[27] = t9;
-	} else t9 = $[27];
-	const handleAddProject = t9;
-	let t10;
-	let t11;
-	if ($[28] !== isDropdownOpen) {
-		t10 = () => {
+		$[31] = t12;
+	} else t12 = $[31];
+	const handleAddProject = t12;
+	let t13;
+	let t14;
+	if ($[32] !== isDropdownOpen) {
+		t13 = () => {
 			const handleClickOutside = function handleClickOutside(event) {
 				if (isDropdownOpen && dropdownRef.current && !dropdownRef.current.contains(event.target) && buttonRef.current && !buttonRef.current.contains(event.target)) setIsDropdownOpen(false);
 			};
 			document.addEventListener("mousedown", handleClickOutside);
 			return () => document.removeEventListener("mousedown", handleClickOutside);
 		};
-		t11 = [isDropdownOpen];
-		$[28] = isDropdownOpen;
-		$[29] = t10;
-		$[30] = t11;
+		t14 = [isDropdownOpen];
+		$[32] = isDropdownOpen;
+		$[33] = t13;
+		$[34] = t14;
 	} else {
-		t10 = $[29];
-		t11 = $[30];
+		t13 = $[33];
+		t14 = $[34];
 	}
-	(0, import_react.useEffect)(t10, t11);
+	(0, import_react.useEffect)(t13, t14);
 	let T0;
-	let t12;
-	let t13;
-	let t14;
 	let t15;
 	let t16;
 	let t17;
 	let t18;
 	let t19;
 	let t20;
-	if ($[31] !== activeProject?.id || $[32] !== activeThreadId || $[33] !== createThread || $[34] !== handleSelectThread || $[35] !== isDropdownOpen || $[36] !== loadActiveProject || $[37] !== projectsList || $[38] !== setActiveThreadId || $[39] !== threads) {
-		const projectItems = projectsList.map(_temp2);
-		let t21;
-		if ($[50] !== activeProject?.id) {
-			t21 = (p) => p.id === activeProject?.id;
-			$[50] = activeProject?.id;
-			$[51] = t21;
-		} else t21 = $[51];
-		const activeIdx = projectItems.findIndex(t21);
+	let t21;
+	let t22;
+	let t23;
+	let t24;
+	if ($[35] !== activeProject?.id || $[36] !== activeThreadId || $[37] !== createThread || $[38] !== handleSelectThread || $[39] !== isDropdownOpen || $[40] !== loadActiveProject || $[41] !== projectsList || $[42] !== setActiveThreadId || $[43] !== threads) {
+		const projectItems = projectsList.map(_temp);
+		let t25;
+		if ($[55] !== activeProject?.id) {
+			t25 = (p) => p.id === activeProject?.id;
+			$[55] = activeProject?.id;
+			$[56] = t25;
+		} else t25 = $[56];
+		const activeIdx = projectItems.findIndex(t25);
 		const checkedIndex = activeIdx !== -1 ? activeIdx : void 0;
 		const addProjectIdx = projectItems.length;
-		let t22;
-		if ($[52] !== projectsList) {
-			t22 = (projectId) => {
+		let t26;
+		if ($[57] !== projectsList) {
+			t26 = (projectId) => {
 				const p_0 = projectsList.find((proj) => proj.id === projectId);
 				return p_0 ? p_0.icon : null;
 			};
-			$[52] = projectsList;
-			$[53] = t22;
-		} else t22 = $[53];
-		const getProjectIcon = t22;
-		t20 = "h-full w-full flex flex-col bg-surface-1";
+			$[57] = projectsList;
+			$[58] = t26;
+		} else t26 = $[58];
+		const getProjectIcon = t26;
+		t24 = "h-full w-full flex flex-col bg-surface-1";
 		T0 = Tabs;
-		t17 = activeThreadId || void 0;
-		t18 = handleSelectThread;
-		t19 = "flex-1 flex flex-col min-h-0";
-		t15 = "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
-		let t23;
-		if ($[54] !== getProjectIcon || $[55] !== threads) {
-			let t24;
-			if ($[57] !== getProjectIcon) {
-				t24 = (thread_0) => {
+		t20 = activeThreadId || void 0;
+		t21 = handleSelectThread;
+		t22 = "flex-1 flex flex-col min-h-0";
+		t23 = "threads panel";
+		t18 = "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
+		let t27;
+		if ($[59] !== getProjectIcon || $[60] !== threads) {
+			let t28;
+			if ($[62] !== getProjectIcon) {
+				t28 = (thread_0) => {
 					const projIcon = getProjectIcon(thread_0.project_id);
 					const ProjectIconComp = (props_0) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
 						name: projIcon,
@@ -12878,47 +12938,47 @@ function AgentView() {
 						icon: ProjectIconComp
 					}, thread_0.id);
 				};
-				$[57] = getProjectIcon;
-				$[58] = t24;
-			} else t24 = $[58];
-			t23 = threads.map(t24);
-			$[54] = getProjectIcon;
-			$[55] = threads;
-			$[56] = t23;
-		} else t23 = $[56];
-		if ($[59] !== t23) {
-			t16 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
+				$[62] = getProjectIcon;
+				$[63] = t28;
+			} else t28 = $[63];
+			t27 = threads.map(t28);
+			$[59] = getProjectIcon;
+			$[60] = threads;
+			$[61] = t27;
+		} else t27 = $[61];
+		if ($[64] !== t27) {
+			t19 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
 				className: "bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
-				children: t23
+				children: t27
 			});
-			$[59] = t23;
-			$[60] = t16;
-		} else t16 = $[60];
-		t12 = "relative";
-		let t24;
-		let t25;
-		if ($[61] === Symbol.for("react.memo_cache_sentinel")) {
-			t24 = () => setIsDropdownOpen(_temp3);
-			t25 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
-			$[61] = t24;
-			$[62] = t25;
+			$[64] = t27;
+			$[65] = t19;
+		} else t19 = $[65];
+		t15 = "relative";
+		let t28;
+		let t29;
+		if ($[66] === Symbol.for("react.memo_cache_sentinel")) {
+			t28 = () => setIsDropdownOpen(_temp2);
+			t29 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
+			$[66] = t28;
+			$[67] = t29;
 		} else {
-			t24 = $[61];
-			t25 = $[62];
+			t28 = $[66];
+			t29 = $[67];
 		}
-		if ($[63] !== isDropdownOpen) {
-			t13 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+		if ($[68] !== isDropdownOpen) {
+			t16 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 				ref: buttonRef,
 				variant: "ghost",
 				size: "icon-sm",
 				active: isDropdownOpen,
-				onClick: t24,
-				children: t25
+				onClick: t28,
+				children: t29
 			});
-			$[63] = isDropdownOpen;
-			$[64] = t13;
-		} else t13 = $[64];
-		t14 = isDropdownOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			$[68] = isDropdownOpen;
+			$[69] = t16;
+		} else t16 = $[69];
+		t17 = isDropdownOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			ref: dropdownRef,
 			className: "absolute right-0 top-full mt-1.5 z-50 origin-top-right",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Dropdown, {
@@ -12954,157 +13014,200 @@ function AgentView() {
 				]
 			})
 		});
-		$[31] = activeProject?.id;
-		$[32] = activeThreadId;
-		$[33] = createThread;
-		$[34] = handleSelectThread;
-		$[35] = isDropdownOpen;
-		$[36] = loadActiveProject;
-		$[37] = projectsList;
-		$[38] = setActiveThreadId;
-		$[39] = threads;
-		$[40] = T0;
-		$[41] = t12;
-		$[42] = t13;
-		$[43] = t14;
-		$[44] = t15;
-		$[45] = t16;
-		$[46] = t17;
-		$[47] = t18;
-		$[48] = t19;
-		$[49] = t20;
+		$[35] = activeProject?.id;
+		$[36] = activeThreadId;
+		$[37] = createThread;
+		$[38] = handleSelectThread;
+		$[39] = isDropdownOpen;
+		$[40] = loadActiveProject;
+		$[41] = projectsList;
+		$[42] = setActiveThreadId;
+		$[43] = threads;
+		$[44] = T0;
+		$[45] = t15;
+		$[46] = t16;
+		$[47] = t17;
+		$[48] = t18;
+		$[49] = t19;
+		$[50] = t20;
+		$[51] = t21;
+		$[52] = t22;
+		$[53] = t23;
+		$[54] = t24;
 	} else {
-		T0 = $[40];
-		t12 = $[41];
-		t13 = $[42];
-		t14 = $[43];
-		t15 = $[44];
-		t16 = $[45];
-		t17 = $[46];
-		t18 = $[47];
-		t19 = $[48];
-		t20 = $[49];
+		T0 = $[44];
+		t15 = $[45];
+		t16 = $[46];
+		t17 = $[47];
+		t18 = $[48];
+		t19 = $[49];
+		t20 = $[50];
+		t21 = $[51];
+		t22 = $[52];
+		t23 = $[53];
+		t24 = $[54];
 	}
-	let t21;
-	if ($[65] !== t12 || $[66] !== t13 || $[67] !== t14) {
-		t21 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: t12,
-			children: [t13, t14]
-		});
-		$[65] = t12;
-		$[66] = t13;
-		$[67] = t14;
-		$[68] = t21;
-	} else t21 = $[68];
-	let t22;
-	if ($[69] !== t15 || $[70] !== t16 || $[71] !== t21) {
-		t22 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+	let t25;
+	if ($[70] !== t15 || $[71] !== t16 || $[72] !== t17) {
+		t25 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: t15,
-			children: [t16, t21]
+			children: [t16, t17]
 		});
-		$[69] = t15;
-		$[70] = t16;
-		$[71] = t21;
-		$[72] = t22;
-	} else t22 = $[72];
-	let t23;
-	if ($[73] !== activeProject?.id || $[74] !== activeProject?.name || $[75] !== activeThreadId || $[76] !== emptyStateInput || $[77] !== handleStartThread || $[78] !== loadActiveProject || $[79] !== projectsList || $[80] !== threads) {
-		t23 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "flex-1 overflow-hidden min-h-0 flex flex-col",
-			children: threads.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "flex-1 flex flex-col justify-between p-6",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "flex-1 flex flex-col items-center justify-center gap-6",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
-						className: "text-xl font-semibold tracking-tight text-foreground/60 flex items-center gap-2 flex-wrap justify-center select-none",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "What should we cook in" }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
-								value: activeProject?.id || "",
-								onValueChange: async (val) => {
-									if (window.omni?.projects?.setActive) {
-										await window.omni.projects.setActive(val);
-										await loadActiveProject();
-									}
-								},
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectTrigger, {
-									className: cn("min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none", "text-xl font-semibold text-foreground tracking-tight", "underline underline-offset-4 decoration-border/60 hover:decoration-[#6B97FF]/60", "[&>svg]:hidden"),
-									placeholder: "Select project"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectContent, { children: projectsList.map(_temp4) })]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "?" })
-						]
-					})
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "shrink-0 w-full max-w-2xl mx-auto pb-4",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputMessage, {
-						value: emptyStateInput,
-						onValueChange: setEmptyStateInput,
-						placeholder: "Ask me anything to start a thread...",
-						onSend: handleStartThread
-					})
-				})]
+		$[70] = t15;
+		$[71] = t16;
+		$[72] = t17;
+		$[73] = t25;
+	} else t25 = $[73];
+	let t26;
+	if ($[74] !== t18 || $[75] !== t19 || $[76] !== t25) {
+		t26 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: t18,
+			children: [t19, t25]
+		});
+		$[74] = t18;
+		$[75] = t19;
+		$[76] = t25;
+		$[77] = t26;
+	} else t26 = $[77];
+	let t27;
+	if ($[78] !== activeProject?.id || $[79] !== loadActiveProject || $[80] !== messages || $[81] !== projectsList) {
+		t27 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex-1 overflow-y-auto min-h-0",
+			children: messages.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-full flex flex-col items-center justify-center gap-6 p-6",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
+					className: "text-xl font-semibold tracking-tight text-foreground/60 flex items-center gap-2 flex-wrap justify-center select-none",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "What should we cook in" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
+							value: activeProject?.id || "",
+							onValueChange: async (val) => {
+								if (window.omni?.projects?.setActive) {
+									await window.omni.projects.setActive(val);
+									await loadActiveProject();
+								}
+							},
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectTrigger, {
+								className: cn("min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none", "text-xl font-semibold text-foreground tracking-tight", "underline underline-offset-4 decoration-border/60 hover:decoration-[#6B97FF]/60", "[&>svg]:hidden"),
+								placeholder: "Select project"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectContent, { children: projectsList.map(_temp3) })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "?" })
+					]
+				})
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "flex-1 overflow-hidden min-h-0",
-				children: threads.map((thread_2) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabPanel, {
-					value: thread_2.id,
-					className: "h-full w-full outline-none",
-					children: activeThreadId === thread_2.id && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThreadChatView, {
-						threadId: thread_2.id,
-						activeProjectName: activeProject?.name
-					})
-				}, thread_2.id))
+				className: "flex flex-col gap-3 p-4",
+				children: messages.map(_temp4)
 			})
 		});
-		$[73] = activeProject?.id;
-		$[74] = activeProject?.name;
-		$[75] = activeThreadId;
-		$[76] = emptyStateInput;
-		$[77] = handleStartThread;
-		$[78] = loadActiveProject;
-		$[79] = projectsList;
-		$[80] = threads;
-		$[81] = t23;
-	} else t23 = $[81];
-	let t24;
-	if ($[82] !== T0 || $[83] !== t17 || $[84] !== t18 || $[85] !== t19 || $[86] !== t22 || $[87] !== t23) {
-		t24 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(T0, {
-			value: t17,
-			onValueChange: t18,
-			className: t19,
-			children: [t22, t23]
+		$[78] = activeProject?.id;
+		$[79] = loadActiveProject;
+		$[80] = messages;
+		$[81] = projectsList;
+		$[82] = t27;
+	} else t27 = $[82];
+	const t28 = messages.length > 0 && "border-t border-border/60";
+	let t29;
+	if ($[83] !== t28) {
+		t29 = cn("p-3 shrink-0 bg-surface-1", t28);
+		$[83] = t28;
+		$[84] = t29;
+	} else t29 = $[84];
+	let t30;
+	if ($[85] !== ChevronDownIcon) {
+		t30 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+			variant: "ghost",
+			size: "sm",
+			trailingIcon: ChevronDownIcon,
+			children: "Sonnet 4.6"
 		});
-		$[82] = T0;
-		$[83] = t17;
-		$[84] = t18;
-		$[85] = t19;
-		$[86] = t22;
-		$[87] = t23;
-		$[88] = t24;
-	} else t24 = $[88];
-	let t25;
-	if ($[89] !== t20 || $[90] !== t24) {
-		t25 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
-			className: t20,
-			children: t24
+		$[85] = ChevronDownIcon;
+		$[86] = t30;
+	} else t30 = $[86];
+	let t31;
+	if ($[87] !== handleSend || $[88] !== inputValue || $[89] !== t30) {
+		t31 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "w-full max-w-2xl mx-auto",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputMessage, {
+				value: inputValue,
+				onValueChange: setInputValue,
+				placeholder: "Ask me anything to start a thread...",
+				rightSlot: t30,
+				onSend: handleSend
+			})
 		});
-		$[89] = t20;
-		$[90] = t24;
-		$[91] = t25;
-	} else t25 = $[91];
-	return t25;
+		$[87] = handleSend;
+		$[88] = inputValue;
+		$[89] = t30;
+		$[90] = t31;
+	} else t31 = $[90];
+	let t32;
+	if ($[91] !== t29 || $[92] !== t31) {
+		t32 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: t29,
+			children: t31
+		});
+		$[91] = t29;
+		$[92] = t31;
+		$[93] = t32;
+	} else t32 = $[93];
+	let t33;
+	if ($[94] !== t27 || $[95] !== t32) {
+		t33 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
+			children: [t27, t32]
+		});
+		$[94] = t27;
+		$[95] = t32;
+		$[96] = t33;
+	} else t33 = $[96];
+	let t34;
+	if ($[97] !== T0 || $[98] !== t20 || $[99] !== t21 || $[100] !== t22 || $[101] !== t23 || $[102] !== t26 || $[103] !== t33) {
+		t34 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(T0, {
+			value: t20,
+			onValueChange: t21,
+			className: t22,
+			"data-pipper-id": t23,
+			children: [t26, t33]
+		});
+		$[97] = T0;
+		$[98] = t20;
+		$[99] = t21;
+		$[100] = t22;
+		$[101] = t23;
+		$[102] = t26;
+		$[103] = t33;
+		$[104] = t34;
+	} else t34 = $[104];
+	let t35;
+	if ($[105] !== t24 || $[106] !== t34) {
+		t35 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+			className: t24,
+			children: t34
+		});
+		$[105] = t24;
+		$[106] = t34;
+		$[107] = t35;
+	} else t35 = $[107];
+	return t35;
 }
-function _temp4(project_0, idx_0) {
+function _temp4(msg) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatMessage, {
+		from: msg.role === "user" ? "user" : "assistant",
+		children: msg.content
+	}, msg.id);
+}
+function _temp3(project_0, idx_0) {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
 		value: project_0.id,
 		index: idx_0,
 		children: project_0.name
 	}, project_0.id);
 }
-function _temp3(prev) {
+function _temp2(prev) {
 	return !prev;
 }
-function _temp2(project, idx) {
+function _temp(project, idx) {
 	const ProjectIconWrapper = (props) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
 		name: project.icon,
 		className: props.className

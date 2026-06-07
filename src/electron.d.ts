@@ -15,7 +15,7 @@ declare global {
     omni: {
       launch: {
         complete: (projectId: string) => Promise<void>;
-        show: () => Promise<void>;
+        show: (stage?: "list" | "add") => Promise<void>;
       };
       projects: {
         list: () => Promise<Project[]>;

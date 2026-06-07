@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import { markLaunchComplete, readLaunchState } from "./launch-state";
 import { createProject, getProject, listProjects } from "./projects";
@@ -35,11 +35,19 @@ function resolveRendererFile(page: "main" | "launch"): string {
 }
 
 function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
+  console.log(`[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`);
   if (isDev) {
-    return win.loadURL(resolveRendererUrl(page, stage));
+    const url = resolveRendererUrl(page, stage);
+    console.log(`[Main] loadInto (dev) - loading url: ${url}`);
+    return win.loadURL(url);
   }
   const file = resolveRendererFile(page);
-  const fileUrl = stage ? `file://${file}?stage=${stage}` : `file://${file}`;
+  const urlObj = pathToFileURL(file);
+  if (stage) {
+    urlObj.searchParams.set("stage", stage);
+  }
+  const fileUrl = urlObj.toString();
+  console.log(`[Main] loadInto (prod) - loading file url: ${fileUrl}`);
   return win.loadURL(fileUrl);
 }
 
@@ -81,13 +89,16 @@ function createMainWindow(): void {
 }
 
 function createLaunchWindow(stage: "list" | "add" = "list"): void {
+  console.log(`[Main] createLaunchWindow - stage: ${stage}`);
   if (launchWindow && !launchWindow.isDestroyed()) {
+    console.log("[Main] launchWindow already exists, reusing and loading stage:", stage);
     void loadInto(launchWindow, "launch", stage);
     launchWindow.show();
     launchWindow.focus();
     return;
   }
 
+  console.log("[Main] Creating new launchWindow");
   launchWindow = new BrowserWindow({
     width: 720,
     height: 620,
@@ -105,8 +116,12 @@ function createLaunchWindow(stage: "list" | "add" = "list"): void {
     },
   });
 
-  launchWindow.on("ready-to-show", () => launchWindow?.show());
+  launchWindow.on("ready-to-show", () => {
+    console.log("[Main] launchWindow ready-to-show");
+    launchWindow?.show();
+  });
   launchWindow.on("closed", () => {
+    console.log("[Main] launchWindow closed");
     launchWindow = null;
   });
 
@@ -218,6 +233,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("launch:show", (_event, stage?: "list" | "add") => {
+    console.log("[Main] IPC launch:show - received stage:", stage);
     createLaunchWindow(stage);
   });
 

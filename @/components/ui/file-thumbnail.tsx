@@ -97,7 +97,7 @@ function FileThumbnail({ file, size, className }: FileThumbnailProps) {
       className={cn(
         "relative shrink-0 overflow-hidden bg-accent border border-border",
         shape.bg,
-        className,
+        className
       )}
       style={{ width: size, height: size }}
     >

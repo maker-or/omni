@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("omni", {
 	launch: {
 		complete: (projectId) => ipcRenderer.invoke("launch:complete", projectId),
-		show: () => ipcRenderer.invoke("launch:show")
+		show: (stage) => ipcRenderer.invoke("launch:show", stage)
 	},
 	projects: {
 		list: () => ipcRenderer.invoke("projects:list"),

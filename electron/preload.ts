@@ -13,7 +13,7 @@ const api = {
   launch: {
     complete: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("launch:complete", projectId),
-    show: (): Promise<void> => ipcRenderer.invoke("launch:show"),
+    show: (stage?: "list" | "add"): Promise<void> => ipcRenderer.invoke("launch:show", stage),
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke("projects:list"),

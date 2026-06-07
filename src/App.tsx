@@ -10,8 +10,15 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { Tabs, TabsList, TabItem, TabPanel } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useThreadStore } from "@/store/thread-store";
-import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { InputMessage } from "@/components/ui/input-message";
+import { useIcon } from "@/lib/icon-context";
+import { ChatMessage } from "@/components/ui/chat-message";
 
 export default function App() {
   const { activeProject, loadActiveProject, isLoading } = useProjectStore();
@@ -34,18 +41,25 @@ export default function App() {
       <header
         className="h-11 flex items-center justify-between pl-[80px] pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        data-pipper-id="header"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-pipper-id="Project Name">
           {activeProject && (
             <>
-              <ProjectIcon name={activeProject.icon} className="size-4 text-muted-foreground" />
+              <ProjectIcon
+                name={activeProject.icon}
+                className="size-4 text-muted-foreground"
+              />
               <span className="text-[13px] font-medium tracking-tight text-foreground">
                 {activeProject.name}
               </span>
             </>
           )}
         </div>
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          data-pipper-id="Theme Toggle"
+        >
           <ThemeToggle />
         </div>
       </header>
@@ -55,14 +69,23 @@ export default function App() {
         orientation="horizontal"
         defaultLayout={{ agent: 40, others: 60 }}
         className="flex-1 flex min-h-0"
+        data-pipper-id="workspace panel"
       >
-        <Panel id="agent" minSize="40%" className="overflow-hidden">
+        <Panel
+          data-pipper-id="agent panel"
+          minSize="40%"
+          className="overflow-hidden"
+        >
           <AgentView />
         </Panel>
         <Separator className="group relative w-px bg-border data-[separator-state=hover]:bg-foreground/20 data-[separator-state=drag]:bg-foreground/30 transition-colors">
           <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
         </Separator>
-        <Panel id="others" minSize="40%" className="overflow-hidden">
+        <Panel
+          data-pipper-id="others panel"
+          minSize="40%"
+          className="overflow-hidden"
+        >
           <OthersView />
         </Panel>
       </Group>
@@ -70,112 +93,22 @@ export default function App() {
   );
 }
 
-function ThreadChatView({
-  threadId,
-  activeProjectName,
-}: {
-  threadId: string;
-  activeProjectName?: string;
-}) {
-  const [messages, setMessages] = useState<any[]>([]);
-  const [inputValue, setInputValue] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    window.omni.messages.list(threadId).then((msgs) => {
-      if (!active) return;
-      setMessages(msgs);
-      if (msgs.length === 1 && msgs[0].role === "user") {
-        // Trigger agent response simulation if it's a new thread with just 1 user message
-        setTimeout(async () => {
-          const assistantMsg = await window.omni.messages.create({
-            thread_id: threadId,
-            role: "assistant",
-            content: `I received your message: "${msgs[0].content}". I am ready to help you with the project "${activeProjectName || "active project"}".`,
-          });
-          if (active) setMessages((current) => [...current, assistantMsg]);
-        }, 1000);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [threadId, activeProjectName]);
-
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim()) return;
-
-    const userMsg = await window.omni.messages.create({
-      thread_id: threadId,
-      role: "user",
-      content: text,
-    });
-    setMessages((current) => [...current, userMsg]);
-    setInputValue("");
-
-    setTimeout(async () => {
-      const assistantMsg = await window.omni.messages.create({
-        thread_id: threadId,
-        role: "assistant",
-        content: `I received your message: "${text}". I am ready to help you with the project "${activeProjectName || "active project"}".`,
-      });
-      setMessages((current) => [...current, assistantMsg]);
-    }, 1000);
-  };
-
-  return (
-    <div className="h-full flex flex-col min-h-0 bg-surface-1">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 min-h-0">
-        {messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground/60 p-4 select-none">
-            <Ghost size={24} className="mb-2" />
-            <span className="text-xs font-mono">
-              No messages yet. Send a message to start the conversation!
-            </span>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn(
-                "max-w-[80%] rounded-lg p-3 text-[13px] leading-relaxed shadow-sm font-sans border",
-                msg.role === "user"
-                  ? "self-end bg-accent text-foreground border-border/80"
-                  : "self-start bg-muted/40 text-foreground border-border/40",
-              )}
-            >
-              <div className="text-[10px] font-mono text-muted-foreground mb-1 select-none">
-                {msg.role === "user" ? "User" : "Agent"}
-              </div>
-              <div className="whitespace-pre-wrap">{msg.content}</div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Input Area */}
-      <div className="p-3 border-t border-border/60 shrink-0 bg-surface-1">
-        <InputMessage
-          value={inputValue}
-          onValueChange={setInputValue}
-          placeholder="Type a message to the agent..."
-          onSend={handleSendMessage}
-        />
-      </div>
-    </div>
-  );
-}
-
 function AgentView() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, activeThreadId, loadThreads, setActiveThreadId, createThread } =
-    useThreadStore();
+  const {
+    threads,
+    activeThreadId,
+    loadThreads,
+    setActiveThreadId,
+    createThread,
+  } = useThreadStore();
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [emptyStateInput, setEmptyStateInput] = useState("");
+  const [inputValue, setInputValue] = useState("");
+  const [messages, setMessages] = useState<any[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const ChevronDownIcon = useIcon("chevron-down");
 
   useEffect(() => {
     void loadThreads();
@@ -203,6 +136,22 @@ function AgentView() {
     }
   }, [activeThreadId, threads, activeProject, loadActiveProject]);
 
+  // Load messages for the active thread
+  useEffect(() => {
+    if (!activeThreadId) {
+      setMessages([]);
+      return;
+    }
+    let active = true;
+    window.omni.messages.list(activeThreadId).then((msgs) => {
+      if (!active) return;
+      setMessages(msgs);
+    });
+    return () => {
+      active = false;
+    };
+  }, [activeThreadId]);
+
   const handleSelectThread = async (threadId: string) => {
     setActiveThreadId(threadId);
     const selectedThread = threads.find((t) => t.id === threadId);
@@ -214,29 +163,54 @@ function AgentView() {
     }
   };
 
-  const handleStartThread = async (text: string) => {
+  const handleSend = async (text: string) => {
     if (!text.trim() || !activeProject) return;
 
-    const projName = activeProject.name;
-    const projectThreads = threads.filter((t) => t.project_id === activeProject.id);
-    const title = `${projName} #${projectThreads.length + 1}`;
+    let targetThreadId = activeThreadId;
 
-    if (createThread) {
-      const thread = await createThread(activeProject.id, title);
-      if (thread) {
-        setEmptyStateInput("");
-        await window.omni.messages.create({
-          thread_id: thread.id,
-          role: "user",
-          content: text.trim(),
-        });
-        setActiveThreadId(thread.id);
-        if (window.omni?.projects?.setActive) {
-          await window.omni.projects.setActive(activeProject.id);
-          await loadActiveProject();
+    if (!targetThreadId) {
+      const projName = activeProject.name;
+      const projectThreads = threads.filter(
+        (t) => t.project_id === activeProject.id,
+      );
+      const title = `${projName} #${projectThreads.length + 1}`;
+
+      if (createThread) {
+        const thread = await createThread(activeProject.id, title);
+        if (thread) {
+          targetThreadId = thread.id;
+          setActiveThreadId(thread.id);
         }
       }
     }
+
+    if (!targetThreadId) return;
+
+    const userMsg = await window.omni.messages.create({
+      thread_id: targetThreadId,
+      role: "user",
+      content: text.trim(),
+    });
+
+    if (targetThreadId === activeThreadId) {
+      setMessages((current) => [...current, userMsg]);
+    }
+
+    setInputValue("");
+
+    setTimeout(async () => {
+      const assistantMsg = await window.omni.messages.create({
+        thread_id: targetThreadId!,
+        role: "assistant",
+        content: `I received your message: "${text.trim()}". I am ready to help you with the project "${activeProject.name}".`,
+      });
+
+      // Get latest activeThreadId from store state to avoid stale closure
+      const currentActiveId = useThreadStore.getState().activeThreadId;
+      if (targetThreadId === currentActiveId) {
+        setMessages((current) => [...current, assistantMsg]);
+      }
+    }, 1000);
   };
 
   const handleAddProject = async () => {
@@ -289,6 +263,7 @@ function AgentView() {
         value={activeThreadId || undefined}
         onValueChange={handleSelectThread}
         className="flex-1 flex flex-col min-h-0"
+        data-pipper-id="threads panel"
       >
         {/* Tab Header bar - always shown */}
         <div className="h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1">
@@ -337,7 +312,9 @@ function AgentView() {
                       onSelect={async () => {
                         setIsDropdownOpen(false);
                         const projName = item.name;
-                        const projectThreads = threads.filter((t) => t.project_id === item.id);
+                        const projectThreads = threads.filter(
+                          (t) => t.project_id === item.id,
+                        );
                         const title = `${projName} #${projectThreads.length + 1}`;
                         if (createThread) {
                           const thread = await createThread(item.id, title);
@@ -366,11 +343,12 @@ function AgentView() {
         </div>
 
         {/* Tab contents / Empty state */}
-        <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-          {threads.length === 0 ? (
-            <div className="flex-1 flex flex-col justify-between p-6">
-              {/* Centered selector area */}
-              <div className="flex-1 flex flex-col items-center justify-center gap-6">
+        <div className="flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1">
+          {/* Centered Area: either chat messages or the select selector */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {messages.length === 0 ? (
+              /* Centered selector area */
+              <div className="h-full flex flex-col items-center justify-center gap-6 p-6">
                 <h2 className="text-xl font-semibold tracking-tight text-foreground/60 flex items-center gap-2 flex-wrap justify-center select-none">
                   <span>What should we cook in</span>
                   <Select
@@ -393,7 +371,11 @@ function AgentView() {
                     />
                     <SelectContent>
                       {projectsList.map((project, idx) => (
-                        <SelectItem key={project.id} value={project.id} index={idx}>
+                        <SelectItem
+                          key={project.id}
+                          value={project.id}
+                          index={idx}
+                        >
                           {project.name}
                         </SelectItem>
                       ))}
@@ -402,28 +384,46 @@ function AgentView() {
                   <span>?</span>
                 </h2>
               </div>
-
-              {/* Bottom message input field */}
-              <div className="shrink-0 w-full max-w-2xl mx-auto pb-4">
-                <InputMessage
-                  value={emptyStateInput}
-                  onValueChange={setEmptyStateInput}
-                  placeholder="Ask me anything to start a thread..."
-                  onSend={handleStartThread}
-                />
+            ) : (
+              /* Chat Messages */
+              <div className="flex flex-col gap-3 p-4">
+                {messages.map((msg) => (
+                  <ChatMessage
+                    key={msg.id}
+                    from={msg.role === "user" ? "user" : "assistant"}
+                  >
+                    {msg.content}
+                  </ChatMessage>
+                ))}
               </div>
+            )}
+          </div>
+
+          {/* Bottom message input field */}
+          <div
+            className={cn(
+              "p-3 shrink-0 bg-surface-1",
+              messages.length > 0 && "border-t border-border/60",
+            )}
+          >
+            <div className="w-full max-w-2xl mx-auto">
+              <InputMessage
+                value={inputValue}
+                onValueChange={setInputValue}
+                placeholder="Ask me anything to start a thread..."
+                rightSlot={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    trailingIcon={ChevronDownIcon}
+                  >
+                    Sonnet 4.6
+                  </Button>
+                }
+                onSend={handleSend}
+              />
             </div>
-          ) : (
-            <div className="flex-1 overflow-hidden min-h-0">
-              {threads.map((thread) => (
-                <TabPanel key={thread.id} value={thread.id} className="h-full w-full outline-none">
-                  {activeThreadId === thread.id && (
-                    <ThreadChatView threadId={thread.id} activeProjectName={activeProject?.name} />
-                  )}
-                </TabPanel>
-              ))}
-            </div>
-          )}
+          </div>
         </div>
       </Tabs>
     </section>
@@ -433,7 +433,9 @@ function AgentView() {
 function OthersView() {
   return (
     <section className="h-full w-full flex items-center justify-center">
-      <span className="text-muted-foreground text-sm font-mono">Others view</span>
+      <span className="text-muted-foreground text-sm font-mono">
+        Others view
+      </span>
     </section>
   );
 }
