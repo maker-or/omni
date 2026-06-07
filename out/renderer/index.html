@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>omni</title>
+    <script>
+      // Apply theme before render to avoid flash. Mirrors logic in src/lib/theme.tsx.
+      (function () {
+        try {
+          var stored = localStorage.getItem("omni:theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          if (theme === "dark") document.documentElement.classList.add("dark");
+        } catch (_) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/main-CmvGZvgY.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/font-weight-NT2n2nHd.js">
+    <link rel="stylesheet" crossorigin href="./assets/font-weight-Nmka69F4.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

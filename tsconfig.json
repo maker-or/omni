@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "compilerOptions": {
+    "types": ["bun-types"]
+  },
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.electron.json" }
+  ]
+}

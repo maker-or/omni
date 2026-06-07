@@ -1,0 +1,254 @@
+/* =============================================================================
+ * Imports
+ * ========================================================================== */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* =============================================================================
+ * Dark mode variant (class-based: toggle `.dark` on <html>)
+ * ========================================================================== */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =============================================================================
+ * Light mode tokens (default)
+ *
+ * Token taxonomy:
+ *   Surfaces (1-8) — backgrounds + shadows by elevation level
+ *   Roles         — semantic colors for text, borders, focus, states
+ *   Radius        — corner rounding scale
+ * ========================================================================== */
+:root {
+  color-scheme: light;
+
+  /* --- Role tokens (text, borders, states) ------------------------------ */
+  --foreground: oklch(0.145 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+
+  --muted: oklch(0.97 0 0);
+
+  --destructive: oklch(0.577 0.245 27.325);
+
+  --border: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+
+  /* --- Radius ----------------------------------------------------------- */
+  --radius: 0.625rem;
+
+  /* --- Surfaces (1 = lowest elevation, 8 = highest) --------------------- */
+  --surface-1: #fafafa;
+  --surface-2: #fcfcfc;
+  --surface-3: #ffffff;
+  --surface-4: #ffffff;
+  --surface-5: #ffffff;
+  --surface-6: #ffffff;
+  --surface-7: #ffffff;
+  --surface-8: #ffffff;
+
+  /* --- Shadow primitives ------------------------------------------------ */
+  --shadow-color: rgb(0 0 0 / 0.06);
+
+  /* --- Shadow recipes (stack of layered offsets per elevation) ---------- */
+  --shadow-1: 0 0 0 1px var(--shadow-color);
+  --shadow-2: 0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color);
+  --shadow-3:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color);
+  --shadow-4:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color);
+  --shadow-5:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color);
+  --shadow-6:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color);
+  --shadow-7:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
+    0 48px 48px -24px var(--shadow-color);
+  --shadow-8:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color), 0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color), 0 24px 24px -12px var(--shadow-color),
+    0 48px 48px -24px var(--shadow-color), 0 96px 96px -48px var(--shadow-color);
+}
+
+/* =============================================================================
+ * Dark mode token overrides
+ * ========================================================================== */
+.dark {
+  color-scheme: dark;
+
+  /* --- Role tokens ------------------------------------------------------ */
+  --foreground: oklch(0.985 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+
+  --muted: oklch(0.269 0 0);
+
+  --destructive: oklch(0.704 0.191 22.216);
+
+  --border: oklch(1 0 0 / 10%);
+  --ring: oklch(0.556 0 0);
+
+  /* --- Surfaces --------------------------------------------------------- */
+  --surface-1: #171717;
+  --surface-2: #1e1e1e;
+  --surface-3: #252525;
+  --surface-4: #2c2c2c;
+  --surface-5: #333333;
+  --surface-6: #3a3a3a;
+  --surface-7: #414141;
+  --surface-8: #484848;
+
+  /* --- Shadow primitives (inset highlights + ring tints + drop) --------- */
+  --dm-hi-base: rgb(255 255 255 / 0.01);
+  --dm-hi-mid: rgb(255 255 255 / 0.02);
+  --dm-hi-high: rgb(255 255 255 / 0.04);
+  --dm-hi-peak: rgb(255 255 255 / 0.06);
+
+  --dm-ring-base: rgb(255 255 255 / 0.02);
+  --dm-ring-mid: rgb(255 255 255 / 0.04);
+  --dm-ring-high: rgb(255 255 255 / 0.06);
+
+  --dm-drop: rgb(0 0 0 / 0.18);
+
+  /* --- Shadow recipes --------------------------------------------------- */
+  --shadow-1: inset 0 0 0 1px var(--dm-ring-base);
+  --shadow-2:
+    inset 0 1px 0 0 var(--dm-hi-base), inset 0 0 0 1px var(--dm-ring-base),
+    0 1px 1px -0.5px var(--dm-drop);
+  --shadow-3:
+    inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-base),
+    0 0 0 1px rgb(0 0 0 / 0.12), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop);
+  --shadow-4:
+    inset 0 1px 0 0 var(--dm-hi-mid), inset 0 0 0 1px var(--dm-ring-mid),
+    0 0 0 1px rgb(0 0 0 / 0.14), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
+    0 6px 6px -3px var(--dm-drop);
+  --shadow-5:
+    inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-mid),
+    0 0 0 1px rgb(0 0 0 / 0.16), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
+    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop);
+  --shadow-6:
+    inset 0 1px 0 0 var(--dm-hi-high), inset 0 0 0 1px var(--dm-ring-high),
+    0 0 0 1px rgb(0 0 0 / 0.18), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
+    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop), 0 24px 24px -12px var(--dm-drop);
+  --shadow-7:
+    inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
+    0 0 0 1px rgb(0 0 0 / 0.2), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
+    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop),
+    0 24px 24px -12px var(--dm-drop), 0 48px 48px -24px var(--dm-drop);
+  --shadow-8:
+    inset 0 1px 0 0 var(--dm-hi-peak), inset 0 0 0 1px var(--dm-ring-high),
+    0 0 0 1px rgb(0 0 0 / 0.22), 0 1px 1px -0.5px var(--dm-drop), 0 3px 3px -1.5px var(--dm-drop),
+    0 6px 6px -3px var(--dm-drop), 0 12px 12px -6px var(--dm-drop),
+    0 24px 24px -12px var(--dm-drop), 0 48px 48px -24px var(--dm-drop),
+    0 96px 96px -48px var(--dm-drop);
+}
+
+/* =============================================================================
+ * Theme — expose CSS vars as Tailwind utilities
+ * ========================================================================== */
+@theme inline {
+  /* --- Fonts ------------------------------------------------------------ */
+  --font-sans: "Inter Variable", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: "JetBrains Mono Variable", monospace;
+
+  /* --- Role colors ------------------------------------------------------ */
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-muted: var(--muted);
+
+  --color-destructive: var(--destructive);
+
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  /* --- Surfaces — bg-surface-N, text-surface-N, border-surface-N -------- */
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+  --color-surface-5: var(--surface-5);
+  --color-surface-6: var(--surface-6);
+  --color-surface-7: var(--surface-7);
+  --color-surface-8: var(--surface-8);
+
+  /* --- Surface shadows — shadow-surface-N ------------------------------- */
+  --shadow-surface-1: var(--shadow-1);
+  --shadow-surface-2: var(--shadow-2);
+  --shadow-surface-3: var(--shadow-3);
+  --shadow-surface-4: var(--shadow-4);
+  --shadow-surface-5: var(--shadow-5);
+  --shadow-surface-6: var(--shadow-6);
+  --shadow-surface-7: var(--shadow-7);
+  --shadow-surface-8: var(--shadow-8);
+
+  /* --- Radius scale ----------------------------------------------------- */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* --- Keyframes -------------------------------------------------------- */
+  @keyframes spinner-move {
+    to {
+      stroke-dashoffset: -100;
+    }
+  }
+  @keyframes spinner-dash {
+    0%,
+    100% {
+      stroke-dasharray: 15 85;
+    }
+    50% {
+      stroke-dasharray: 40 60;
+    }
+  }
+}
+
+/* =============================================================================
+ * Base layer
+ * ========================================================================== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+  }
+  body {
+    @apply bg-surface-1 text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}

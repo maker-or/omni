@@ -1,0 +1,19 @@
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "@/index.css";
+import { LaunchApp } from "@/launch/app";
+import { ShapeProvider } from "@/lib/shape-context";
+import { SurfaceProvider } from "@/lib/surface-context";
+import { ThemeProvider } from "@/lib/theme";
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <ThemeProvider>
+      <SurfaceProvider value={1}>
+        <ShapeProvider defaultShape="rounded">
+          <LaunchApp />
+        </ShapeProvider>
+      </SurfaceProvider>
+    </ThemeProvider>
+  </StrictMode>,
+);
