@@ -1,4 +1,4 @@
-import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-DuwbNIgG.js";
+import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-BfMdRrNR.js";
 //#region node_modules/react-resizable-panels/dist/react-resizable-panels.js
 var import_client = require_client();
 var import_compiler_runtime = require_compiler_runtime();
@@ -2450,7 +2450,7 @@ var e$32 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowElbowDownRight.es.js
-var a$21 = /* @__PURE__ */ new Map([
+var a$22 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224.49,184.49l-48,48a12,12,0,0,1-17-17L187,188H72a12,12,0,0,1-12-12V32a12,12,0,0,1,24,0V164H187l-27.52-27.51a12,12,0,1,1,17-17l48,48A12,12,0,0,1,224.49,184.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,176l-48,48V128Z",
@@ -2463,7 +2463,7 @@ var a$21 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowLeft.es.js
-var a$20 = /* @__PURE__ */ new Map([
+var a$21 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H69l51.52,51.51a12,12,0,0,1-17,17l-72-72a12,12,0,0,1,0-17l72-72a12,12,0,0,1,17,17L69,116H216A12,12,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M112,56V200L40,128Z",
@@ -2476,7 +2476,7 @@ var a$20 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowRight.es.js
-var a$19 = /* @__PURE__ */ new Map([
+var a$20 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224.49,136.49l-72,72a12,12,0,0,1-17-17L187,140H40a12,12,0,0,1,0-24H187L135.51,64.48a12,12,0,0,1,17-17l72,72A12,12,0,0,1,224.49,136.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,128l-72,72V56Z",
@@ -2489,7 +2489,7 @@ var a$19 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowUp.es.js
-var a$18 = /* @__PURE__ */ new Map([
+var a$19 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M200,112H56l72-72Z",
@@ -2567,7 +2567,7 @@ var t$6 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ChatCircle.es.js
-var a$17 = /* @__PURE__ */ new Map([
+var a$18 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,0,0,31.85,177.23L21,209.66A20,20,0,0,0,46.34,235l32.43-10.81A108,108,0,1,0,128,20Zm0,192a84,84,0,0,1-42.06-11.27,12,12,0,0,0-6-1.62,12.1,12.1,0,0,0-3.8.62l-29.79,9.93,9.93-29.79a12,12,0,0,0-1-9.81A84,84,0,1,1,128,212Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128A96,96,0,0,1,79.93,211.11h0L42.54,223.58a8,8,0,0,1-10.12-10.12l12.47-37.39h0A96,96,0,1,1,224,128Z",
@@ -2580,7 +2580,7 @@ var a$17 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Check.es.js
-var a$16 = /* @__PURE__ */ new Map([
+var a$17 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M232.49,80.49l-128,128a12,12,0,0,1-17,0l-56-56a12,12,0,1,1,17-17L96,183,215.51,63.51a12,12,0,0,1,17,17Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M232,56V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56Z",
@@ -2606,7 +2606,7 @@ var t$5 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Clock.es.js
-var a$15 = /* @__PURE__ */ new Map([
+var a$16 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm68-84a12,12,0,0,1-12,12H128a12,12,0,0,1-12-12V72a12,12,0,0,1,24,0v44h44A12,12,0,0,1,196,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128a96,96,0,1,1-96-96A96,96,0,0,1,224,128Z",
@@ -2645,7 +2645,7 @@ var t$4 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Envelope.es.js
-var a$14 = /* @__PURE__ */ new Map([
+var a$15 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224,44H32A12,12,0,0,0,20,56V192a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A12,12,0,0,0,224,44Zm-96,83.72L62.85,68h130.3ZM92.79,128,44,172.72V83.28Zm17.76,16.28,9.34,8.57a12,12,0,0,0,16.22,0l9.34-8.57L193.15,188H62.85ZM163.21,128,212,83.28v89.44Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56l-96,88L32,56Z",
@@ -2710,7 +2710,7 @@ var e$26 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Heart.es.js
-var a$13 = /* @__PURE__ */ new Map([
+var a$14 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M178,36c-20.09,0-37.92,7.93-50,21.56C115.92,43.93,98.09,36,78,36a66.08,66.08,0,0,0-66,66c0,72.34,105.81,130.14,110.31,132.57a12,12,0,0,0,11.38,0C138.19,232.14,244,174.34,244,102A66.08,66.08,0,0,0,178,36Zm-5.49,142.36A328.69,328.69,0,0,1,128,210.16a328.69,328.69,0,0,1-44.51-31.8C61.82,159.77,36,131.42,36,102A42,42,0,0,1,78,60c17.8,0,32.7,9.4,38.89,24.54a12,12,0,0,0,22.22,0C145.3,69.4,160.2,60,178,60a42,42,0,0,1,42,42C220,131.42,194.18,159.77,172.51,178.36Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M232,102c0,66-104,122-104,122S24,168,24,102A54,54,0,0,1,78,48c22.59,0,41.94,12.31,50,32,8.06-19.69,27.41-32,50-32A54,54,0,0,1,232,102Z",
@@ -2801,7 +2801,7 @@ var e$20 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/MagnifyingGlass.es.js
-var a$12 = /* @__PURE__ */ new Map([
+var a$13 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M232.49,215.51,185,168a92.12,92.12,0,1,0-17,17l47.53,47.54a12,12,0,0,0,17-17ZM44,112a68,68,0,1,1,68,68A68.07,68.07,0,0,1,44,112Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M192,112a80,80,0,1,1-80-80A80,80,0,0,1,192,112Z",
@@ -2827,7 +2827,7 @@ var e$19 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Moon.es.js
-var a$11 = /* @__PURE__ */ new Map([
+var a$12 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M236.37,139.4a12,12,0,0,0-12-3A84.07,84.07,0,0,1,119.6,31.59a12,12,0,0,0-15-15A108.86,108.86,0,0,0,49.69,55.07,108,108,0,0,0,136,228a107.09,107.09,0,0,0,64.93-21.69,108.86,108.86,0,0,0,38.44-54.94A12,12,0,0,0,236.37,139.4Zm-49.88,47.74A84,84,0,0,1,68.86,69.51,84.93,84.93,0,0,1,92.27,48.29Q92,52.13,92,56A108.12,108.12,0,0,0,200,164q3.87,0,7.71-.27A84.79,84.79,0,0,1,186.49,187.14Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M227.89,147.89A96,96,0,1,1,108.11,28.11,96.09,96.09,0,0,0,227.89,147.89Z",
@@ -2840,7 +2840,7 @@ var a$11 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/PaintBrush.es.js
-var a$10 = /* @__PURE__ */ new Map([
+var a$11 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M236,32a12,12,0,0,0-12-12c-44.78,0-90,48.54-115.9,82a64,64,0,0,0-80,62c0,12-3.1,22.71-9.23,31.76A43,43,0,0,1,9.4,206.05a11.88,11.88,0,0,0-4.91,13.38A12.07,12.07,0,0,0,16.11,228h76A64,64,0,0,0,154,148C187.49,122.05,236,76.8,236,32ZM209.62,46.39c-4,12.92-13.15,27.49-26.92,42.91-3,3.39-6.16,6.7-9.35,9.89a104.31,104.31,0,0,0-16.5-16.51c3.19-3.19,6.49-6.32,9.88-9.35C182.15,59.55,196.71,50.43,209.62,46.39ZM92.07,204H42a80.17,80.17,0,0,0,10.14-40,40,40,0,1,1,40,40Zm38.18-91.32c3.12-3.93,6.55-8.09,10.23-12.35a80.52,80.52,0,0,1,15.23,15.24c-4.26,3.68-8.42,7.11-12.35,10.23A64.43,64.43,0,0,0,130.25,112.68Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,32c0,32.81-31.64,67.43-58.64,91.05A84.39,84.39,0,0,0,133,90.64C156.57,63.64,191.19,32,224,32Z",
@@ -2879,7 +2879,7 @@ var e$17 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Pencil.es.js
-var a$9 = /* @__PURE__ */ new Map([
+var a$10 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM93,180l71-71,11,11-71,71ZM76,163,65,152l71-71,11,11ZM52,173l15.51,15.51h0L83,204H52ZM192,103,153,64l18.34-18.34,39,39Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M221.66,90.34,192,120,136,64l29.66-29.66a8,8,0,0,1,11.31,0L221.66,79A8,8,0,0,1,221.66,90.34Z",
@@ -2892,7 +2892,7 @@ var a$9 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Play.es.js
-var a$8 = /* @__PURE__ */ new Map([
+var a$9 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M234.49,111.07,90.41,22.94A20,20,0,0,0,60,39.87V216.13a20,20,0,0,0,30.41,16.93l144.08-88.13a19.82,19.82,0,0,0,0-33.86ZM84,208.85V47.15L216.16,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M228.23,134.69,84.15,222.81A8,8,0,0,1,72,216.12V39.88a8,8,0,0,1,12.15-6.69l144.08,88.12A7.82,7.82,0,0,1,228.23,134.69Z",
@@ -2905,7 +2905,7 @@ var a$8 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Plus.es.js
-var a$7 = /* @__PURE__ */ new Map([
+var a$8 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,56V200a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V56A16,16,0,0,1,56,40H200A16,16,0,0,1,216,56Z",
@@ -2918,7 +2918,7 @@ var a$7 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Rectangle.es.js
-var a$6 = /* @__PURE__ */ new Map([
+var a$7 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,36H40A20,20,0,0,0,20,56V200a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36Zm-4,160H44V60H212Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56V200a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V56a8,8,0,0,1,8-8H216A8,8,0,0,1,224,56Z",
@@ -2944,7 +2944,7 @@ var e$16 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Shield.es.js
-var a$5 = /* @__PURE__ */ new Map([
+var a$6 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208,36H48A20,20,0,0,0,28,56v56c0,54.29,26.32,87.22,48.4,105.29,23.71,19.39,47.44,26,48.44,26.29a12.1,12.1,0,0,0,6.32,0c1-.28,24.73-6.9,48.44-26.29,22.08-18.07,48.4-51,48.4-105.29V56A20,20,0,0,0,208,36Zm-4,76c0,35.71-13.09,64.69-38.91,86.15A126.28,126.28,0,0,1,128,219.38a126.14,126.14,0,0,1-37.09-21.23C65.09,176.69,52,147.71,52,112V60H204Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,56v56c0,96-88,120-88,120S40,208,40,112V56a8,8,0,0,1,8-8H208A8,8,0,0,1,216,56Z",
@@ -2957,7 +2957,7 @@ var a$5 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/SkipForward.es.js
-var a$4 = /* @__PURE__ */ new Map([
+var a$5 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M200,28a12,12,0,0,0-12,12v62l-113.45-71A20,20,0,0,0,44,47.88V208.12A20,20,0,0,0,74.55,225L188,154v62a12,12,0,0,0,24,0V40A12,12,0,0,0,200,28ZM68,200.73V55.27L184.3,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M196.3,134.65,68.19,214.77A8,8,0,0,1,56,208.12V47.88a8,8,0,0,1,12.19-6.65L196.3,121.35A7.83,7.83,0,0,1,196.3,134.65Z",
@@ -3006,6 +3006,19 @@ var e$14 = /* @__PURE__ */ new Map([
 	["light", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M122,40V16a6,6,0,0,1,12,0V40a6,6,0,0,1-12,0Zm68,88a62,62,0,1,1-62-62A62.07,62.07,0,0,1,190,128Zm-12,0a50,50,0,1,0-50,50A50.06,50.06,0,0,0,178,128ZM59.76,68.24a6,6,0,1,0,8.48-8.48l-16-16a6,6,0,0,0-8.48,8.48Zm0,119.52-16,16a6,6,0,1,0,8.48,8.48l16-16a6,6,0,1,0-8.48-8.48ZM192,70a6,6,0,0,0,4.24-1.76l16-16a6,6,0,0,0-8.48-8.48l-16,16A6,6,0,0,0,192,70Zm4.24,117.76a6,6,0,0,0-8.48,8.48l16,16a6,6,0,0,0,8.48-8.48ZM46,128a6,6,0,0,0-6-6H16a6,6,0,0,0,0,12H40A6,6,0,0,0,46,128Zm82,82a6,6,0,0,0-6,6v24a6,6,0,0,0,12,0V216A6,6,0,0,0,128,210Zm112-88H216a6,6,0,0,0,0,12h24a6,6,0,0,0,0-12Z" }))],
 	["regular", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z" }))],
 	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M124,40V16a4,4,0,0,1,8,0V40a4,4,0,0,1-8,0Zm64,88a60,60,0,1,1-60-60A60.07,60.07,0,0,1,188,128Zm-8,0a52,52,0,1,0-52,52A52.06,52.06,0,0,0,180,128ZM61.17,66.83a4,4,0,0,0,5.66-5.66l-16-16a4,4,0,0,0-5.66,5.66Zm0,122.34-16,16a4,4,0,0,0,5.66,5.66l16-16a4,4,0,0,0-5.66-5.66ZM192,68a4,4,0,0,0,2.83-1.17l16-16a4,4,0,1,0-5.66-5.66l-16,16A4,4,0,0,0,192,68Zm2.83,121.17a4,4,0,0,0-5.66,5.66l16,16a4,4,0,0,0,5.66-5.66ZM40,124H16a4,4,0,0,0,0,8H40a4,4,0,0,0,0-8Zm88,88a4,4,0,0,0-4,4v24a4,4,0,0,0,8,0V216A4,4,0,0,0,128,212Zm112-88H216a4,4,0,0,0,0,8h24a4,4,0,0,0,0-8Z" }))]
+]);
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/defs/Terminal.es.js
+var a$4 = /* @__PURE__ */ new Map([
+	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M120,137,48,201A12,12,0,1,1,32,183l61.91-55L32,73A12,12,0,1,1,48,55l72,64A12,12,0,0,1,120,137Zm96,43H120a12,12,0,0,0,0,24h96a12,12,0,0,0,0-24Z" }))],
+	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
+		d: "M216,80V192H40V64H200A16,16,0,0,1,216,80Z",
+		opacity: "0.2"
+	}), /* @__PURE__ */ import_react.createElement("path", { d: "M117.31,134l-72,64a8,8,0,1,1-10.63-12L100,128,34.69,70A8,8,0,1,1,45.32,58l72,64a8,8,0,0,1,0,12ZM216,184H120a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Z" }))],
+	["fill", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM77.66,173.66a8,8,0,0,1-11.32-11.32L100.69,128,66.34,93.66A8,8,0,0,1,77.66,82.34l40,40a8,8,0,0,1,0,11.32ZM192,176H128a8,8,0,0,1,0-16h64a8,8,0,0,1,0,16Z" }))],
+	["light", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,132.48l-72,64a6,6,0,0,1-8-9L103,128,36,68.49a6,6,0,0,1,8-9l72,64a6,6,0,0,1,0,9ZM216,186H120a6,6,0,0,0,0,12h96a6,6,0,0,0,0-12Z" }))],
+	["regular", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M117.31,134l-72,64a8,8,0,1,1-10.63-12L100,128,34.69,70A8,8,0,1,1,45.32,58l72,64a8,8,0,0,1,0,12ZM216,184H120a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Z" }))],
+	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,128a4,4,0,0,1-1.34,3l-72,64a4,4,0,1,1-5.32-6L106,128,37.34,67a4,4,0,0,1,5.32-6l72,64A4,4,0,0,1,116,128Zm100,60H120a4,4,0,0,0,0,8h96a4,4,0,0,0,0-8Z" }))]
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Tray.es.js
@@ -3073,7 +3086,7 @@ var i = r$10;
 var r$9 = import_react.forwardRef((t, w) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: w,
 	...t,
-	weights: a$21
+	weights: a$22
 }));
 r$9.displayName = "ArrowElbowDownRightIcon";
 var m$3 = r$9;
@@ -3082,7 +3095,7 @@ var m$3 = r$9;
 var r$8 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: a$20
+	weights: a$21
 }));
 r$8.displayName = "ArrowLeftIcon";
 var s$14 = r$8;
@@ -3091,7 +3104,7 @@ var s$14 = r$8;
 var r$7 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...t,
-	weights: a$19
+	weights: a$20
 }));
 r$7.displayName = "ArrowRightIcon";
 var s$13 = r$7;
@@ -3100,19 +3113,19 @@ var s$13 = r$7;
 var r$6 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: a$18
+	weights: a$19
 }));
 r$6.displayName = "ArrowUpIcon";
 var s$12 = r$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Bell.es.js
-var o$16 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$17 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
 	weights: e$31
 }));
-o$16.displayName = "BellIcon";
-var s$11 = o$16;
+o$17.displayName = "BellIcon";
+var s$11 = o$17;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Books.es.js
 var e$12 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3130,7 +3143,7 @@ var r$5 = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createE
 	weights: e$29
 }));
 r$5.displayName = "BrainIcon";
-var c$8 = r$5;
+var c$9 = r$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/CaretDown.es.js
 var e$11 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3151,40 +3164,40 @@ e$10.displayName = "CaretRightIcon";
 var s$9 = e$10;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/ChatCircle.es.js
-var o$15 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$16 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$17
+	weights: a$18
 }));
-o$15.displayName = "ChatCircleIcon";
-var s$8 = o$15;
+o$16.displayName = "ChatCircleIcon";
+var s$8 = o$16;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Check.es.js
-var o$14 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$15 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...c,
-	weights: a$16
+	weights: a$17
 }));
-o$14.displayName = "CheckIcon";
-var n$16 = o$14;
+o$15.displayName = "CheckIcon";
+var n$16 = o$15;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Circle.es.js
-var o$13 = import_react.forwardRef((r, c) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$14 = import_react.forwardRef((r, c) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: c,
 	...r,
 	weights: t$5
 }));
-o$13.displayName = "CircleIcon";
-var s$7 = o$13;
+o$14.displayName = "CircleIcon";
+var s$7 = o$14;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Clock.es.js
-var c$7 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var c$8 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: a$15
+	weights: a$16
 }));
-c$7.displayName = "ClockIcon";
-var n$15 = c$7;
+c$8.displayName = "ClockIcon";
+var n$15 = c$8;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Copy.es.js
 var e$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3202,25 +3215,25 @@ var t$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createE
 	weights: t$4
 }));
 t$3.displayName = "DotOutlineIcon";
-var c$6 = t$3;
+var c$7 = t$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Envelope.es.js
-var o$12 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$13 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$14
+	weights: a$15
 }));
-o$12.displayName = "EnvelopeIcon";
-var c$5 = o$12;
+o$13.displayName = "EnvelopeIcon";
+var c$6 = o$13;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Eyedropper.es.js
-var o$11 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$12 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: p,
 	...r,
 	weights: l$2
 }));
-o$11.displayName = "EyedropperIcon";
-var s$5 = o$11;
+o$12.displayName = "EyedropperIcon";
+var s$5 = o$12;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/FolderPlus.es.js
 var e$8 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3232,13 +3245,13 @@ e$8.displayName = "FolderPlusIcon";
 var m$2 = e$8;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Gear.es.js
-var o$10 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$11 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...r,
 	weights: l$1
 }));
-o$10.displayName = "GearIcon";
-var n$14 = o$10;
+o$11.displayName = "GearIcon";
+var n$14 = o$11;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Globe.es.js
 var e$7 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3250,13 +3263,13 @@ e$7.displayName = "GlobeIcon";
 var n$13 = e$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Heart.es.js
-var o$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$10 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$13
+	weights: a$14
 }));
-o$9.displayName = "HeartIcon";
-var n$12 = o$9;
+o$10.displayName = "HeartIcon";
+var n$12 = o$10;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/House.es.js
 var e$6 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3268,13 +3281,13 @@ e$6.displayName = "HouseIcon";
 var n$11 = e$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Image.es.js
-var o$8 = import_react.forwardRef((a, m) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$9 = import_react.forwardRef((a, m) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: m,
 	...a,
 	weights: e$24
 }));
-o$8.displayName = "ImageIcon";
-var I = o$8;
+o$9.displayName = "ImageIcon";
+var I = o$9;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Lightbulb.es.js
 var t$2 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3292,7 +3305,7 @@ var e$5 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createE
 	weights: e$22
 }));
 e$5.displayName = "LinkIcon";
-var c$4 = e$5;
+var c$5 = e$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/List.es.js
 var t$1 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3301,25 +3314,25 @@ var t$1 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createE
 	weights: e$21
 }));
 t$1.displayName = "ListIcon";
-var c$3 = t$1;
+var c$4 = t$1;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Lock.es.js
-var c$2 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var c$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
 	weights: e$20
 }));
-c$2.displayName = "LockIcon";
-var n$10 = c$2;
+c$3.displayName = "LockIcon";
+var n$10 = c$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/MagnifyingGlass.es.js
-var o$7 = import_react.forwardRef((s, n) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$8 = import_react.forwardRef((s, n) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: n,
 	...s,
-	weights: a$12
+	weights: a$13
 }));
-o$7.displayName = "MagnifyingGlassIcon";
-var f = o$7;
+o$8.displayName = "MagnifyingGlassIcon";
+var f = o$8;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Monitor.es.js
 var r$4 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3328,13 +3341,13 @@ var r$4 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createE
 	weights: e$19
 }));
 r$4.displayName = "MonitorIcon";
-var c$1 = r$4;
+var c$2 = r$4;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Moon.es.js
 var e$4 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$11
+	weights: a$12
 }));
 e$4.displayName = "MoonIcon";
 var s$3 = e$4;
@@ -3343,7 +3356,7 @@ var s$3 = e$4;
 var r$3 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...t,
-	weights: a$10
+	weights: a$11
 }));
 r$3.displayName = "PaintBrushIcon";
 var m$1 = r$3;
@@ -3358,28 +3371,28 @@ t.displayName = "PaletteIcon";
 var n$9 = t;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Pause.es.js
-var o$6 = import_react.forwardRef((a, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$7 = import_react.forwardRef((a, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...a,
 	weights: e$17
 }));
-o$6.displayName = "PauseIcon";
-var n$8 = o$6;
+o$7.displayName = "PauseIcon";
+var n$8 = o$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Pencil.es.js
-var o$5 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$6 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...c,
-	weights: a$9
+	weights: a$10
 }));
-o$5.displayName = "PencilIcon";
-var m = o$5;
+o$6.displayName = "PencilIcon";
+var m = o$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Play.es.js
 var a = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: a$8
+	weights: a$9
 }));
 a.displayName = "PlayIcon";
 var n$7 = a;
@@ -3388,19 +3401,19 @@ var n$7 = a;
 var e$3 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: s,
 	...r,
-	weights: a$7
+	weights: a$8
 }));
 e$3.displayName = "PlusIcon";
 var n$6 = e$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Rectangle.es.js
-var o$4 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$5 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...t,
-	weights: a$6
+	weights: a$7
 }));
-o$4.displayName = "RectangleIcon";
-var s$2 = o$4;
+o$5.displayName = "RectangleIcon";
+var s$2 = o$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Rocket.es.js
 var e$2 = import_react.forwardRef((t, c) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3412,31 +3425,31 @@ e$2.displayName = "RocketIcon";
 var n$5 = e$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Shield.es.js
-var o$3 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$4 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$5
+	weights: a$6
 }));
-o$3.displayName = "ShieldIcon";
-var s$1 = o$3;
+o$4.displayName = "ShieldIcon";
+var s$1 = o$4;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/SkipForward.es.js
 var r$2 = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...a,
-	weights: a$4
+	weights: a$5
 }));
 r$2.displayName = "SkipForwardIcon";
-var c = r$2;
+var c$1 = r$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Spinner.es.js
-var o$2 = import_react.forwardRef((r, n) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$3 = import_react.forwardRef((r, n) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: n,
 	...r,
 	weights: e$15
 }));
-o$2.displayName = "SpinnerIcon";
-var p = o$2;
+o$3.displayName = "SpinnerIcon";
+var p = o$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Star.es.js
 var r$1 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3455,6 +3468,15 @@ var e$1 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createE
 }));
 e$1.displayName = "SunIcon";
 var s = e$1;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Terminal.es.js
+var o$2 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: a,
+	...r,
+	weights: a$4
+}));
+o$2.displayName = "TerminalIcon";
+var c = o$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Tray.es.js
 var r = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -6786,36 +6808,39 @@ var TabsList = (0, import_react.forwardRef)(({ children, className, ...props }, 
 });
 TabsList.displayName = "TabsList";
 var TabItem = (0, import_react.forwardRef)((t0, ref) => {
-	const $ = (0, import_compiler_runtime.c)(45);
+	const $ = (0, import_compiler_runtime.c)(49);
 	let Icon;
 	let className;
 	let label;
+	let onClose;
 	let props;
 	let t1;
 	let value;
 	if ($[0] !== t0) {
-		({value, icon: Icon, label, _index: t1, className, ...props} = t0);
+		({value, icon: Icon, label, onClose, _index: t1, className, ...props} = t0);
 		$[0] = t0;
 		$[1] = Icon;
 		$[2] = className;
 		$[3] = label;
-		$[4] = props;
-		$[5] = t1;
-		$[6] = value;
+		$[4] = onClose;
+		$[5] = props;
+		$[6] = t1;
+		$[7] = value;
 	} else {
 		Icon = $[1];
 		className = $[2];
 		label = $[3];
-		props = $[4];
-		t1 = $[5];
-		value = $[6];
+		onClose = $[4];
+		props = $[5];
+		t1 = $[6];
+		value = $[7];
 	}
 	const _index = t1 === void 0 ? 0 : t1;
 	const internalRef = (0, import_react.useRef)(null);
 	const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
 	let t2;
 	let t3;
-	if ($[7] !== _index || $[8] !== registerTab || $[9] !== value) {
+	if ($[8] !== _index || $[9] !== registerTab || $[10] !== value) {
 		t2 = () => {
 			registerTab(_index, value, internalRef.current);
 			return () => registerTab(_index, value, null);
@@ -6825,126 +6850,154 @@ var TabItem = (0, import_react.forwardRef)((t0, ref) => {
 			value,
 			registerTab
 		];
-		$[7] = _index;
-		$[8] = registerTab;
-		$[9] = value;
-		$[10] = t2;
-		$[11] = t3;
+		$[8] = _index;
+		$[9] = registerTab;
+		$[10] = value;
+		$[11] = t2;
+		$[12] = t3;
 	} else {
-		t2 = $[10];
-		t3 = $[11];
+		t2 = $[11];
+		t3 = $[12];
 	}
 	(0, import_react.useEffect)(t2, t3);
 	const isSelected = selectedValue === value;
 	const isActive = hoveredIndex === _index || isSelected;
 	let t4;
-	if ($[12] !== _index || $[13] !== setOptimisticIdx) {
+	if ($[13] !== _index || $[14] !== setOptimisticIdx) {
 		t4 = () => setOptimisticIdx(_index);
-		$[12] = _index;
-		$[13] = setOptimisticIdx;
-		$[14] = t4;
-	} else t4 = $[14];
+		$[13] = _index;
+		$[14] = setOptimisticIdx;
+		$[15] = t4;
+	} else t4 = $[15];
 	let t5;
-	if ($[15] !== ref) {
+	if ($[16] !== ref) {
 		t5 = (node) => {
 			internalRef.current = node;
 			if (typeof ref === "function") ref(node);
 			else if (ref) ref.current = node;
 		};
-		$[15] = ref;
-		$[16] = t5;
-	} else t5 = $[16];
+		$[16] = ref;
+		$[17] = t5;
+	} else t5 = $[17];
 	let t6;
-	if ($[17] !== className) {
+	if ($[18] !== className) {
 		t6 = cn("relative z-10 flex items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none", className);
-		$[17] = className;
-		$[18] = t6;
-	} else t6 = $[18];
+		$[18] = className;
+		$[19] = t6;
+	} else t6 = $[19];
 	let t7;
-	if ($[19] !== Icon || $[20] !== isActive) {
+	if ($[20] !== Icon || $[21] !== isActive) {
 		t7 = Icon && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon, {
 			size: 16,
 			strokeWidth: isActive ? 2 : 1.5,
 			className: cn("transition-[color,stroke-width] duration-80", isActive ? "text-foreground" : "text-muted-foreground")
 		});
-		$[19] = Icon;
-		$[20] = isActive;
-		$[21] = t7;
-	} else t7 = $[21];
+		$[20] = Icon;
+		$[21] = isActive;
+		$[22] = t7;
+	} else t7 = $[22];
 	let t8;
-	if ($[22] === Symbol.for("react.memo_cache_sentinel")) {
+	if ($[23] === Symbol.for("react.memo_cache_sentinel")) {
 		t8 = { fontVariationSettings: fontWeights.semibold };
-		$[22] = t8;
-	} else t8 = $[22];
+		$[23] = t8;
+	} else t8 = $[23];
 	let t9;
-	if ($[23] !== label) {
+	if ($[24] !== label) {
 		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: "col-start-1 row-start-1 invisible",
 			style: t8,
 			"aria-hidden": "true",
 			children: label
 		});
-		$[23] = label;
-		$[24] = t9;
-	} else t9 = $[24];
+		$[24] = label;
+		$[25] = t9;
+	} else t9 = $[25];
 	const t10 = isActive ? "text-foreground" : "text-muted-foreground";
 	let t11;
-	if ($[25] !== t10) {
+	if ($[26] !== t10) {
 		t11 = cn("col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80", t10);
-		$[25] = t10;
-		$[26] = t11;
-	} else t11 = $[26];
+		$[26] = t10;
+		$[27] = t11;
+	} else t11 = $[27];
 	const t12 = isSelected ? fontWeights.semibold : fontWeights.normal;
 	let t13;
-	if ($[27] !== t12) {
+	if ($[28] !== t12) {
 		t13 = { fontVariationSettings: t12 };
-		$[27] = t12;
-		$[28] = t13;
-	} else t13 = $[28];
+		$[28] = t12;
+		$[29] = t13;
+	} else t13 = $[29];
 	let t14;
-	if ($[29] !== label || $[30] !== t11 || $[31] !== t13) {
+	if ($[30] !== label || $[31] !== t11 || $[32] !== t13) {
 		t14 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: t11,
 			style: t13,
 			children: label
 		});
-		$[29] = label;
-		$[30] = t11;
-		$[31] = t13;
-		$[32] = t14;
-	} else t14 = $[32];
+		$[30] = label;
+		$[31] = t11;
+		$[32] = t13;
+		$[33] = t14;
+	} else t14 = $[33];
 	let t15;
-	if ($[33] !== t14 || $[34] !== t9) {
+	if ($[34] !== t14 || $[35] !== t9) {
 		t15 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 			className: "inline-grid text-[13px] whitespace-nowrap",
 			children: [t9, t14]
 		});
-		$[33] = t14;
-		$[34] = t9;
-		$[35] = t15;
-	} else t15 = $[35];
+		$[34] = t14;
+		$[35] = t9;
+		$[36] = t15;
+	} else t15 = $[36];
 	let t16;
-	if ($[36] !== _index || $[37] !== props || $[38] !== t15 || $[39] !== t4 || $[40] !== t5 || $[41] !== t6 || $[42] !== t7 || $[43] !== value) {
-		t16 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TabsTab, {
+	if ($[37] !== onClose) {
+		t16 = onClose && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			role: "button",
+			tabIndex: 0,
+			onClick: (e) => {
+				e.stopPropagation();
+				onClose();
+			},
+			onKeyDown: (e_0) => {
+				if (e_0.key === "Enter" || e_0.key === " ") {
+					e_0.stopPropagation();
+					e_0.preventDefault();
+					onClose();
+				}
+			},
+			className: "relative z-20 ml-1 p-0.5 rounded-full hover:bg-neutral-200/50 dark:hover:bg-neutral-800/50 text-muted-foreground hover:text-foreground transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center",
+			title: "Close Tab",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n, { size: 12 })
+		});
+		$[37] = onClose;
+		$[38] = t16;
+	} else t16 = $[38];
+	let t17;
+	if ($[39] !== _index || $[40] !== props || $[41] !== t15 || $[42] !== t16 || $[43] !== t4 || $[44] !== t5 || $[45] !== t6 || $[46] !== t7 || $[47] !== value) {
+		t17 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TabsTab, {
 			onClick: t4,
 			ref: t5,
 			value,
 			"data-proximity-index": _index,
 			className: t6,
 			...props,
-			children: [t7, t15]
+			children: [
+				t7,
+				t15,
+				t16
+			]
 		});
-		$[36] = _index;
-		$[37] = props;
-		$[38] = t15;
-		$[39] = t4;
-		$[40] = t5;
-		$[41] = t6;
-		$[42] = t7;
-		$[43] = value;
-		$[44] = t16;
-	} else t16 = $[44];
-	return t16;
+		$[39] = _index;
+		$[40] = props;
+		$[41] = t15;
+		$[42] = t16;
+		$[43] = t4;
+		$[44] = t5;
+		$[45] = t6;
+		$[46] = t7;
+		$[47] = value;
+		$[48] = t17;
+	} else t17 = $[48];
+	return t17;
 });
 TabItem.displayName = "TabItem";
 var TabPanel = (0, import_react.forwardRef)((t0, ref) => {
@@ -8889,9 +8942,9 @@ var iconMap = {
 		pipette: phosphor(s$5),
 		x: phosphor(n),
 		copy: phosphor(s$6),
-		menu: phosphor(c$3),
-		dot: phosphor(c$6),
-		monitor: phosphor(c$1),
+		menu: phosphor(c$4),
+		dot: phosphor(c$7),
+		monitor: phosphor(c$2),
 		sun: phosphor(s),
 		moon: phosphor(s$3),
 		"rectangle-horizontal": phosphor(s$2),
@@ -8908,7 +8961,7 @@ var iconMap = {
 		loader: phosphor(p),
 		users: phosphor(n$1),
 		lock: phosphor(n$10),
-		mail: phosphor(c$5),
+		mail: phosphor(c$6),
 		bell: phosphor(s$11),
 		shield: phosphor(s$1),
 		palette: phosphor(n$9),
@@ -8916,11 +8969,11 @@ var iconMap = {
 		rocket: phosphor(n$5),
 		heart: phosphor(n$12),
 		paintbrush: phosphor(m$1),
-		brain: phosphor(c$8),
+		brain: phosphor(c$9),
 		globe: phosphor(n$13),
 		user: phosphor(n$2),
 		image: phosphor(I),
-		link: phosphor(c$4),
+		link: phosphor(c$5),
 		check: phosphor(n$16),
 		"rotate-ccw": phosphor(i),
 		play: phosphor(n$7),
@@ -8929,7 +8982,7 @@ var iconMap = {
 		"message-circle": phosphor(s$8),
 		inbox: phosphor(n$3),
 		pencil: phosphor(m),
-		"skip-forward": phosphor(c),
+		"skip-forward": phosphor(c$1),
 		"corner-down-right": phosphor(m$3)
 	},
 	hugeicons: {
@@ -9058,7 +9111,7 @@ var __vitePreload = function preload(baseModule, deps, importerUrl) {
 //#region @/components/ui/file-thumbnail.tsx
 var pdfjsPromise = null;
 async function loadPdfjs() {
-	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-DZU_2ySb.js").then((mod) => {
+	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-DhGARAPr.js").then((mod) => {
 		if (!mod.GlobalWorkerOptions.workerSrc) mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${mod.version}/build/pdf.worker.min.mjs`;
 		return mod;
 	}), [], import.meta.url);
@@ -12550,6 +12603,1728 @@ var ChatMessage = (0, import_react.forwardRef)((t0, ref) => {
 });
 ChatMessage.displayName = "ChatMessage";
 //#endregion
+//#region src/store/terminal-store.ts
+var useTerminalStore = create((set, get) => ({
+	sessions: [],
+	activeSessionId: null,
+	createSession: (cwd) => {
+		const id = crypto.randomUUID();
+		const newSession = {
+			id,
+			title: `Terminal ${get().sessions.length + 1}`,
+			cwd
+		};
+		set({
+			sessions: [...get().sessions, newSession],
+			activeSessionId: id
+		});
+	},
+	closeSession: (id) => {
+		if (window.omni?.terminal?.kill) window.omni.terminal.kill(id);
+		const { sessions, activeSessionId } = get();
+		const filteredSessions = sessions.filter((s) => s.id !== id);
+		let nextActiveId = activeSessionId;
+		if (activeSessionId === id) nextActiveId = filteredSessions.length > 0 ? filteredSessions[filteredSessions.length - 1].id : null;
+		set({
+			sessions: filteredSessions,
+			activeSessionId: nextActiveId
+		});
+	},
+	setActiveSessionId: (id) => {
+		set({ activeSessionId: id });
+	}
+}));
+//#endregion
+//#region node_modules/@wterm/core/dist/wasm-inline.js
+var WASM_BASE64 = "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CyAAQQFxDQEQpoCAgAAMAgsPCxClgICAAAsgAUECaiEBDAALC+sBAQJ/I4CAgIAAQRBrIgIkgICAgABBACEDIAJBADoACyACIAE6AAkgAiAAOgAIIAJCADcDACACQQAtAMSAwIAAIgE6AAogAUEEIAFBBEkbQQF0IQECQANAIAEgA0YNASACIANqIANBoIDAgABqLwEAOwEAIANBAmohAwwACwtBAC0A2ozwgABBDGwiA0H8hvCAAGogAkEIaigCADYCACADIAIpAwA3AvSG8IAAQQBBACgC5ITAgABBAWoiA0F/IAMbNgLkhMCAAEEAQQAtANqM8IAAQQFqQR9xOgDajPCAACACQRBqJICAgIAAC3gBAn8CQCAAQf//A3EiAkEALwHqhPCAAE8NACACQYAYbEHohMCAAGohAEEAIQMCQANAIANBAC8B6ITwgABPDQEgACABKQIANwIAIABBCGogAUEIaigCADYCACAAQQxqIQAgA0EBaiEDDAALCyACQQE6AOyE8IAACwujAQEBfwJAIABB//8DcSIEQQAvAeqE8IAATw0AQQAgAkH//wNxIgBBAC8B6ITwgAAiAiAAIAJJGyIAIAFB//8DcSIBayICIAIgAEsbIQIgBEGAGGwgAUEMbGpB6ITAgABqIQACQANAIAJFDQEgACADKQIANwIAIABBCGogA0EIaigCADYCACAAQQxqIQAgAkF/aiECDAALCyAEQQE6AOyE8IAACwvhAQEEfwJAIAJB//8DcUUNACABQf//A3EgAEH//wNxTQ0AIAEgAGsiBCACQf//A3EiAiAEQf//A3EiBCACIARJGyIFa0H//wNxIQZBACECA0ACQCAGIAJHDQAgBSAAakH//wNxIQIDQCAAQf//A3EgAk8NAyAAIAMQnYCAgAAgAEEBaiEADAALCyABIAJBf3NqIgdB//8DcSEEAkBBgBhFDQAgBEGAGGxB6ITAgABqIAcgBWtB//8DcUGAGGxB6ITAgABqQYAY/AoAAAsgBEEBOgDshPCAACACQQFqIQIMAAsLC9gBAQN/AkAgAkH//wNxRQ0AIAFB//8DcSAAQf//A3FNDQAgAkH//wNxIgIgASAAa0H//wNxIgQgAiAESRsiBEGAGGxB6ITAgABqIQUgAUH//wNxIQYgAEH//wNxIgBBgBhsIQIDQAJAIAQgAGogBkkN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";
+//#endregion
+//#region node_modules/@wterm/core/dist/wasm-bridge.js
+function decodeBase64(base64) {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes.buffer;
+}
+var WasmBridge = class WasmBridge {
+	constructor(instance) {
+		this.gridPtr = 0;
+		this.dirtyPtr = 0;
+		this.writeBufferPtr = 0;
+		this.cellSize = 12;
+		this.maxCols = 256;
+		this.encoder = new TextEncoder();
+		this.decoder = new TextDecoder();
+		this.exports = instance.exports;
+		this.memory = this.exports.memory;
+	}
+	static async load(url) {
+		let bytes;
+		if (url) {
+			const response = await fetch(url);
+			if (!response.ok) throw new Error(`[wterm] Failed to load WASM from ${url}: ${response.status} ${response.statusText}`);
+			bytes = await response.arrayBuffer();
+		} else bytes = decodeBase64(WASM_BASE64);
+		const { instance } = await WebAssembly.instantiate(bytes);
+		return new WasmBridge(instance);
+	}
+	init(cols, rows) {
+		this.exports.init(cols, rows);
+		this._updatePointers();
+	}
+	_updatePointers() {
+		this.gridPtr = this.exports.getGridPtr();
+		this.dirtyPtr = this.exports.getDirtyPtr();
+		this.writeBufferPtr = this.exports.getWriteBuffer();
+		this.cellSize = this.exports.getCellSize();
+		this.maxCols = this.exports.getMaxCols();
+		this._dv = new DataView(this.memory.buffer);
+	}
+	writeString(str) {
+		const encoded = this.encoder.encode(str);
+		this.writeRaw(encoded);
+	}
+	writeRaw(data) {
+		const buf = new Uint8Array(this.memory.buffer, this.writeBufferPtr, 8192);
+		let offset = 0;
+		while (offset < data.length) {
+			const chunk = Math.min(data.length - offset, 8192);
+			buf.set(data.subarray(offset, offset + chunk));
+			this.exports.writeBytes(chunk);
+			offset += chunk;
+		}
+	}
+	getCell(row, col) {
+		const offset = this.gridPtr + (row * this.maxCols + col) * this.cellSize;
+		const dv = this._dv;
+		return {
+			char: dv.getUint32(offset, true),
+			fg: dv.getUint16(offset + 4, true),
+			bg: dv.getUint16(offset + 6, true),
+			flags: dv.getUint8(offset + 8)
+		};
+	}
+	isDirtyRow(row) {
+		return new Uint8Array(this.memory.buffer, this.dirtyPtr, 256)[row] !== 0;
+	}
+	clearDirty() {
+		this.exports.clearDirty();
+	}
+	getCursor() {
+		return {
+			row: this.exports.getCursorRow(),
+			col: this.exports.getCursorCol(),
+			visible: this.exports.getCursorVisible() !== 0
+		};
+	}
+	getCols() {
+		return this.exports.getCols();
+	}
+	getRows() {
+		return this.exports.getRows();
+	}
+	cursorKeysApp() {
+		return this.exports.getCursorKeysApp() !== 0;
+	}
+	bracketedPaste() {
+		return this.exports.getBracketedPaste() !== 0;
+	}
+	usingAltScreen() {
+		return this.exports.getUsingAltScreen() !== 0;
+	}
+	getTitle() {
+		if (this.exports.getTitleChanged() === 0) return null;
+		const ptr = this.exports.getTitlePtr();
+		const len = this.exports.getTitleLen();
+		const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+		return this.decoder.decode(bytes);
+	}
+	getResponse() {
+		const len = this.exports.getResponseLen();
+		if (len === 0) return null;
+		const ptr = this.exports.getResponsePtr();
+		const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+		const str = this.decoder.decode(bytes);
+		this.exports.clearResponse();
+		return str;
+	}
+	getScrollbackCount() {
+		return this.exports.getScrollbackCount();
+	}
+	getScrollbackCell(offset, col) {
+		const off = this.exports.getScrollbackLine(offset) + col * this.cellSize;
+		const dv = this._dv;
+		return {
+			char: dv.getUint32(off, true),
+			fg: dv.getUint16(off + 4, true),
+			bg: dv.getUint16(off + 6, true),
+			flags: dv.getUint8(off + 8)
+		};
+	}
+	getScrollbackLineLen(offset) {
+		return this.exports.getScrollbackLineLen(offset);
+	}
+	getUnhandledSequences() {
+		const count = this.exports.getDebugLogCount();
+		if (count === 0) return [];
+		const ptr = this.exports.getDebugLogPtr();
+		const entrySize = this.exports.getDebugLogEntrySize();
+		const maxEntries = this.exports.getDebugLogMax();
+		const total = Math.min(count, maxEntries);
+		const dv = new DataView(this.memory.buffer);
+		const entries = [];
+		const startIdx = count >= maxEntries ? count % maxEntries : 0;
+		for (let i = 0; i < total; i++) {
+			const off = ptr + (startIdx + i) % maxEntries * entrySize;
+			const finalByte = dv.getUint8(off);
+			if (finalByte === 0) continue;
+			const privateByte = dv.getUint8(off + 1);
+			const paramCount = dv.getUint8(off + 2);
+			const params = [];
+			for (let p = 0; p < Math.min(paramCount, 4); p++) params.push(dv.getUint16(off + 4 + p * 2, true));
+			entries.push({
+				final: String.fromCharCode(finalByte),
+				private: privateByte ? String.fromCharCode(privateByte) : "",
+				paramCount,
+				params
+			});
+		}
+		return entries;
+	}
+	resize(cols, rows) {
+		this.exports.resizeTerminal(cols, rows);
+		this._updatePointers();
+	}
+};
+//#endregion
+//#region node_modules/@wterm/dom/dist/renderer.js
+var DEFAULT_COLOR$1 = 256;
+var FLAG_BOLD = 1;
+var FLAG_DIM = 2;
+var FLAG_ITALIC = 4;
+var FLAG_UNDERLINE = 8;
+var FLAG_REVERSE = 32;
+var FLAG_INVISIBLE = 64;
+var FLAG_STRIKETHROUGH = 128;
+function rgbToCSS(packed) {
+	return `rgb(${packed >> 16 & 255},${packed >> 8 & 255},${packed & 255})`;
+}
+function colorToCSS(index) {
+	if (index === DEFAULT_COLOR$1) return null;
+	if (index < 16) return `var(--term-color-${index})`;
+	if (index < 232) {
+		const n = index - 16;
+		return `rgb(${Math.floor(n / 36) * 51},${Math.floor(n / 6) % 6 * 51},${n % 6 * 51})`;
+	}
+	const level = (index - 232) * 10 + 8;
+	return `rgb(${level},${level},${level})`;
+}
+function cellFgCSS(fg, fgRgb) {
+	if (fgRgb !== void 0) return rgbToCSS(fgRgb);
+	return colorToCSS(fg);
+}
+function cellBgCSS(bg, bgRgb) {
+	if (bgRgb !== void 0) return rgbToCSS(bgRgb);
+	return colorToCSS(bg);
+}
+function buildCellStyle(fg, bg, flags, fgRgb, bgRgb) {
+	let fgIdx = fg, bgIdx = bg, fgR = fgRgb, bgR = bgRgb;
+	if (flags & FLAG_REVERSE) {
+		const tmpIdx = fgIdx;
+		fgIdx = bgIdx;
+		bgIdx = tmpIdx;
+		const tmpR = fgR;
+		fgR = bgR;
+		bgR = tmpR;
+		if (fgR === void 0 && fgIdx === DEFAULT_COLOR$1) fgIdx = 0;
+		if (bgR === void 0 && bgIdx === DEFAULT_COLOR$1) bgIdx = 7;
+	}
+	const fgCSS = cellFgCSS(fgIdx, fgR);
+	const bgCSS = cellBgCSS(bgIdx, bgR);
+	let style = "";
+	if (fgCSS) style += `color:${fgCSS};`;
+	if (bgCSS) style += `background:${bgCSS};`;
+	if (flags & FLAG_BOLD) style += "font-weight:bold;";
+	if (flags & FLAG_DIM) style += "opacity:0.5;";
+	if (flags & FLAG_ITALIC) style += "font-style:italic;";
+	const decorations = [];
+	if (flags & FLAG_UNDERLINE) decorations.push("underline");
+	if (flags & FLAG_STRIKETHROUGH) decorations.push("line-through");
+	if (decorations.length) style += `text-decoration:${decorations.join(" ")};`;
+	if (flags & FLAG_INVISIBLE) style += "visibility:hidden;";
+	return style;
+}
+function escapeHTML(text) {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function resolveColors(fg, bg, flags, fgRgb, bgRgb) {
+	let fgIdx = fg, bgIdx = bg, fgR = fgRgb, bgR = bgRgb;
+	if (flags & FLAG_REVERSE) {
+		[fgIdx, bgIdx] = [bgIdx, fgIdx];
+		[fgR, bgR] = [bgR, fgR];
+		if (fgR === void 0 && fgIdx === DEFAULT_COLOR$1) fgIdx = 0;
+		if (bgR === void 0 && bgIdx === DEFAULT_COLOR$1) bgIdx = 7;
+	}
+	return {
+		fg: cellFgCSS(fgIdx, fgR) || "var(--term-fg)",
+		bg: cellBgCSS(bgIdx, bgR) || "var(--term-bg)"
+	};
+}
+function getBlockBackground(cp, fg, bg) {
+	switch (cp) {
+		case 9600: return `linear-gradient(${fg} 50%,${bg} 50%)`;
+		case 9601: return `linear-gradient(${bg} 87.5%,${fg} 87.5%)`;
+		case 9602: return `linear-gradient(${bg} 75%,${fg} 75%)`;
+		case 9603: return `linear-gradient(${bg} 62.5%,${fg} 62.5%)`;
+		case 9604: return `linear-gradient(${bg} 50%,${fg} 50%)`;
+		case 9605: return `linear-gradient(${bg} 37.5%,${fg} 37.5%)`;
+		case 9606: return `linear-gradient(${bg} 25%,${fg} 25%)`;
+		case 9607: return `linear-gradient(${bg} 12.5%,${fg} 12.5%)`;
+		case 9608: return fg;
+		case 9609: return `linear-gradient(to right,${fg} 87.5%,${bg} 87.5%)`;
+		case 9610: return `linear-gradient(to right,${fg} 75%,${bg} 75%)`;
+		case 9611: return `linear-gradient(to right,${fg} 62.5%,${bg} 62.5%)`;
+		case 9612: return `linear-gradient(to right,${fg} 50%,${bg} 50%)`;
+		case 9613: return `linear-gradient(to right,${fg} 37.5%,${bg} 37.5%)`;
+		case 9614: return `linear-gradient(to right,${fg} 25%,${bg} 25%)`;
+		case 9615: return `linear-gradient(to right,${fg} 12.5%,${bg} 12.5%)`;
+		case 9616: return `linear-gradient(to right,${bg} 50%,${fg} 50%)`;
+		case 9617: return `color-mix(in srgb,${fg} 25%,${bg})`;
+		case 9618: return `color-mix(in srgb,${fg} 50%,${bg})`;
+		case 9619: return `color-mix(in srgb,${fg} 75%,${bg})`;
+		case 9620: return `linear-gradient(${fg} 12.5%,${bg} 12.5%)`;
+		case 9621: return `linear-gradient(to right,${bg} 87.5%,${fg} 87.5%)`;
+		default: {
+			const q = {
+				9622: [
+					false,
+					false,
+					true,
+					false
+				],
+				9623: [
+					false,
+					false,
+					false,
+					true
+				],
+				9624: [
+					true,
+					false,
+					false,
+					false
+				],
+				9625: [
+					true,
+					false,
+					true,
+					true
+				],
+				9626: [
+					true,
+					false,
+					false,
+					true
+				],
+				9627: [
+					true,
+					true,
+					true,
+					false
+				],
+				9628: [
+					true,
+					true,
+					false,
+					true
+				],
+				9629: [
+					false,
+					true,
+					false,
+					false
+				],
+				9630: [
+					false,
+					true,
+					true,
+					false
+				],
+				9631: [
+					false,
+					true,
+					true,
+					true
+				]
+			}[cp];
+			if (!q) return fg;
+			const [tl, tr, bl, br] = q;
+			if (tl && tr && bl && br) return fg;
+			const layers = [];
+			const POS = [
+				"0 0",
+				"100% 0",
+				"0 100%",
+				"100% 100%"
+			];
+			q.forEach((filled, i) => {
+				if (filled) layers.push(`linear-gradient(${fg},${fg}) ${POS[i]}/50% 50% no-repeat`);
+			});
+			layers.push(bg);
+			return layers.join(",");
+		}
+	}
+}
+var Renderer = class {
+	constructor(container) {
+		this.rows = 0;
+		this.cols = 0;
+		this.rowEls = [];
+		this.prevCursorRow = -1;
+		this.prevCursorCol = -1;
+		this.prevContainerBg = "";
+		this.prevRowBg = [];
+		this._scrollbackRowEls = [];
+		this._renderedScrollbackCount = 0;
+		this.container = container;
+	}
+	setup(cols, rows) {
+		this.cols = cols;
+		this.rows = rows;
+		this.container.innerHTML = "";
+		this.rowEls = [];
+		this.prevRowBg = [];
+		this._scrollbackRowEls = [];
+		this._renderedScrollbackCount = 0;
+		const fragment = document.createDocumentFragment();
+		for (let r = 0; r < rows; r++) {
+			const rowEl = document.createElement("div");
+			rowEl.className = "term-row";
+			fragment.appendChild(rowEl);
+			this.rowEls.push(rowEl);
+		}
+		this.container.appendChild(fragment);
+		this.prevCursorRow = -1;
+		this.prevCursorCol = -1;
+	}
+	_buildRowContent(rowEl, getCell, lineLen, cursorCol, rowIndex) {
+		let html = "";
+		let runStyle = "";
+		let runText = "";
+		let runStart = 0;
+		const flushRun = (endCol) => {
+			if (!runText) return;
+			const escaped = escapeHTML(runText);
+			if (cursorCol >= runStart && cursorCol < endCol) {
+				const offset = cursorCol - runStart;
+				const chars = [...runText];
+				const before = chars.slice(0, offset).join("");
+				const cursorChar = chars[offset] || " ";
+				const after = chars.slice(offset + 1).join("");
+				if (before) html += runStyle ? `<span style="${runStyle}">${escapeHTML(before)}</span>` : `<span>${escapeHTML(before)}</span>`;
+				html += runStyle ? `<span class="term-cursor" style="${runStyle}">${escapeHTML(cursorChar)}</span>` : `<span class="term-cursor">${escapeHTML(cursorChar)}</span>`;
+				if (after) html += runStyle ? `<span style="${runStyle}">${escapeHTML(after)}</span>` : `<span>${escapeHTML(after)}</span>`;
+			} else html += runStyle ? `<span style="${runStyle}">${escaped}</span>` : `<span>${escaped}</span>`;
+		};
+		for (let col = 0; col < this.cols; col++) {
+			const cell = getCell(col);
+			const inBounds = col < lineLen;
+			const cp = inBounds ? cell.char : 0;
+			if (inBounds && cp >= 9600 && cp <= 9631) {
+				flushRun(col);
+				const colors = resolveColors(cell.fg, cell.bg, cell.flags, cell.fgRgb, cell.bgRgb);
+				const cls = col === cursorCol ? "term-block term-cursor" : "term-block";
+				const bg = getBlockBackground(cp, colors.fg, colors.bg);
+				const dim = cell.flags & FLAG_DIM ? "opacity:0.5;" : "";
+				html += `<span class="${cls}" style="background:${bg};${dim}"></span>`;
+				runStyle = "";
+				runText = "";
+				runStart = col + 1;
+			} else {
+				const ch = inBounds && cp >= 32 ? String.fromCodePoint(cp) : " ";
+				const style = inBounds ? buildCellStyle(cell.fg, cell.bg, cell.flags, cell.fgRgb, cell.bgRgb) : "";
+				if (style !== runStyle) {
+					flushRun(col);
+					runStyle = style;
+					runText = ch;
+					runStart = col;
+				} else runText += ch;
+			}
+		}
+		flushRun(this.cols);
+		rowEl.innerHTML = html;
+		let bgCss = "";
+		if (lineLen >= this.cols && this.cols > 0) {
+			const lastCell = getCell(this.cols - 1);
+			let bgIdx = lastCell.bg;
+			let bgR = lastCell.bgRgb;
+			if (lastCell.flags & FLAG_REVERSE) {
+				bgIdx = lastCell.fg;
+				bgR = lastCell.fgRgb;
+				if (bgR === void 0 && bgIdx === DEFAULT_COLOR$1) bgIdx = 7;
+			}
+			bgCss = cellBgCSS(bgIdx, bgR) || "";
+		}
+		const boxShadow = bgCss ? `0 1px 0 ${bgCss}` : "";
+		if (rowIndex >= 0) {
+			if (bgCss !== (this.prevRowBg[rowIndex] ?? "")) {
+				rowEl.style.background = bgCss;
+				rowEl.style.boxShadow = boxShadow;
+				this.prevRowBg[rowIndex] = bgCss;
+			}
+		} else {
+			rowEl.style.background = bgCss;
+			rowEl.style.boxShadow = boxShadow;
+		}
+	}
+	_buildScrollbackRowEl(core, sbOffset) {
+		const rowEl = document.createElement("div");
+		rowEl.className = "term-row term-scrollback-row";
+		const lineLen = core.getScrollbackLineLen(sbOffset);
+		this._buildRowContent(rowEl, (col) => core.getScrollbackCell(sbOffset, col), lineLen, -1, -1);
+		return rowEl;
+	}
+	syncScrollback(core) {
+		const scrollbackCount = core.getScrollbackCount();
+		if (scrollbackCount === this._renderedScrollbackCount) return;
+		if (scrollbackCount > this._renderedScrollbackCount) {
+			const newCount = scrollbackCount - this._renderedScrollbackCount;
+			const firstGridRow = this.rowEls[0] ?? null;
+			const fragment = document.createDocumentFragment();
+			for (let i = newCount - 1; i >= 0; i--) {
+				const rowEl = this._buildScrollbackRowEl(core, i);
+				fragment.appendChild(rowEl);
+				this._scrollbackRowEls.push(rowEl);
+			}
+			this.container.insertBefore(fragment, firstGridRow);
+		} else {
+			const removeCount = this._renderedScrollbackCount - scrollbackCount;
+			for (let i = 0; i < removeCount; i++) {
+				const el = this._scrollbackRowEls.shift();
+				if (el) el.remove();
+			}
+		}
+		this._renderedScrollbackCount = scrollbackCount;
+	}
+	render(core) {
+		const rows = core.getRows();
+		const cols = core.getCols();
+		let resized = false;
+		if (rows !== this.rows || cols !== this.cols) {
+			this.setup(cols, rows);
+			resized = true;
+		}
+		this.syncScrollback(core);
+		const cursor = core.getCursor();
+		const cursorVisible = cursor.visible;
+		const needsCursorUpdate = cursor.row !== this.prevCursorRow || cursor.col !== this.prevCursorCol;
+		for (let r = 0; r < this.rows; r++) {
+			const isDirty = resized || core.isDirtyRow(r);
+			const hadCursor = r === this.prevCursorRow && needsCursorUpdate;
+			const hasCursor = r === cursor.row;
+			if (isDirty || hadCursor || hasCursor && needsCursorUpdate) {
+				const cCol = hasCursor && cursorVisible ? cursor.col : -1;
+				this._buildRowContent(this.rowEls[r], (col) => core.getCell(r, col), this.cols, cCol, r);
+			}
+		}
+		this.prevCursorRow = cursor.row;
+		this.prevCursorCol = cursor.col;
+		if (resized || core.isDirtyRow(this.rows - 1)) {
+			const bottomRight = core.getCell(this.rows - 1, this.cols - 1);
+			let gridBgIdx = bottomRight.bg;
+			let gridBgRgb = bottomRight.bgRgb;
+			if (bottomRight.flags & FLAG_REVERSE) {
+				gridBgIdx = bottomRight.fg;
+				gridBgRgb = bottomRight.fgRgb;
+				if (gridBgRgb === void 0 && gridBgIdx === DEFAULT_COLOR$1) gridBgIdx = 7;
+			}
+			const containerBg = cellBgCSS(gridBgIdx, gridBgRgb) || "";
+			if (containerBg !== this.prevContainerBg) {
+				this.container.style.background = containerBg;
+				this.prevContainerBg = containerBg;
+			}
+		}
+		core.clearDirty();
+	}
+};
+//#endregion
+//#region node_modules/@wterm/dom/dist/input.js
+var NORMAL_KEYS = {
+	ArrowUp: "\x1B[A",
+	ArrowDown: "\x1B[B",
+	ArrowRight: "\x1B[C",
+	ArrowLeft: "\x1B[D",
+	Home: "\x1B[H",
+	End: "\x1B[F"
+};
+var APP_KEYS = {
+	ArrowUp: "\x1BOA",
+	ArrowDown: "\x1BOB",
+	ArrowRight: "\x1BOC",
+	ArrowLeft: "\x1BOD",
+	Home: "\x1BOH",
+	End: "\x1BOF"
+};
+var FIXED_KEYS = {
+	Enter: "\r",
+	Backspace: "",
+	Tab: "	",
+	Escape: "\x1B",
+	Insert: "\x1B[2~",
+	Delete: "\x1B[3~",
+	PageUp: "\x1B[5~",
+	PageDown: "\x1B[6~",
+	F1: "\x1BOP",
+	F2: "\x1BOQ",
+	F3: "\x1BOR",
+	F4: "\x1BOS",
+	F5: "\x1B[15~",
+	F6: "\x1B[17~",
+	F7: "\x1B[18~",
+	F8: "\x1B[19~",
+	F9: "\x1B[20~",
+	F10: "\x1B[21~",
+	F11: "\x1B[23~",
+	F12: "\x1B[24~"
+};
+var InputHandler = class {
+	constructor(element, onData, getBridge) {
+		this.composing = false;
+		this.element = element;
+		this.onData = onData;
+		this.getBridge = getBridge;
+		this.textarea = document.createElement("textarea");
+		this.textarea.setAttribute("autocapitalize", "off");
+		this.textarea.setAttribute("autocomplete", "off");
+		this.textarea.setAttribute("autocorrect", "off");
+		this.textarea.setAttribute("spellcheck", "false");
+		this.textarea.setAttribute("enterkeyhint", "send");
+		this.textarea.setAttribute("tabindex", "0");
+		this.textarea.setAttribute("aria-hidden", "true");
+		const s = this.textarea.style;
+		s.position = "absolute";
+		s.left = "-9999px";
+		s.top = "0";
+		s.width = "1px";
+		s.height = "1px";
+		s.opacity = "0";
+		s.overflow = "hidden";
+		s.border = "0";
+		s.padding = "0";
+		s.margin = "0";
+		s.outline = "none";
+		s.resize = "none";
+		s.pointerEvents = "none";
+		s.caretColor = "transparent";
+		s.color = "transparent";
+		s.background = "transparent";
+		element.appendChild(this.textarea);
+		this._onKeyDown = this.handleKeyDown.bind(this);
+		this._onPaste = this.handlePaste.bind(this);
+		this._onCompositionStart = this.handleCompositionStart.bind(this);
+		this._onCompositionEnd = this.handleCompositionEnd.bind(this);
+		this._onInput = this.handleInput.bind(this);
+		this._onFocus = () => this.element.classList.add("focused");
+		this._onBlur = () => this.element.classList.remove("focused");
+		this.textarea.addEventListener("keydown", this._onKeyDown);
+		this.textarea.addEventListener("paste", this._onPaste);
+		this.textarea.addEventListener("compositionstart", this._onCompositionStart);
+		this.textarea.addEventListener("compositionend", this._onCompositionEnd);
+		this.textarea.addEventListener("input", this._onInput);
+		this.textarea.addEventListener("focus", this._onFocus);
+		this.textarea.addEventListener("blur", this._onBlur);
+	}
+	focus() {
+		this.textarea.focus({ preventScroll: true });
+	}
+	destroy() {
+		this.textarea.removeEventListener("keydown", this._onKeyDown);
+		this.textarea.removeEventListener("paste", this._onPaste);
+		this.textarea.removeEventListener("compositionstart", this._onCompositionStart);
+		this.textarea.removeEventListener("compositionend", this._onCompositionEnd);
+		this.textarea.removeEventListener("input", this._onInput);
+		this.textarea.removeEventListener("focus", this._onFocus);
+		this.textarea.removeEventListener("blur", this._onBlur);
+		this.element.classList.remove("focused");
+		this.textarea.remove();
+	}
+	handleKeyDown(e) {
+		if (this.composing) return;
+		if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+			const sel = window.getSelection();
+			if (sel && sel.toString().length > 0) return;
+		}
+		if ((e.metaKey || e.ctrlKey) && e.key === "v") {
+			this.textarea.focus();
+			return;
+		}
+		if (e.metaKey && !e.ctrlKey) {
+			if (e.key === "Backspace") {
+				e.preventDefault();
+				this.onData("");
+			} else if (e.key === "a") {
+				e.preventDefault();
+				const sel = window.getSelection();
+				if (sel) {
+					const range = document.createRange();
+					range.selectNodeContents(this.element);
+					sel.removeAllRanges();
+					sel.addRange(range);
+				}
+			}
+			return;
+		}
+		e.preventDefault();
+		const seq = this.keyToSequence(e);
+		if (seq) this.onData(seq);
+	}
+	handlePaste(e) {
+		e.preventDefault();
+		const text = e.clipboardData?.getData("text");
+		if (!text) return;
+		const bridge = this.getBridge();
+		if (bridge && bridge.bracketedPaste()) {
+			const safe = text.replace(/\x1b/g, "");
+			this.onData("\x1B[200~" + safe + "\x1B[201~");
+		} else this.onData(text);
+	}
+	handleCompositionStart() {
+		this.composing = true;
+	}
+	handleCompositionEnd(e) {
+		this.composing = false;
+		if (e.data) this.onData(e.data);
+		this.textarea.value = "";
+	}
+	handleInput() {
+		if (this.composing) return;
+		const value = this.textarea.value;
+		if (value) {
+			this.onData(value);
+			this.textarea.value = "";
+		}
+	}
+	keyToSequence(e) {
+		if (e.ctrlKey && !e.altKey && !e.metaKey) {
+			if (e.key.length === 1) {
+				const code = e.key.toLowerCase().charCodeAt(0);
+				if (code >= 97 && code <= 122) return String.fromCharCode(code - 96);
+			}
+			if (e.key === "[") return "\x1B";
+			if (e.key === "\\") return "";
+			if (e.key === "]") return "";
+			if (e.key === "^") return "";
+			if (e.key === "_") return "";
+		}
+		if (e.key === "Enter" && e.shiftKey) return "\x1B[13;2u";
+		if (e.key === "Tab" && e.shiftKey) return "\x1B[Z";
+		const fixed = FIXED_KEYS[e.key];
+		if (fixed) return e.altKey ? "\x1B" + fixed : fixed;
+		const bridge = this.getBridge();
+		const nav = (bridge && bridge.cursorKeysApp() ? APP_KEYS : NORMAL_KEYS)[e.key];
+		if (nav) return e.altKey ? "\x1B" + nav : nav;
+		if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) return e.altKey ? "\x1B" + e.key : e.key;
+		return null;
+	}
+};
+//#endregion
+//#region node_modules/@wterm/dom/dist/debug.js
+var FLAG_NAMES = {
+	1: "bold",
+	2: "dim",
+	4: "italic",
+	8: "underline",
+	16: "blink",
+	32: "reverse",
+	64: "invisible",
+	128: "strikethrough"
+};
+function flagsToNames(flags) {
+	const names = [];
+	for (const [bit, name] of Object.entries(FLAG_NAMES)) if (flags & Number(bit)) names.push(name);
+	return names;
+}
+var ESC = 27;
+function scanSequences(data) {
+	const entries = [];
+	const ts = Date.now();
+	let i = 0;
+	let textStart = 0;
+	const flushText = () => {
+		if (i > textStart) {
+			const raw = data.slice(textStart, i);
+			if (raw.length > 0 && !/^[\x00-\x1f]+$/.test(raw)) entries.push({
+				ts,
+				type: "text",
+				raw: raw.slice(0, 60)
+			});
+		}
+	};
+	while (i < data.length) {
+		if (data.charCodeAt(i) !== ESC) {
+			i++;
+			continue;
+		}
+		flushText();
+		const seqStart = i;
+		i++;
+		if (i >= data.length) break;
+		const next = data[i];
+		if (next === "[") {
+			i++;
+			let priv = "";
+			if (i < data.length && (data[i] === "?" || data[i] === ">" || data[i] === "!")) {
+				priv = data[i];
+				i++;
+			}
+			let paramStr = "";
+			while (i < data.length && (data.charCodeAt(i) >= 48 && data.charCodeAt(i) <= 59 || data[i] === ":")) {
+				paramStr += data[i];
+				i++;
+			}
+			while (i < data.length && data.charCodeAt(i) >= 32 && data.charCodeAt(i) <= 47) i++;
+			let final = "";
+			if (i < data.length && data.charCodeAt(i) >= 64 && data.charCodeAt(i) <= 126) {
+				final = data[i];
+				i++;
+			}
+			const raw = data.slice(seqStart, i);
+			const params = paramStr ? paramStr.split(/[;:]/).map(Number).filter((n) => !isNaN(n)) : [];
+			const type = final === "m" ? "sgr" : "csi";
+			entries.push({
+				ts,
+				type,
+				raw,
+				params: params.length > 0 ? params : void 0,
+				private: priv || void 0,
+				final
+			});
+		} else if (next === "]") {
+			i++;
+			while (i < data.length && data.charCodeAt(i) !== 7 && !(data.charCodeAt(i) === ESC && i + 1 < data.length && data[i + 1] === "\\")) i++;
+			if (i < data.length) {
+				if (data.charCodeAt(i) === 7) i++;
+				else if (data.charCodeAt(i) === ESC) i += 2;
+			}
+			const raw = data.slice(seqStart, i);
+			entries.push({
+				ts,
+				type: "osc",
+				raw: raw.slice(0, 80)
+			});
+		} else if (next >= " " && next <= "~") {
+			i++;
+			entries.push({
+				ts,
+				type: "esc",
+				raw: data.slice(seqStart, i),
+				final: next
+			});
+		} else i++;
+		textStart = i;
+	}
+	flushText();
+	return entries;
+}
+var MAX_TRACES = 500;
+var DebugAdapter = class {
+	constructor() {
+		this._traces = [];
+		this._bridge = null;
+		this._perf = {
+			frameCount: 0,
+			totalRenderMs: 0,
+			avgRenderMs: 0,
+			maxRenderMs: 0,
+			lastDirtyRows: 0
+		};
+	}
+	get traces() {
+		return this._traces;
+	}
+	get perf() {
+		return this._perf;
+	}
+	setBridge(bridge) {
+		this._bridge = bridge;
+	}
+	traceWrite(data) {
+		const entries = scanSequences(typeof data === "string" ? data : new TextDecoder().decode(data));
+		for (const entry of entries) this._traces.push(entry);
+		if (this._traces.length > MAX_TRACES) this._traces = this._traces.slice(-500);
+	}
+	recordRender(renderMs, dirtyRows) {
+		this._perf.frameCount++;
+		this._perf.totalRenderMs += renderMs;
+		this._perf.avgRenderMs = this._perf.totalRenderMs / this._perf.frameCount;
+		if (renderMs > this._perf.maxRenderMs) this._perf.maxRenderMs = renderMs;
+		this._perf.lastDirtyRows = dirtyRows;
+	}
+	resetPerf() {
+		this._perf = {
+			frameCount: 0,
+			totalRenderMs: 0,
+			avgRenderMs: 0,
+			maxRenderMs: 0,
+			lastDirtyRows: 0
+		};
+	}
+	cell(row, col) {
+		if (!this._bridge) return null;
+		const c = this._bridge.getCell(row, col);
+		return {
+			...c,
+			charStr: c.char >= 32 ? String.fromCodePoint(c.char) : "",
+			flagNames: flagsToNames(c.flags)
+		};
+	}
+	row(row) {
+		if (!this._bridge) return null;
+		const cols = this._bridge.getCols();
+		const cells = [];
+		for (let c = 0; c < cols; c++) cells.push(this.cell(row, c));
+		return cells;
+	}
+	grid() {
+		if (!this._bridge) return null;
+		const cursor = this._bridge.getCursor();
+		return {
+			rows: this._bridge.getRows(),
+			cols: this._bridge.getCols(),
+			cursor,
+			altScreen: this._bridge.usingAltScreen(),
+			scrollbackCount: this._bridge.getScrollbackCount()
+		};
+	}
+	unhandled() {
+		if (!this._bridge) return [];
+		return this._bridge.getUnhandledSequences();
+	}
+	dump(count = 50) {
+		const entries = this._traces.slice(-count);
+		console.group(`%cwterm debug — last ${entries.length} traces`, "color: #569cd6; font-weight: bold");
+		for (const e of entries) {
+			const badge = e.type === "sgr" ? "%cSGR" : e.type === "csi" ? "%cCSI" : e.type === "osc" ? "%cOSC" : e.type === "esc" ? "%cESC" : "%cTXT";
+			const color = e.type === "sgr" ? "background:#2d5a27;color:#fff;padding:1px 4px;border-radius:2px" : e.type === "csi" ? "background:#1e4a7a;color:#fff;padding:1px 4px;border-radius:2px" : "background:#555;color:#fff;padding:1px 4px;border-radius:2px";
+			const detail = [
+				e.private ? `private=${e.private}` : "",
+				e.params ? `params=[${e.params}]` : "",
+				e.final ? `final=${e.final}` : ""
+			].filter(Boolean).join(" ");
+			console.log(`${badge} ${e.raw.slice(0, 40)}`, color, detail ? `  ${detail}` : "");
+		}
+		console.groupEnd();
+	}
+	dumpUnhandled() {
+		const entries = this.unhandled();
+		if (entries.length === 0) {
+			console.log("%cwterm debug — no unhandled sequences", "color: #6a9955");
+			return;
+		}
+		console.group(`%cwterm debug — ${entries.length} unhandled sequences`, "color: #d7ba7d; font-weight: bold");
+		for (const e of entries) console.log(`  final=${e.final} private=${e.private || "-"} params=[${e.params.slice(0, e.paramCount)}]`);
+		console.groupEnd();
+	}
+};
+//#endregion
+//#region node_modules/@wterm/dom/dist/wterm.js
+var WTerm = class {
+	constructor(element, options = {}) {
+		this.bridge = null;
+		this.debug = null;
+		this.renderer = null;
+		this.input = null;
+		this.rafId = null;
+		this._renderTimer = null;
+		this.resizeObserver = null;
+		this._destroyed = false;
+		this._shouldScrollToBottom = false;
+		this._rowHeight = 0;
+		this.element = element;
+		this._coreOption = options.core;
+		this.wasmUrl = options.wasmUrl;
+		this.cols = options.cols || 80;
+		this.rows = options.rows || 24;
+		this.autoResize = options.autoResize !== false;
+		this._debugEnabled = options.debug ?? false;
+		this.onData = options.onData || null;
+		this.onTitle = options.onTitle || null;
+		this.onResize = options.onResize || null;
+		this._container = document.createElement("div");
+		this._container.className = "term-grid";
+		this.element.appendChild(this._container);
+		this.element.classList.add("wterm");
+		if (options.cursorBlink) this.element.classList.add("cursor-blink");
+		this._onClickFocus = () => {
+			const sel = window.getSelection();
+			if (!sel || sel.isCollapsed) this.input?.focus();
+		};
+		this.element.addEventListener("click", this._onClickFocus);
+	}
+	async init() {
+		try {
+			if (this._coreOption) this.bridge = this._coreOption;
+			else this.bridge = await WasmBridge.load(this.wasmUrl);
+			if (this._destroyed) return this;
+			this.bridge.init(this.cols, this.rows);
+			if (this._debugEnabled) {
+				this.debug = new DebugAdapter();
+				this.debug.setBridge(this.bridge);
+				globalThis.__wterm = this;
+			}
+			this._setRowHeight();
+			this.renderer = new Renderer(this._container);
+			this.renderer.setup(this.cols, this.rows);
+			this.input = new InputHandler(this.element, (data) => {
+				this._scrollToBottom();
+				if (this.onData) this.onData(data);
+				else this.write(data);
+			}, () => this.bridge);
+			if (this.autoResize) this._setupResizeObserver();
+			else this._lockHeight();
+			this.input.focus();
+			this._initialRender();
+		} catch (err) {
+			this.destroy();
+			throw new Error(`wterm: failed to initialize: ${err instanceof Error ? err.message : err}`);
+		}
+		return this;
+	}
+	_isScrolledToBottom() {
+		const el = this.element;
+		return el.scrollHeight - el.scrollTop - el.clientHeight < 5;
+	}
+	_scrollToBottom() {
+		const el = this.element;
+		const maxScroll = el.scrollHeight - el.clientHeight;
+		if (maxScroll <= 0) {
+			el.scrollTop = 0;
+			return;
+		}
+		const rh = this._rowHeight || 17;
+		el.scrollTop = Math.floor(maxScroll / rh) * rh;
+	}
+	write(data) {
+		if (!this.bridge) return;
+		if (this.debug) this.debug.traceWrite(data);
+		this._shouldScrollToBottom = this._isScrolledToBottom();
+		if (typeof data === "string") this.bridge.writeString(data);
+		else this.bridge.writeRaw(data);
+		this._scheduleRender();
+	}
+	resize(cols, rows) {
+		if (!this.bridge) return;
+		this._shouldScrollToBottom = this._isScrolledToBottom();
+		this.cols = cols;
+		this.rows = rows;
+		this.bridge.resize(cols, rows);
+		this.renderer?.setup(cols, rows);
+		this._scheduleRender();
+		if (this.onResize) this.onResize(cols, rows);
+	}
+	focus() {
+		if (this.input) this.input.focus();
+		else this.element.focus();
+	}
+	_scheduleRender() {
+		if (this._renderTimer != null) return;
+		this._renderTimer = setTimeout(() => {
+			this._renderTimer = null;
+			if (this.rafId == null) this.rafId = requestAnimationFrame(() => {
+				this.rafId = null;
+				this._doRender();
+			});
+		}, 0);
+	}
+	_initialRender() {
+		this._doRender();
+	}
+	_doRender() {
+		if (!this.bridge || !this.renderer) return;
+		let dirtyCount = 0;
+		const t0 = this.debug ? performance.now() : 0;
+		if (this.debug) {
+			for (let r = 0; r < this.rows; r++) if (this.bridge.isDirtyRow(r)) dirtyCount++;
+		}
+		this.renderer.render(this.bridge);
+		if (this.debug) this.debug.recordRender(performance.now() - t0, dirtyCount);
+		const hasScrollback = this.bridge.getScrollbackCount() > 0;
+		this.element.classList.toggle("has-scrollback", hasScrollback);
+		if (this._shouldScrollToBottom) this._scrollToBottom();
+		else if (!hasScrollback && this.element.scrollTop !== 0) this.element.scrollTop = 0;
+		const title = this.bridge.getTitle();
+		if (title !== null && this.onTitle) this.onTitle(title);
+		const response = this.bridge.getResponse();
+		if (response !== null && this.onData) this.onData(response);
+	}
+	_lockHeight() {
+		const rh = this._rowHeight || 17;
+		const gridHeight = this.rows * rh;
+		const cs = getComputedStyle(this.element);
+		let extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+		if (cs.boxSizing === "border-box") extra += (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+		this.element.style.height = `${gridHeight + extra}px`;
+	}
+	_setRowHeight() {
+		const probe = document.createElement("div");
+		probe.className = "term-row";
+		probe.style.visibility = "hidden";
+		probe.style.position = "absolute";
+		probe.textContent = "W";
+		this._container.appendChild(probe);
+		const h = probe.getBoundingClientRect().height;
+		probe.remove();
+		if (h > 0) {
+			const rh = Math.ceil(h);
+			this._rowHeight = rh;
+			this.element.style.setProperty("--term-row-height", `${rh}px`);
+		}
+	}
+	_measureCharSize() {
+		const row = document.createElement("div");
+		row.className = "term-row";
+		row.style.visibility = "hidden";
+		row.style.position = "absolute";
+		const probe = document.createElement("span");
+		probe.textContent = "W";
+		row.appendChild(probe);
+		this._container.appendChild(row);
+		const charWidth = probe.getBoundingClientRect().width;
+		const rowHeight = row.getBoundingClientRect().height;
+		row.remove();
+		if (charWidth === 0 || rowHeight === 0) return null;
+		this._rowHeight = rowHeight;
+		return {
+			charWidth,
+			rowHeight
+		};
+	}
+	_setupResizeObserver() {
+		const initial = this._measureCharSize();
+		if (!initial) return;
+		let { charWidth, rowHeight } = initial;
+		this.resizeObserver = new ResizeObserver((entries) => {
+			const measured = this._measureCharSize();
+			if (measured) {
+				charWidth = measured.charWidth;
+				rowHeight = measured.rowHeight;
+			}
+			for (const entry of entries) {
+				const { width, height } = entry.contentRect;
+				const newCols = Math.max(1, Math.floor(width / charWidth));
+				const newRows = Math.max(1, Math.floor(height / rowHeight));
+				if (newCols !== this.cols || newRows !== this.rows) this.resize(newCols, newRows);
+			}
+		});
+		this.resizeObserver.observe(this.element);
+	}
+	destroy() {
+		this._destroyed = true;
+		if (this._renderTimer != null) clearTimeout(this._renderTimer);
+		if (this.rafId != null) cancelAnimationFrame(this.rafId);
+		if (this.resizeObserver) this.resizeObserver.disconnect();
+		if (this.input) this.input.destroy();
+		this.element.removeEventListener("click", this._onClickFocus);
+		this.element.innerHTML = "";
+		if (this.debug && globalThis.__wterm === this) delete globalThis.__wterm;
+		this.debug = null;
+	}
+};
+//#endregion
+//#region node_modules/@wterm/react/dist/Terminal.js
+var Terminal = (0, import_react.forwardRef)(function Terminal({ cols = 80, rows = 24, core, wasmUrl, theme, autoResize = false, cursorBlink = false, debug = false, onData, onTitle, onResize, onReady, onError, className, style, ...htmlProps }, ref) {
+	const wtermRef = (0, import_react.useRef)(null);
+	const callbacksRef = (0, import_react.useRef)({
+		onData,
+		onTitle,
+		onResize,
+		onReady,
+		onError
+	});
+	const autoResizeRef = (0, import_react.useRef)(autoResize);
+	callbacksRef.current = {
+		onData,
+		onTitle,
+		onResize,
+		onReady,
+		onError
+	};
+	autoResizeRef.current = autoResize;
+	(0, import_react.useImperativeHandle)(ref, () => ({
+		write(data) {
+			wtermRef.current?.write(data);
+		},
+		resize(c, r) {
+			wtermRef.current?.resize(c, r);
+		},
+		focus() {
+			wtermRef.current?.focus();
+		},
+		get instance() {
+			return wtermRef.current;
+		}
+	}));
+	const containerRef = (0, import_react.useCallback)((el) => {
+		if (!el) return;
+		const wt = new WTerm(el, {
+			cols,
+			rows,
+			core,
+			wasmUrl,
+			autoResize: autoResizeRef.current,
+			cursorBlink,
+			debug,
+			onData: callbacksRef.current.onData ? (data) => callbacksRef.current.onData?.(data) : void 0,
+			onTitle: (title) => callbacksRef.current.onTitle?.(title),
+			onResize: (c, r) => callbacksRef.current.onResize?.(c, r)
+		});
+		wtermRef.current = wt;
+		wt.init().then(() => {
+			callbacksRef.current.onReady?.(wt);
+		}).catch((err) => {
+			if (callbacksRef.current.onError) callbacksRef.current.onError(err);
+			else console.error(err);
+		});
+		return () => {
+			wt.destroy();
+			wtermRef.current = null;
+		};
+	}, [core, wasmUrl]);
+	const wt = wtermRef.current;
+	if (wt?.bridge) {
+		if (!autoResizeRef.current && (wt.cols !== cols || wt.rows !== rows)) wt.resize(cols, rows);
+		const el = wt.element;
+		if (cursorBlink && !el.classList.contains("cursor-blink")) el.classList.add("cursor-blink");
+		else if (!cursorBlink && el.classList.contains("cursor-blink")) el.classList.remove("cursor-blink");
+		if (onData && !wt.onData) wt.onData = (data) => callbacksRef.current.onData?.(data);
+		else if (!onData && wt.onData) wt.onData = null;
+	}
+	const classes = [
+		"wterm",
+		theme ? `theme-${theme}` : "",
+		className
+	].filter(Boolean).join(" ");
+	const mergedStyle = {
+		...autoResize ? void 0 : { height: rows * 17 + 24 },
+		...style
+	};
+	return (0, import_jsx_runtime.jsx)("div", {
+		ref: containerRef,
+		className: classes || void 0,
+		style: mergedStyle,
+		role: "textbox",
+		"aria-label": "Terminal",
+		"aria-multiline": "true",
+		"aria-roledescription": "terminal",
+		...htmlProps
+	});
+});
+//#endregion
+//#region node_modules/@wterm/react/dist/useTerminal.js
+function useTerminal() {
+	const ref = (0, import_react.useRef)(null);
+	return {
+		ref,
+		write: (0, import_react.useCallback)((data) => {
+			ref.current?.write(data);
+		}, []),
+		resize: (0, import_react.useCallback)((cols, rows) => {
+			ref.current?.resize(cols, rows);
+		}, []),
+		focus: (0, import_react.useCallback)(() => {
+			ref.current?.focus();
+		}, [])
+	};
+}
+//#endregion
+//#region node_modules/@wterm/ghostty/dist/wasm-bindings.js
+var DEFAULT_WASM_PATH = new URL("" + new URL("ghostty-vt-BG4Ub6dk.wasm", import.meta.url).href, "" + import.meta.url).href;
+/**
+* Load the ghostty-vt WASM module.
+*
+* @param wasmUrl - URL or path to the .wasm file. Defaults to the
+*   committed binary at `../wasm/ghostty-vt.wasm`.
+*/
+async function loadGhosttyWasm(wasmUrl) {
+	const bytes = await (await fetch(wasmUrl ?? DEFAULT_WASM_PATH)).arrayBuffer();
+	let wasmMemory;
+	const { instance } = await WebAssembly.instantiate(bytes, { env: { log(ptr, len) {
+		const text = new TextDecoder().decode(new Uint8Array(wasmMemory.buffer, ptr, len));
+		console.log("[ghostty-vt]", text);
+	} } });
+	wasmMemory = instance.exports.memory;
+	return {
+		exports: instance.exports,
+		instance
+	};
+}
+/**
+* Parse a single cell from the viewport buffer at the given byte offset.
+* The buffer layout matches the 16-byte struct from wasm_api.zig.
+*/
+function parseCell(view, byteOffset) {
+	return {
+		codepoint: view.getUint32(byteOffset, true),
+		fgR: view.getUint8(byteOffset + 4),
+		fgG: view.getUint8(byteOffset + 5),
+		fgB: view.getUint8(byteOffset + 6),
+		bgR: view.getUint8(byteOffset + 7),
+		bgG: view.getUint8(byteOffset + 8),
+		bgB: view.getUint8(byteOffset + 9),
+		flags: view.getUint8(byteOffset + 10),
+		width: view.getUint8(byteOffset + 11),
+		colorFlags: view.getUint8(byteOffset + 12)
+	};
+}
+/**
+* Allocate a buffer in WASM memory and return its pointer.
+* The caller must free it with freeBuffer when done.
+*/
+function allocBuffer(wasm, size) {
+	return wasm.exports.alloc_buffer(size);
+}
+/** Free a buffer previously allocated with allocBuffer. */
+function freeBuffer(wasm, ptr, size) {
+	wasm.exports.free_buffer(ptr, size);
+}
+/**
+* Write a UTF-8 string into WASM memory and call the terminal's write
+* function. Handles allocation/deallocation of the transfer buffer.
+*/
+function writeString(wasm, termPtr, str) {
+	writeBytes(wasm, termPtr, new TextEncoder().encode(str));
+}
+/**
+* Write raw bytes into the terminal. Handles allocation/deallocation
+* of the transfer buffer.
+*/
+function writeBytes(wasm, termPtr, data) {
+	if (data.length === 0) return;
+	const bufPtr = allocBuffer(wasm, data.length);
+	if (bufPtr === 0) return;
+	new Uint8Array(wasm.exports.memory.buffer, bufPtr, data.length).set(data);
+	wasm.exports.write(termPtr, bufPtr, data.length);
+	freeBuffer(wasm, bufPtr, data.length);
+}
+//#endregion
+//#region node_modules/@wterm/ghostty/dist/ghostty-core.js
+var DEFAULT_COLOR = 256;
+function packRgb(r, g, b) {
+	return r << 16 | g << 8 | b;
+}
+var BLANK_CELL = {
+	char: 32,
+	fg: DEFAULT_COLOR,
+	bg: DEFAULT_COLOR,
+	flags: 0
+};
+/**
+* Terminal core powered by libghostty built from source. Implements the
+* same `TerminalCore` interface as wterm's built-in Zig core, providing
+* full-featured VT emulation including proper Unicode grapheme handling,
+* all SGR attributes, terminal modes, and more.
+*
+* @example
+* ```ts
+* import { WTerm } from '@wterm/dom';
+* import { GhosttyCore } from '@wterm/ghostty';
+*
+* const core = await GhosttyCore.load();
+* const term = new WTerm(el, { core });
+* await term.init();
+* ```
+*/
+var GhosttyCore = class GhosttyCore {
+	constructor(wasm, options) {
+		this.termPtr = 0;
+		this._viewportBufPtr = 0;
+		this._viewportBufSize = 0;
+		this._viewportView = null;
+		this._viewportStale = true;
+		this._cols = 0;
+		this._rows = 0;
+		this.wasm = wasm;
+		this._options = options;
+	}
+	/**
+	* Load the ghostty-vt WASM binary and create a new `GhosttyCore`.
+	* The returned core is ready to be passed as the `core` option to `WTerm`.
+	*/
+	static async load(options = {}) {
+		return new GhosttyCore(await loadGhosttyWasm(options.wasmPath), options);
+	}
+	init(cols, rows) {
+		this._cols = cols;
+		this._rows = rows;
+		const scrollback = this._options.scrollbackLimit ?? 1e4;
+		this.termPtr = this.wasm.exports.init(cols, rows, scrollback);
+		this._allocViewportBuffer();
+		this._invalidate();
+	}
+	resize(cols, rows) {
+		this._cols = cols;
+		this._rows = rows;
+		this.wasm.exports.resize(this.termPtr, cols, rows);
+		this._allocViewportBuffer();
+		this._invalidate();
+	}
+	writeString(str) {
+		writeString(this.wasm, this.termPtr, str);
+		this._invalidate();
+	}
+	writeRaw(data) {
+		writeBytes(this.wasm, this.termPtr, data);
+		this._invalidate();
+	}
+	getCell(row, col) {
+		this._ensureViewport();
+		const view = this._viewportView;
+		if (!view) return BLANK_CELL;
+		const byteOffset = (row * this._cols + col) * 16;
+		if (byteOffset + 16 > this._viewportBufSize) return BLANK_CELL;
+		const cell = parseCell(view, byteOffset);
+		if (cell.codepoint === 0 && cell.flags === 0 && cell.colorFlags === 0) return BLANK_CELL;
+		const result = {
+			char: cell.codepoint || 32,
+			fg: DEFAULT_COLOR,
+			bg: DEFAULT_COLOR,
+			flags: cell.flags
+		};
+		if (cell.colorFlags & 1) result.fgRgb = packRgb(cell.fgR, cell.fgG, cell.fgB);
+		if (cell.colorFlags & 2) result.bgRgb = packRgb(cell.bgR, cell.bgG, cell.bgB);
+		return result;
+	}
+	isDirtyRow(row) {
+		this._ensureViewport();
+		return this.wasm.exports.is_dirty_row(this.termPtr, row) !== 0;
+	}
+	clearDirty() {
+		this.wasm.exports.clear_dirty(this.termPtr);
+		this._viewportStale = true;
+	}
+	getCols() {
+		return this._cols;
+	}
+	getRows() {
+		return this._rows;
+	}
+	getCursor() {
+		this._ensureViewport();
+		return {
+			row: this.wasm.exports.get_cursor_row(this.termPtr),
+			col: this.wasm.exports.get_cursor_col(this.termPtr),
+			visible: this.wasm.exports.get_cursor_visible(this.termPtr) !== 0
+		};
+	}
+	cursorKeysApp() {
+		return this.wasm.exports.cursor_keys_app(this.termPtr) !== 0;
+	}
+	bracketedPaste() {
+		return this.wasm.exports.bracketed_paste(this.termPtr) !== 0;
+	}
+	usingAltScreen() {
+		return this.wasm.exports.using_alt_screen(this.termPtr) !== 0;
+	}
+	getTitle() {
+		return null;
+	}
+	getResponse() {
+		const bufSize = 4096;
+		const bufPtr = allocBuffer(this.wasm, bufSize);
+		if (bufPtr === 0) return null;
+		const len = this.wasm.exports.read_response(this.termPtr, bufPtr, bufSize);
+		if (len === 0) {
+			freeBuffer(this.wasm, bufPtr, bufSize);
+			return null;
+		}
+		const bytes = new Uint8Array(this.wasm.exports.memory.buffer, bufPtr, len);
+		const text = new TextDecoder().decode(bytes);
+		freeBuffer(this.wasm, bufPtr, bufSize);
+		return text;
+	}
+	getScrollbackCount() {
+		return this.wasm.exports.get_scrollback_count(this.termPtr);
+	}
+	getScrollbackCell(offset, col) {
+		const maxCols = this._cols;
+		const lineSize = maxCols * 16;
+		const bufPtr = allocBuffer(this.wasm, lineSize);
+		if (bufPtr === 0) return BLANK_CELL;
+		const len = this.wasm.exports.get_scrollback_line(this.termPtr, offset, bufPtr, maxCols);
+		if (len === 0 || col >= len) {
+			freeBuffer(this.wasm, bufPtr, lineSize);
+			return BLANK_CELL;
+		}
+		const cell = parseCell(new DataView(this.wasm.exports.memory.buffer, bufPtr, lineSize), col * 16);
+		freeBuffer(this.wasm, bufPtr, lineSize);
+		return {
+			char: cell.codepoint || 32,
+			fg: DEFAULT_COLOR,
+			bg: DEFAULT_COLOR,
+			flags: cell.flags,
+			fgRgb: packRgb(cell.fgR, cell.fgG, cell.fgB),
+			bgRgb: packRgb(cell.bgR, cell.bgG, cell.bgB)
+		};
+	}
+	getScrollbackLineLen(offset) {
+		const maxCols = this._cols;
+		const lineSize = maxCols * 16;
+		const bufPtr = allocBuffer(this.wasm, lineSize);
+		if (bufPtr === 0) return 0;
+		const len = this.wasm.exports.get_scrollback_line(this.termPtr, offset, bufPtr, maxCols);
+		freeBuffer(this.wasm, bufPtr, lineSize);
+		return len;
+	}
+	getUnhandledSequences() {
+		return [];
+	}
+	_invalidate() {
+		this._viewportStale = true;
+	}
+	_allocViewportBuffer() {
+		if (this._viewportBufPtr !== 0) freeBuffer(this.wasm, this._viewportBufPtr, this._viewportBufSize);
+		this._viewportBufSize = this._cols * this._rows * 16;
+		this._viewportBufPtr = allocBuffer(this.wasm, this._viewportBufSize);
+		this._viewportView = null;
+		this._viewportStale = true;
+	}
+	_ensureViewport() {
+		if (!this._viewportStale) return;
+		this.wasm.exports.update(this.termPtr);
+		this.wasm.exports.get_viewport(this.termPtr, this._viewportBufPtr);
+		this._viewportView = new DataView(this.wasm.exports.memory.buffer, this._viewportBufPtr, this._viewportBufSize);
+		this._viewportStale = false;
+	}
+};
+//#endregion
+//#region src/components/terminal-session.tsx
+function TerminalSession(t0) {
+	const $ = (0, import_compiler_runtime.c)(6);
+	const { sessionId, cwd } = t0;
+	const containerRef = (0, import_react.useRef)(null);
+	const [dimensions, setDimensions] = (0, import_react.useState)(null);
+	let t1;
+	let t2;
+	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
+		t1 = () => {
+			const el = containerRef.current;
+			if (!el) return;
+			const observer = new ResizeObserver((entries) => {
+				for (const entry of entries) {
+					const { width, height } = entry.contentRect;
+					if (width > 0 && height > 0) setDimensions({
+						width,
+						height
+					});
+				}
+			});
+			observer.observe(el);
+			const rect = el.getBoundingClientRect();
+			if (rect.width > 0 && rect.height > 0) setDimensions({
+				width: rect.width,
+				height: rect.height
+			});
+			return () => observer.disconnect();
+		};
+		t2 = [];
+		$[0] = t1;
+		$[1] = t2;
+	} else {
+		t1 = $[0];
+		t2 = $[1];
+	}
+	(0, import_react.useEffect)(t1, t2);
+	let t3;
+	if ($[2] !== cwd || $[3] !== dimensions || $[4] !== sessionId) {
+		t3 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			ref: containerRef,
+			className: "h-full w-full overflow-hidden",
+			children: dimensions ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TerminalInner, {
+				sessionId,
+				cwd
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-full w-full flex items-center justify-center text-neutral-400 font-mono text-sm",
+				children: "Measuring layout…"
+			})
+		});
+		$[2] = cwd;
+		$[3] = dimensions;
+		$[4] = sessionId;
+		$[5] = t3;
+	} else t3 = $[5];
+	return t3;
+}
+function TerminalInner(t0) {
+	const $ = (0, import_compiler_runtime.c)(27);
+	const { sessionId, cwd } = t0;
+	const { ref, write } = useTerminal();
+	const [core, setCore] = (0, import_react.useState)(null);
+	const [error, setError] = (0, import_react.useState)(null);
+	const [isReady, setIsReady] = (0, import_react.useState)(false);
+	const createdRef = (0, import_react.useRef)(false);
+	let t1;
+	let t2;
+	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
+		t1 = () => {
+			let active = true;
+			GhosttyCore.load({ wasmPath: "./ghostty-vt.wasm" }).then((loadedCore) => {
+				if (active) setCore(loadedCore);
+			}).catch((err) => {
+				console.error("Failed to load GhosttyCore:", err);
+				if (active) setError(err instanceof Error ? err.message : String(err));
+			});
+			return () => {
+				active = false;
+			};
+		};
+		t2 = [];
+		$[0] = t1;
+		$[1] = t2;
+	} else {
+		t1 = $[0];
+		t2 = $[1];
+	}
+	(0, import_react.useEffect)(t1, t2);
+	let t3;
+	let t4;
+	if ($[2] !== core || $[3] !== cwd || $[4] !== isReady || $[5] !== sessionId || $[6] !== write) {
+		t3 = () => {
+			if (!core || !isReady) return;
+			console.log(`[Terminal Session] Terminal ready. Initializing PTY session ${sessionId} - CWD: ${cwd}`);
+			if (!createdRef.current) {
+				createdRef.current = true;
+				write("Connecting to shell process...\r\n");
+				window.omni.terminal.create(sessionId, cwd).then(() => {
+					console.log("[Terminal Session] Backend PTY created successfully.");
+					write("Shell process connected successfully.\r\n");
+				}).catch((err_0) => {
+					console.error("[Terminal Session] Failed to create backend PTY:", err_0);
+					setError(err_0 instanceof Error ? err_0.message : String(err_0));
+					write(`\r\nError: Failed to connect to shell backend. ${err_0 instanceof Error ? err_0.message : String(err_0)}\r\n`);
+				});
+			}
+			const unsubscribeData = window.omni.terminal.onData((payload) => {
+				if (payload.sessionId === sessionId) {
+					console.log(`[Terminal Session] stdout data received (${payload.data.length} bytes)`);
+					write(payload.data);
+				}
+			});
+			const unsubscribeExit = window.omni.terminal.onExit((payload_0) => {
+				if (payload_0.sessionId === sessionId) {
+					console.log("[Terminal Session] Shell process exited.");
+					write("\r\n[Process completed]\r\n");
+				}
+			});
+			return () => {
+				unsubscribeData();
+				unsubscribeExit();
+			};
+		};
+		t4 = [
+			core,
+			isReady,
+			sessionId,
+			cwd,
+			write
+		];
+		$[2] = core;
+		$[3] = cwd;
+		$[4] = isReady;
+		$[5] = sessionId;
+		$[6] = write;
+		$[7] = t3;
+		$[8] = t4;
+	} else {
+		t3 = $[7];
+		t4 = $[8];
+	}
+	(0, import_react.useEffect)(t3, t4);
+	let t5;
+	if ($[9] !== sessionId) {
+		t5 = (data) => {
+			window.omni.terminal.write(sessionId, data);
+		};
+		$[9] = sessionId;
+		$[10] = t5;
+	} else t5 = $[10];
+	const handleData = t5;
+	let t6;
+	if ($[11] !== sessionId) {
+		t6 = (cols, rows) => {
+			window.omni.terminal.resize(sessionId, cols, rows);
+		};
+		$[11] = sessionId;
+		$[12] = t6;
+	} else t6 = $[12];
+	const handleResize = t6;
+	let t7;
+	if ($[13] !== isReady || $[14] !== ref) {
+		t7 = () => {
+			if (isReady) {
+				const timer = setTimeout(() => {
+					ref.current?.focus();
+				}, 150);
+				return () => clearTimeout(timer);
+			}
+		};
+		$[13] = isReady;
+		$[14] = ref;
+		$[15] = t7;
+	} else t7 = $[15];
+	let t8;
+	if ($[16] !== isReady) {
+		t8 = [isReady];
+		$[16] = isReady;
+		$[17] = t8;
+	} else t8 = $[17];
+	(0, import_react.useEffect)(t7, t8);
+	if (error) {
+		let t9;
+		if ($[18] !== error) {
+			t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "h-full w-full flex items-center justify-center text-red-500 font-mono text-sm p-4",
+				children: ["Error loading terminal: ", error]
+			});
+			$[18] = error;
+			$[19] = t9;
+		} else t9 = $[19];
+		return t9;
+	}
+	if (!core) {
+		let t9;
+		if ($[20] === Symbol.for("react.memo_cache_sentinel")) {
+			t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-full w-full flex items-center justify-center text-neutral-400 font-mono text-sm",
+				children: "Initializing Ghostty Core…"
+			});
+			$[20] = t9;
+		} else t9 = $[20];
+		return t9;
+	}
+	let t9;
+	if ($[21] === Symbol.for("react.memo_cache_sentinel")) {
+		t9 = () => setIsReady(true);
+		$[21] = t9;
+	} else t9 = $[21];
+	let t10;
+	if ($[22] !== core || $[23] !== handleData || $[24] !== handleResize || $[25] !== ref) {
+		t10 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Terminal, {
+			ref,
+			core,
+			autoResize: true,
+			onData: handleData,
+			onResize: handleResize,
+			onReady: t9,
+			className: "h-full w-full outline-none"
+		});
+		$[22] = core;
+		$[23] = handleData;
+		$[24] = handleResize;
+		$[25] = ref;
+		$[26] = t10;
+	} else t10 = $[26];
+	return t10;
+}
+//#endregion
 //#region src/App.tsx
 function App() {
 	const $ = (0, import_compiler_runtime.c)(19);
@@ -12601,6 +14376,7 @@ function App() {
 	if ($[7] !== t3) {
 		t4 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "flex items-center gap-2",
+			"data-pipper-id": "Project Name",
 			children: t3
 		});
 		$[7] = t3;
@@ -12615,6 +14391,7 @@ function App() {
 	if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
 		t6 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			style: t5,
+			"data-pipper-id": "Theme Toggle",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeToggle, {})
 		});
 		$[10] = t6;
@@ -12624,6 +14401,7 @@ function App() {
 		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
 			className: "h-11 flex items-center justify-between pl-[80px] pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0",
 			style: t2,
+			"data-pipper-id": "header",
 			children: [t4, t6]
 		});
 		$[11] = t4;
@@ -12917,7 +14695,7 @@ function AgentView() {
 		const getProjectIcon = t26;
 		t24 = "h-full w-full flex flex-col bg-surface-1";
 		T0 = Tabs;
-		t20 = activeThreadId || void 0;
+		t20 = activeThreadId || "";
 		t21 = handleSelectThread;
 		t22 = "flex-1 flex flex-col min-h-0";
 		t23 = "threads panel";
@@ -13220,19 +14998,214 @@ function _temp(project, idx) {
 	};
 }
 function OthersView() {
-	const $ = (0, import_compiler_runtime.c)(1);
+	const $ = (0, import_compiler_runtime.c)(38);
+	const { activeProject } = useProjectStore();
+	const { sessions, activeSessionId, createSession, closeSession, setActiveSessionId } = useTerminalStore();
+	const [activeTabId, setActiveTabId] = (0, import_react.useState)(null);
+	const [isDropdownOpen, setIsDropdownOpen] = (0, import_react.useState)(false);
+	const dropdownRef = (0, import_react.useRef)(null);
+	const buttonRef = (0, import_react.useRef)(null);
 	let t0;
-	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-		t0 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
-			className: "h-full w-full flex items-center justify-center",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "text-muted-foreground text-sm font-mono",
-				children: "Others view"
+	let t1;
+	if ($[0] !== activeSessionId || $[1] !== sessions) {
+		t0 = () => {
+			if (activeSessionId) setActiveTabId(activeSessionId);
+			else if (sessions.length > 0) setActiveTabId(sessions[sessions.length - 1].id);
+			else setActiveTabId(null);
+		};
+		t1 = [activeSessionId, sessions];
+		$[0] = activeSessionId;
+		$[1] = sessions;
+		$[2] = t0;
+		$[3] = t1;
+	} else {
+		t0 = $[2];
+		t1 = $[3];
+	}
+	(0, import_react.useEffect)(t0, t1);
+	let t2;
+	if ($[4] !== setActiveSessionId) {
+		t2 = (val) => {
+			setActiveTabId(val);
+			setActiveSessionId(val);
+		};
+		$[4] = setActiveSessionId;
+		$[5] = t2;
+	} else t2 = $[5];
+	const handleTabChange = t2;
+	let t3;
+	let t4;
+	if ($[6] !== isDropdownOpen) {
+		t3 = () => {
+			const handleClickOutside = function handleClickOutside(event) {
+				if (isDropdownOpen && dropdownRef.current && !dropdownRef.current.contains(event.target) && buttonRef.current && !buttonRef.current.contains(event.target)) setIsDropdownOpen(false);
+			};
+			document.addEventListener("mousedown", handleClickOutside);
+			return () => document.removeEventListener("mousedown", handleClickOutside);
+		};
+		t4 = [isDropdownOpen];
+		$[6] = isDropdownOpen;
+		$[7] = t3;
+		$[8] = t4;
+	} else {
+		t3 = $[7];
+		t4 = $[8];
+	}
+	(0, import_react.useEffect)(t3, t4);
+	const t5 = activeTabId || "";
+	let t6;
+	if ($[9] !== closeSession || $[10] !== sessions) {
+		let t7;
+		if ($[12] !== closeSession) {
+			t7 = (session) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabItem, {
+				value: session.id,
+				label: session.title,
+				icon: c,
+				onClose: () => closeSession(session.id)
+			}, session.id);
+			$[12] = closeSession;
+			$[13] = t7;
+		} else t7 = $[13];
+		t6 = sessions.map(t7);
+		$[9] = closeSession;
+		$[10] = sessions;
+		$[11] = t6;
+	} else t6 = $[11];
+	let t7;
+	if ($[14] !== t6) {
+		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
+			className: "bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+			children: t6
+		});
+		$[14] = t6;
+		$[15] = t7;
+	} else t7 = $[15];
+	let t8;
+	let t9;
+	if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
+		t8 = () => setIsDropdownOpen(_temp5);
+		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
+		$[16] = t8;
+		$[17] = t9;
+	} else {
+		t8 = $[16];
+		t9 = $[17];
+	}
+	let t10;
+	if ($[18] !== isDropdownOpen) {
+		t10 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+			ref: buttonRef,
+			variant: "ghost",
+			size: "icon-sm",
+			active: isDropdownOpen,
+			onClick: t8,
+			children: t9
+		});
+		$[18] = isDropdownOpen;
+		$[19] = t10;
+	} else t10 = $[19];
+	let t11;
+	if ($[20] !== activeProject?.path || $[21] !== createSession || $[22] !== isDropdownOpen) {
+		t11 = isDropdownOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			ref: dropdownRef,
+			className: "absolute right-0 top-full mt-1.5 z-50 origin-top-right",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Dropdown, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
+				index: 0,
+				label: "Terminal",
+				icon: c,
+				onSelect: () => {
+					setIsDropdownOpen(false);
+					createSession(activeProject?.path);
+				}
+			}) })
+		});
+		$[20] = activeProject?.path;
+		$[21] = createSession;
+		$[22] = isDropdownOpen;
+		$[23] = t11;
+	} else t11 = $[23];
+	let t12;
+	if ($[24] !== t10 || $[25] !== t11) {
+		t12 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "relative",
+			children: [t10, t11]
+		});
+		$[24] = t10;
+		$[25] = t11;
+		$[26] = t12;
+	} else t12 = $[26];
+	let t13;
+	if ($[27] !== t12 || $[28] !== t7) {
+		t13 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1",
+			children: [t7, t12]
+		});
+		$[27] = t12;
+		$[28] = t7;
+		$[29] = t13;
+	} else t13 = $[29];
+	let t14;
+	if ($[30] !== activeTabId || $[31] !== sessions) {
+		t14 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
+			children: sessions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex flex-col items-center gap-2 text-muted-foreground",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(c, {
+							size: 32,
+							strokeWidth: 1.5,
+							className: "text-muted-foreground/60"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-[13px] font-medium tracking-tight",
+							children: "No active terminal sessions"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-[11px] font-mono text-muted-foreground/80",
+							children: "Click the plus icon to start a new terminal"
+						})
+					]
+				})
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "flex-1 overflow-hidden min-h-0",
+				children: sessions.map((session_0) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabPanel, {
+					value: session_0.id,
+					className: "h-full w-full outline-none",
+					children: activeTabId === session_0.id && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TerminalSession, {
+						sessionId: session_0.id,
+						cwd: session_0.cwd
+					})
+				}, session_0.id))
 			})
 		});
-		$[0] = t0;
-	} else t0 = $[0];
-	return t0;
+		$[30] = activeTabId;
+		$[31] = sessions;
+		$[32] = t14;
+	} else t14 = $[32];
+	let t15;
+	if ($[33] !== handleTabChange || $[34] !== t13 || $[35] !== t14 || $[36] !== t5) {
+		t15 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+			className: "h-full w-full flex flex-col bg-surface-1",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Tabs, {
+				value: t5,
+				onValueChange: handleTabChange,
+				className: "flex-1 flex flex-col min-h-0",
+				"data-pipper-id": "others-tabs-panel",
+				children: [t13, t14]
+			})
+		});
+		$[33] = handleTabChange;
+		$[34] = t13;
+		$[35] = t14;
+		$[36] = t5;
+		$[37] = t15;
+	} else t15 = $[37];
+	return t15;
+}
+function _temp5(prev) {
+	return !prev;
 }
 //#endregion
 //#region src/main.tsx

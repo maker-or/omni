@@ -2,6 +2,9 @@ import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
+import os from "node:os";
+import fs from "node:fs";
+import * as pty from "node-pty";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 //#region electron/launch-state.ts
@@ -152,6 +155,7 @@ function createMessage(input) {
 //#endregion
 //#region electron/main.ts
 var mainDir = dirname(fileURLToPath(import.meta.url));
+var ptyProcesses = /* @__PURE__ */ new Map();
 var isDev = !app.isPackaged;
 function generateRandomId() {
 	const hex = randomBytes(4).toString("hex");
@@ -204,7 +208,13 @@ function createMainWindow() {
 			nodeIntegration: false
 		}
 	});
-	mainWindow.on("ready-to-show", () => mainWindow?.show());
+	mainWindow.on("ready-to-show", () => {
+		mainWindow?.show();
+		if (isDev) mainWindow?.webContents.openDevTools();
+	});
+	mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+		console.log(`[Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+	});
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 	});
@@ -243,6 +253,9 @@ function createLaunchWindow(stage = "list") {
 	launchWindow.on("ready-to-show", () => {
 		console.log("[Main] launchWindow ready-to-show");
 		launchWindow?.show();
+	});
+	launchWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+		console.log(`[Launch Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
 	});
 	launchWindow.on("closed", () => {
 		console.log("[Main] launchWindow closed");
@@ -349,6 +362,77 @@ function registerIpc() {
 	ipcMain.handle("messages:create", (_event, input) => {
 		return createMessage(input);
 	});
+	ipcMain.handle("terminal:create", (_event, sessionId, cwd) => {
+		if (ptyProcesses.has(sessionId)) {
+			try {
+				ptyProcesses.get(sessionId)?.kill();
+			} catch (e) {}
+			ptyProcesses.delete(sessionId);
+		}
+		const defaultShell = process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
+		const shellArgs = [];
+		if (process.platform !== "win32" && (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))) shellArgs.push("-l");
+		let spawnCwd = cwd || os.homedir();
+		if (spawnCwd && !fs.existsSync(spawnCwd)) {
+			console.warn(`[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`);
+			spawnCwd = os.homedir();
+		}
+		let ptyProcess;
+		try {
+			console.log(`[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`);
+			ptyProcess = pty.spawn(defaultShell, shellArgs, {
+				name: "xterm-256color",
+				cols: 80,
+				rows: 24,
+				cwd: spawnCwd,
+				env: {
+					...process.env,
+					TERM: "xterm-256color"
+				}
+			});
+			ptyProcesses.set(sessionId, ptyProcess);
+		} catch (err) {
+			console.error(`[Main] Error spawning PTY process for session ${sessionId}:`, err);
+			throw err;
+		}
+		ptyProcess.onData((data) => {
+			if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("terminal:data", {
+				sessionId,
+				data
+			});
+		});
+		ptyProcess.onExit(({ exitCode, signal }) => {
+			if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("terminal:exit", {
+				sessionId,
+				exitCode,
+				signal
+			});
+			ptyProcesses.delete(sessionId);
+		});
+	});
+	ipcMain.on("terminal:write", (_event, { sessionId, data }) => {
+		const ptyProcess = ptyProcesses.get(sessionId);
+		if (ptyProcess) ptyProcess.write(data);
+	});
+	ipcMain.on("terminal:resize", (_event, { sessionId, cols, rows }) => {
+		const ptyProcess = ptyProcesses.get(sessionId);
+		if (ptyProcess) try {
+			ptyProcess.resize(cols, rows);
+		} catch (e) {
+			console.error(`Error resizing PTY ${sessionId}:`, e);
+		}
+	});
+	ipcMain.handle("terminal:kill", (_event, sessionId) => {
+		const ptyProcess = ptyProcesses.get(sessionId);
+		if (ptyProcess) {
+			try {
+				ptyProcess.kill();
+			} catch (e) {
+				console.error(`Error killing PTY ${sessionId}:`, e);
+			}
+			ptyProcesses.delete(sessionId);
+		}
+	});
 }
 app.whenReady().then(async () => {
 	buildAppMenu();
@@ -372,6 +456,14 @@ app.whenReady().then(async () => {
 });
 app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") app.quit();
+});
+app.on("will-quit", () => {
+	for (const [id, ptyProc] of ptyProcesses.entries()) try {
+		ptyProc.kill();
+	} catch (e) {
+		console.error(`Failed to kill PTY process ${id}`, e);
+	}
+	ptyProcesses.clear();
 });
 //#endregion
 export {};

@@ -3,7 +3,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
-import { Plus, FolderPlus, Ghost } from "@phosphor-icons/react";
+import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
@@ -19,6 +19,8 @@ import {
 import { InputMessage } from "@/components/ui/input-message";
 import { useIcon } from "@/lib/icon-context";
 import { ChatMessage } from "@/components/ui/chat-message";
+import { useTerminalStore } from "@/store/terminal-store";
+import { TerminalSession } from "@/components/terminal-session";
 
 export default function App() {
   const { activeProject, loadActiveProject, isLoading } = useProjectStore();
@@ -39,7 +41,7 @@ export default function App() {
     <div className="relative h-screen w-screen flex flex-col bg-surface-1 text-foreground">
       {/* Title Bar / Header */}
       <header
-        className="h-11 flex items-center justify-between pl-[80px] pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
+        className="h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-pipper-id="header"
       >
@@ -260,14 +262,14 @@ function AgentView() {
   return (
     <section className="h-full w-full flex flex-col bg-surface-1">
       <Tabs
-        value={activeThreadId || undefined}
+        value={activeThreadId || ""}
         onValueChange={handleSelectThread}
         className="flex-1 flex flex-col min-h-0"
         data-pipper-id="threads panel"
       >
         {/* Tab Header bar - always shown */}
-        <div className="h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1">
-          <TabsList className="bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
+        <div className="h-11  flex items-center justify-between px-4 select-none shrink-0 bg-surface-1">
+          <TabsList className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
             {threads.map((thread) => {
               const projIcon = getProjectIcon(thread.project_id);
               const ProjectIconComp = (props: { className?: string }) => (
@@ -293,7 +295,7 @@ function AgentView() {
               active={isDropdownOpen}
               onClick={() => setIsDropdownOpen((prev) => !prev)}
             >
-              <Plus size={16} />
+              <PlusIcon size={16} />
             </Button>
 
             {isDropdownOpen && (
@@ -333,7 +335,7 @@ function AgentView() {
                   <MenuItem
                     index={addProjectIdx}
                     label="Add Project"
-                    icon={FolderPlus}
+                    icon={FolderPlusIcon}
                     onSelect={handleAddProject}
                   />
                 </Dropdown>
@@ -431,11 +433,141 @@ function AgentView() {
 }
 
 function OthersView() {
+  const { activeProject } = useProjectStore();
+  const {
+    sessions,
+    activeSessionId,
+    createSession,
+    closeSession,
+    setActiveSessionId,
+  } = useTerminalStore();
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Sync activeTabId when the active terminal session changes or when a terminal is closed
+  useEffect(() => {
+    if (activeSessionId) {
+      setActiveTabId(activeSessionId);
+    } else if (sessions.length > 0) {
+      setActiveTabId(sessions[sessions.length - 1].id);
+    } else {
+      setActiveTabId(null);
+    }
+  }, [activeSessionId, sessions]);
+
+  const handleTabChange = (val: string) => {
+    setActiveTabId(val);
+    setActiveSessionId(val);
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        isDropdownOpen &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isDropdownOpen]);
+
   return (
-    <section className="h-full w-full flex items-center justify-center">
-      <span className="text-muted-foreground text-sm font-mono">
-        Others view
-      </span>
+    <section
+      className="h-full w-full flex flex-col bg-surface-1"
+      data-pipper-id="others-panel"
+    >
+      <Tabs
+        value={activeTabId || ""}
+        onValueChange={handleTabChange}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        {/* Tab Header bar - always shown */}
+        <div
+          className="h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1"
+          data-pipper-id="others-tab-panel"
+        >
+          <TabsList className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
+            {sessions.map((session) => (
+              <TabItem
+                key={session.id}
+                value={session.id}
+                label={session.title}
+                onClose={() => closeSession(session.id)}
+              />
+            ))}
+          </TabsList>
+
+          <div className="relative">
+            <Button
+              ref={buttonRef}
+              variant="ghost"
+              size="icon-sm"
+              active={isDropdownOpen}
+              onClick={() => setIsDropdownOpen((prev) => !prev)}
+            >
+              <PlusIcon size={16} />
+            </Button>
+
+            {isDropdownOpen && (
+              <div
+                ref={dropdownRef}
+                className="absolute right-0 top-full mt-1.5 z-50 origin-top-right"
+              >
+                <Dropdown>
+                  <MenuItem
+                    index={0}
+                    label="Terminal"
+                    onSelect={() => {
+                      setIsDropdownOpen(false);
+                      createSession(activeProject?.path);
+                    }}
+                  />
+                </Dropdown>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Tab contents */}
+        <div
+          className="flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1 p-2"
+          data-pipper-id="others-content-panel"
+        >
+          {sessions.length === 0 ? (
+            <div
+              className="h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none"
+              data-pipper-id="others-emptyView-panel"
+            >
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <span className="text-[13px] font-medium tracking-tight">
+                  Click the plus icon to add new views
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-hidden min-h-0">
+              {sessions.map((session) => (
+                <TabPanel
+                  key={session.id}
+                  value={session.id}
+                  className="h-full w-full outline-none"
+                >
+                  {activeTabId === session.id && (
+                    <TerminalSession sessionId={session.id} cwd={session.cwd} />
+                  )}
+                </TabPanel>
+              ))}
+            </div>
+          )}
+        </div>
+      </Tabs>
     </section>
   );
 }

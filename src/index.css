@@ -219,17 +219,16 @@
 
   /* --- Keyframes -------------------------------------------------------- */
   @keyframes spinner-move {
-    to {
-      stroke-dashoffset: -100;
+  to {
+    stroke-dashoffset: -100;
     }
   }
   @keyframes spinner-dash {
-    0%,
-    100% {
-      stroke-dasharray: 15 85;
+  0%, 100% {
+    stroke-dasharray: 15 85;
     }
-    50% {
-      stroke-dasharray: 40 60;
+  50% {
+    stroke-dasharray: 40 60;
     }
   }
 }
@@ -251,4 +250,17 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+}
+
+/* =============================================================================
+ * wterm overrides
+ * ========================================================================== */
+.wterm {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  --term-bg: transparent !important;
+  --term-fg: var(--foreground) !important;
+  --term-cursor: var(--foreground) !important;
 }

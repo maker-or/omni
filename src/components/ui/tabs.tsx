@@ -24,6 +24,7 @@ import { useShape } from "@/lib/shape-context";
 import { useSurface } from "@/lib/surface-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
+import { X } from "@phosphor-icons/react";
 
 /* ─────────────────────── Contexts ─────────────────────── */
 
@@ -353,12 +354,13 @@ interface TabItemProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Tab
   value: string;
   icon?: IconComponent;
   label: string;
+  onClose?: () => void;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
 
 const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
-  ({ value, icon: Icon, label, _index = 0, className, ...props }, ref) => {
+  ({ value, icon: Icon, label, onClose, _index = 0, className, ...props }, ref) => {
     const internalRef = useRef<HTMLButtonElement>(null);
     const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
 
@@ -419,6 +421,27 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
             {label}
           </span>
         </span>
+        {onClose && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                e.preventDefault();
+                onClose();
+              }
+            }}
+            className="relative z-20 ml-1 p-0.5 rounded-full hover:bg-neutral-200/50 dark:hover:bg-neutral-800/50 text-muted-foreground hover:text-foreground transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
+            title="Close Tab"
+          >
+            <X size={12} />
+          </span>
+        )}
       </TabsPrimitive.Tab>
     );
   },

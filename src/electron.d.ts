@@ -35,6 +35,14 @@ declare global {
       dialog: {
         pickDirectory: () => Promise<string | null>;
       };
+      terminal: {
+        create: (sessionId: string, cwd?: string) => Promise<void>;
+        write: (sessionId: string, data: string) => void;
+        resize: (sessionId: string, cols: number, rows: number) => void;
+        kill: (sessionId: string) => Promise<void>;
+        onData: (callback: (payload: { sessionId: string; data: string }) => void) => () => void;
+        onExit: (callback: (payload: { sessionId: string; exitCode: number; signal?: number }) => void) => () => void;
+      };
     };
   }
 }

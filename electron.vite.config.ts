@@ -12,7 +12,7 @@ export default defineConfig({
       outDir: "out/main",
       rollupOptions: {
         input: { index: resolve(__dirname, "electron/main.ts") },
-        external: ["electron", "better-sqlite3"],
+        external: ["electron", "better-sqlite3", "node-pty"],
       },
     },
   },
