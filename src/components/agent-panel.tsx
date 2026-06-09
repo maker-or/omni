@@ -48,6 +48,11 @@ function getToolSummary(message: MessageLike): string | null {
   return toolNames.join(", ");
 }
 
+function getMessageKey(message: MessageLike, index: number): string {
+  const meta = message as { id?: string; timestamp?: number; created_at?: string };
+  return `${message.role ?? "message"}-${meta.id ?? meta.timestamp ?? meta.created_at ?? index}`;
+}
+
 function MessageBody({ message }: { message: MessageLike }) {
   const role = message.role;
   const body = stringifyMessageContent(message);
@@ -156,6 +161,7 @@ export function AgentPanel() {
   const { threads, loadThreads } = useThreadStore();
   const {
     snapshot,
+    pendingThreadId,
     uiRequest,
     connect,
     refresh,
@@ -271,7 +277,9 @@ export function AgentPanel() {
   const commands = snapshot?.commands ?? [];
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
-  const threadId = snapshot?.threadId ?? "";
+  const snapshotThreadId = snapshot?.threadId ?? "";
+  const threadId = pendingThreadId ?? snapshotThreadId;
+  const isSwitchingThread = Boolean(pendingThreadId && pendingThreadId !== snapshotThreadId);
   const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
   const activeMessages = snapshot?.messages ?? [];
   const streamingMessage = snapshot?.streamingMessage ?? null;
@@ -286,10 +294,10 @@ export function AgentPanel() {
   }, [commands, inputValue]);
 
   const handleSelectThread = async (id: string) => {
+    if (id === threadId && !isSwitchingThread) return;
     await switchThread(id);
     await loadActiveProject();
     await loadThreads();
-    await refresh();
   };
 
   const handleSend = async (text: string) => {
@@ -488,40 +496,60 @@ export function AgentPanel() {
         </div>
 
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {activeMessages.length === 0 && !streamingMessage ? (
-              <div className="h-full flex items-center justify-center p-6">
-                <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
-                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                    What should we cook in
-                  </span>
-                  <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                    {activeProject?.name ?? "your project"}
-                  </span>
-                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
-                </h2>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3 p-4">
-                {activeMessages.map((message, index) => {
-                  const msg = message as MessageLike;
-                  const from = msg.role === "user" ? "user" : "assistant";
-                  return (
-                    <ChatMessage
-                      key={`${from}-${index}-${(msg as { timestamp?: number }).timestamp ?? index}`}
-                      from={from}
-                    >
-                      <MessageBody message={msg} />
-                    </ChatMessage>
-                  );
-                })}
-                {streamingMessage && (
-                  <ChatMessage from="assistant">
-                    <MessageBody message={streamingMessage as MessageLike} />
-                  </ChatMessage>
-                )}
+          <div className="relative flex-1 overflow-y-auto min-h-0" aria-busy={isSwitchingThread}>
+            {isSwitchingThread && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden bg-border/40">
+                <div className="h-full w-1/3 animate-pulse bg-foreground/35" />
               </div>
             )}
+            <div
+              className={
+                isSwitchingThread
+                  ? "min-h-full opacity-[0.82] transition-opacity duration-150 ease-out"
+                  : "min-h-full opacity-100 transition-opacity duration-150 ease-out"
+              }
+            >
+              {activeMessages.length === 0 && !streamingMessage ? (
+                <div className="h-full min-h-[280px] flex items-center justify-center p-6">
+                  <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
+                    <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                      What should we cook in
+                    </span>
+                    <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
+                      {activeProject?.name ?? "your project"}
+                    </span>
+                    <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
+                  </h2>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 p-4">
+                  {activeMessages.map((message, index) => {
+                    const msg = message as MessageLike;
+                    const from = msg.role === "user" ? "user" : "assistant";
+                    return (
+                      <ChatMessage
+                        key={getMessageKey(msg, index)}
+                        from={from}
+                        initial={false}
+                        layout={false}
+                      >
+                        <MessageBody message={msg} />
+                      </ChatMessage>
+                    );
+                  })}
+                  {streamingMessage && (
+                    <ChatMessage
+                      key="streaming"
+                      from="assistant"
+                      initial={false}
+                      layout={false}
+                    >
+                      <MessageBody message={streamingMessage as MessageLike} />
+                    </ChatMessage>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="border-t border-border/60 bg-surface-1 p-3">
@@ -549,8 +577,15 @@ export function AgentPanel() {
               <InputMessage
                 value={inputValue}
                 onValueChange={setInputValue}
-                placeholder={activeThread ? `Message ${activeThread.title}` : "Ask the agent something…"}
+                placeholder={
+                  isSwitchingThread
+                    ? "Loading thread…"
+                    : activeThread
+                      ? `Message ${activeThread.title}`
+                      : "Ask the agent something…"
+                }
                 onSend={handleSend}
+                disabled={isSwitchingThread}
                 textareaProps={{
                   onKeyDown: (event) => {
                     if (event.key === "Escape") {
@@ -605,7 +640,11 @@ export function AgentPanel() {
 
               <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span>{snapshot?.sessionName ?? activeThread?.title ?? "No active session"}</span>
+                  <span>
+                    {isSwitchingThread
+                      ? activeThread?.title ?? "Switching thread"
+                      : snapshot?.sessionName ?? activeThread?.title ?? "No active session"}
+                  </span>
                   <span>•</span>
                   <span>{queueCount} queued</span>
                   <span>•</span>

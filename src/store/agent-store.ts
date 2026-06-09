@@ -12,6 +12,7 @@ import type { SlashCommandInfo, SessionStats } from "@earendil-works/pi-coding-a
 
 interface AgentState {
   snapshot: AgentRuntimeSnapshot | null;
+  pendingThreadId: string | null;
   uiRequest: AgentUiRequest | null;
   events: AgentBridgeEvent[];
   isConnecting: boolean;
@@ -36,6 +37,8 @@ interface AgentState {
 }
 
 let unsubscribeBridge: (() => void) | null = null;
+let latestThreadSwitchId = 0;
+let threadSwitchQueue: Promise<void> = Promise.resolve();
 
 function mergeSnapshot(
   snapshot: AgentRuntimeSnapshot | null,
@@ -46,14 +49,23 @@ function mergeSnapshot(
 }
 
 function applyBridgeEvent(
-  state: Pick<AgentState, "snapshot" | "uiRequest" | "events">,
+  state: Pick<AgentState, "snapshot" | "pendingThreadId" | "uiRequest" | "events">,
   payload: AgentBridgeEvent,
-): Pick<AgentState, "snapshot" | "uiRequest" | "events"> {
+): Pick<AgentState, "snapshot" | "pendingThreadId" | "uiRequest" | "events"> {
   const events = [...state.events, payload].slice(-200);
 
   switch (payload.type) {
     case "snapshot":
-      return { snapshot: payload.snapshot, uiRequest: state.uiRequest, events };
+      if (state.pendingThreadId && payload.snapshot.threadId !== state.pendingThreadId) {
+        return { ...state, events };
+      }
+      return {
+        snapshot: payload.snapshot,
+        pendingThreadId:
+          state.pendingThreadId === payload.snapshot.threadId ? null : state.pendingThreadId,
+        uiRequest: state.uiRequest,
+        events,
+      };
     case "ui-request":
       return { ...state, uiRequest: payload.request, events };
     case "ui-response":
@@ -66,7 +78,7 @@ function applyBridgeEvent(
       return {
         ...state,
         snapshot: mergeSnapshot(state.snapshot, {
-          status: { ...(state.snapshot?.status ?? {}), [payload.key]: payload.text },
+          status: { ...state.snapshot?.status, [payload.key]: payload.text },
         }),
         events,
       };
@@ -103,6 +115,7 @@ function applyBridgeEvent(
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   snapshot: null,
+  pendingThreadId: null,
   uiRequest: null,
   events: [],
   isConnecting: false,
@@ -128,7 +141,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   refresh: async () => {
     try {
       const snapshot = await window.omni.agent.getState();
-      set({ snapshot });
+      set((state) => {
+        if (state.pendingThreadId && snapshot.threadId !== state.pendingThreadId) {
+          return {};
+        }
+        return {
+          snapshot,
+          pendingThreadId:
+            state.pendingThreadId === snapshot.threadId ? null : state.pendingThreadId,
+        };
+      });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Failed to refresh agent state",
@@ -148,8 +170,39 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     await window.omni.agent.abort();
   },
   switchThread: async (threadId) => {
-    await window.omni.agent.switchThread(threadId);
-    await get().refresh();
+    if (get().snapshot?.threadId === threadId && !get().pendingThreadId) return;
+
+    const switchId = ++latestThreadSwitchId;
+    set({ pendingThreadId: threadId, error: null });
+
+    threadSwitchQueue = threadSwitchQueue
+      .catch(() => undefined)
+      .then(async () => {
+        if (switchId !== latestThreadSwitchId) return;
+
+        await window.omni.agent.switchThread(threadId);
+        const snapshot = await window.omni.agent.getState();
+
+        set(() => {
+          if (switchId !== latestThreadSwitchId) return {};
+          return {
+            snapshot,
+            pendingThreadId: snapshot.threadId === threadId ? null : threadId,
+            error: null,
+          };
+        });
+      })
+      .catch((err) => {
+        set(() => {
+          if (switchId !== latestThreadSwitchId) return {};
+          return {
+            error: err instanceof Error ? err.message : "Failed to switch thread",
+            pendingThreadId: null,
+          };
+        });
+      });
+
+    await threadSwitchQueue;
   },
   createThread: async (projectId, title) => {
     const thread = await window.omni.agent.createThread(projectId, title);
@@ -183,4 +236,3 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   getModels: () => get().snapshot?.models ?? [],
   getStats: () => get().snapshot?.stats ?? null,
 }));
-
