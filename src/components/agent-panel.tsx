@@ -369,30 +369,64 @@ export function AgentPanel() {
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
           <div className="flex-1 overflow-y-auto min-h-0">
             {!activeProject ? (
-              <div className="h-full flex flex-col items-center justify-center gap-4 p-6">
-                <div className="text-lg font-medium text-foreground/70">Pick a project to start the agent.</div>
-                <Select
-                  value={activeProjectId ?? ""}
-                  onValueChange={async (value) => {
-                    await window.omni.projects.setActive(value);
-                    await loadActiveProject();
-                    await loadThreads();
-                    await refresh();
-                  }}
-                >
-                  <SelectTrigger className="min-w-64" placeholder="Select project" />
-                  <SelectContent>
-                    {projectsList.map((project, idx) => (
-                      <SelectItem key={project.id} value={project.id} index={idx}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="h-full flex items-center justify-center p-6">
+                <div className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
+                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                    What should we cook in
+                  </span>
+                  <Select
+                    value={activeProjectId ?? ""}
+                    onValueChange={async (value) => {
+                      await window.omni.projects.setActive(value);
+                      await loadActiveProject();
+                      await loadThreads();
+                      await refresh();
+                    }}
+                  >
+                    <SelectTrigger
+                      className="min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60 hover:decoration-foreground/60 [&>svg]:hidden"
+                      placeholder="Select project"
+                    />
+                    <SelectContent>
+                      {projectsList.map((project, idx) => (
+                        <SelectItem key={project.id} value={project.id} index={idx}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
+                </div>
               </div>
             ) : activeMessages.length === 0 && !streamingMessage ? (
-              <div className="h-full flex items-center justify-center p-6 text-center text-muted-foreground">
-                Start a thread with the agent and the session stream will appear here.
+              <div className="h-full flex items-center justify-center p-6">
+                <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
+                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                    What should we cook in
+                  </span>
+                  <Select
+                    value={activeProject?.id ?? activeProjectId ?? ""}
+                    onValueChange={async (value) => {
+                      await window.omni.projects.setActive(value);
+                      await loadActiveProject();
+                      await loadThreads();
+                      await refresh();
+                    }}
+                  >
+                    <SelectTrigger
+                      className="min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60 hover:decoration-foreground/60 [&>svg]:hidden"
+                      placeholder="Select project"
+                    />
+                    <SelectContent>
+                      {projectsList.map((project, idx) => (
+                        <SelectItem key={project.id} value={project.id} index={idx}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
+                </h2>
               </div>
             ) : (
               <div className="flex flex-col gap-3 p-4">
