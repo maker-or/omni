@@ -12,7 +12,8 @@ var FILE_NAME = "launch-state.json";
 var DEFAULT_STATE = {
 	completed: false,
 	completedAt: null,
-	projectId: null
+	projectId: null,
+	threadId: null
 };
 function statePath() {
 	return join(app.getPath("userData"), FILE_NAME);
@@ -24,7 +25,8 @@ async function readLaunchState() {
 		return {
 			completed: parsed.completed === true,
 			completedAt: typeof parsed.completedAt === "string" ? parsed.completedAt : null,
-			projectId: typeof parsed.projectId === "string" ? parsed.projectId : null
+			projectId: typeof parsed.projectId === "string" ? parsed.projectId : null,
+			threadId: typeof parsed.threadId === "string" ? parsed.threadId : null
 		};
 	} catch {
 		return { ...DEFAULT_STATE };
@@ -39,12 +41,16 @@ async function markLaunchComplete(projectId) {
 	await writeLaunchState({
 		completed: true,
 		completedAt: (/* @__PURE__ */ new Date()).toISOString(),
-		projectId
+		projectId,
+		threadId: null
 	});
 }
 //#endregion
 //#region electron/db.ts
 var db = null;
+function ensureColumn(table, column, ddl) {
+	if (!(db?.prepare(`PRAGMA table_info(${table})`).all())?.some((row) => row.name === column)) db?.exec(ddl);
+}
 function getDb() {
 	if (db) return db;
 	db = new DatabaseSync(join(app.getPath("userData"), "omni.sqlite"));
@@ -62,12 +68,14 @@ function getDb() {
           id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL,
           title TEXT NOT NULL,
+          session_file TEXT,
           FOREIGN KEY (project_id) REFERENCES
   projects(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_threads_project_id
   ON threads(project_id);
       `);
+	ensureColumn("threads", "session_file", "ALTER TABLE threads ADD COLUMN session_file TEXT;");
 	db.exec(`
         CREATE TABLE IF NOT EXISTS messages (
           id TEXT PRIMARY KEY,
@@ -124,14 +132,15 @@ function getActiveProjectId() {
 function listThreads() {
 	return getDb().prepare("SELECT * FROM threads").all();
 }
-function createThread(projectId, title) {
+function createThread(projectId, title, sessionFile = null) {
 	const db = getDb();
 	const row = {
 		id: randomUUID(),
 		project_id: projectId,
-		title: title.trim()
+		title: title.trim(),
+		session_file: sessionFile
 	};
-	db.prepare("INSERT INTO threads (id, project_id, title) VALUES (?, ?, ?)").run(row.id, row.project_id, row.title);
+	db.prepare("INSERT INTO threads (id, project_id, title, session_file) VALUES (?, ?, ?, ?)").run(row.id, row.project_id, row.title, row.session_file);
 	return row;
 }
 function deleteThread(id) {

@@ -1,4 +1,4 @@
-import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-BfMdRrNR.js";
+import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-Fkyh1dzw.js";
 //#region node_modules/react-resizable-panels/dist/react-resizable-panels.js
 var import_client = require_client();
 var import_compiler_runtime = require_compiler_runtime();
@@ -2450,7 +2450,7 @@ var e$32 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowElbowDownRight.es.js
-var a$22 = /* @__PURE__ */ new Map([
+var a$21 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224.49,184.49l-48,48a12,12,0,0,1-17-17L187,188H72a12,12,0,0,1-12-12V32a12,12,0,0,1,24,0V164H187l-27.52-27.51a12,12,0,1,1,17-17l48,48A12,12,0,0,1,224.49,184.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,176l-48,48V128Z",
@@ -2463,7 +2463,7 @@ var a$22 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowLeft.es.js
-var a$21 = /* @__PURE__ */ new Map([
+var a$20 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H69l51.52,51.51a12,12,0,0,1-17,17l-72-72a12,12,0,0,1,0-17l72-72a12,12,0,0,1,17,17L69,116H216A12,12,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M112,56V200L40,128Z",
@@ -2476,7 +2476,7 @@ var a$21 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowRight.es.js
-var a$20 = /* @__PURE__ */ new Map([
+var a$19 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224.49,136.49l-72,72a12,12,0,0,1-17-17L187,140H40a12,12,0,0,1,0-24H187L135.51,64.48a12,12,0,0,1,17-17l72,72A12,12,0,0,1,224.49,136.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,128l-72,72V56Z",
@@ -2489,7 +2489,7 @@ var a$20 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowUp.es.js
-var a$19 = /* @__PURE__ */ new Map([
+var a$18 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M200,112H56l72-72Z",
@@ -2567,7 +2567,7 @@ var t$6 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ChatCircle.es.js
-var a$18 = /* @__PURE__ */ new Map([
+var a$17 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,0,0,31.85,177.23L21,209.66A20,20,0,0,0,46.34,235l32.43-10.81A108,108,0,1,0,128,20Zm0,192a84,84,0,0,1-42.06-11.27,12,12,0,0,0-6-1.62,12.1,12.1,0,0,0-3.8.62l-29.79,9.93,9.93-29.79a12,12,0,0,0-1-9.81A84,84,0,1,1,128,212Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128A96,96,0,0,1,79.93,211.11h0L42.54,223.58a8,8,0,0,1-10.12-10.12l12.47-37.39h0A96,96,0,1,1,224,128Z",
@@ -2580,7 +2580,7 @@ var a$18 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Check.es.js
-var a$17 = /* @__PURE__ */ new Map([
+var a$16 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M232.49,80.49l-128,128a12,12,0,0,1-17,0l-56-56a12,12,0,1,1,17-17L96,183,215.51,63.51a12,12,0,0,1,17,17Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M232,56V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56Z",
@@ -2606,7 +2606,7 @@ var t$5 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Clock.es.js
-var a$16 = /* @__PURE__ */ new Map([
+var a$15 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm68-84a12,12,0,0,1-12,12H128a12,12,0,0,1-12-12V72a12,12,0,0,1,24,0v44h44A12,12,0,0,1,196,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128a96,96,0,1,1-96-96A96,96,0,0,1,224,128Z",
@@ -2645,7 +2645,7 @@ var t$4 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Envelope.es.js
-var a$15 = /* @__PURE__ */ new Map([
+var a$14 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224,44H32A12,12,0,0,0,20,56V192a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A12,12,0,0,0,224,44Zm-96,83.72L62.85,68h130.3ZM92.79,128,44,172.72V83.28Zm17.76,16.28,9.34,8.57a12,12,0,0,0,16.22,0l9.34-8.57L193.15,188H62.85ZM163.21,128,212,83.28v89.44Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56l-96,88L32,56Z",
@@ -2710,7 +2710,7 @@ var e$26 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Heart.es.js
-var a$14 = /* @__PURE__ */ new Map([
+var a$13 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M178,36c-20.09,0-37.92,7.93-50,21.56C115.92,43.93,98.09,36,78,36a66.08,66.08,0,0,0-66,66c0,72.34,105.81,130.14,110.31,132.57a12,12,0,0,0,11.38,0C138.19,232.14,244,174.34,244,102A66.08,66.08,0,0,0,178,36Zm-5.49,142.36A328.69,328.69,0,0,1,128,210.16a328.69,328.69,0,0,1-44.51-31.8C61.82,159.77,36,131.42,36,102A42,42,0,0,1,78,60c17.8,0,32.7,9.4,38.89,24.54a12,12,0,0,0,22.22,0C145.3,69.4,160.2,60,178,60a42,42,0,0,1,42,42C220,131.42,194.18,159.77,172.51,178.36Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M232,102c0,66-104,122-104,122S24,168,24,102A54,54,0,0,1,78,48c22.59,0,41.94,12.31,50,32,8.06-19.69,27.41-32,50-32A54,54,0,0,1,232,102Z",
@@ -2801,7 +2801,7 @@ var e$20 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/MagnifyingGlass.es.js
-var a$13 = /* @__PURE__ */ new Map([
+var a$12 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M232.49,215.51,185,168a92.12,92.12,0,1,0-17,17l47.53,47.54a12,12,0,0,0,17-17ZM44,112a68,68,0,1,1,68,68A68.07,68.07,0,0,1,44,112Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M192,112a80,80,0,1,1-80-80A80,80,0,0,1,192,112Z",
@@ -2827,7 +2827,7 @@ var e$19 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Moon.es.js
-var a$12 = /* @__PURE__ */ new Map([
+var a$11 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M236.37,139.4a12,12,0,0,0-12-3A84.07,84.07,0,0,1,119.6,31.59a12,12,0,0,0-15-15A108.86,108.86,0,0,0,49.69,55.07,108,108,0,0,0,136,228a107.09,107.09,0,0,0,64.93-21.69,108.86,108.86,0,0,0,38.44-54.94A12,12,0,0,0,236.37,139.4Zm-49.88,47.74A84,84,0,0,1,68.86,69.51,84.93,84.93,0,0,1,92.27,48.29Q92,52.13,92,56A108.12,108.12,0,0,0,200,164q3.87,0,7.71-.27A84.79,84.79,0,0,1,186.49,187.14Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M227.89,147.89A96,96,0,1,1,108.11,28.11,96.09,96.09,0,0,0,227.89,147.89Z",
@@ -2840,7 +2840,7 @@ var a$12 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/PaintBrush.es.js
-var a$11 = /* @__PURE__ */ new Map([
+var a$10 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M236,32a12,12,0,0,0-12-12c-44.78,0-90,48.54-115.9,82a64,64,0,0,0-80,62c0,12-3.1,22.71-9.23,31.76A43,43,0,0,1,9.4,206.05a11.88,11.88,0,0,0-4.91,13.38A12.07,12.07,0,0,0,16.11,228h76A64,64,0,0,0,154,148C187.49,122.05,236,76.8,236,32ZM209.62,46.39c-4,12.92-13.15,27.49-26.92,42.91-3,3.39-6.16,6.7-9.35,9.89a104.31,104.31,0,0,0-16.5-16.51c3.19-3.19,6.49-6.32,9.88-9.35C182.15,59.55,196.71,50.43,209.62,46.39ZM92.07,204H42a80.17,80.17,0,0,0,10.14-40,40,40,0,1,1,40,40Zm38.18-91.32c3.12-3.93,6.55-8.09,10.23-12.35a80.52,80.52,0,0,1,15.23,15.24c-4.26,3.68-8.42,7.11-12.35,10.23A64.43,64.43,0,0,0,130.25,112.68Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,32c0,32.81-31.64,67.43-58.64,91.05A84.39,84.39,0,0,0,133,90.64C156.57,63.64,191.19,32,224,32Z",
@@ -2879,7 +2879,7 @@ var e$17 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Pencil.es.js
-var a$10 = /* @__PURE__ */ new Map([
+var a$9 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM93,180l71-71,11,11-71,71ZM76,163,65,152l71-71,11,11ZM52,173l15.51,15.51h0L83,204H52ZM192,103,153,64l18.34-18.34,39,39Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M221.66,90.34,192,120,136,64l29.66-29.66a8,8,0,0,1,11.31,0L221.66,79A8,8,0,0,1,221.66,90.34Z",
@@ -2892,7 +2892,7 @@ var a$10 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Play.es.js
-var a$9 = /* @__PURE__ */ new Map([
+var a$8 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M234.49,111.07,90.41,22.94A20,20,0,0,0,60,39.87V216.13a20,20,0,0,0,30.41,16.93l144.08-88.13a19.82,19.82,0,0,0,0-33.86ZM84,208.85V47.15L216.16,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M228.23,134.69,84.15,222.81A8,8,0,0,1,72,216.12V39.88a8,8,0,0,1,12.15-6.69l144.08,88.12A7.82,7.82,0,0,1,228.23,134.69Z",
@@ -2905,7 +2905,7 @@ var a$9 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Plus.es.js
-var a$8 = /* @__PURE__ */ new Map([
+var a$7 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,56V200a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V56A16,16,0,0,1,56,40H200A16,16,0,0,1,216,56Z",
@@ -2918,7 +2918,7 @@ var a$8 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Rectangle.es.js
-var a$7 = /* @__PURE__ */ new Map([
+var a$6 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,36H40A20,20,0,0,0,20,56V200a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36Zm-4,160H44V60H212Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56V200a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V56a8,8,0,0,1,8-8H216A8,8,0,0,1,224,56Z",
@@ -2944,7 +2944,7 @@ var e$16 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Shield.es.js
-var a$6 = /* @__PURE__ */ new Map([
+var a$5 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208,36H48A20,20,0,0,0,28,56v56c0,54.29,26.32,87.22,48.4,105.29,23.71,19.39,47.44,26,48.44,26.29a12.1,12.1,0,0,0,6.32,0c1-.28,24.73-6.9,48.44-26.29,22.08-18.07,48.4-51,48.4-105.29V56A20,20,0,0,0,208,36Zm-4,76c0,35.71-13.09,64.69-38.91,86.15A126.28,126.28,0,0,1,128,219.38a126.14,126.14,0,0,1-37.09-21.23C65.09,176.69,52,147.71,52,112V60H204Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,56v56c0,96-88,120-88,120S40,208,40,112V56a8,8,0,0,1,8-8H208A8,8,0,0,1,216,56Z",
@@ -2957,7 +2957,7 @@ var a$6 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/SkipForward.es.js
-var a$5 = /* @__PURE__ */ new Map([
+var a$4 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M200,28a12,12,0,0,0-12,12v62l-113.45-71A20,20,0,0,0,44,47.88V208.12A20,20,0,0,0,74.55,225L188,154v62a12,12,0,0,0,24,0V40A12,12,0,0,0,200,28ZM68,200.73V55.27L184.3,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M196.3,134.65,68.19,214.77A8,8,0,0,1,56,208.12V47.88a8,8,0,0,1,12.19-6.65L196.3,121.35A7.83,7.83,0,0,1,196.3,134.65Z",
@@ -3006,19 +3006,6 @@ var e$14 = /* @__PURE__ */ new Map([
 	["light", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M122,40V16a6,6,0,0,1,12,0V40a6,6,0,0,1-12,0Zm68,88a62,62,0,1,1-62-62A62.07,62.07,0,0,1,190,128Zm-12,0a50,50,0,1,0-50,50A50.06,50.06,0,0,0,178,128ZM59.76,68.24a6,6,0,1,0,8.48-8.48l-16-16a6,6,0,0,0-8.48,8.48Zm0,119.52-16,16a6,6,0,1,0,8.48,8.48l16-16a6,6,0,1,0-8.48-8.48ZM192,70a6,6,0,0,0,4.24-1.76l16-16a6,6,0,0,0-8.48-8.48l-16,16A6,6,0,0,0,192,70Zm4.24,117.76a6,6,0,0,0-8.48,8.48l16,16a6,6,0,0,0,8.48-8.48ZM46,128a6,6,0,0,0-6-6H16a6,6,0,0,0,0,12H40A6,6,0,0,0,46,128Zm82,82a6,6,0,0,0-6,6v24a6,6,0,0,0,12,0V216A6,6,0,0,0,128,210Zm112-88H216a6,6,0,0,0,0,12h24a6,6,0,0,0,0-12Z" }))],
 	["regular", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z" }))],
 	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M124,40V16a4,4,0,0,1,8,0V40a4,4,0,0,1-8,0Zm64,88a60,60,0,1,1-60-60A60.07,60.07,0,0,1,188,128Zm-8,0a52,52,0,1,0-52,52A52.06,52.06,0,0,0,180,128ZM61.17,66.83a4,4,0,0,0,5.66-5.66l-16-16a4,4,0,0,0-5.66,5.66Zm0,122.34-16,16a4,4,0,0,0,5.66,5.66l16-16a4,4,0,0,0-5.66-5.66ZM192,68a4,4,0,0,0,2.83-1.17l16-16a4,4,0,1,0-5.66-5.66l-16,16A4,4,0,0,0,192,68Zm2.83,121.17a4,4,0,0,0-5.66,5.66l16,16a4,4,0,0,0,5.66-5.66ZM40,124H16a4,4,0,0,0,0,8H40a4,4,0,0,0,0-8Zm88,88a4,4,0,0,0-4,4v24a4,4,0,0,0,8,0V216A4,4,0,0,0,128,212Zm112-88H216a4,4,0,0,0,0,8h24a4,4,0,0,0,0-8Z" }))]
-]);
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/defs/Terminal.es.js
-var a$4 = /* @__PURE__ */ new Map([
-	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M120,137,48,201A12,12,0,1,1,32,183l61.91-55L32,73A12,12,0,1,1,48,55l72,64A12,12,0,0,1,120,137Zm96,43H120a12,12,0,0,0,0,24h96a12,12,0,0,0,0-24Z" }))],
-	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
-		d: "M216,80V192H40V64H200A16,16,0,0,1,216,80Z",
-		opacity: "0.2"
-	}), /* @__PURE__ */ import_react.createElement("path", { d: "M117.31,134l-72,64a8,8,0,1,1-10.63-12L100,128,34.69,70A8,8,0,1,1,45.32,58l72,64a8,8,0,0,1,0,12ZM216,184H120a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Z" }))],
-	["fill", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM77.66,173.66a8,8,0,0,1-11.32-11.32L100.69,128,66.34,93.66A8,8,0,0,1,77.66,82.34l40,40a8,8,0,0,1,0,11.32ZM192,176H128a8,8,0,0,1,0-16h64a8,8,0,0,1,0,16Z" }))],
-	["light", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,132.48l-72,64a6,6,0,0,1-8-9L103,128,36,68.49a6,6,0,0,1,8-9l72,64a6,6,0,0,1,0,9ZM216,186H120a6,6,0,0,0,0,12h96a6,6,0,0,0,0-12Z" }))],
-	["regular", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M117.31,134l-72,64a8,8,0,1,1-10.63-12L100,128,34.69,70A8,8,0,1,1,45.32,58l72,64a8,8,0,0,1,0,12ZM216,184H120a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Z" }))],
-	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,128a4,4,0,0,1-1.34,3l-72,64a4,4,0,1,1-5.32-6L106,128,37.34,67a4,4,0,0,1,5.32-6l72,64A4,4,0,0,1,116,128Zm100,60H120a4,4,0,0,0,0,8h96a4,4,0,0,0,0-8Z" }))]
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Tray.es.js
@@ -3086,16 +3073,16 @@ var i = r$10;
 var r$9 = import_react.forwardRef((t, w) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: w,
 	...t,
-	weights: a$22
+	weights: a$21
 }));
 r$9.displayName = "ArrowElbowDownRightIcon";
-var m$3 = r$9;
+var m$2 = r$9;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/ArrowLeft.es.js
 var r$8 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: a$21
+	weights: a$20
 }));
 r$8.displayName = "ArrowLeftIcon";
 var s$14 = r$8;
@@ -3104,7 +3091,7 @@ var s$14 = r$8;
 var r$7 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...t,
-	weights: a$20
+	weights: a$19
 }));
 r$7.displayName = "ArrowRightIcon";
 var s$13 = r$7;
@@ -3113,19 +3100,19 @@ var s$13 = r$7;
 var r$6 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: a$19
+	weights: a$18
 }));
 r$6.displayName = "ArrowUpIcon";
 var s$12 = r$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Bell.es.js
-var o$17 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$16 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
 	weights: e$31
 }));
-o$17.displayName = "BellIcon";
-var s$11 = o$17;
+o$16.displayName = "BellIcon";
+var s$11 = o$16;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Books.es.js
 var e$12 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3143,7 +3130,7 @@ var r$5 = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createE
 	weights: e$29
 }));
 r$5.displayName = "BrainIcon";
-var c$9 = r$5;
+var c$8 = r$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/CaretDown.es.js
 var e$11 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3164,40 +3151,40 @@ e$10.displayName = "CaretRightIcon";
 var s$9 = e$10;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/ChatCircle.es.js
-var o$16 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$15 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$18
-}));
-o$16.displayName = "ChatCircleIcon";
-var s$8 = o$16;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Check.es.js
-var o$15 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: r,
-	...c,
 	weights: a$17
 }));
-o$15.displayName = "CheckIcon";
-var n$16 = o$15;
+o$15.displayName = "ChatCircleIcon";
+var s$8 = o$15;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Check.es.js
+var o$14 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: r,
+	...c,
+	weights: a$16
+}));
+o$14.displayName = "CheckIcon";
+var n$16 = o$14;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Circle.es.js
-var o$14 = import_react.forwardRef((r, c) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$13 = import_react.forwardRef((r, c) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: c,
 	...r,
 	weights: t$5
 }));
-o$14.displayName = "CircleIcon";
-var s$7 = o$14;
+o$13.displayName = "CircleIcon";
+var s$7 = o$13;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Clock.es.js
-var c$8 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var c$7 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: a$16
+	weights: a$15
 }));
-c$8.displayName = "ClockIcon";
-var n$15 = c$8;
+c$7.displayName = "ClockIcon";
+var n$15 = c$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Copy.es.js
 var e$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3215,25 +3202,25 @@ var t$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createE
 	weights: t$4
 }));
 t$3.displayName = "DotOutlineIcon";
-var c$7 = t$3;
+var c$6 = t$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Envelope.es.js
-var o$13 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$12 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$15
+	weights: a$14
 }));
-o$13.displayName = "EnvelopeIcon";
-var c$6 = o$13;
+o$12.displayName = "EnvelopeIcon";
+var c$5 = o$12;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Eyedropper.es.js
-var o$12 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$11 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: p,
 	...r,
 	weights: l$2
 }));
-o$12.displayName = "EyedropperIcon";
-var s$5 = o$12;
+o$11.displayName = "EyedropperIcon";
+var s$5 = o$11;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/FolderPlus.es.js
 var e$8 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3242,16 +3229,15 @@ var e$8 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createE
 	weights: e$27
 }));
 e$8.displayName = "FolderPlusIcon";
-var m$2 = e$8;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Gear.es.js
-var o$11 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$10 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...r,
 	weights: l$1
 }));
-o$11.displayName = "GearIcon";
-var n$14 = o$11;
+o$10.displayName = "GearIcon";
+var n$14 = o$10;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Globe.es.js
 var e$7 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3263,13 +3249,13 @@ e$7.displayName = "GlobeIcon";
 var n$13 = e$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Heart.es.js
-var o$10 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$14
+	weights: a$13
 }));
-o$10.displayName = "HeartIcon";
-var n$12 = o$10;
+o$9.displayName = "HeartIcon";
+var n$12 = o$9;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/House.es.js
 var e$6 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3281,13 +3267,13 @@ e$6.displayName = "HouseIcon";
 var n$11 = e$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Image.es.js
-var o$9 = import_react.forwardRef((a, m) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$8 = import_react.forwardRef((a, m) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: m,
 	...a,
 	weights: e$24
 }));
-o$9.displayName = "ImageIcon";
-var I = o$9;
+o$8.displayName = "ImageIcon";
+var I = o$8;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Lightbulb.es.js
 var t$2 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3305,7 +3291,7 @@ var e$5 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createE
 	weights: e$22
 }));
 e$5.displayName = "LinkIcon";
-var c$5 = e$5;
+var c$4 = e$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/List.es.js
 var t$1 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3314,25 +3300,25 @@ var t$1 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createE
 	weights: e$21
 }));
 t$1.displayName = "ListIcon";
-var c$4 = t$1;
+var c$3 = t$1;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Lock.es.js
-var c$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var c$2 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
 	weights: e$20
 }));
-c$3.displayName = "LockIcon";
-var n$10 = c$3;
+c$2.displayName = "LockIcon";
+var n$10 = c$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/MagnifyingGlass.es.js
-var o$8 = import_react.forwardRef((s, n) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$7 = import_react.forwardRef((s, n) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: n,
 	...s,
-	weights: a$13
+	weights: a$12
 }));
-o$8.displayName = "MagnifyingGlassIcon";
-var f = o$8;
+o$7.displayName = "MagnifyingGlassIcon";
+var f = o$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Monitor.es.js
 var r$4 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3341,13 +3327,13 @@ var r$4 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createE
 	weights: e$19
 }));
 r$4.displayName = "MonitorIcon";
-var c$2 = r$4;
+var c$1 = r$4;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Moon.es.js
 var e$4 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$12
+	weights: a$11
 }));
 e$4.displayName = "MoonIcon";
 var s$3 = e$4;
@@ -3356,7 +3342,7 @@ var s$3 = e$4;
 var r$3 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...t,
-	weights: a$11
+	weights: a$10
 }));
 r$3.displayName = "PaintBrushIcon";
 var m$1 = r$3;
@@ -3371,28 +3357,28 @@ t.displayName = "PaletteIcon";
 var n$9 = t;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Pause.es.js
-var o$7 = import_react.forwardRef((a, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$6 = import_react.forwardRef((a, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...a,
 	weights: e$17
 }));
-o$7.displayName = "PauseIcon";
-var n$8 = o$7;
+o$6.displayName = "PauseIcon";
+var n$8 = o$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Pencil.es.js
-var o$6 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$5 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...c,
-	weights: a$10
+	weights: a$9
 }));
-o$6.displayName = "PencilIcon";
-var m = o$6;
+o$5.displayName = "PencilIcon";
+var m = o$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Play.es.js
 var a = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: a$9
+	weights: a$8
 }));
 a.displayName = "PlayIcon";
 var n$7 = a;
@@ -3401,19 +3387,19 @@ var n$7 = a;
 var e$3 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: s,
 	...r,
-	weights: a$8
+	weights: a$7
 }));
 e$3.displayName = "PlusIcon";
 var n$6 = e$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Rectangle.es.js
-var o$5 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$4 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...t,
-	weights: a$7
+	weights: a$6
 }));
-o$5.displayName = "RectangleIcon";
-var s$2 = o$5;
+o$4.displayName = "RectangleIcon";
+var s$2 = o$4;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Rocket.es.js
 var e$2 = import_react.forwardRef((t, c) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3425,31 +3411,31 @@ e$2.displayName = "RocketIcon";
 var n$5 = e$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Shield.es.js
-var o$4 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$3 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$6
+	weights: a$5
 }));
-o$4.displayName = "ShieldIcon";
-var s$1 = o$4;
+o$3.displayName = "ShieldIcon";
+var s$1 = o$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/SkipForward.es.js
 var r$2 = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...a,
-	weights: a$5
+	weights: a$4
 }));
 r$2.displayName = "SkipForwardIcon";
-var c$1 = r$2;
+var c = r$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Spinner.es.js
-var o$3 = import_react.forwardRef((r, n) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$2 = import_react.forwardRef((r, n) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: n,
 	...r,
 	weights: e$15
 }));
-o$3.displayName = "SpinnerIcon";
-var p = o$3;
+o$2.displayName = "SpinnerIcon";
+var p = o$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Star.es.js
 var r$1 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3468,15 +3454,6 @@ var e$1 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createE
 }));
 e$1.displayName = "SunIcon";
 var s = e$1;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Terminal.es.js
-var o$2 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: a,
-	...r,
-	weights: a$4
-}));
-o$2.displayName = "TerminalIcon";
-var c = o$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Tray.es.js
 var r = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -8841,196 +8818,196 @@ var iconMap = {
 	lucide: {
 		"chevron-right": ChevronRight,
 		"chevron-down": ChevronDown,
-		pipette: Pipette,
-		x: X,
-		copy: Copy,
-		menu: Menu,
-		dot: Dot,
-		monitor: Monitor,
-		sun: Sun,
-		moon: Moon,
+		"pipette": Pipette,
+		"x": X,
+		"copy": Copy,
+		"menu": Menu,
+		"dot": Dot,
+		"monitor": Monitor,
+		"sun": Sun,
+		"moon": Moon,
 		"rectangle-horizontal": RectangleHorizontal,
-		circle: Circle,
+		"circle": Circle,
 		"square-library": SquareLibrary,
-		clock: Clock,
-		star: Star,
-		settings: Settings,
-		plus: Plus,
+		"clock": Clock,
+		"star": Star,
+		"settings": Settings,
+		"plus": Plus,
 		"arrow-left": ArrowLeft,
 		"arrow-right": ArrowRight,
 		"arrow-up": ArrowUp,
-		search: Search,
-		loader: Loader,
-		users: Users,
-		lock: Lock,
-		mail: Mail,
-		bell: Bell,
-		shield: Shield,
-		palette: Palette,
-		lightbulb: Lightbulb,
-		rocket: Rocket,
-		heart: Heart,
-		paintbrush: Paintbrush,
-		brain: Brain,
-		globe: Globe,
-		user: User,
-		image: Image,
-		link: Link,
-		check: Check,
+		"search": Search,
+		"loader": Loader,
+		"users": Users,
+		"lock": Lock,
+		"mail": Mail,
+		"bell": Bell,
+		"shield": Shield,
+		"palette": Palette,
+		"lightbulb": Lightbulb,
+		"rocket": Rocket,
+		"heart": Heart,
+		"paintbrush": Paintbrush,
+		"brain": Brain,
+		"globe": Globe,
+		"user": User,
+		"image": Image,
+		"link": Link,
+		"check": Check,
 		"rotate-ccw": RotateCcw,
-		play: Play,
-		pause: Pause,
-		home: House,
+		"play": Play,
+		"pause": Pause,
+		"home": House,
 		"message-circle": MessageCircle,
-		inbox: Inbox,
-		pencil: Pencil,
+		"inbox": Inbox,
+		"pencil": Pencil,
 		"skip-forward": SkipForward,
 		"corner-down-right": CornerDownRight
 	},
 	tabler: {
 		"chevron-right": tabler(IconChevronRight),
 		"chevron-down": tabler(IconChevronDown),
-		pipette: tabler(IconColorPicker),
-		x: tabler(IconX),
-		copy: tabler(IconCopy),
-		menu: tabler(IconMenu2),
-		dot: tabler(IconPoint),
-		monitor: tabler(IconDeviceDesktop),
-		sun: tabler(IconSun),
-		moon: tabler(IconMoon),
+		"pipette": tabler(IconColorPicker),
+		"x": tabler(IconX),
+		"copy": tabler(IconCopy),
+		"menu": tabler(IconMenu2),
+		"dot": tabler(IconPoint),
+		"monitor": tabler(IconDeviceDesktop),
+		"sun": tabler(IconSun),
+		"moon": tabler(IconMoon),
 		"rectangle-horizontal": tabler(IconSquare),
-		circle: tabler(IconCircle),
+		"circle": tabler(IconCircle),
 		"square-library": tabler(IconLibrary),
-		clock: tabler(IconClock),
-		star: tabler(IconStar),
-		settings: tabler(IconSettings),
-		plus: tabler(IconPlus),
+		"clock": tabler(IconClock),
+		"star": tabler(IconStar),
+		"settings": tabler(IconSettings),
+		"plus": tabler(IconPlus),
 		"arrow-left": tabler(IconArrowLeft),
 		"arrow-right": tabler(IconArrowRight),
 		"arrow-up": tabler(IconArrowUp),
-		search: tabler(IconSearch),
-		loader: tabler(IconLoader2),
-		users: tabler(IconUsers),
-		lock: tabler(IconLock),
-		mail: tabler(IconMail),
-		bell: tabler(IconBell),
-		shield: tabler(IconShield),
-		palette: tabler(IconPalette),
-		lightbulb: tabler(IconBulb),
-		rocket: tabler(IconRocket),
-		heart: tabler(IconHeart),
-		paintbrush: tabler(IconBrush),
-		brain: tabler(IconBrain),
-		globe: tabler(IconGlobe),
-		user: tabler(IconUser),
-		image: tabler(IconPhoto),
-		link: tabler(IconLink),
-		check: tabler(IconCheck),
+		"search": tabler(IconSearch),
+		"loader": tabler(IconLoader2),
+		"users": tabler(IconUsers),
+		"lock": tabler(IconLock),
+		"mail": tabler(IconMail),
+		"bell": tabler(IconBell),
+		"shield": tabler(IconShield),
+		"palette": tabler(IconPalette),
+		"lightbulb": tabler(IconBulb),
+		"rocket": tabler(IconRocket),
+		"heart": tabler(IconHeart),
+		"paintbrush": tabler(IconBrush),
+		"brain": tabler(IconBrain),
+		"globe": tabler(IconGlobe),
+		"user": tabler(IconUser),
+		"image": tabler(IconPhoto),
+		"link": tabler(IconLink),
+		"check": tabler(IconCheck),
 		"rotate-ccw": tabler(IconRotate2),
-		play: tabler(IconPlayerPlay),
-		pause: tabler(IconPlayerPause),
-		home: tabler(IconHome),
+		"play": tabler(IconPlayerPlay),
+		"pause": tabler(IconPlayerPause),
+		"home": tabler(IconHome),
 		"message-circle": tabler(IconMessageCircle),
-		inbox: tabler(IconInbox),
-		pencil: tabler(IconPencil),
+		"inbox": tabler(IconInbox),
+		"pencil": tabler(IconPencil),
 		"skip-forward": tabler(IconPlayerSkipForward),
 		"corner-down-right": tabler(IconCornerDownRight)
 	},
 	phosphor: {
 		"chevron-right": phosphor(s$9),
 		"chevron-down": phosphor(s$10),
-		pipette: phosphor(s$5),
-		x: phosphor(n),
-		copy: phosphor(s$6),
-		menu: phosphor(c$4),
-		dot: phosphor(c$7),
-		monitor: phosphor(c$2),
-		sun: phosphor(s),
-		moon: phosphor(s$3),
+		"pipette": phosphor(s$5),
+		"x": phosphor(n),
+		"copy": phosphor(s$6),
+		"menu": phosphor(c$3),
+		"dot": phosphor(c$6),
+		"monitor": phosphor(c$1),
+		"sun": phosphor(s),
+		"moon": phosphor(s$3),
 		"rectangle-horizontal": phosphor(s$2),
-		circle: phosphor(s$7),
+		"circle": phosphor(s$7),
 		"square-library": phosphor(n$17),
-		clock: phosphor(n$15),
-		star: phosphor(n$4),
-		settings: phosphor(n$14),
-		plus: phosphor(n$6),
+		"clock": phosphor(n$15),
+		"star": phosphor(n$4),
+		"settings": phosphor(n$14),
+		"plus": phosphor(n$6),
 		"arrow-left": phosphor(s$14),
 		"arrow-right": phosphor(s$13),
 		"arrow-up": phosphor(s$12),
-		search: phosphor(f),
-		loader: phosphor(p),
-		users: phosphor(n$1),
-		lock: phosphor(n$10),
-		mail: phosphor(c$6),
-		bell: phosphor(s$11),
-		shield: phosphor(s$1),
-		palette: phosphor(n$9),
-		lightbulb: phosphor(s$4),
-		rocket: phosphor(n$5),
-		heart: phosphor(n$12),
-		paintbrush: phosphor(m$1),
-		brain: phosphor(c$9),
-		globe: phosphor(n$13),
-		user: phosphor(n$2),
-		image: phosphor(I),
-		link: phosphor(c$5),
-		check: phosphor(n$16),
+		"search": phosphor(f),
+		"loader": phosphor(p),
+		"users": phosphor(n$1),
+		"lock": phosphor(n$10),
+		"mail": phosphor(c$5),
+		"bell": phosphor(s$11),
+		"shield": phosphor(s$1),
+		"palette": phosphor(n$9),
+		"lightbulb": phosphor(s$4),
+		"rocket": phosphor(n$5),
+		"heart": phosphor(n$12),
+		"paintbrush": phosphor(m$1),
+		"brain": phosphor(c$8),
+		"globe": phosphor(n$13),
+		"user": phosphor(n$2),
+		"image": phosphor(I),
+		"link": phosphor(c$4),
+		"check": phosphor(n$16),
 		"rotate-ccw": phosphor(i),
-		play: phosphor(n$7),
-		pause: phosphor(n$8),
-		home: phosphor(n$11),
+		"play": phosphor(n$7),
+		"pause": phosphor(n$8),
+		"home": phosphor(n$11),
 		"message-circle": phosphor(s$8),
-		inbox: phosphor(n$3),
-		pencil: phosphor(m),
-		"skip-forward": phosphor(c$1),
-		"corner-down-right": phosphor(m$3)
+		"inbox": phosphor(n$3),
+		"pencil": phosphor(m),
+		"skip-forward": phosphor(c),
+		"corner-down-right": phosphor(m$2)
 	},
 	hugeicons: {
 		"chevron-right": hugeicons(ArrowRight01Icon),
 		"chevron-down": hugeicons(ArrowDown01Icon),
-		pipette: hugeicons(DropperIcon),
-		x: hugeicons(Cancel01Icon),
-		copy: hugeicons(Copy01Icon),
-		menu: hugeicons(Menu01Icon),
-		dot: hugeicons(CircleIcon),
-		monitor: hugeicons(ComputerIcon),
-		sun: hugeicons(Sun01Icon),
-		moon: hugeicons(Moon01Icon),
+		"pipette": hugeicons(DropperIcon),
+		"x": hugeicons(Cancel01Icon),
+		"copy": hugeicons(Copy01Icon),
+		"menu": hugeicons(Menu01Icon),
+		"dot": hugeicons(CircleIcon),
+		"monitor": hugeicons(ComputerIcon),
+		"sun": hugeicons(Sun01Icon),
+		"moon": hugeicons(Moon01Icon),
 		"rectangle-horizontal": hugeicons(DashboardCircleIcon),
-		circle: hugeicons(CircleIcon),
+		"circle": hugeicons(CircleIcon),
 		"square-library": hugeicons(LibraryIcon),
-		clock: hugeicons(Clock01Icon),
-		star: hugeicons(StarIcon),
-		settings: hugeicons(Settings01Icon),
-		plus: hugeicons(PlusSignIcon),
+		"clock": hugeicons(Clock01Icon),
+		"star": hugeicons(StarIcon),
+		"settings": hugeicons(Settings01Icon),
+		"plus": hugeicons(PlusSignIcon),
 		"arrow-left": hugeicons(ArrowLeft01Icon),
 		"arrow-right": hugeicons(ArrowRight01Icon),
 		"arrow-up": hugeicons(ArrowUp01Icon),
-		search: hugeicons(Search01Icon),
-		loader: hugeicons(Loading01Icon),
-		users: hugeicons(UserGroupIcon),
-		lock: hugeicons(LockIcon),
-		mail: hugeicons(Mail01Icon),
-		bell: hugeicons(Notification01Icon),
-		shield: hugeicons(Shield01Icon),
-		palette: hugeicons(PaintBrush01Icon),
-		lightbulb: hugeicons(BulbIcon),
-		rocket: hugeicons(Rocket01Icon),
-		heart: hugeicons(FavouriteIcon),
-		paintbrush: hugeicons(PaintBrush02Icon),
-		brain: hugeicons(BrainIcon),
-		globe: hugeicons(GlobeIcon),
-		user: hugeicons(UserIcon),
-		image: hugeicons(Image01Icon),
-		link: hugeicons(Link01Icon),
-		check: hugeicons(Tick02Icon),
+		"search": hugeicons(Search01Icon),
+		"loader": hugeicons(Loading01Icon),
+		"users": hugeicons(UserGroupIcon),
+		"lock": hugeicons(LockIcon),
+		"mail": hugeicons(Mail01Icon),
+		"bell": hugeicons(Notification01Icon),
+		"shield": hugeicons(Shield01Icon),
+		"palette": hugeicons(PaintBrush01Icon),
+		"lightbulb": hugeicons(BulbIcon),
+		"rocket": hugeicons(Rocket01Icon),
+		"heart": hugeicons(FavouriteIcon),
+		"paintbrush": hugeicons(PaintBrush02Icon),
+		"brain": hugeicons(BrainIcon),
+		"globe": hugeicons(GlobeIcon),
+		"user": hugeicons(UserIcon),
+		"image": hugeicons(Image01Icon),
+		"link": hugeicons(Link01Icon),
+		"check": hugeicons(Tick02Icon),
 		"rotate-ccw": hugeicons(ArrowReloadHorizontalIcon),
-		play: Play,
-		pause: Pause,
-		home: hugeicons(Home01Icon),
+		"play": Play,
+		"pause": Pause,
+		"home": hugeicons(Home01Icon),
 		"message-circle": hugeicons(BubbleChatIcon),
-		inbox: hugeicons(InboxIcon),
-		pencil: hugeicons(PencilEdit01Icon),
+		"inbox": hugeicons(InboxIcon),
+		"pencil": hugeicons(PencilEdit01Icon),
 		"skip-forward": hugeicons(NextIcon),
 		"corner-down-right": hugeicons(ArrowMoveDownRightIcon)
 	}
@@ -9111,7 +9088,7 @@ var __vitePreload = function preload(baseModule, deps, importerUrl) {
 //#region @/components/ui/file-thumbnail.tsx
 var pdfjsPromise = null;
 async function loadPdfjs() {
-	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-DhGARAPr.js").then((mod) => {
+	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-CvgNq6y_.js").then((mod) => {
 		if (!mod.GlobalWorkerOptions.workerSrc) mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${mod.version}/build/pdf.worker.min.mjs`;
 		return mod;
 	}), [], import.meta.url);
@@ -9174,7 +9151,7 @@ function FileThumbnail(t0) {
 			let cancelled = false;
 			renderPdfFirstPage(file, size).then((url_0) => {
 				if (!cancelled) setPdfUrl(url_0);
-			}).catch(_temp$1);
+			}).catch(_temp$2);
 			return () => {
 				cancelled = true;
 			};
@@ -9243,7 +9220,7 @@ function FileThumbnail(t0) {
 	} else t9 = $[22];
 	return t9;
 }
-function _temp$1() {}
+function _temp$2() {}
 typeof window !== "undefined" && window.document && window.document.createElement;
 function composeEventHandlers(originalEventHandler, ourEventHandler, { checkForDefaultPrevented = true } = {}) {
 	return function handleEvent(event) {
@@ -14192,11 +14169,8 @@ function TerminalInner(t0) {
 			console.log(`[Terminal Session] Terminal ready. Initializing PTY session ${sessionId} - CWD: ${cwd}`);
 			if (!createdRef.current) {
 				createdRef.current = true;
-				write("Connecting to shell process...\r\n");
-				window.omni.terminal.create(sessionId, cwd).then(() => {
-					console.log("[Terminal Session] Backend PTY created successfully.");
-					write("Shell process connected successfully.\r\n");
-				}).catch((err_0) => {
+				console.log("Connecting to shell process..");
+				window.omni.terminal.create(sessionId, cwd).then(_temp$1).catch((err_0) => {
 					console.error("[Terminal Session] Failed to create backend PTY:", err_0);
 					setError(err_0 instanceof Error ? err_0.message : String(err_0));
 					write(`\r\nError: Failed to connect to shell backend. ${err_0 instanceof Error ? err_0.message : String(err_0)}\r\n`);
@@ -14324,6 +14298,9 @@ function TerminalInner(t0) {
 	} else t10 = $[26];
 	return t10;
 }
+function _temp$1() {
+	console.log("[Terminal Session] Backend PTY created successfully.");
+}
 //#endregion
 //#region src/App.tsx
 function App() {
@@ -14399,7 +14376,7 @@ function App() {
 	let t7;
 	if ($[11] !== t4) {
 		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
-			className: "h-11 flex items-center justify-between pl-[80px] pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0",
+			className: "h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0",
 			style: t2,
 			"data-pipper-id": "header",
 			children: [t4, t6]
@@ -14699,7 +14676,7 @@ function AgentView() {
 		t21 = handleSelectThread;
 		t22 = "flex-1 flex flex-col min-h-0";
 		t23 = "threads panel";
-		t18 = "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
+		t18 = "h-11  flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
 		let t27;
 		if ($[59] !== getProjectIcon || $[60] !== threads) {
 			let t28;
@@ -14726,7 +14703,7 @@ function AgentView() {
 		} else t27 = $[61];
 		if ($[64] !== t27) {
 			t19 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
-				className: "bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+				className: "p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
 				children: t27
 			});
 			$[64] = t27;
@@ -14737,7 +14714,7 @@ function AgentView() {
 		let t29;
 		if ($[66] === Symbol.for("react.memo_cache_sentinel")) {
 			t28 = () => setIsDropdownOpen(_temp2);
-			t29 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
+			t29 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$3, { size: 16 });
 			$[66] = t28;
 			$[67] = t29;
 		} else {
@@ -14786,7 +14763,7 @@ function AgentView() {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
 						index: addProjectIdx,
 						label: "Add Project",
-						icon: m$2,
+						icon: e$8,
 						onSelect: handleAddProject
 					})
 				]
@@ -15060,7 +15037,6 @@ function OthersView() {
 			t7 = (session) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabItem, {
 				value: session.id,
 				label: session.title,
-				icon: c,
 				onClose: () => closeSession(session.id)
 			}, session.id);
 			$[12] = closeSession;
@@ -15074,7 +15050,7 @@ function OthersView() {
 	let t7;
 	if ($[14] !== t6) {
 		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
-			className: "bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+			className: "p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
 			children: t6
 		});
 		$[14] = t6;
@@ -15084,7 +15060,7 @@ function OthersView() {
 	let t9;
 	if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
 		t8 = () => setIsDropdownOpen(_temp5);
-		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
+		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$3, { size: 16 });
 		$[16] = t8;
 		$[17] = t9;
 	} else {
@@ -15112,7 +15088,6 @@ function OthersView() {
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Dropdown, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
 				index: 0,
 				label: "Terminal",
-				icon: c,
 				onSelect: () => {
 					setIsDropdownOpen(false);
 					createSession(activeProject?.path);
@@ -15137,7 +15112,8 @@ function OthersView() {
 	let t13;
 	if ($[27] !== t12 || $[28] !== t7) {
 		t13 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1",
+			className: "h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1",
+			"data-pipper-id": "others-tab-panel",
 			children: [t7, t12]
 		});
 		$[27] = t12;
@@ -15147,26 +15123,17 @@ function OthersView() {
 	let t14;
 	if ($[30] !== activeTabId || $[31] !== sessions) {
 		t14 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
+			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1 p-2",
+			"data-pipper-id": "others-content-panel",
 			children: sessions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				"data-pipper-id": "others-emptyView-panel",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 					className: "flex flex-col items-center gap-2 text-muted-foreground",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(c, {
-							size: 32,
-							strokeWidth: 1.5,
-							className: "text-muted-foreground/60"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "text-[13px] font-medium tracking-tight",
-							children: "No active terminal sessions"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "text-[11px] font-mono text-muted-foreground/80",
-							children: "Click the plus icon to start a new terminal"
-						})
-					]
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-[13px] font-medium tracking-tight",
+						children: "Click the plus icon to add new views"
+					})
 				})
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "flex-1 overflow-hidden min-h-0",
@@ -15188,11 +15155,11 @@ function OthersView() {
 	if ($[33] !== handleTabChange || $[34] !== t13 || $[35] !== t14 || $[36] !== t5) {
 		t15 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
 			className: "h-full w-full flex flex-col bg-surface-1",
+			"data-pipper-id": "others-panel",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Tabs, {
 				value: t5,
 				onValueChange: handleTabChange,
 				className: "flex-1 flex flex-col min-h-0",
-				"data-pipper-id": "others-tabs-panel",
 				children: [t13, t14]
 			})
 		});

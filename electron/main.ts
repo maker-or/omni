@@ -9,7 +9,8 @@ import { markLaunchComplete, readLaunchState } from "./launch-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { getDb } from "./db";
-import { listThreads, createThread, deleteThread, getMessages, createMessage } from "./threads";
+import { listThreads, getMessages, createMessage } from "./threads";
+import { AgentManager } from "./agent";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +25,7 @@ function generateRandomId(): string {
 
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
+let agentManager: AgentManager | null = null;
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
   const base = process.env["ELECTRON_RENDERER_URL"];

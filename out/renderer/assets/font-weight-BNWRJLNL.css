@@ -1676,6 +1676,10 @@
     padding-left: calc(var(--spacing) * 3);
   }
 
+  .pl-20 {
+    padding-left: calc(var(--spacing) * 20);
+  }
+
   .pl-\[6px\] {
     padding-left: 6px;
   }

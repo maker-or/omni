@@ -20,6 +20,31 @@ contextBridge.exposeInMainWorld("omni", {
 		list: (threadId) => ipcRenderer.invoke("messages:list", threadId),
 		create: (input) => ipcRenderer.invoke("messages:create", input)
 	},
+	agent: {
+		getState: () => ipcRenderer.invoke("agent:getState"),
+		getCommands: () => ipcRenderer.invoke("agent:getCommands"),
+		getModels: () => ipcRenderer.invoke("agent:getModels"),
+		getStats: () => ipcRenderer.invoke("agent:getStats"),
+		sendPrompt: (input) => ipcRenderer.invoke("agent:sendPrompt", input),
+		abort: () => ipcRenderer.invoke("agent:abort"),
+		switchThread: (threadId) => ipcRenderer.invoke("agent:switchThread", threadId),
+		createThread: (projectId, title) => ipcRenderer.invoke("agent:createThread", projectId, title),
+		cycleModel: (direction) => ipcRenderer.invoke("agent:cycleModel", direction),
+		setModel: (model) => ipcRenderer.invoke("agent:setModel", model),
+		compact: (customInstructions) => ipcRenderer.invoke("agent:compact", customInstructions),
+		respondToUiRequest: (response) => ipcRenderer.invoke("agent:respondToUiRequest", response),
+		setEditorText: (text) => ipcRenderer.invoke("agent:setEditorText", text),
+		getEditorText: () => ipcRenderer.invoke("agent:getEditorText"),
+		pasteToEditor: (text) => ipcRenderer.invoke("agent:pasteToEditor", text),
+		reportEditorText: (text) => ipcRenderer.send("agent:reportEditorText", text),
+		onEvent: (callback) => {
+			const listener = (_event, payload) => callback(payload);
+			ipcRenderer.on("agent:event", listener);
+			return () => {
+				ipcRenderer.removeListener("agent:event", listener);
+			};
+		}
+	},
 	dialog: { pickDirectory: () => ipcRenderer.invoke("dialog:pickDirectory") },
 	terminal: {
 		create: (sessionId, cwd) => ipcRenderer.invoke("terminal:create", sessionId, cwd),

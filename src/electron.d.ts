@@ -1,6 +1,14 @@
 import type { Project } from "../../contracts/projects.ts";
 import type { Thread } from "../../contracts/threads.ts";
 import type { Message } from "../../contracts/messages.ts";
+import type {
+  AgentBridgeEvent,
+  AgentModelSummary,
+  AgentPromptInput,
+  AgentRuntimeSnapshot,
+  AgentUiResponse,
+} from "../../contracts/agent.ts";
+import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 export interface CreateProjectInput {
   name: string;
@@ -31,6 +39,25 @@ declare global {
       messages: {
         list: (threadId: string) => Promise<Message[]>;
         create: (input: { thread_id: string; role: string; content: string }) => Promise<Message>;
+      };
+      agent: {
+        getState: () => Promise<AgentRuntimeSnapshot>;
+        getCommands: () => Promise<SlashCommandInfo[]>;
+        getModels: () => Promise<AgentModelSummary[]>;
+        getStats: () => Promise<SessionStats | null>;
+        sendPrompt: (input: AgentPromptInput) => Promise<void>;
+        abort: () => Promise<void>;
+        switchThread: (threadId: string) => Promise<void>;
+        createThread: (projectId: string, title: string) => Promise<Thread>;
+        cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
+        setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
+        compact: (customInstructions?: string) => Promise<void>;
+        respondToUiRequest: (response: AgentUiResponse) => Promise<void>;
+        setEditorText: (text: string) => Promise<void>;
+        getEditorText: () => Promise<string>;
+        pasteToEditor: (text: string) => Promise<void>;
+        reportEditorText: (text: string) => Promise<void>;
+        onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
       };
       dialog: {
         pickDirectory: () => Promise<string | null>;
