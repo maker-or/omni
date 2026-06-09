@@ -66,7 +66,7 @@ export default function App() {
         <Panel
           data-pipper-id="agent panel"
           minSize="40%"
-          className="overflow-hidden"
+          className="relative z-20 overflow-visible"
         >
           <AgentView />
         </Panel>
@@ -76,7 +76,7 @@ export default function App() {
         <Panel
           data-pipper-id="others panel"
           minSize="40%"
-          className="overflow-hidden"
+          className="relative z-10 overflow-hidden"
         >
           <OthersView />
         </Panel>

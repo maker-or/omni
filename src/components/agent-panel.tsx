@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { PlusIcon, FolderPlusIcon, PauseIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { Tabs, TabsList, TabItem } from "@/components/ui/tabs";
-import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import { ProjectIcon } from "@/components/ui/icon-picker";
 import { InputMessage } from "@/components/ui/input-message";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { useIcon } from "@/lib/icon-context";
@@ -166,12 +167,12 @@ export function AgentPanel() {
   const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string; icon: string }>>([]);
   const [inputValue, setInputValue] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [activeProjectId, setActiveProjectId] = useState<string | undefined>(activeProject?.id);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const projectListRef = useRef<HTMLDivElement>(null);
+  const threadPaneRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const projectDropdownRef = useRef<HTMLDivElement>(null);
-  const projectButtonRef = useRef<HTMLButtonElement>(null);
+  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
   const ChevronDownIcon = useIcon("chevron-down");
 
   useEffect(() => {
@@ -191,8 +192,44 @@ export function AgentPanel() {
   }, []);
 
   useEffect(() => {
-    setActiveProjectId(activeProject?.id);
-  }, [activeProject?.id]);
+    if (!isDropdownOpen) {
+      setHoveredProjectId(null);
+    }
+  }, [isDropdownOpen]);
+
+  useEffect(() => {
+    if (!hoveredProjectId) return;
+    const exists = projectsList.some((project) => project.id === hoveredProjectId);
+    if (!exists) {
+      setHoveredProjectId(projectsList[0]?.id ?? null);
+    }
+  }, [hoveredProjectId, projectsList]);
+
+  useEffect(() => {
+    if (!isDropdownOpen || !hoveredProjectId) {
+      setThreadPaneStyle(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const rect = projectListRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setThreadPaneStyle({
+        position: "fixed",
+        top: `${Math.round(rect.top)}px`,
+        left: `${Math.round(rect.right + 8)}px`,
+        zIndex: 3000,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isDropdownOpen, hoveredProjectId]);
 
   useEffect(() => {
     if (activeProject?.id) {
@@ -209,21 +246,13 @@ export function AgentPanel() {
         buttonRef.current &&
         !buttonRef.current.contains(event.target as Node)
       ) {
+        if (threadPaneRef.current?.contains(event.target as Node)) return;
         setIsDropdownOpen(false);
-      }
-      if (
-        projectsOpen &&
-        projectDropdownRef.current &&
-        !projectDropdownRef.current.contains(event.target as Node) &&
-        projectButtonRef.current &&
-        !projectButtonRef.current.contains(event.target as Node)
-      ) {
-        setProjectsOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isDropdownOpen, projectsOpen]);
+  }, [isDropdownOpen]);
 
   const commands = snapshot?.commands ?? [];
   const modelName = snapshot?.model?.name ?? "No model";
@@ -271,9 +300,12 @@ export function AgentPanel() {
 
   const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
   const addProjectIndex = projectItems.length;
+  const hoveredProjectThreads = hoveredProjectId
+    ? threads.filter((thread) => thread.project_id === hoveredProjectId)
+    : [];
 
   return (
-    <section className="h-full w-full flex flex-col bg-surface-1">
+    <section className="relative z-20 h-full w-full flex flex-col bg-surface-1 overflow-visible">
       {uiRequest && (
         <UiRequestDialog
           request={uiRequest}
@@ -289,142 +321,127 @@ export function AgentPanel() {
       <Tabs value={threadId} onValueChange={handleSelectThread} className="flex-1 flex flex-col min-h-0">
         <div className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1 border-b border-border/60">
           <TabsList className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
-            {threads
-              .filter((thread) => !activeProject?.id || thread.project_id === activeProject.id)
-              .map((thread) => (
-                <TabItem key={thread.id} value={thread.id} label={thread.title} />
-              ))}
+            {threads.map((thread) => {
+              const project = projectsList.find((item) => item.id === thread.project_id);
+              const Icon = project
+                ? ((props: { className?: string }) => (
+                    <ProjectIcon name={project.icon} className={props.className} />
+                  )) as any
+                : undefined;
+              return (
+                <TabItem
+                  key={thread.id}
+                  value={thread.id}
+                  label={thread.title}
+                  icon={Icon}
+                />
+              );
+            })}
           </TabsList>
 
-          <div className="relative flex items-center gap-2">
             <div className="relative">
-              <Button ref={buttonRef} variant="ghost" size="icon-sm" active={isDropdownOpen} onClick={() => setIsDropdownOpen((prev) => !prev)}>
+              <Button
+                ref={buttonRef}
+                variant="ghost"
+                size="icon-sm"
+                active={isDropdownOpen}
+                onClick={() => setIsDropdownOpen((prev) => {
+                  const next = !prev;
+                  if (next) setHoveredProjectId(null);
+                  return next;
+                })}
+              >
                 <PlusIcon size={16} />
               </Button>
-              {isDropdownOpen && (
-                <div ref={dropdownRef} className="absolute right-0 top-full mt-1.5 z-50 origin-top-right">
-                  <Dropdown checkedIndex={checkedIndex}>
-                    {projectItems.map((item) => (
+
+            {isDropdownOpen && (
+              <div ref={dropdownRef} className="absolute right-0 top-full mt-1.5 z-[200]">
+                <div ref={projectListRef} className="relative">
+                  <Dropdown checkedIndex={checkedIndex} className="w-72">
+                  {projectItems.map((item) => {
+                    const project = projectsList.find((p) => p.id === item.id);
+                    const ProjectIconItem = project
+                      ? ((props: { className?: string }) => (
+                          <ProjectIcon name={project.icon} className={props.className} />
+                        )) as any
+                      : undefined;
+                    return (
                       <MenuItem
                         key={item.id}
                         index={item.index}
                         label={item.name}
+                        icon={ProjectIconItem}
                         checked={activeProject?.id === item.id}
-                        onSelect={async () => {
-                          setIsDropdownOpen(false);
-                          setActiveProjectId(item.id);
-                          await window.omni.projects.setActive(item.id);
-                          await loadActiveProject();
-                          await loadThreads();
-                          await refresh();
-                        }}
+                        onMouseEnter={() => setHoveredProjectId(item.id)}
+                        onFocus={() => setHoveredProjectId(item.id)}
+                        onSelect={() => setHoveredProjectId(item.id)}
                       />
-                    ))}
-                    {projectItems.length > 0 && <DropdownSeparator />}
-                    <MenuItem
-                      index={addProjectIndex}
-                      label="Add Project"
-                      icon={FolderPlusIcon}
-                      onSelect={async () => {
-                        setIsDropdownOpen(false);
-                        await window.omni.launch.show("add");
-                      }}
-                    />
+                    );
+                  })}
+                  {projectItems.length > 0 && <DropdownSeparator />}
+                  <MenuItem
+                    index={addProjectIndex}
+                    label="Add Project"
+                    icon={FolderPlusIcon}
+                    onSelect={async () => {
+                      setIsDropdownOpen(false);
+                      await window.omni.launch.show("add");
+                    }}
+                  />
                   </Dropdown>
                 </div>
-              )}
-            </div>
-
-            <div className="relative">
-              <Button ref={projectButtonRef} variant="ghost" size="sm" trailingIcon={ChevronDownIcon} onClick={() => setProjectsOpen((prev) => !prev)}>
-                {activeProject?.name ?? "Projects"}
-              </Button>
-              {projectsOpen && (
-                <div ref={projectDropdownRef} className="absolute right-0 top-full mt-1.5 z-50 w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2">
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground px-2 py-1">Projects</div>
-                  <div className="flex flex-col gap-1">
-                    {projectsList.map((project) => (
-                      <Button
-                        key={project.id}
-                        variant={project.id === activeProject?.id ? "secondary" : "ghost"}
-                        className="justify-start"
-                        onClick={async () => {
-                          setProjectsOpen(false);
-                          await window.omni.projects.setActive(project.id);
-                          await loadActiveProject();
-                          await loadThreads();
-                          await refresh();
-                        }}
+                {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
+                  ? createPortal(
+                      <div
+                        className="w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
+                        ref={threadPaneRef}
+                        style={threadPaneStyle}
                       >
-                        {project.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+                        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Projects
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {hoveredProjectThreads.length > 0 ? (
+                            hoveredProjectThreads.map((thread) => (
+                              <button
+                                key={thread.id}
+                                type="button"
+                                className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                                onClick={async () => {
+                                  setIsDropdownOpen(false);
+                                  await handleSelectThread(thread.id);
+                                }}
+                              >
+                                <span className="size-4 shrink-0 rounded-full border border-border/70" />
+                                <span className="min-w-0 truncate">{thread.title}</span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-2 py-3 text-[13px] text-muted-foreground">
+                              No threads yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>,
+                      document.body,
+                    )
+                  : null}
+              </div>
+            )}
           </div>
         </div>
 
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
           <div className="flex-1 overflow-y-auto min-h-0">
-            {!activeProject ? (
-              <div className="h-full flex items-center justify-center p-6">
-                <div className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
-                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                    What should we cook in
-                  </span>
-                  <Select
-                    value={activeProjectId ?? ""}
-                    onValueChange={async (value) => {
-                      await window.omni.projects.setActive(value);
-                      await loadActiveProject();
-                      await loadThreads();
-                      await refresh();
-                    }}
-                  >
-                    <SelectTrigger
-                      className="min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60 hover:decoration-foreground/60 [&>svg]:hidden"
-                      placeholder="Select project"
-                    />
-                    <SelectContent>
-                      {projectsList.map((project, idx) => (
-                        <SelectItem key={project.id} value={project.id} index={idx}>
-                          {project.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
-                </div>
-              </div>
-            ) : activeMessages.length === 0 && !streamingMessage ? (
+            {activeMessages.length === 0 && !streamingMessage ? (
               <div className="h-full flex items-center justify-center p-6">
                 <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
                   <span className="text-2xl font-semibold tracking-tight text-foreground/55">
                     What should we cook in
                   </span>
-                  <Select
-                    value={activeProject?.id ?? activeProjectId ?? ""}
-                    onValueChange={async (value) => {
-                      await window.omni.projects.setActive(value);
-                      await loadActiveProject();
-                      await loadThreads();
-                      await refresh();
-                    }}
-                  >
-                    <SelectTrigger
-                      className="min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60 hover:decoration-foreground/60 [&>svg]:hidden"
-                      placeholder="Select project"
-                    />
-                    <SelectContent>
-                      {projectsList.map((project, idx) => (
-                        <SelectItem key={project.id} value={project.id} index={idx}>
-                          {project.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
+                    {activeProject?.name ?? "your project"}
+                  </span>
                   <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
                 </h2>
               </div>
@@ -434,7 +451,10 @@ export function AgentPanel() {
                   const msg = message as MessageLike;
                   const from = msg.role === "user" ? "user" : "assistant";
                   return (
-                    <ChatMessage key={`${from}-${index}-${(msg as { timestamp?: number }).timestamp ?? index}`} from={from}>
+                    <ChatMessage
+                      key={`${from}-${index}-${(msg as { timestamp?: number }).timestamp ?? index}`}
+                      from={from}
+                    >
                       <MessageBody message={msg} />
                     </ChatMessage>
                   );
@@ -457,7 +477,12 @@ export function AgentPanel() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {slashMatches.slice(0, 8).map((command) => (
-                      <Button key={command.name} variant="secondary" size="sm" onClick={() => applyCommand(command.name)}>
+                      <Button
+                        key={command.name}
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => applyCommand(command.name)}
+                      >
                         /{command.name}
                       </Button>
                     ))}
