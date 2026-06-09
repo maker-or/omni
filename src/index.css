@@ -5,6 +5,7 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
+@import "streamdown/styles.css";
 
 /* =============================================================================
  * Dark mode variant (class-based: toggle `.dark` on <html>)

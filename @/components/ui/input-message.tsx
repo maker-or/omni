@@ -82,7 +82,7 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   /** Extra props forwarded to the underlying textarea. */
   textareaProps?: Omit<
     TextareaHTMLAttributes<HTMLTextAreaElement>,
-    "value" | "onChange" | "onKeyDown" | "disabled" | "placeholder"
+    "value" | "onChange" | "disabled" | "placeholder"
   >;
 }
 
@@ -137,7 +137,7 @@ function FilePreviewTile({ file, onRemove, size }: FilePreviewTileProps) {
 
 // ─── InputMessage ─────────────────────────────────────────────────────────
 
-const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
+  const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
   (
     {
       value,
@@ -174,6 +174,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
 
     const filesArr = useMemo(() => files ?? [], [files]);
     const supportsFiles = onFilesChange !== undefined;
+    const { onKeyDown: textareaOnKeyDown, ...forwardedTextareaProps } = textareaProps ?? {};
 
     useIsoLayoutEffect(() => {
       const el = textareaRef.current;
@@ -215,13 +216,15 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
 
     const handleKeyDown = useCallback(
       (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+        textareaOnKeyDown?.(e);
+        if (e.defaultPrevented) return;
         if (e.nativeEvent.isComposing) return;
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           handleSend();
         }
       },
-      [handleSend],
+      [handleSend, textareaOnKeyDown],
     );
 
     const handleContainerMouseDown = useCallback(
@@ -450,7 +453,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               "px-2 py-2",
             )}
             style={{ fontVariationSettings: fontWeights.normal }}
-            {...textareaProps}
+            {...forwardedTextareaProps}
           />
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>

@@ -65,8 +65,10 @@ const api = {
     getEditorText: (): Promise<string> => ipcRenderer.invoke("agent:getEditorText"),
     pasteToEditor: (text: string): Promise<void> =>
       ipcRenderer.invoke("agent:pasteToEditor", text),
-    reportEditorText: (text: string): Promise<void> =>
-      ipcRenderer.send("agent:reportEditorText", text),
+    reportEditorText: (text: string): Promise<void> => {
+      ipcRenderer.send("agent:reportEditorText", text);
+      return Promise.resolve();
+    },
     onEvent: (callback: (payload: AgentBridgeEvent) => void) => {
       const listener = (_event: any, payload: AgentBridgeEvent) => callback(payload);
       ipcRenderer.on("agent:event", listener);

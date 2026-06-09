@@ -36,7 +36,10 @@ contextBridge.exposeInMainWorld("omni", {
 		setEditorText: (text) => ipcRenderer.invoke("agent:setEditorText", text),
 		getEditorText: () => ipcRenderer.invoke("agent:getEditorText"),
 		pasteToEditor: (text) => ipcRenderer.invoke("agent:pasteToEditor", text),
-		reportEditorText: (text) => ipcRenderer.send("agent:reportEditorText", text),
+		reportEditorText: (text) => {
+			ipcRenderer.send("agent:reportEditorText", text);
+			return Promise.resolve();
+		},
 		onEvent: (callback) => {
 			const listener = (_event, payload) => callback(payload);
 			ipcRenderer.on("agent:event", listener);

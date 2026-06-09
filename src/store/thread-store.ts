@@ -12,7 +12,7 @@ interface ThreadState {
   deleteThread: (id: string) => Promise<void>;
 }
 
-export const useThreadStore = create<ThreadState>((set, get) => ({
+export const useThreadStore = create<ThreadState>((set) => ({
   threads: [],
   activeThreadId: null,
   isLoading: false,
@@ -22,9 +22,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     try {
       const list = await window.omni.threads.list();
       set({ threads: list, isLoading: false });
-      if (list.length > 0 && !get().activeThreadId) {
-        set({ activeThreadId: list[0].id });
-      }
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Failed to load threads",

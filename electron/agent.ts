@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type {
   AgentBridgeEvent,
   AgentModelSummary,
@@ -24,6 +25,7 @@ import {
   type AgentSession,
   type ExtensionUIContext,
   type CreateAgentSessionRuntimeFactory,
+  type SlashCommandInfo,
   type SessionStats,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
@@ -136,7 +138,7 @@ export class AgentManager {
     return {
       async select(title: string, options: string[], opts) {
         return manager.requestUi(projectId, {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           kind: "select",
           title,
           options,
@@ -145,7 +147,7 @@ export class AgentManager {
       },
       async confirm(title: string, message: string, opts) {
         const value = await manager.requestUi(projectId, {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           kind: "confirm",
           title,
           message,
@@ -155,7 +157,7 @@ export class AgentManager {
       },
       async input(title: string, placeholder?: string, opts?) {
         const value = await manager.requestUi(projectId, {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           kind: "input",
           title,
           placeholder,
@@ -224,7 +226,7 @@ export class AgentManager {
       },
       async editor(title: string, prefill?: string) {
         const value = await manager.requestUi(projectId, {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           kind: "input",
           title,
           placeholder: title,
@@ -293,7 +295,7 @@ export class AgentManager {
   }
 
   private async syncThreadsFromSessions(project: Project): Promise<void> {
-    const sessions = await SessionManager.list(project.path);
+      const sessions = await SessionManager.list(project.path);
     const existing = new Set(
       listThreads()
         .filter((thread) => thread.project_id === project.id && thread.session_file != null)
@@ -367,7 +369,12 @@ export class AgentManager {
       messages: [...session.messages],
       streamingMessage: session.state.streamingMessage ?? null,
       queue: record.queue,
-      commands: session.extensionRunner.getRegisteredCommands(),
+      commands: session.extensionRunner.getRegisteredCommands().map((command) => ({
+        name: command.name,
+        description: command.description,
+        source: "extension",
+        sourceInfo: command.sourceInfo,
+      })),
       models: modelsToSummary(session.modelRegistry.getAvailable()),
       stats: session.getSessionStats(),
       status: { ...record.status },
@@ -660,14 +667,20 @@ export class AgentManager {
     if (!record) return false;
     const resolved = record.runtime.session.modelRegistry.find(model.provider, model.modelId);
     if (!resolved) return false;
-    const success = await record.runtime.session.setModel(resolved);
+    await record.runtime.session.setModel(resolved);
     this.pushSnapshot(record.project.id);
-    return success;
+    return true;
   }
 
-  getCommands() {
+  getCommands(): SlashCommandInfo[] {
     const record = this.getCurrentRecord();
-    return record?.runtime.session.extensionRunner.getRegisteredCommands() ?? [];
+    const commands = record?.runtime.session.extensionRunner.getRegisteredCommands() ?? [];
+    return commands.map((command) => ({
+      name: command.name,
+      description: command.description,
+      source: "extension",
+      sourceInfo: command.sourceInfo,
+    }));
   }
 
   getModels(): AgentModelSummary[] {
@@ -684,6 +697,7 @@ export class AgentManager {
     const record = this.getCurrentRecord();
     if (!record) return;
     record.editorText = text;
+    this.currentEditorText = text;
     this.emit({ type: "editor-text", text });
   }
 
@@ -691,6 +705,7 @@ export class AgentManager {
     const record = this.getCurrentRecord();
     if (!record) return;
     record.editorText = `${record.editorText}${text}`;
+    this.currentEditorText = record.editorText;
     this.emit({ type: "editor-text", text: record.editorText });
   }
 

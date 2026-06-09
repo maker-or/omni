@@ -27,6 +27,13 @@ let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
 
+function requireAgentManager(): AgentManager {
+  if (!agentManager) {
+    throw new Error("Agent manager is not initialized.");
+  }
+  return agentManager;
+}
+
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
   const base = process.env["ELECTRON_RENDERER_URL"];
   if (!base) return "";
@@ -39,6 +46,18 @@ function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
 
 function resolveRendererFile(page: "main" | "launch"): string {
   return join(mainDir, "../renderer", page === "launch" ? "launch.html" : "index.html");
+}
+
+function sendToMainWindow(channel: string, payload: unknown): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function setMainWindowTitle(title: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(title);
+  }
 }
 
 function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
@@ -240,6 +259,7 @@ function registerIpc(): void {
 
     setActiveProjectId(projectId);
     await markLaunchComplete(projectId);
+    await requireAgentManager().activateProject(projectId);
 
     if (launchWindow && !launchWindow.isDestroyed()) {
       launchWindow.close();
@@ -261,6 +281,7 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:setActive", (_event, projectId: string) => {
     setActiveProjectId(projectId);
+    return requireAgentManager().activateProject(projectId);
   });
 
   ipcMain.handle("threads:list", () => {
@@ -268,11 +289,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("threads:create", (_event, projectId: string, title: string) => {
-    return createThread(projectId, title);
+    return requireAgentManager().createThread(projectId, title);
   });
 
   ipcMain.handle("threads:delete", (_event, id: string) => {
-    return deleteThread(id);
+    return requireAgentManager().deleteThread(id);
   });
 
   ipcMain.handle("messages:list", (_event, threadId: string) => {
@@ -285,6 +306,35 @@ function registerIpc(): void {
       return createMessage(input);
     },
   );
+
+  ipcMain.handle("agent:getState", () => requireAgentManager().getState());
+  ipcMain.handle("agent:getCommands", () => requireAgentManager().getCommands());
+  ipcMain.handle("agent:getModels", () => requireAgentManager().getModels());
+  ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
+  ipcMain.handle("agent:sendPrompt", (_event, input) => requireAgentManager().sendPrompt(input));
+  ipcMain.handle("agent:abort", () => requireAgentManager().abort());
+  ipcMain.handle("agent:switchThread", (_event, threadId: string) => requireAgentManager().switchThread(threadId));
+  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string) =>
+    requireAgentManager().createThread(projectId, title),
+  );
+  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
+    requireAgentManager().cycleModel(direction),
+  );
+  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) =>
+    requireAgentManager().setModel(model),
+  );
+  ipcMain.handle("agent:compact", (_event, customInstructions?: string) =>
+    requireAgentManager().compact(customInstructions),
+  );
+  ipcMain.handle("agent:respondToUiRequest", (_event, response) =>
+    requireAgentManager().respondToUiRequest(response),
+  );
+  ipcMain.handle("agent:setEditorText", (_event, text: string) => requireAgentManager().setEditorText(text));
+  ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
+  ipcMain.handle("agent:pasteToEditor", (_event, text: string) => requireAgentManager().pasteToEditor(text));
+  ipcMain.on("agent:reportEditorText", (_event, text: string) => {
+    requireAgentManager().reportEditorText(text);
+  });
 
   ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
     if (ptyProcesses.has(sessionId)) {
@@ -374,12 +424,17 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   buildAppMenu();
   getDb();
+  agentManager = new AgentManager({
+    sendToRenderer: sendToMainWindow,
+    setWindowTitle: setMainWindowTitle,
+  });
   registerIpc();
 
   const state = await readLaunchState();
   if (state.completed) {
     if (state.projectId) {
       setActiveProjectId(state.projectId);
+      await agentManager.activateFromLaunchState();
     }
     createMainWindow();
   } else {
@@ -394,6 +449,7 @@ app.whenReady().then(async () => {
         if (s.completed) {
           if (s.projectId) {
             setActiveProjectId(s.projectId);
+            void agentManager?.activateFromLaunchState();
           }
           createMainWindow();
         } else {
@@ -409,6 +465,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  void agentManager?.dispose();
   for (const [id, ptyProc] of ptyProcesses.entries()) {
     try {
       ptyProc.kill();

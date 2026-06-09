@@ -49,7 +49,7 @@ export function updateThreadSessionFile(id: string, sessionFile: string | null):
 export function getMessages(threadId: string): Message[] {
   const db = getDb();
   const query = db.prepare("SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC");
-  return query.all() as unknown as Message[];
+  return query.all(threadId) as unknown as Message[];
 }
 
 export function createMessage(input: {
