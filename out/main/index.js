@@ -163,6 +163,7 @@ function generateRandomId() {
 }
 var mainWindow = null;
 var launchWindow = null;
+var flyoutWindow = null;
 function resolveRendererUrl(page, stage) {
 	const base = process.env["ELECTRON_RENDERER_URL"];
 	if (!base) return "";
@@ -263,6 +264,59 @@ function createLaunchWindow(stage = "list") {
 	});
 	loadInto(launchWindow, "launch", stage);
 }
+function createFlyoutWindow() {
+	console.log("[Main] createFlyoutWindow");
+	if (flyoutWindow && !flyoutWindow.isDestroyed()) {
+		console.log("[Main] flyoutWindow already exists, showing it");
+		flyoutWindow.show();
+		flyoutWindow.focus();
+		return;
+	}
+	let x;
+	let y;
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		const bounds = mainWindow.getBounds();
+		x = bounds.x + bounds.width + 10;
+		y = bounds.y;
+	}
+	console.log(`[Main] Creating new flyoutWindow at x: ${x}, y: ${y}`);
+	flyoutWindow = new BrowserWindow({
+		width: 360,
+		height: 600,
+		minWidth: 300,
+		minHeight: 400,
+		x,
+		y,
+		parent: mainWindow ?? void 0,
+		title: "Flyout",
+		show: false,
+		backgroundColor: "#fafafa",
+		titleBarStyle: "hidden",
+		webPreferences: {
+			preload: join(mainDir, "../preload/index.js"),
+			sandbox: false,
+			contextIsolation: true,
+			nodeIntegration: false
+		}
+	});
+	flyoutWindow.on("ready-to-show", () => {
+		console.log("[Main] flyoutWindow ready-to-show");
+		flyoutWindow?.show();
+	});
+	flyoutWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+		console.log(`[Flyout Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+	});
+	flyoutWindow.on("closed", () => {
+		console.log("[Main] flyoutWindow closed");
+		flyoutWindow = null;
+	});
+	loadInto(flyoutWindow, "main", "flyout");
+}
+function broadcastToWindows(channel, ...args) {
+	if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args);
+	if (flyoutWindow && !flyoutWindow.isDestroyed()) flyoutWindow.webContents.send(channel, ...args);
+	if (launchWindow && !launchWindow.isDestroyed()) launchWindow.webContents.send(channel, ...args);
+}
 function buildAppMenu() {
 	const isMac = process.platform === "darwin";
 	const template = [
@@ -346,6 +400,10 @@ function registerIpc() {
 	});
 	ipcMain.handle("projects:setActive", (_event, projectId) => {
 		setActiveProjectId(projectId);
+		broadcastToWindows("projects:activeChanged", projectId);
+	});
+	ipcMain.handle("flyout:open", () => {
+		createFlyoutWindow();
 	});
 	ipcMain.handle("threads:list", () => {
 		return listThreads();
@@ -432,6 +490,9 @@ function registerIpc() {
 			}
 			ptyProcesses.delete(sessionId);
 		}
+	});
+	ipcMain.on("theme:changed", (_event, theme) => {
+		broadcastToWindows("theme:changed", theme);
 	});
 }
 app.whenReady().then(async () => {

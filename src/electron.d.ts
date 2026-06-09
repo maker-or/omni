@@ -22,6 +22,7 @@ declare global {
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
         setActive: (projectId: string) => Promise<void>;
+        onActiveChanged: (callback: (projectId: string) => void) => () => void;
       };
       threads: {
         list: () => Promise<Thread[]>;
@@ -41,7 +42,16 @@ declare global {
         resize: (sessionId: string, cols: number, rows: number) => void;
         kill: (sessionId: string) => Promise<void>;
         onData: (callback: (payload: { sessionId: string; data: string }) => void) => () => void;
-        onExit: (callback: (payload: { sessionId: string; exitCode: number; signal?: number }) => void) => () => void;
+        onExit: (
+          callback: (payload: { sessionId: string; exitCode: number; signal?: number }) => void,
+        ) => () => void;
+      };
+      flyout: {
+        open: () => Promise<void>;
+      };
+      theme: {
+        changed: (theme: string) => void;
+        onChanged: (callback: (theme: string) => void) => () => void;
       };
     };
   }

@@ -13520,7 +13520,7 @@ var NEXT_THEME = {
 	system: "light"
 };
 function ThemeProvider(t0) {
-	const $ = (0, import_compiler_runtime.c)(14);
+	const $ = (0, import_compiler_runtime.c)(16);
 	const { children } = t0;
 	const [theme, setThemeState] = (0, import_react.useState)(_temp$2);
 	const [resolvedTheme, setResolvedTheme] = (0, import_react.useState)(_temp2);
@@ -13565,49 +13565,74 @@ function ThemeProvider(t0) {
 	}
 	(0, import_react.useEffect)(t3, t4);
 	let t5;
+	let t6;
 	if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-		t5 = (next) => {
+		t5 = () => {
+			if (!window.omni?.theme?.onChanged) return;
+			return window.omni.theme.onChanged((nextTheme) => {
+				setThemeState((current) => {
+					if (current !== nextTheme) {
+						window.localStorage.setItem(STORAGE_KEY, nextTheme);
+						return nextTheme;
+					}
+					return current;
+				});
+			});
+		};
+		t6 = [];
+		$[6] = t5;
+		$[7] = t6;
+	} else {
+		t5 = $[6];
+		t6 = $[7];
+	}
+	(0, import_react.useEffect)(t5, t6);
+	let t7;
+	if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
+		t7 = (next) => {
 			setThemeState(next);
 			window.localStorage.setItem(STORAGE_KEY, next);
+			if (window.omni?.theme?.changed) window.omni.theme.changed(next);
 		};
-		$[6] = t5;
-	} else t5 = $[6];
-	const setTheme = t5;
-	let t6;
-	if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
-		t6 = () => {
+		$[8] = t7;
+	} else t7 = $[8];
+	const setTheme = t7;
+	let t8;
+	if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
+		t8 = () => {
 			setThemeState(_temp3);
 		};
-		$[7] = t6;
-	} else t6 = $[7];
-	const cycleTheme = t6;
-	let t7;
-	if ($[8] !== resolvedTheme || $[9] !== theme) {
-		t7 = {
+		$[9] = t8;
+	} else t8 = $[9];
+	const cycleTheme = t8;
+	let t9;
+	if ($[10] !== resolvedTheme || $[11] !== theme) {
+		t9 = {
 			theme,
 			resolvedTheme,
 			setTheme,
 			cycleTheme
 		};
-		$[8] = resolvedTheme;
-		$[9] = theme;
-		$[10] = t7;
-	} else t7 = $[10];
-	let t8;
-	if ($[11] !== children || $[12] !== t7) {
-		t8 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeContext.Provider, {
-			value: t7,
+		$[10] = resolvedTheme;
+		$[11] = theme;
+		$[12] = t9;
+	} else t9 = $[12];
+	let t10;
+	if ($[13] !== children || $[14] !== t9) {
+		t10 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeContext.Provider, {
+			value: t9,
 			children
 		});
-		$[11] = children;
-		$[12] = t7;
-		$[13] = t8;
-	} else t8 = $[13];
-	return t8;
+		$[13] = children;
+		$[14] = t9;
+		$[15] = t10;
+	} else t10 = $[15];
+	return t10;
 }
-function _temp3(current) {
-	const next_0 = NEXT_THEME[current];
+function _temp3(current_0) {
+	const next_0 = NEXT_THEME[current_0];
 	window.localStorage.setItem(STORAGE_KEY, next_0);
+	if (window.omni?.theme?.changed) window.omni.theme.changed(next_0);
 	return next_0;
 }
 function _temp2() {

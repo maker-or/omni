@@ -9,7 +9,14 @@ contextBridge.exposeInMainWorld("omni", {
 		list: () => ipcRenderer.invoke("projects:list"),
 		create: (input) => ipcRenderer.invoke("projects:create", input),
 		getActive: () => ipcRenderer.invoke("projects:getActive"),
-		setActive: (projectId) => ipcRenderer.invoke("projects:setActive", projectId)
+		setActive: (projectId) => ipcRenderer.invoke("projects:setActive", projectId),
+		onActiveChanged: (callback) => {
+			const listener = (_event, projectId) => callback(projectId);
+			ipcRenderer.on("projects:activeChanged", listener);
+			return () => {
+				ipcRenderer.removeListener("projects:activeChanged", listener);
+			};
+		}
 	},
 	threads: {
 		list: () => ipcRenderer.invoke("threads:list"),
@@ -45,6 +52,17 @@ contextBridge.exposeInMainWorld("omni", {
 			ipcRenderer.on("terminal:exit", listener);
 			return () => {
 				ipcRenderer.removeListener("terminal:exit", listener);
+			};
+		}
+	},
+	flyout: { open: () => ipcRenderer.invoke("flyout:open") },
+	theme: {
+		changed: (theme) => ipcRenderer.send("theme:changed", theme),
+		onChanged: (callback) => {
+			const listener = (_event, theme) => callback(theme);
+			ipcRenderer.on("theme:changed", listener);
+			return () => {
+				ipcRenderer.removeListener("theme:changed", listener);
 			};
 		}
 	}

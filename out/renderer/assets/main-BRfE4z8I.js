@@ -1,4 +1,4 @@
-import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-BfMdRrNR.js";
+import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-B_F1szUf.js";
 //#region node_modules/react-resizable-panels/dist/react-resizable-panels.js
 var import_client = require_client();
 var import_compiler_runtime = require_compiler_runtime();
@@ -2437,7 +2437,7 @@ function ThemeToggle(t0) {
 }
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowCounterClockwise.es.js
-var e$32 = /* @__PURE__ */ new Map([
+var e$34 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a100,100,0,0,1-98.66,100H128a99.39,99.39,0,0,1-68.62-27.29,12,12,0,0,1,16.48-17.45,76,76,0,1,0-1.57-109c-.13.13-.25.25-.39.37L54.89,92H72a12,12,0,0,1,0,24H24a12,12,0,0,1-12-12V56a12,12,0,0,1,24,0V76.72L57.48,57.06A100,100,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,128a88,88,0,1,1-88-88A88,88,0,0,1,216,128Z",
@@ -2450,7 +2450,7 @@ var e$32 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowElbowDownRight.es.js
-var a$22 = /* @__PURE__ */ new Map([
+var a$21 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224.49,184.49l-48,48a12,12,0,0,1-17-17L187,188H72a12,12,0,0,1-12-12V32a12,12,0,0,1,24,0V164H187l-27.52-27.51a12,12,0,1,1,17-17l48,48A12,12,0,0,1,224.49,184.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,176l-48,48V128Z",
@@ -2463,7 +2463,7 @@ var a$22 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowLeft.es.js
-var a$21 = /* @__PURE__ */ new Map([
+var a$20 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H69l51.52,51.51a12,12,0,0,1-17,17l-72-72a12,12,0,0,1,0-17l72-72a12,12,0,0,1,17,17L69,116H216A12,12,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M112,56V200L40,128Z",
@@ -2476,7 +2476,7 @@ var a$21 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowRight.es.js
-var a$20 = /* @__PURE__ */ new Map([
+var a$19 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224.49,136.49l-72,72a12,12,0,0,1-17-17L187,140H40a12,12,0,0,1,0-24H187L135.51,64.48a12,12,0,0,1,17-17l72,72A12,12,0,0,1,224.49,136.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,128l-72,72V56Z",
@@ -2489,7 +2489,7 @@ var a$20 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ArrowUp.es.js
-var a$19 = /* @__PURE__ */ new Map([
+var a$18 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M200,112H56l72-72Z",
@@ -2502,7 +2502,7 @@ var a$19 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Bell.es.js
-var e$31 = /* @__PURE__ */ new Map([
+var e$33 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M225.29,165.93C216.61,151,212,129.57,212,104a84,84,0,0,0-168,0c0,25.58-4.59,47-13.27,61.93A20.08,20.08,0,0,0,30.66,186,19.77,19.77,0,0,0,48,196H84.18a44,44,0,0,0,87.64,0H208a19.77,19.77,0,0,0,17.31-10A20.08,20.08,0,0,0,225.29,165.93ZM128,212a20,20,0,0,1-19.6-16h39.2A20,20,0,0,1,128,212ZM54.66,172C63.51,154,68,131.14,68,104a60,60,0,0,1,120,0c0,27.13,4.48,50,13.33,68Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M208,192H48a8,8,0,0,1-6.88-12C47.71,168.6,56,139.81,56,104a72,72,0,0,1,144,0c0,35.82,8.3,64.6,14.9,76A8,8,0,0,1,208,192Z",
@@ -2515,7 +2515,7 @@ var e$31 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Books.es.js
-var e$30 = /* @__PURE__ */ new Map([
+var e$32 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M235.57,193.73,202.38,35.93a20,20,0,0,0-23.76-15.48L131.81,30.51a19.82,19.82,0,0,0-11,6.65A20,20,0,0,0,104,28H56A20,20,0,0,0,36,48V208a20,20,0,0,0,20,20h48a20,20,0,0,0,20-20V90.25l25.62,121.82A20,20,0,0,0,169.15,228a20.27,20.27,0,0,0,4.23-.45l46.81-10.06A20.1,20.1,0,0,0,235.57,193.73ZM148.19,88.65l39-8.38,2.53,12-39,8.38Zm7.46,35.5,39-8.38,9.16,43.58-39,8.38Zm24.06-79.39,2.53,12-39,8.38-2.53-12ZM60,88h40v80H60Zm40-36V64H60V52ZM60,204V192h40v12Zm112.29-.76-2.53-12,39-8.38,2.53,12Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M48,72h64V184H48ZM190.64,38.39a8,8,0,0,0-9.5-6.21l-46.81,10a8.07,8.07,0,0,0-6.15,9.57L139.79,107l62.46-13.42Z",
@@ -2528,7 +2528,7 @@ var e$30 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Brain.es.js
-var e$29 = /* @__PURE__ */ new Map([
+var e$31 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M252,124a60.14,60.14,0,0,0-32-53.08,52,52,0,0,0-92-32.11A52,52,0,0,0,36,70.92a60,60,0,0,0,0,106.14,52,52,0,0,0,92,32.13,52,52,0,0,0,92-32.13A60.05,60.05,0,0,0,252,124ZM88,204a28,28,0,0,1-26.85-20.07c1,0,1.89.07,2.85.07h8a12,12,0,0,0,0-24H64A36,36,0,0,1,52,90.05a12,12,0,0,0,8-11.32V72a28,28,0,0,1,56,0v60.18a51.61,51.61,0,0,0-7.2-3.85,12,12,0,1,0-9.6,22A28,28,0,0,1,88,204Zm104-44h-8a12,12,0,0,0,0,24h8c1,0,1.9,0,2.85-.07a28,28,0,1,1-38-33.61,12,12,0,1,0-9.6-22,51.61,51.61,0,0,0-7.2,3.85V72a28,28,0,0,1,56,0v6.73a12,12,0,0,0,8,11.32,36,36,0,0,1-12,70Zm16-44a12,12,0,0,1-12,12,40,40,0,0,1-40-40V84a12,12,0,0,1,24,0v4a16,16,0,0,0,16,16A12,12,0,0,1,208,116ZM100,88a40,40,0,0,1-40,40,12,12,0,0,1,0-24A16,16,0,0,0,76,88V84a12,12,0,0,1,24,0Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M240,124a48,48,0,0,1-32,45.27h0V176a40,40,0,0,1-80,0,40,40,0,0,1-80,0v-6.73h0a48,48,0,0,1,0-90.54V72a40,40,0,0,1,80,0,40,40,0,0,1,80,0v6.73A48,48,0,0,1,240,124Z",
@@ -2567,7 +2567,7 @@ var t$6 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/ChatCircle.es.js
-var a$18 = /* @__PURE__ */ new Map([
+var a$17 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,0,0,31.85,177.23L21,209.66A20,20,0,0,0,46.34,235l32.43-10.81A108,108,0,1,0,128,20Zm0,192a84,84,0,0,1-42.06-11.27,12,12,0,0,0-6-1.62,12.1,12.1,0,0,0-3.8.62l-29.79,9.93,9.93-29.79a12,12,0,0,0-1-9.81A84,84,0,1,1,128,212Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128A96,96,0,0,1,79.93,211.11h0L42.54,223.58a8,8,0,0,1-10.12-10.12l12.47-37.39h0A96,96,0,1,1,224,128Z",
@@ -2580,7 +2580,7 @@ var a$18 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Check.es.js
-var a$17 = /* @__PURE__ */ new Map([
+var a$16 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M232.49,80.49l-128,128a12,12,0,0,1-17,0l-56-56a12,12,0,1,1,17-17L96,183,215.51,63.51a12,12,0,0,1,17,17Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M232,56V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56Z",
@@ -2606,7 +2606,7 @@ var t$5 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Clock.es.js
-var a$16 = /* @__PURE__ */ new Map([
+var a$15 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm68-84a12,12,0,0,1-12,12H128a12,12,0,0,1-12-12V72a12,12,0,0,1,24,0v44h44A12,12,0,0,1,196,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128a96,96,0,1,1-96-96A96,96,0,0,1,224,128Z",
@@ -2619,7 +2619,7 @@ var a$16 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Copy.es.js
-var e$28 = /* @__PURE__ */ new Map([
+var e$30 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,28H88A12,12,0,0,0,76,40V76H40A12,12,0,0,0,28,88V216a12,12,0,0,0,12,12H168a12,12,0,0,0,12-12V180h36a12,12,0,0,0,12-12V40A12,12,0,0,0,216,28ZM156,204H52V100H156Zm48-48H180V88a12,12,0,0,0-12-12H100V52H204Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,40V168H168V88H88V40Z",
@@ -2645,7 +2645,7 @@ var t$4 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Envelope.es.js
-var a$15 = /* @__PURE__ */ new Map([
+var a$14 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M224,44H32A12,12,0,0,0,20,56V192a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A12,12,0,0,0,224,44Zm-96,83.72L62.85,68h130.3ZM92.79,128,44,172.72V83.28Zm17.76,16.28,9.34,8.57a12,12,0,0,0,16.22,0l9.34-8.57L193.15,188H62.85ZM163.21,128,212,83.28v89.44Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56l-96,88L32,56Z",
@@ -2671,7 +2671,7 @@ var l$2 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/FolderPlus.es.js
-var e$27 = /* @__PURE__ */ new Map([
+var e$29 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,68H133.39l-26-29.29a20,20,0,0,0-15-6.71H40A20,20,0,0,0,20,52V200.62A19.41,19.41,0,0,0,39.38,220H216.89A19.13,19.13,0,0,0,236,200.89V88A20,20,0,0,0,216,68ZM90.61,56l10.67,12H44V56ZM212,196H44V92H212Zm-72-76v12h12a12,12,0,0,1,0,24H140v12a12,12,0,0,1-24,0V156H104a12,12,0,0,1,0-24h12V120a12,12,0,0,1,24,0Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M128,80H32V56a8,8,0,0,1,8-8H92.69a8,8,0,0,1,5.65,2.34Z",
@@ -2697,7 +2697,7 @@ var l$1 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Globe.es.js
-var e$26 = /* @__PURE__ */ new Map([
+var e$28 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,187a113.4,113.4,0,0,1-20.39-35h40.82a116.94,116.94,0,0,1-10,20.77A108.61,108.61,0,0,1,128,207Zm-26.49-59a135.42,135.42,0,0,1,0-40h53a135.42,135.42,0,0,1,0,40ZM44,128a83.49,83.49,0,0,1,2.43-20H77.25a160.63,160.63,0,0,0,0,40H46.43A83.49,83.49,0,0,1,44,128Zm84-79a113.4,113.4,0,0,1,20.39,35H107.59a116.94,116.94,0,0,1,10-20.77A108.61,108.61,0,0,1,128,49Zm50.73,59h30.82a83.52,83.52,0,0,1,0,40H178.75a160.63,160.63,0,0,0,0-40Zm20.77-24H173.71a140.82,140.82,0,0,0-15.5-34.36A84.51,84.51,0,0,1,199.52,84ZM97.79,49.64A140.82,140.82,0,0,0,82.29,84H56.48A84.51,84.51,0,0,1,97.79,49.64ZM56.48,172H82.29a140.82,140.82,0,0,0,15.5,34.36A84.51,84.51,0,0,1,56.48,172Zm101.73,34.36A140.82,140.82,0,0,0,173.71,172h25.81A84.51,84.51,0,0,1,158.21,206.36Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128a96,96,0,1,1-96-96A96,96,0,0,1,224,128Z",
@@ -2710,7 +2710,7 @@ var e$26 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Heart.es.js
-var a$14 = /* @__PURE__ */ new Map([
+var a$13 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M178,36c-20.09,0-37.92,7.93-50,21.56C115.92,43.93,98.09,36,78,36a66.08,66.08,0,0,0-66,66c0,72.34,105.81,130.14,110.31,132.57a12,12,0,0,0,11.38,0C138.19,232.14,244,174.34,244,102A66.08,66.08,0,0,0,178,36Zm-5.49,142.36A328.69,328.69,0,0,1,128,210.16a328.69,328.69,0,0,1-44.51-31.8C61.82,159.77,36,131.42,36,102A42,42,0,0,1,78,60c17.8,0,32.7,9.4,38.89,24.54a12,12,0,0,0,22.22,0C145.3,69.4,160.2,60,178,60a42,42,0,0,1,42,42C220,131.42,194.18,159.77,172.51,178.36Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M232,102c0,66-104,122-104,122S24,168,24,102A54,54,0,0,1,78,48c22.59,0,41.94,12.31,50,32,8.06-19.69,27.41-32,50-32A54,54,0,0,1,232,102Z",
@@ -2723,7 +2723,7 @@ var a$14 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/House.es.js
-var e$25 = /* @__PURE__ */ new Map([
+var e$27 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M222.14,105.85l-80-80a20,20,0,0,0-28.28,0l-80,80A19.86,19.86,0,0,0,28,120v96a12,12,0,0,0,12,12h64a12,12,0,0,0,12-12V164h24v52a12,12,0,0,0,12,12h64a12,12,0,0,0,12-12V120A19.86,19.86,0,0,0,222.14,105.85ZM204,204H164V152a12,12,0,0,0-12-12H104a12,12,0,0,0-12,12v52H52V121.65l76-76,76,76Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,120v96H152V152H104v64H40V120a8,8,0,0,1,2.34-5.66l80-80a8,8,0,0,1,11.32,0l80,80A8,8,0,0,1,216,120Z",
@@ -2736,7 +2736,7 @@ var e$25 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Image.es.js
-var e$24 = /* @__PURE__ */ new Map([
+var e$26 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M144,96a16,16,0,1,1,16,16A16,16,0,0,1,144,96Zm92-40V200a20,20,0,0,1-20,20H40a20,20,0,0,1-20-20V56A20,20,0,0,1,40,36H216A20,20,0,0,1,236,56ZM44,60v79.72l33.86-33.86a20,20,0,0,1,28.28,0L147.31,147l17.18-17.17a20,20,0,0,1,28.28,0L212,149.09V60Zm0,136H162.34L92,125.66l-48,48Zm168,0V183l-33.37-33.37L164.28,164l32,32Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56V178.06l-39.72-39.72a8,8,0,0,0-11.31,0L147.31,164,97.66,114.34a8,8,0,0,0-11.32,0L32,168.69V56a8,8,0,0,1,8-8H216A8,8,0,0,1,224,56Z",
@@ -2749,7 +2749,7 @@ var e$24 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Lightbulb.es.js
-var e$23 = /* @__PURE__ */ new Map([
+var e$25 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M180,232a12,12,0,0,1-12,12H88a12,12,0,0,1,0-24h80A12,12,0,0,1,180,232Zm40-128a91.51,91.51,0,0,1-35.17,72.35A12.26,12.26,0,0,0,180,186v2a20,20,0,0,1-20,20H96a20,20,0,0,1-20-20v-2a12,12,0,0,0-4.7-9.51A91.57,91.57,0,0,1,36,104.52C35.73,54.69,76,13.2,125.79,12A92,92,0,0,1,220,104Zm-24,0a68,68,0,0,0-69.65-68C89.56,36.88,59.8,67.55,60,104.38a67.71,67.71,0,0,0,26.1,53.19A35.87,35.87,0,0,1,100,184h56.1A36.13,36.13,0,0,1,170,157.49,67.68,67.68,0,0,0,196,104Zm-20.07-5.32a48.5,48.5,0,0,0-31.91-40,12,12,0,0,0-8,22.62,24.31,24.31,0,0,1,16.09,20,12,12,0,0,0,23.86-2.64Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M208,104a79.86,79.86,0,0,1-30.59,62.92A24.29,24.29,0,0,0,168,186v6a8,8,0,0,1-8,8H96a8,8,0,0,1-8-8v-6a24.11,24.11,0,0,0-9.3-19A79.87,79.87,0,0,1,48,104.45C47.76,61.09,82.72,25,126.07,24A80,80,0,0,1,208,104Z",
@@ -2762,7 +2762,7 @@ var e$23 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Link.es.js
-var e$22 = /* @__PURE__ */ new Map([
+var e$24 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M117.18,188.74a12,12,0,0,1,0,17l-5.12,5.12A58.26,58.26,0,0,1,70.6,228h0A58.62,58.62,0,0,1,29.14,127.92L63.89,93.17a58.64,58.64,0,0,1,98.56,28.11,12,12,0,1,1-23.37,5.44,34.65,34.65,0,0,0-58.22-16.58L46.11,144.89A34.62,34.62,0,0,0,70.57,204h0a34.41,34.41,0,0,0,24.49-10.14l5.11-5.12A12,12,0,0,1,117.18,188.74ZM226.83,45.17a58.65,58.65,0,0,0-82.93,0l-5.11,5.11a12,12,0,0,0,17,17l5.12-5.12a34.63,34.63,0,1,1,49,49L175.1,145.86A34.39,34.39,0,0,1,150.61,156h0a34.63,34.63,0,0,1-33.69-26.72,12,12,0,0,0-23.38,5.44A58.64,58.64,0,0,0,150.56,180h.05a58.28,58.28,0,0,0,41.47-17.17l34.75-34.75a58.62,58.62,0,0,0,0-82.91Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M218.34,119.6,183.6,154.34a46.58,46.58,0,0,1-44.31,12.26c-.31.34-.62.67-.95,1L103.6,202.34A46.63,46.63,0,1,1,37.66,136.4L72.4,101.66A46.6,46.6,0,0,1,116.71,89.4c.31-.34.62-.67,1-1L152.4,53.66a46.63,46.63,0,0,1,65.94,65.94Z",
@@ -2775,7 +2775,7 @@ var e$22 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/List.es.js
-var e$21 = /* @__PURE__ */ new Map([
+var e$23 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H40a12,12,0,0,1,0-24H216A12,12,0,0,1,228,128ZM40,76H216a12,12,0,0,0,0-24H40a12,12,0,0,0,0,24ZM216,180H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,64V192H40V64Z",
@@ -2788,7 +2788,7 @@ var e$21 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Lock.es.js
-var e$20 = /* @__PURE__ */ new Map([
+var e$22 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208,76H180V56A52,52,0,0,0,76,56V76H48A20,20,0,0,0,28,96V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V96A20,20,0,0,0,208,76ZM100,56a28,28,0,0,1,56,0V76H100ZM204,204H52V100H204Zm-60-52a16,16,0,1,1-16-16A16,16,0,0,1,144,152Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,96V208a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8H208A8,8,0,0,1,216,96Z",
@@ -2801,7 +2801,7 @@ var e$20 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/MagnifyingGlass.es.js
-var a$13 = /* @__PURE__ */ new Map([
+var a$12 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M232.49,215.51,185,168a92.12,92.12,0,1,0-17,17l47.53,47.54a12,12,0,0,0,17-17ZM44,112a68,68,0,1,1,68,68A68.07,68.07,0,0,1,44,112Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M192,112a80,80,0,1,1-80-80A80,80,0,0,1,192,112Z",
@@ -2814,7 +2814,7 @@ var a$13 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Monitor.es.js
-var e$19 = /* @__PURE__ */ new Map([
+var e$21 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208,36H48A28,28,0,0,0,20,64V176a28,28,0,0,0,28,28H208a28,28,0,0,0,28-28V64A28,28,0,0,0,208,36Zm4,140a4,4,0,0,1-4,4H48a4,4,0,0,1-4-4V64a4,4,0,0,1,4-4H208a4,4,0,0,1,4,4Zm-40,52a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,228Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,64V176a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V64A16,16,0,0,1,48,48H208A16,16,0,0,1,224,64Z",
@@ -2827,7 +2827,7 @@ var e$19 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Moon.es.js
-var a$12 = /* @__PURE__ */ new Map([
+var a$11 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M236.37,139.4a12,12,0,0,0-12-3A84.07,84.07,0,0,1,119.6,31.59a12,12,0,0,0-15-15A108.86,108.86,0,0,0,49.69,55.07,108,108,0,0,0,136,228a107.09,107.09,0,0,0,64.93-21.69,108.86,108.86,0,0,0,38.44-54.94A12,12,0,0,0,236.37,139.4Zm-49.88,47.74A84,84,0,0,1,68.86,69.51,84.93,84.93,0,0,1,92.27,48.29Q92,52.13,92,56A108.12,108.12,0,0,0,200,164q3.87,0,7.71-.27A84.79,84.79,0,0,1,186.49,187.14Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M227.89,147.89A96,96,0,1,1,108.11,28.11,96.09,96.09,0,0,0,227.89,147.89Z",
@@ -2840,7 +2840,7 @@ var a$12 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/PaintBrush.es.js
-var a$11 = /* @__PURE__ */ new Map([
+var a$10 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M236,32a12,12,0,0,0-12-12c-44.78,0-90,48.54-115.9,82a64,64,0,0,0-80,62c0,12-3.1,22.71-9.23,31.76A43,43,0,0,1,9.4,206.05a11.88,11.88,0,0,0-4.91,13.38A12.07,12.07,0,0,0,16.11,228h76A64,64,0,0,0,154,148C187.49,122.05,236,76.8,236,32ZM209.62,46.39c-4,12.92-13.15,27.49-26.92,42.91-3,3.39-6.16,6.7-9.35,9.89a104.31,104.31,0,0,0-16.5-16.51c3.19-3.19,6.49-6.32,9.88-9.35C182.15,59.55,196.71,50.43,209.62,46.39ZM92.07,204H42a80.17,80.17,0,0,0,10.14-40,40,40,0,1,1,40,40Zm38.18-91.32c3.12-3.93,6.55-8.09,10.23-12.35a80.52,80.52,0,0,1,15.23,15.24c-4.26,3.68-8.42,7.11-12.35,10.23A64.43,64.43,0,0,0,130.25,112.68Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,32c0,32.81-31.64,67.43-58.64,91.05A84.39,84.39,0,0,0,133,90.64C156.57,63.64,191.19,32,224,32Z",
@@ -2853,7 +2853,7 @@ var a$11 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Palette.es.js
-var e$18 = /* @__PURE__ */ new Map([
+var e$20 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M203.57,51A107.9,107.9,0,0,0,20,128c0,44.72,27.6,82.25,72,97.94A36,36,0,0,0,140,192a12,12,0,0,1,12-12h46.21a35.79,35.79,0,0,0,35.1-28A108.6,108.6,0,0,0,236,127.09,107.23,107.23,0,0,0,203.57,51Zm6.34,95.67a11.91,11.91,0,0,1-11.7,9.3H152a36,36,0,0,0-36,36,12,12,0,0,1-16,11.3c-16.65-5.88-30.65-15.76-40.48-28.56A76,76,0,0,1,44,128a84,84,0,0,1,83.13-84H128a84.35,84.35,0,0,1,84,83.29A84.72,84.72,0,0,1,209.91,146.71ZM144,76a16,16,0,1,1-16-16A16,16,0,0,1,144,76Zm-44,24A16,16,0,1,1,84,84,16,16,0,0,1,100,100Zm0,56a16,16,0,1,1-16-16A16,16,0,0,1,100,156Zm88-56a16,16,0,1,1-16-16A16,16,0,0,1,188,100Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,127.17a96.48,96.48,0,0,1-2.39,22.18A24,24,0,0,1,198.21,168H152a24,24,0,0,0-24,24,24,24,0,0,1-32,22.61C58.73,201.44,32,169.81,32,128a96,96,0,0,1,95-96C179.84,31.47,223.55,74.35,224,127.17Z",
@@ -2866,7 +2866,7 @@ var e$18 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Pause.es.js
-var e$17 = /* @__PURE__ */ new Map([
+var e$19 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M200,28H160a20,20,0,0,0-20,20V208a20,20,0,0,0,20,20h40a20,20,0,0,0,20-20V48A20,20,0,0,0,200,28Zm-4,176H164V52h32ZM96,28H56A20,20,0,0,0,36,48V208a20,20,0,0,0,20,20H96a20,20,0,0,0,20-20V48A20,20,0,0,0,96,28ZM92,204H60V52H92Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M208,48V208a8,8,0,0,1-8,8H160a8,8,0,0,1-8-8V48a8,8,0,0,1,8-8h40A8,8,0,0,1,208,48ZM96,40H56a8,8,0,0,0-8,8V208a8,8,0,0,0,8,8H96a8,8,0,0,0,8-8V48A8,8,0,0,0,96,40Z",
@@ -2879,7 +2879,7 @@ var e$17 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Pencil.es.js
-var a$10 = /* @__PURE__ */ new Map([
+var a$9 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM93,180l71-71,11,11-71,71ZM76,163,65,152l71-71,11,11ZM52,173l15.51,15.51h0L83,204H52ZM192,103,153,64l18.34-18.34,39,39Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M221.66,90.34,192,120,136,64l29.66-29.66a8,8,0,0,1,11.31,0L221.66,79A8,8,0,0,1,221.66,90.34Z",
@@ -2892,7 +2892,7 @@ var a$10 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Play.es.js
-var a$9 = /* @__PURE__ */ new Map([
+var a$8 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M234.49,111.07,90.41,22.94A20,20,0,0,0,60,39.87V216.13a20,20,0,0,0,30.41,16.93l144.08-88.13a19.82,19.82,0,0,0,0-33.86ZM84,208.85V47.15L216.16,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M228.23,134.69,84.15,222.81A8,8,0,0,1,72,216.12V39.88a8,8,0,0,1,12.15-6.69l144.08,88.12A7.82,7.82,0,0,1,228.23,134.69Z",
@@ -2905,7 +2905,7 @@ var a$9 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Plus.es.js
-var a$8 = /* @__PURE__ */ new Map([
+var a$7 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,56V200a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V56A16,16,0,0,1,56,40H200A16,16,0,0,1,216,56Z",
@@ -2918,7 +2918,7 @@ var a$8 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Rectangle.es.js
-var a$7 = /* @__PURE__ */ new Map([
+var a$6 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,36H40A20,20,0,0,0,20,56V200a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36Zm-4,160H44V60H212Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,56V200a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V56a8,8,0,0,1,8-8H216A8,8,0,0,1,224,56Z",
@@ -2931,7 +2931,7 @@ var a$7 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Rocket.es.js
-var e$16 = /* @__PURE__ */ new Map([
+var e$18 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M156,228a12,12,0,0,1-12,12H112a12,12,0,0,1,0-24h32A12,12,0,0,1,156,228ZM128,116a16,16,0,1,0-16-16A16,16,0,0,0,128,116Zm99.53,40.7-12.36,55.63a19.9,19.9,0,0,1-12.88,14.53A20.16,20.16,0,0,1,195.6,228a19.87,19.87,0,0,1-12.29-4.27L157.17,204H98.83L72.69,223.74A19.87,19.87,0,0,1,60.4,228a20.16,20.16,0,0,1-6.69-1.15,19.9,19.9,0,0,1-12.88-14.53L28.47,156.7a20.1,20.1,0,0,1,4.16-17.14l27.83-33.4A127,127,0,0,1,69.11,69.7c13.27-33.25,37-54.1,46.64-61.52a20,20,0,0,1,24.5,0c9.6,7.42,33.37,28.27,46.64,61.52a127,127,0,0,1,8.65,36.46l27.83,33.4A20.1,20.1,0,0,1,227.53,156.7ZM101.79,180h52.42c19.51-35.7,23-69.78,10.39-101.4C154.4,53,136.2,35.9,128,29.12,119.8,35.9,101.6,53,91.4,78.6,78.78,110.22,82.28,144.3,101.79,180Zm-22.55,8.72a168,168,0,0,1-16.92-47.3l-10,12,10.58,47.64Zm124.43-35.31-10-12a168,168,0,0,1-16.92,47.3l16.33,12.33Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M94.81,192,65.36,214.24a8,8,0,0,1-12.81-4.51L40.19,154.1a8,8,0,0,1,1.66-6.86l30.31-36.33C71,134.25,76.7,161.43,94.81,192Zm119.34-44.76-30.31-36.33c1.21,23.34-4.54,50.52-22.65,81.09l29.45,22.24a8,8,0,0,0,12.81-4.51l12.36-55.63A8,8,0,0,0,214.15,147.24Z",
@@ -2943,8 +2943,21 @@ var e$16 = /* @__PURE__ */ new Map([
 	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M148,224a4,4,0,0,1-4,4H112a4,4,0,0,1,0-8h32A4,4,0,0,1,148,224ZM128,108a8,8,0,1,0-8-8A8,8,0,0,0,128,108Zm91.72,47L207.35,210.6a11.9,11.9,0,0,1-7.72,8.71,12.17,12.17,0,0,1-4,.69,11.94,11.94,0,0,1-7.43-2.6L159.85,196H96.15L67.81,217.4a11.94,11.94,0,0,1-7.43,2.6,12.17,12.17,0,0,1-4-.69,11.9,11.9,0,0,1-7.72-8.71L36.28,155a12,12,0,0,1,2.5-10.28l29.35-35.23c3.3-53.33,41.83-86.68,52.52-94.94a12,12,0,0,1,14.7,0c10.69,8.26,49.22,41.61,52.52,94.94l29.35,35.23A12,12,0,0,1,219.72,155ZM97.11,188h61.78C214.07,92.49,145,32.05,130.46,20.84a4,4,0,0,0-4.92,0C111,32.05,41.93,92.49,97.11,188Zm-7.52,2.93C75.12,165.56,68.93,142.52,68,122.06L44.92,149.8a4,4,0,0,0-.83,3.43l12.36,55.63a4,4,0,0,0,6.41,2.26l.09-.07ZM211.08,149.8,188,122.06c-.89,20.46-7.08,43.5-21.55,68.87l26.64,20.12.09.07a4,4,0,0,0,6.41-2.26l12.36-55.63A4,4,0,0,0,211.08,149.8Z" }))]
 ]);
 //#endregion
+//#region node_modules/@phosphor-icons/react/dist/defs/SelectionBackground.es.js
+var e$17 = /* @__PURE__ */ new Map([
+	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M156,80H48a20,20,0,0,0-20,20V208a20,20,0,0,0,20,20H156a20,20,0,0,0,20-20V100A20,20,0,0,0,156,80Zm-4,124H52V104H152ZM132,40a12,12,0,0,1,12-12h16a12,12,0,0,1,0,24H144A12,12,0,0,1,132,40Zm96,8v8a12,12,0,0,1-24,0V52h-4a12,12,0,0,1,0-24h8A20,20,0,0,1,228,48Zm0,48v16a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0Zm0,56v8a20,20,0,0,1-20,20h-8a12,12,0,0,1,0-24h4v-4a12,12,0,0,1,24,0ZM76,56V48A20,20,0,0,1,96,28h8a12,12,0,0,1,0,24h-4v4a12,12,0,0,1-24,0Z" }))],
+	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
+		d: "M216,48V160a8,8,0,0,1-8,8H168V96a8,8,0,0,0-8-8H88V48a8,8,0,0,1,8-8H208A8,8,0,0,1,216,48Z",
+		opacity: "0.2"
+	}), /* @__PURE__ */ import_react.createElement("path", { d: "M160,80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H160a16,16,0,0,0,16-16V96A16,16,0,0,0,160,80Zm0,128H48V96H160ZM136,40a8,8,0,0,1,8-8h16a8,8,0,0,1,0,16H144A8,8,0,0,1,136,40Zm88,8v8a8,8,0,0,1-16,0V48h-8a8,8,0,0,1,0-16h8A16,16,0,0,1,224,48Zm0,48v16a8,8,0,0,1-16,0V96a8,8,0,0,1,16,0Zm0,56v8a16,16,0,0,1-16,16h-8a8,8,0,0,1,0-16h8v-8a8,8,0,0,1,16,0ZM80,56V48A16,16,0,0,1,96,32h8a8,8,0,0,1,0,16H96v8a8,8,0,0,1-16,0Z" }))],
+	["fill", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M72,112h72v72H72ZM224,48V208a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32H208A16,16,0,0,1,224,48ZM96,72a8,8,0,0,0,16,0h16a8,8,0,0,0,0-16H112A16,16,0,0,0,96,72Zm64,40a16,16,0,0,0-16-16H72a16,16,0,0,0-16,16v72a16,16,0,0,0,16,16h72a16,16,0,0,0,16-16Zm40,16a8,8,0,0,0-16,0v16a8,8,0,0,0,0,16,16,16,0,0,0,16-16Zm0-56a16,16,0,0,0-16-16H168a8,8,0,0,0,0,16h16V88a8,8,0,0,0,16,0Z" }))],
+	["light", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M160,82H48A14,14,0,0,0,34,96V208a14,14,0,0,0,14,14H160a14,14,0,0,0,14-14V96A14,14,0,0,0,160,82Zm2,126a2,2,0,0,1-2,2H48a2,2,0,0,1-2-2V96a2,2,0,0,1,2-2H160a2,2,0,0,1,2,2ZM138,40a6,6,0,0,1,6-6h16a6,6,0,0,1,0,12H144A6,6,0,0,1,138,40Zm84,8v8a6,6,0,0,1-12,0V48a2,2,0,0,0-2-2h-8a6,6,0,0,1,0-12h8A14,14,0,0,1,222,48Zm0,48v16a6,6,0,0,1-12,0V96a6,6,0,0,1,12,0Zm0,56v8a14,14,0,0,1-14,14h-8a6,6,0,0,1,0-12h8a2,2,0,0,0,2-2v-8a6,6,0,0,1,12,0ZM82,56V48A14,14,0,0,1,96,34h8a6,6,0,0,1,0,12H96a2,2,0,0,0-2,2v8a6,6,0,0,1-12,0Z" }))],
+	["regular", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M160,80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H160a16,16,0,0,0,16-16V96A16,16,0,0,0,160,80Zm0,128H48V96H160ZM136,40a8,8,0,0,1,8-8h16a8,8,0,0,1,0,16H144A8,8,0,0,1,136,40Zm88,8v8a8,8,0,0,1-16,0V48h-8a8,8,0,0,1,0-16h8A16,16,0,0,1,224,48Zm0,48v16a8,8,0,0,1-16,0V96a8,8,0,0,1,16,0Zm0,56v8a16,16,0,0,1-16,16h-8a8,8,0,0,1,0-16h8v-8a8,8,0,0,1,16,0ZM80,56V48A16,16,0,0,1,96,32h8a8,8,0,0,1,0,16H96v8a8,8,0,0,1-16,0Z" }))],
+	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M160,84H48A12,12,0,0,0,36,96V208a12,12,0,0,0,12,12H160a12,12,0,0,0,12-12V96A12,12,0,0,0,160,84Zm4,124a4,4,0,0,1-4,4H48a4,4,0,0,1-4-4V96a4,4,0,0,1,4-4H160a4,4,0,0,1,4,4ZM140,40a4,4,0,0,1,4-4h16a4,4,0,0,1,0,8H144A4,4,0,0,1,140,40Zm80,8v8a4,4,0,0,1-8,0V48a4,4,0,0,0-4-4h-8a4,4,0,0,1,0-8h8A12,12,0,0,1,220,48Zm0,48v16a4,4,0,0,1-8,0V96a4,4,0,0,1,8,0Zm0,56v8a12,12,0,0,1-12,12h-8a4,4,0,0,1,0-8h8a4,4,0,0,0,4-4v-8a4,4,0,0,1,8,0ZM84,56V48A12,12,0,0,1,96,36h8a4,4,0,0,1,0,8H96a4,4,0,0,0-4,4v8a4,4,0,0,1-8,0Z" }))]
+]);
+//#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Shield.es.js
-var a$6 = /* @__PURE__ */ new Map([
+var a$5 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208,36H48A20,20,0,0,0,28,56v56c0,54.29,26.32,87.22,48.4,105.29,23.71,19.39,47.44,26,48.44,26.29a12.1,12.1,0,0,0,6.32,0c1-.28,24.73-6.9,48.44-26.29,22.08-18.07,48.4-51,48.4-105.29V56A20,20,0,0,0,208,36Zm-4,76c0,35.71-13.09,64.69-38.91,86.15A126.28,126.28,0,0,1,128,219.38a126.14,126.14,0,0,1-37.09-21.23C65.09,176.69,52,147.71,52,112V60H204Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,56v56c0,96-88,120-88,120S40,208,40,112V56a8,8,0,0,1,8-8H208A8,8,0,0,1,216,56Z",
@@ -2957,7 +2970,7 @@ var a$6 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/SkipForward.es.js
-var a$5 = /* @__PURE__ */ new Map([
+var a$4 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M200,28a12,12,0,0,0-12,12v62l-113.45-71A20,20,0,0,0,44,47.88V208.12A20,20,0,0,0,74.55,225L188,154v62a12,12,0,0,0,24,0V40A12,12,0,0,0,200,28ZM68,200.73V55.27L184.3,128Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M196.3,134.65,68.19,214.77A8,8,0,0,1,56,208.12V47.88a8,8,0,0,1,12.19-6.65L196.3,121.35A7.83,7.83,0,0,1,196.3,134.65Z",
@@ -2970,7 +2983,7 @@ var a$5 = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Spinner.es.js
-var e$15 = /* @__PURE__ */ new Map([
+var e$16 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M140,32V64a12,12,0,0,1-24,0V32a12,12,0,0,1,24,0Zm33.25,62.75a12,12,0,0,0,8.49-3.52L204.37,68.6a12,12,0,0,0-17-17L164.77,74.26a12,12,0,0,0,8.48,20.49ZM224,116H192a12,12,0,0,0,0,24h32a12,12,0,0,0,0-24Zm-42.26,48.77a12,12,0,1,0-17,17l22.63,22.63a12,12,0,0,0,17-17ZM128,180a12,12,0,0,0-12,12v32a12,12,0,0,0,24,0V192A12,12,0,0,0,128,180ZM74.26,164.77,51.63,187.4a12,12,0,0,0,17,17l22.63-22.63a12,12,0,1,0-17-17ZM76,128a12,12,0,0,0-12-12H32a12,12,0,0,0,0,24H64A12,12,0,0,0,76,128ZM68.6,51.63a12,12,0,1,0-17,17L74.26,91.23a12,12,0,0,0,17-17Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M224,128a96,96,0,1,1-96-96A96,96,0,0,1,224,128Z",
@@ -2996,7 +3009,7 @@ var l = /* @__PURE__ */ new Map([
 ]);
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Sun.es.js
-var e$14 = /* @__PURE__ */ new Map([
+var e$15 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,36V20a12,12,0,0,1,24,0V36a12,12,0,0,1-24,0Zm80,92a68,68,0,1,1-68-68A68.07,68.07,0,0,1,196,128Zm-24,0a44,44,0,1,0-44,44A44.05,44.05,0,0,0,172,128ZM51.51,68.49a12,12,0,1,0,17-17l-12-12a12,12,0,0,0-17,17Zm0,119-12,12a12,12,0,0,0,17,17l12-12a12,12,0,1,0-17-17ZM196,72a12,12,0,0,0,8.49-3.51l12-12a12,12,0,0,0-17-17l-12,12A12,12,0,0,0,196,72Zm8.49,115.51a12,12,0,0,0-17,17l12,12a12,12,0,0,0,17-17ZM48,128a12,12,0,0,0-12-12H20a12,12,0,0,0,0,24H36A12,12,0,0,0,48,128Zm80,80a12,12,0,0,0-12,12v16a12,12,0,0,0,24,0V220A12,12,0,0,0,128,208Zm108-92H220a12,12,0,0,0,0,24h16a12,12,0,0,0,0-24Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M184,128a56,56,0,1,1-56-56A56,56,0,0,1,184,128Z",
@@ -3008,21 +3021,8 @@ var e$14 = /* @__PURE__ */ new Map([
 	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M124,40V16a4,4,0,0,1,8,0V40a4,4,0,0,1-8,0Zm64,88a60,60,0,1,1-60-60A60.07,60.07,0,0,1,188,128Zm-8,0a52,52,0,1,0-52,52A52.06,52.06,0,0,0,180,128ZM61.17,66.83a4,4,0,0,0,5.66-5.66l-16-16a4,4,0,0,0-5.66,5.66Zm0,122.34-16,16a4,4,0,0,0,5.66,5.66l16-16a4,4,0,0,0-5.66-5.66ZM192,68a4,4,0,0,0,2.83-1.17l16-16a4,4,0,1,0-5.66-5.66l-16,16A4,4,0,0,0,192,68Zm2.83,121.17a4,4,0,0,0-5.66,5.66l16,16a4,4,0,0,0,5.66-5.66ZM40,124H16a4,4,0,0,0,0,8H40a4,4,0,0,0,0-8Zm88,88a4,4,0,0,0-4,4v24a4,4,0,0,0,8,0V216A4,4,0,0,0,128,212Zm112-88H216a4,4,0,0,0,0,8h24a4,4,0,0,0,0-8Z" }))]
 ]);
 //#endregion
-//#region node_modules/@phosphor-icons/react/dist/defs/Terminal.es.js
-var a$4 = /* @__PURE__ */ new Map([
-	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M120,137,48,201A12,12,0,1,1,32,183l61.91-55L32,73A12,12,0,1,1,48,55l72,64A12,12,0,0,1,120,137Zm96,43H120a12,12,0,0,0,0,24h96a12,12,0,0,0,0-24Z" }))],
-	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
-		d: "M216,80V192H40V64H200A16,16,0,0,1,216,80Z",
-		opacity: "0.2"
-	}), /* @__PURE__ */ import_react.createElement("path", { d: "M117.31,134l-72,64a8,8,0,1,1-10.63-12L100,128,34.69,70A8,8,0,1,1,45.32,58l72,64a8,8,0,0,1,0,12ZM216,184H120a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Z" }))],
-	["fill", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM77.66,173.66a8,8,0,0,1-11.32-11.32L100.69,128,66.34,93.66A8,8,0,0,1,77.66,82.34l40,40a8,8,0,0,1,0,11.32ZM192,176H128a8,8,0,0,1,0-16h64a8,8,0,0,1,0,16Z" }))],
-	["light", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,132.48l-72,64a6,6,0,0,1-8-9L103,128,36,68.49a6,6,0,0,1,8-9l72,64a6,6,0,0,1,0,9ZM216,186H120a6,6,0,0,0,0,12h96a6,6,0,0,0,0-12Z" }))],
-	["regular", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M117.31,134l-72,64a8,8,0,1,1-10.63-12L100,128,34.69,70A8,8,0,1,1,45.32,58l72,64a8,8,0,0,1,0,12ZM216,184H120a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Z" }))],
-	["thin", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M116,128a4,4,0,0,1-1.34,3l-72,64a4,4,0,1,1-5.32-6L106,128,37.34,67a4,4,0,0,1,5.32-6l72,64A4,4,0,0,1,116,128Zm100,60H120a4,4,0,0,0,0,8h96a4,4,0,0,0,0-8Z" }))]
-]);
-//#endregion
 //#region node_modules/@phosphor-icons/react/dist/defs/Tray.es.js
-var e$13 = /* @__PURE__ */ new Map([
+var e$14 = /* @__PURE__ */ new Map([
 	["bold", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", { d: "M208,28H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,24v92H179.31a19.86,19.86,0,0,0-14.14,5.86L147,168H109L90.83,149.86A19.86,19.86,0,0,0,76.69,144H52V52ZM52,204V168H75l18.14,18.14A19.86,19.86,0,0,0,107.31,192h41.38a19.86,19.86,0,0,0,14.14-5.86L181,168h23v36Z" }))],
 	["duotone", /* @__PURE__ */ import_react.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.createElement("path", {
 		d: "M216,48V160H179.31a8,8,0,0,0-5.66,2.34l-19.31,19.32a8,8,0,0,1-5.66,2.34H107.31a8,8,0,0,1-5.66-2.34L82.34,162.34A8,8,0,0,0,76.68,160H40V48a8,8,0,0,1,8-8H208A8,8,0,0,1,216,48Z",
@@ -3077,7 +3077,7 @@ var a$1 = /* @__PURE__ */ new Map([
 var r$10 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: e$32
+	weights: e$34
 }));
 r$10.displayName = "ArrowCounterClockwiseIcon";
 var i = r$10;
@@ -3086,7 +3086,7 @@ var i = r$10;
 var r$9 = import_react.forwardRef((t, w) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: w,
 	...t,
-	weights: a$22
+	weights: a$21
 }));
 r$9.displayName = "ArrowElbowDownRightIcon";
 var m$3 = r$9;
@@ -3095,7 +3095,7 @@ var m$3 = r$9;
 var r$8 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: a$21
+	weights: a$20
 }));
 r$8.displayName = "ArrowLeftIcon";
 var s$14 = r$8;
@@ -3104,7 +3104,7 @@ var s$14 = r$8;
 var r$7 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...t,
-	weights: a$20
+	weights: a$19
 }));
 r$7.displayName = "ArrowRightIcon";
 var s$13 = r$7;
@@ -3113,100 +3113,100 @@ var s$13 = r$7;
 var r$6 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...e,
-	weights: a$19
+	weights: a$18
 }));
 r$6.displayName = "ArrowUpIcon";
 var s$12 = r$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Bell.es.js
-var o$17 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$16 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: e$31
+	weights: e$33
 }));
-o$17.displayName = "BellIcon";
-var s$11 = o$17;
+o$16.displayName = "BellIcon";
+var s$11 = o$16;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Books.es.js
-var e$12 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$13 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: s,
 	...r,
-	weights: e$30
+	weights: e$32
 }));
-e$12.displayName = "BooksIcon";
-var n$17 = e$12;
+e$13.displayName = "BooksIcon";
+var n$17 = e$13;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Brain.es.js
 var r$5 = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...a,
-	weights: e$29
+	weights: e$31
 }));
 r$5.displayName = "BrainIcon";
-var c$9 = r$5;
+var c$8 = r$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/CaretDown.es.js
-var e$11 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$12 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
 	weights: t$7
 }));
-e$11.displayName = "CaretDownIcon";
-var s$10 = e$11;
+e$12.displayName = "CaretDownIcon";
+var s$10 = e$12;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/CaretRight.es.js
-var e$10 = import_react.forwardRef((o, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$11 = import_react.forwardRef((o, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...o,
 	weights: t$6
 }));
-e$10.displayName = "CaretRightIcon";
-var s$9 = e$10;
+e$11.displayName = "CaretRightIcon";
+var s$9 = e$11;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/ChatCircle.es.js
-var o$16 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$15 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$18
-}));
-o$16.displayName = "ChatCircleIcon";
-var s$8 = o$16;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Check.es.js
-var o$15 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: r,
-	...c,
 	weights: a$17
 }));
-o$15.displayName = "CheckIcon";
-var n$16 = o$15;
+o$15.displayName = "ChatCircleIcon";
+var s$8 = o$15;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Check.es.js
+var o$14 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: r,
+	...c,
+	weights: a$16
+}));
+o$14.displayName = "CheckIcon";
+var n$16 = o$14;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Circle.es.js
-var o$14 = import_react.forwardRef((r, c) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$13 = import_react.forwardRef((r, c) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: c,
 	...r,
 	weights: t$5
 }));
-o$14.displayName = "CircleIcon";
-var s$7 = o$14;
+o$13.displayName = "CircleIcon";
+var s$7 = o$13;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Clock.es.js
-var c$8 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var c$7 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: a$16
+	weights: a$15
 }));
-c$8.displayName = "ClockIcon";
-var n$15 = c$8;
+c$7.displayName = "ClockIcon";
+var n$15 = c$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Copy.es.js
-var e$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$10 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: e$28
+	weights: e$30
 }));
-e$9.displayName = "CopyIcon";
-var s$6 = e$9;
+e$10.displayName = "CopyIcon";
+var s$6 = e$10;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/DotOutline.es.js
 var t$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3215,241 +3215,249 @@ var t$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createE
 	weights: t$4
 }));
 t$3.displayName = "DotOutlineIcon";
-var c$7 = t$3;
+var c$6 = t$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Envelope.es.js
-var o$13 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: t,
-	...r,
-	weights: a$15
-}));
-o$13.displayName = "EnvelopeIcon";
-var c$6 = o$13;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Eyedropper.es.js
-var o$12 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: p,
-	...r,
-	weights: l$2
-}));
-o$12.displayName = "EyedropperIcon";
-var s$5 = o$12;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/FolderPlus.es.js
-var e$8 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: s,
-	...r,
-	weights: e$27
-}));
-e$8.displayName = "FolderPlusIcon";
-var m$2 = e$8;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Gear.es.js
-var o$11 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: a,
-	...r,
-	weights: l$1
-}));
-o$11.displayName = "GearIcon";
-var n$14 = o$11;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Globe.es.js
-var e$7 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: t,
-	...r,
-	weights: e$26
-}));
-e$7.displayName = "GlobeIcon";
-var n$13 = e$7;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Heart.es.js
-var o$10 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$12 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
 	weights: a$14
 }));
-o$10.displayName = "HeartIcon";
-var n$12 = o$10;
+o$12.displayName = "EnvelopeIcon";
+var c$5 = o$12;
 //#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/House.es.js
-var e$6 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
+//#region node_modules/@phosphor-icons/react/dist/csr/Eyedropper.es.js
+var o$11 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: p,
+	...r,
+	weights: l$2
+}));
+o$11.displayName = "EyedropperIcon";
+var s$5 = o$11;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/FolderPlus.es.js
+var e$9 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: s,
 	...r,
-	weights: e$25
+	weights: e$29
 }));
-e$6.displayName = "HouseIcon";
-var n$11 = e$6;
+e$9.displayName = "FolderPlusIcon";
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Gear.es.js
+var o$10 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: a,
+	...r,
+	weights: l$1
+}));
+o$10.displayName = "GearIcon";
+var n$14 = o$10;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Globe.es.js
+var e$8 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: t,
+	...r,
+	weights: e$28
+}));
+e$8.displayName = "GlobeIcon";
+var n$13 = e$8;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Heart.es.js
+var o$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: t,
+	...r,
+	weights: a$13
+}));
+o$9.displayName = "HeartIcon";
+var n$12 = o$9;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/House.es.js
+var e$7 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: s,
+	...r,
+	weights: e$27
+}));
+e$7.displayName = "HouseIcon";
+var n$11 = e$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Image.es.js
-var o$9 = import_react.forwardRef((a, m) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$8 = import_react.forwardRef((a, m) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: m,
 	...a,
-	weights: e$24
+	weights: e$26
 }));
-o$9.displayName = "ImageIcon";
-var I = o$9;
+o$8.displayName = "ImageIcon";
+var I = o$8;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Lightbulb.es.js
 var t$2 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: e$23
+	weights: e$25
 }));
 t$2.displayName = "LightbulbIcon";
 var s$4 = t$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Link.es.js
-var e$5 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$6 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: e$22
+	weights: e$24
 }));
-e$5.displayName = "LinkIcon";
-var c$5 = e$5;
+e$6.displayName = "LinkIcon";
+var c$4 = e$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/List.es.js
 var t$1 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: e$21
+	weights: e$23
 }));
 t$1.displayName = "ListIcon";
-var c$4 = t$1;
+var c$3 = t$1;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Lock.es.js
-var c$3 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var c$2 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: e$20
+	weights: e$22
 }));
-c$3.displayName = "LockIcon";
-var n$10 = c$3;
+c$2.displayName = "LockIcon";
+var n$10 = c$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/MagnifyingGlass.es.js
-var o$8 = import_react.forwardRef((s, n) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$7 = import_react.forwardRef((s, n) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: n,
 	...s,
-	weights: a$13
+	weights: a$12
 }));
-o$8.displayName = "MagnifyingGlassIcon";
-var f = o$8;
+o$7.displayName = "MagnifyingGlassIcon";
+var f = o$7;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Monitor.es.js
 var r$4 = import_react.forwardRef((t, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...t,
-	weights: e$19
+	weights: e$21
 }));
 r$4.displayName = "MonitorIcon";
-var c$2 = r$4;
+var c$1 = r$4;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Moon.es.js
-var e$4 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$5 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: a$12
+	weights: a$11
 }));
-e$4.displayName = "MoonIcon";
-var s$3 = e$4;
+e$5.displayName = "MoonIcon";
+var s$3 = e$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/PaintBrush.es.js
 var r$3 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...t,
-	weights: a$11
+	weights: a$10
 }));
 r$3.displayName = "PaintBrushIcon";
-var m$1 = r$3;
+var m$2 = r$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Palette.es.js
 var t = import_react.forwardRef((o, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...o,
-	weights: e$18
+	weights: e$20
 }));
 t.displayName = "PaletteIcon";
 var n$9 = t;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Pause.es.js
-var o$7 = import_react.forwardRef((a, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$6 = import_react.forwardRef((a, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...a,
-	weights: e$17
+	weights: e$19
 }));
-o$7.displayName = "PauseIcon";
-var n$8 = o$7;
+o$6.displayName = "PauseIcon";
+var n$8 = o$6;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Pencil.es.js
-var o$6 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$5 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...c,
-	weights: a$10
+	weights: a$9
 }));
-o$6.displayName = "PencilIcon";
-var m = o$6;
+o$5.displayName = "PencilIcon";
+var m$1 = o$5;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Play.es.js
 var a = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: r,
 	...e,
-	weights: a$9
+	weights: a$8
 }));
 a.displayName = "PlayIcon";
 var n$7 = a;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Plus.es.js
-var e$3 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
+var e$4 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: s,
 	...r,
-	weights: a$8
-}));
-e$3.displayName = "PlusIcon";
-var n$6 = e$3;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Rectangle.es.js
-var o$5 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: a,
-	...t,
 	weights: a$7
 }));
-o$5.displayName = "RectangleIcon";
-var s$2 = o$5;
+e$4.displayName = "PlusIcon";
+var n$6 = e$4;
 //#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Rocket.es.js
-var e$2 = import_react.forwardRef((t, c) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: c,
+//#region node_modules/@phosphor-icons/react/dist/csr/Rectangle.es.js
+var o$4 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: a,
 	...t,
-	weights: e$16
-}));
-e$2.displayName = "RocketIcon";
-var n$5 = e$2;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Shield.es.js
-var o$4 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: t,
-	...r,
 	weights: a$6
 }));
-o$4.displayName = "ShieldIcon";
-var s$1 = o$4;
+o$4.displayName = "RectangleIcon";
+var s$2 = o$4;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Rocket.es.js
+var e$3 = import_react.forwardRef((t, c) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: c,
+	...t,
+	weights: e$18
+}));
+e$3.displayName = "RocketIcon";
+var n$5 = e$3;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/SelectionBackground.es.js
+var e$2 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: r,
+	...c,
+	weights: e$17
+}));
+e$2.displayName = "SelectionBackgroundIcon";
+var m = e$2;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Shield.es.js
+var o$3 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: t,
+	...r,
+	weights: a$5
+}));
+o$3.displayName = "ShieldIcon";
+var s$1 = o$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/SkipForward.es.js
 var r$2 = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...a,
-	weights: a$5
+	weights: a$4
 }));
 r$2.displayName = "SkipForwardIcon";
-var c$1 = r$2;
+var c = r$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Spinner.es.js
-var o$3 = import_react.forwardRef((r, n) => /* @__PURE__ */ import_react.createElement(p$1, {
+var o$2 = import_react.forwardRef((r, n) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: n,
 	...r,
-	weights: e$15
+	weights: e$16
 }));
-o$3.displayName = "SpinnerIcon";
-var p = o$3;
+o$2.displayName = "SpinnerIcon";
+var p = o$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Star.es.js
 var r$1 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3464,25 +3472,16 @@ var n$4 = r$1;
 var e$1 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: t,
 	...r,
-	weights: e$14
+	weights: e$15
 }));
 e$1.displayName = "SunIcon";
 var s = e$1;
-//#endregion
-//#region node_modules/@phosphor-icons/react/dist/csr/Terminal.es.js
-var o$2 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
-	ref: a,
-	...r,
-	weights: a$4
-}));
-o$2.displayName = "TerminalIcon";
-var c = o$2;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Tray.es.js
 var r = import_react.forwardRef((a, e) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: e,
 	...a,
-	weights: e$13
+	weights: e$14
 }));
 r.displayName = "TrayIcon";
 var n$3 = r;
@@ -7035,63 +7034,6 @@ var TabPanel = (0, import_react.forwardRef)((t0, ref) => {
 });
 TabPanel.displayName = "TabPanel";
 //#endregion
-//#region src/store/thread-store.ts
-var useThreadStore = create((set, get) => ({
-	threads: [],
-	activeThreadId: null,
-	isLoading: false,
-	error: null,
-	loadThreads: async () => {
-		set({
-			isLoading: true,
-			error: null
-		});
-		try {
-			const list = await window.omni.threads.list();
-			set({
-				threads: list,
-				isLoading: false
-			});
-			if (list.length > 0 && !get().activeThreadId) set({ activeThreadId: list[0].id });
-		} catch (err) {
-			set({
-				error: err instanceof Error ? err.message : "Failed to load threads",
-				isLoading: false
-			});
-		}
-	},
-	setActiveThreadId: (id) => set({ activeThreadId: id }),
-	createThread: async (projectId, title) => {
-		try {
-			const thread = await window.omni.threads.create(projectId, title);
-			set((state) => ({
-				threads: [...state.threads, thread],
-				activeThreadId: thread.id
-			}));
-			return thread;
-		} catch (err) {
-			console.error("Failed to create thread:", err);
-			return null;
-		}
-	},
-	deleteThread: async (id) => {
-		try {
-			await window.omni.threads.delete(id);
-			set((state) => {
-				const nextThreads = state.threads.filter((t) => t.id !== id);
-				let nextActiveId = state.activeThreadId;
-				if (state.activeThreadId === id) nextActiveId = nextThreads.length > 0 ? nextThreads[0].id : null;
-				return {
-					threads: nextThreads,
-					activeThreadId: nextActiveId
-				};
-			});
-		} catch (err) {
-			console.error("Failed to delete thread:", err);
-		}
-	}
-}));
-//#endregion
 //#region node_modules/@tabler/icons-react/dist/esm/defaultAttributes.mjs
 /**
 * @license @tabler/icons-react v3.44.0 - MIT
@@ -8942,9 +8884,9 @@ var iconMap = {
 		pipette: phosphor(s$5),
 		x: phosphor(n),
 		copy: phosphor(s$6),
-		menu: phosphor(c$4),
-		dot: phosphor(c$7),
-		monitor: phosphor(c$2),
+		menu: phosphor(c$3),
+		dot: phosphor(c$6),
+		monitor: phosphor(c$1),
 		sun: phosphor(s),
 		moon: phosphor(s$3),
 		"rectangle-horizontal": phosphor(s$2),
@@ -8961,19 +8903,19 @@ var iconMap = {
 		loader: phosphor(p),
 		users: phosphor(n$1),
 		lock: phosphor(n$10),
-		mail: phosphor(c$6),
+		mail: phosphor(c$5),
 		bell: phosphor(s$11),
 		shield: phosphor(s$1),
 		palette: phosphor(n$9),
 		lightbulb: phosphor(s$4),
 		rocket: phosphor(n$5),
 		heart: phosphor(n$12),
-		paintbrush: phosphor(m$1),
-		brain: phosphor(c$9),
+		paintbrush: phosphor(m$2),
+		brain: phosphor(c$8),
 		globe: phosphor(n$13),
 		user: phosphor(n$2),
 		image: phosphor(I),
-		link: phosphor(c$5),
+		link: phosphor(c$4),
 		check: phosphor(n$16),
 		"rotate-ccw": phosphor(i),
 		play: phosphor(n$7),
@@ -8981,8 +8923,8 @@ var iconMap = {
 		home: phosphor(n$11),
 		"message-circle": phosphor(s$8),
 		inbox: phosphor(n$3),
-		pencil: phosphor(m),
-		"skip-forward": phosphor(c$1),
+		pencil: phosphor(m$1),
+		"skip-forward": phosphor(c),
 		"corner-down-right": phosphor(m$3)
 	},
 	hugeicons: {
@@ -9111,7 +9053,7 @@ var __vitePreload = function preload(baseModule, deps, importerUrl) {
 //#region @/components/ui/file-thumbnail.tsx
 var pdfjsPromise = null;
 async function loadPdfjs() {
-	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-DhGARAPr.js").then((mod) => {
+	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-B3OxZYPF.js").then((mod) => {
 		if (!mod.GlobalWorkerOptions.workerSrc) mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${mod.version}/build/pdf.worker.min.mjs`;
 		return mod;
 	}), [], import.meta.url);
@@ -9174,7 +9116,7 @@ function FileThumbnail(t0) {
 			let cancelled = false;
 			renderPdfFirstPage(file, size).then((url_0) => {
 				if (!cancelled) setPdfUrl(url_0);
-			}).catch(_temp$1);
+			}).catch(_temp$4);
 			return () => {
 				cancelled = true;
 			};
@@ -9243,7 +9185,7 @@ function FileThumbnail(t0) {
 	} else t9 = $[22];
 	return t9;
 }
-function _temp$1() {}
+function _temp$4() {}
 typeof window !== "undefined" && window.document && window.document.createElement;
 function composeEventHandlers(originalEventHandler, ourEventHandler, { checkForDefaultPrevented = true } = {}) {
 	return function handleEvent(event) {
@@ -12603,6 +12545,616 @@ var ChatMessage = (0, import_react.forwardRef)((t0, ref) => {
 });
 ChatMessage.displayName = "ChatMessage";
 //#endregion
+//#region src/store/thread-store.ts
+var useThreadStore = create((set, get) => ({
+	threads: [],
+	activeThreadId: null,
+	isLoading: false,
+	error: null,
+	loadThreads: async () => {
+		set({
+			isLoading: true,
+			error: null
+		});
+		try {
+			const list = await window.omni.threads.list();
+			set({
+				threads: list,
+				isLoading: false
+			});
+			if (list.length > 0 && !get().activeThreadId) set({ activeThreadId: list[0].id });
+		} catch (err) {
+			set({
+				error: err instanceof Error ? err.message : "Failed to load threads",
+				isLoading: false
+			});
+		}
+	},
+	setActiveThreadId: (id) => set({ activeThreadId: id }),
+	createThread: async (projectId, title) => {
+		try {
+			const thread = await window.omni.threads.create(projectId, title);
+			set((state) => ({
+				threads: [...state.threads, thread],
+				activeThreadId: thread.id
+			}));
+			return thread;
+		} catch (err) {
+			console.error("Failed to create thread:", err);
+			return null;
+		}
+	},
+	deleteThread: async (id) => {
+		try {
+			await window.omni.threads.delete(id);
+			set((state) => {
+				const nextThreads = state.threads.filter((t) => t.id !== id);
+				let nextActiveId = state.activeThreadId;
+				if (state.activeThreadId === id) nextActiveId = nextThreads.length > 0 ? nextThreads[0].id : null;
+				return {
+					threads: nextThreads,
+					activeThreadId: nextActiveId
+				};
+			});
+		} catch (err) {
+			console.error("Failed to delete thread:", err);
+		}
+	}
+}));
+//#endregion
+//#region src/components/agent-view.tsx
+function AgentView() {
+	const $ = (0, import_compiler_runtime.c)(111);
+	const { activeProject, loadActiveProject } = useProjectStore();
+	const { threads, activeThreadId, loadThreads, setActiveThreadId, createThread } = useThreadStore();
+	let t0;
+	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
+		t0 = [];
+		$[0] = t0;
+	} else t0 = $[0];
+	const [projectsList, setProjectsList] = (0, import_react.useState)(t0);
+	const [isDropdownOpen, setIsDropdownOpen] = (0, import_react.useState)(false);
+	const [inputValue, setInputValue] = (0, import_react.useState)("");
+	let t1;
+	if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
+		t1 = [];
+		$[1] = t1;
+	} else t1 = $[1];
+	const [messages, setMessages] = (0, import_react.useState)(t1);
+	const dropdownRef = (0, import_react.useRef)(null);
+	const buttonRef = (0, import_react.useRef)(null);
+	const ChevronDownIcon = useIcon("chevron-down");
+	let t2;
+	let t3;
+	if ($[2] !== loadThreads) {
+		t2 = () => {
+			loadThreads();
+		};
+		t3 = [loadThreads];
+		$[2] = loadThreads;
+		$[3] = t2;
+		$[4] = t3;
+	} else {
+		t2 = $[3];
+		t3 = $[4];
+	}
+	(0, import_react.useEffect)(t2, t3);
+	let t4;
+	let t5;
+	if ($[5] !== loadActiveProject) {
+		t4 = () => {
+			if (!window.omni?.projects?.onActiveChanged) return;
+			return window.omni.projects.onActiveChanged(() => {
+				loadActiveProject();
+			});
+		};
+		t5 = [loadActiveProject];
+		$[5] = loadActiveProject;
+		$[6] = t4;
+		$[7] = t5;
+	} else {
+		t4 = $[6];
+		t5 = $[7];
+	}
+	(0, import_react.useEffect)(t4, t5);
+	let t6;
+	let t7;
+	if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
+		t6 = () => {
+			(async function loadProjects() {
+				if (window.omni?.projects?.list) setProjectsList(await window.omni.projects.list());
+			})();
+		};
+		t7 = [];
+		$[8] = t6;
+		$[9] = t7;
+	} else {
+		t6 = $[8];
+		t7 = $[9];
+	}
+	(0, import_react.useEffect)(t6, t7);
+	let t8;
+	if ($[10] !== activeProject?.id || $[11] !== activeThreadId || $[12] !== loadActiveProject || $[13] !== threads) {
+		t8 = () => {
+			if (activeThreadId && threads.length > 0) {
+				const activeThread = threads.find((t) => t.id === activeThreadId);
+				if (activeThread && activeThread.project_id !== activeProject?.id) window.omni.projects.setActive(activeThread.project_id).then(() => {
+					loadActiveProject();
+				});
+			}
+		};
+		$[10] = activeProject?.id;
+		$[11] = activeThreadId;
+		$[12] = loadActiveProject;
+		$[13] = threads;
+		$[14] = t8;
+	} else t8 = $[14];
+	let t9;
+	if ($[15] !== activeProject || $[16] !== activeThreadId || $[17] !== loadActiveProject || $[18] !== threads) {
+		t9 = [
+			activeThreadId,
+			threads,
+			activeProject,
+			loadActiveProject
+		];
+		$[15] = activeProject;
+		$[16] = activeThreadId;
+		$[17] = loadActiveProject;
+		$[18] = threads;
+		$[19] = t9;
+	} else t9 = $[19];
+	(0, import_react.useEffect)(t8, t9);
+	let t10;
+	let t11;
+	if ($[20] !== activeThreadId) {
+		t10 = () => {
+			if (!activeThreadId) {
+				setMessages([]);
+				return;
+			}
+			let active = true;
+			window.omni.messages.list(activeThreadId).then((msgs) => {
+				if (!active) return;
+				setMessages(msgs);
+			});
+			return () => {
+				active = false;
+			};
+		};
+		t11 = [activeThreadId];
+		$[20] = activeThreadId;
+		$[21] = t10;
+		$[22] = t11;
+	} else {
+		t10 = $[21];
+		t11 = $[22];
+	}
+	(0, import_react.useEffect)(t10, t11);
+	let t12;
+	if ($[23] !== activeProject?.id || $[24] !== loadActiveProject || $[25] !== setActiveThreadId || $[26] !== threads) {
+		t12 = async (threadId) => {
+			setActiveThreadId(threadId);
+			const selectedThread = threads.find((t_0) => t_0.id === threadId);
+			if (selectedThread && selectedThread.project_id !== activeProject?.id) {
+				if (window.omni?.projects?.setActive) {
+					await window.omni.projects.setActive(selectedThread.project_id);
+					await loadActiveProject();
+				}
+			}
+		};
+		$[23] = activeProject?.id;
+		$[24] = loadActiveProject;
+		$[25] = setActiveThreadId;
+		$[26] = threads;
+		$[27] = t12;
+	} else t12 = $[27];
+	const handleSelectThread = t12;
+	let t13;
+	if ($[28] !== activeProject || $[29] !== activeThreadId || $[30] !== createThread || $[31] !== setActiveThreadId || $[32] !== threads) {
+		t13 = async (text) => {
+			if (!text.trim() || !activeProject) return;
+			let targetThreadId = activeThreadId;
+			if (!targetThreadId) {
+				const title = `${activeProject.name} #${threads.filter((t_1) => t_1.project_id === activeProject.id).length + 1}`;
+				if (createThread) {
+					const thread = await createThread(activeProject.id, title);
+					if (thread) {
+						targetThreadId = thread.id;
+						setActiveThreadId(thread.id);
+					}
+				}
+			}
+			if (!targetThreadId) return;
+			const userMsg = await window.omni.messages.create({
+				thread_id: targetThreadId,
+				role: "user",
+				content: text.trim()
+			});
+			if (targetThreadId === activeThreadId) setMessages((current) => [...current, userMsg]);
+			setInputValue("");
+			setTimeout(async () => {
+				const assistantMsg = await window.omni.messages.create({
+					thread_id: targetThreadId,
+					role: "assistant",
+					content: `I received your message: "${text.trim()}". I am ready to help you with the project "${activeProject.name}".`
+				});
+				const currentActiveId = useThreadStore.getState().activeThreadId;
+				if (targetThreadId === currentActiveId) setMessages((current_0) => [...current_0, assistantMsg]);
+			}, 1e3);
+		};
+		$[28] = activeProject;
+		$[29] = activeThreadId;
+		$[30] = createThread;
+		$[31] = setActiveThreadId;
+		$[32] = threads;
+		$[33] = t13;
+	} else t13 = $[33];
+	const handleSend = t13;
+	let t14;
+	if ($[34] === Symbol.for("react.memo_cache_sentinel")) {
+		t14 = async () => {
+			setIsDropdownOpen(false);
+			if (window.omni?.launch?.show) await window.omni.launch.show("add");
+		};
+		$[34] = t14;
+	} else t14 = $[34];
+	const handleAddProject = t14;
+	let t15;
+	let t16;
+	if ($[35] !== isDropdownOpen) {
+		t15 = () => {
+			const handleClickOutside = function handleClickOutside(event) {
+				if (isDropdownOpen && dropdownRef.current && !dropdownRef.current.contains(event.target) && buttonRef.current && !buttonRef.current.contains(event.target)) setIsDropdownOpen(false);
+			};
+			document.addEventListener("mousedown", handleClickOutside);
+			return () => document.removeEventListener("mousedown", handleClickOutside);
+		};
+		t16 = [isDropdownOpen];
+		$[35] = isDropdownOpen;
+		$[36] = t15;
+		$[37] = t16;
+	} else {
+		t15 = $[36];
+		t16 = $[37];
+	}
+	(0, import_react.useEffect)(t15, t16);
+	let T0;
+	let t17;
+	let t18;
+	let t19;
+	let t20;
+	let t21;
+	let t22;
+	let t23;
+	let t24;
+	let t25;
+	let t26;
+	if ($[38] !== activeProject?.id || $[39] !== activeThreadId || $[40] !== createThread || $[41] !== handleSelectThread || $[42] !== isDropdownOpen || $[43] !== loadActiveProject || $[44] !== projectsList || $[45] !== setActiveThreadId || $[46] !== threads) {
+		const projectItems = projectsList.map(_temp$3);
+		let t27;
+		if ($[58] !== activeProject?.id) {
+			t27 = (p) => p.id === activeProject?.id;
+			$[58] = activeProject?.id;
+			$[59] = t27;
+		} else t27 = $[59];
+		const activeIdx = projectItems.findIndex(t27);
+		const checkedIndex = activeIdx !== -1 ? activeIdx : void 0;
+		const addProjectIdx = projectItems.length;
+		let t28;
+		if ($[60] !== projectsList) {
+			t28 = (projectId) => {
+				const p_0 = projectsList.find((proj) => proj.id === projectId);
+				return p_0 ? p_0.icon : null;
+			};
+			$[60] = projectsList;
+			$[61] = t28;
+		} else t28 = $[61];
+		const getProjectIcon = t28;
+		t26 = "h-full w-full flex flex-col bg-surface-1";
+		T0 = Tabs;
+		t22 = activeThreadId || "";
+		t23 = handleSelectThread;
+		t24 = "flex-1 flex flex-col min-h-0";
+		t25 = "threads panel";
+		t20 = "h-11  flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
+		let t29;
+		if ($[62] !== getProjectIcon || $[63] !== threads) {
+			let t30;
+			if ($[65] !== getProjectIcon) {
+				t30 = (thread_0) => {
+					const projIcon = getProjectIcon(thread_0.project_id);
+					const ProjectIconComp = (props_0) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+						name: projIcon,
+						className: props_0.className
+					});
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabItem, {
+						value: thread_0.id,
+						label: thread_0.title,
+						icon: ProjectIconComp
+					}, thread_0.id);
+				};
+				$[65] = getProjectIcon;
+				$[66] = t30;
+			} else t30 = $[66];
+			t29 = threads.map(t30);
+			$[62] = getProjectIcon;
+			$[63] = threads;
+			$[64] = t29;
+		} else t29 = $[64];
+		if ($[67] !== t29) {
+			t21 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
+				className: "p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+				children: t29
+			});
+			$[67] = t29;
+			$[68] = t21;
+		} else t21 = $[68];
+		t17 = "relative";
+		let t30;
+		let t31;
+		if ($[69] === Symbol.for("react.memo_cache_sentinel")) {
+			t30 = () => setIsDropdownOpen(_temp2$1);
+			t31 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$4, { size: 16 });
+			$[69] = t30;
+			$[70] = t31;
+		} else {
+			t30 = $[69];
+			t31 = $[70];
+		}
+		if ($[71] !== isDropdownOpen) {
+			t18 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+				ref: buttonRef,
+				variant: "ghost",
+				size: "icon-sm",
+				active: isDropdownOpen,
+				onClick: t30,
+				children: t31
+			});
+			$[71] = isDropdownOpen;
+			$[72] = t18;
+		} else t18 = $[72];
+		t19 = isDropdownOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			ref: dropdownRef,
+			className: "absolute right-0 top-full mt-1.5 z-50 origin-top-right",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Dropdown, {
+				checkedIndex,
+				children: [
+					projectItems.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
+						index: item.index,
+						label: item.name,
+						icon: item.icon,
+						checked: activeProject?.id === item.id,
+						onSelect: async () => {
+							setIsDropdownOpen(false);
+							const title_0 = `${item.name} #${threads.filter((t_2) => t_2.project_id === item.id).length + 1}`;
+							if (createThread) {
+								const thread_1 = await createThread(item.id, title_0);
+								if (thread_1) {
+									setActiveThreadId(thread_1.id);
+									if (window.omni?.projects?.setActive) {
+										await window.omni.projects.setActive(item.id);
+										await loadActiveProject();
+									}
+								}
+							}
+						}
+					}, item.id)),
+					projectItems.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DropdownSeparator, {}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
+						index: addProjectIdx,
+						label: "Add Project",
+						icon: e$9,
+						onSelect: handleAddProject
+					})
+				]
+			})
+		});
+		$[38] = activeProject?.id;
+		$[39] = activeThreadId;
+		$[40] = createThread;
+		$[41] = handleSelectThread;
+		$[42] = isDropdownOpen;
+		$[43] = loadActiveProject;
+		$[44] = projectsList;
+		$[45] = setActiveThreadId;
+		$[46] = threads;
+		$[47] = T0;
+		$[48] = t17;
+		$[49] = t18;
+		$[50] = t19;
+		$[51] = t20;
+		$[52] = t21;
+		$[53] = t22;
+		$[54] = t23;
+		$[55] = t24;
+		$[56] = t25;
+		$[57] = t26;
+	} else {
+		T0 = $[47];
+		t17 = $[48];
+		t18 = $[49];
+		t19 = $[50];
+		t20 = $[51];
+		t21 = $[52];
+		t22 = $[53];
+		t23 = $[54];
+		t24 = $[55];
+		t25 = $[56];
+		t26 = $[57];
+	}
+	let t27;
+	if ($[73] !== t17 || $[74] !== t18 || $[75] !== t19) {
+		t27 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: t17,
+			children: [t18, t19]
+		});
+		$[73] = t17;
+		$[74] = t18;
+		$[75] = t19;
+		$[76] = t27;
+	} else t27 = $[76];
+	let t28;
+	if ($[77] !== t20 || $[78] !== t21 || $[79] !== t27) {
+		t28 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: t20,
+			children: [t21, t27]
+		});
+		$[77] = t20;
+		$[78] = t21;
+		$[79] = t27;
+		$[80] = t28;
+	} else t28 = $[80];
+	let t29;
+	if ($[81] !== activeProject?.id || $[82] !== loadActiveProject || $[83] !== messages || $[84] !== projectsList) {
+		t29 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex-1 overflow-y-auto min-h-0",
+			children: messages.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-full flex flex-col items-center justify-center gap-6 p-6",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
+					className: "text-xl font-semibold tracking-tight text-foreground/60 flex items-center gap-2 flex-wrap justify-center select-none",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "What should we cook in" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
+							value: activeProject?.id || "",
+							onValueChange: async (val) => {
+								if (window.omni?.projects?.setActive) {
+									await window.omni.projects.setActive(val);
+									await loadActiveProject();
+								}
+							},
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectTrigger, {
+								className: cn("min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none", "text-xl font-semibold text-foreground tracking-tight", "underline underline-offset-4 decoration-border/60 hover:decoration-[#6B97FF]/60", "[&>svg]:hidden"),
+								placeholder: "Select project"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectContent, { children: projectsList.map(_temp3) })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "?" })
+					]
+				})
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "flex flex-col gap-3 p-4",
+				children: messages.map(_temp4)
+			})
+		});
+		$[81] = activeProject?.id;
+		$[82] = loadActiveProject;
+		$[83] = messages;
+		$[84] = projectsList;
+		$[85] = t29;
+	} else t29 = $[85];
+	const t30 = messages.length > 0 && "border-t border-border/60";
+	let t31;
+	if ($[86] !== t30) {
+		t31 = cn("p-3 shrink-0 bg-surface-1", t30);
+		$[86] = t30;
+		$[87] = t31;
+	} else t31 = $[87];
+	let t32;
+	if ($[88] !== ChevronDownIcon) {
+		t32 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+			variant: "ghost",
+			size: "sm",
+			trailingIcon: ChevronDownIcon,
+			children: "Sonnet 4.6"
+		});
+		$[88] = ChevronDownIcon;
+		$[89] = t32;
+	} else t32 = $[89];
+	let t33;
+	if ($[90] !== handleSend || $[91] !== inputValue || $[92] !== t32) {
+		t33 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "w-full max-w-2xl mx-auto",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputMessage, {
+				value: inputValue,
+				onValueChange: setInputValue,
+				placeholder: "Ask me anything to start a thread...",
+				rightSlot: t32,
+				onSend: handleSend
+			})
+		});
+		$[90] = handleSend;
+		$[91] = inputValue;
+		$[92] = t32;
+		$[93] = t33;
+	} else t33 = $[93];
+	let t34;
+	if ($[94] !== t31 || $[95] !== t33) {
+		t34 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: t31,
+			children: t33
+		});
+		$[94] = t31;
+		$[95] = t33;
+		$[96] = t34;
+	} else t34 = $[96];
+	let t35;
+	if ($[97] !== t29 || $[98] !== t34) {
+		t35 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
+			children: [t29, t34]
+		});
+		$[97] = t29;
+		$[98] = t34;
+		$[99] = t35;
+	} else t35 = $[99];
+	let t36;
+	if ($[100] !== T0 || $[101] !== t22 || $[102] !== t23 || $[103] !== t24 || $[104] !== t25 || $[105] !== t28 || $[106] !== t35) {
+		t36 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(T0, {
+			value: t22,
+			onValueChange: t23,
+			className: t24,
+			"data-pipper-id": t25,
+			children: [t28, t35]
+		});
+		$[100] = T0;
+		$[101] = t22;
+		$[102] = t23;
+		$[103] = t24;
+		$[104] = t25;
+		$[105] = t28;
+		$[106] = t35;
+		$[107] = t36;
+	} else t36 = $[107];
+	let t37;
+	if ($[108] !== t26 || $[109] !== t36) {
+		t37 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+			className: t26,
+			children: t36
+		});
+		$[108] = t26;
+		$[109] = t36;
+		$[110] = t37;
+	} else t37 = $[110];
+	return t37;
+}
+function _temp4(msg) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatMessage, {
+		from: msg.role === "user" ? "user" : "assistant",
+		children: msg.content
+	}, msg.id);
+}
+function _temp3(project_0, idx_0) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
+		value: project_0.id,
+		index: idx_0,
+		children: project_0.name
+	}, project_0.id);
+}
+function _temp2$1(prev) {
+	return !prev;
+}
+function _temp$3(project, idx) {
+	const ProjectIconWrapper = (props) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+		name: project.icon,
+		className: props.className
+	});
+	return {
+		id: project.id,
+		name: project.name,
+		icon: ProjectIconWrapper,
+		index: idx
+	};
+}
+//#endregion
 //#region src/store/terminal-store.ts
 var useTerminalStore = create((set, get) => ({
 	sessions: [],
@@ -14192,11 +14744,8 @@ function TerminalInner(t0) {
 			console.log(`[Terminal Session] Terminal ready. Initializing PTY session ${sessionId} - CWD: ${cwd}`);
 			if (!createdRef.current) {
 				createdRef.current = true;
-				write("Connecting to shell process...\r\n");
-				window.omni.terminal.create(sessionId, cwd).then(() => {
-					console.log("[Terminal Session] Backend PTY created successfully.");
-					write("Shell process connected successfully.\r\n");
-				}).catch((err_0) => {
+				console.log("Connecting to shell process..");
+				window.omni.terminal.create(sessionId, cwd).then(_temp$2).catch((err_0) => {
 					console.error("[Terminal Session] Failed to create backend PTY:", err_0);
 					setError(err_0 instanceof Error ? err_0.message : String(err_0));
 					write(`\r\nError: Failed to connect to shell backend. ${err_0 instanceof Error ? err_0.message : String(err_0)}\r\n`);
@@ -14324,679 +14873,11 @@ function TerminalInner(t0) {
 	} else t10 = $[26];
 	return t10;
 }
+function _temp$2() {
+	console.log("[Terminal Session] Backend PTY created successfully.");
+}
 //#endregion
-//#region src/App.tsx
-function App() {
-	const $ = (0, import_compiler_runtime.c)(19);
-	const { activeProject, loadActiveProject, isLoading } = useProjectStore();
-	let t0;
-	let t1;
-	if ($[0] !== loadActiveProject) {
-		t0 = () => {
-			loadActiveProject();
-		};
-		t1 = [loadActiveProject];
-		$[0] = loadActiveProject;
-		$[1] = t0;
-		$[2] = t1;
-	} else {
-		t0 = $[1];
-		t1 = $[2];
-	}
-	(0, import_react.useEffect)(t0, t1);
-	if (isLoading) {
-		let t2;
-		if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-			t2 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "h-screen w-screen flex items-center justify-center bg-surface-1 text-muted-foreground text-sm font-mono",
-				children: "Loading project context…"
-			});
-			$[3] = t2;
-		} else t2 = $[3];
-		return t2;
-	}
-	let t2;
-	if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-		t2 = { WebkitAppRegion: "drag" };
-		$[4] = t2;
-	} else t2 = $[4];
-	let t3;
-	if ($[5] !== activeProject) {
-		t3 = activeProject && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
-			name: activeProject.icon,
-			className: "size-4 text-muted-foreground"
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-			className: "text-[13px] font-medium tracking-tight text-foreground",
-			children: activeProject.name
-		})] });
-		$[5] = activeProject;
-		$[6] = t3;
-	} else t3 = $[6];
-	let t4;
-	if ($[7] !== t3) {
-		t4 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "flex items-center gap-2",
-			"data-pipper-id": "Project Name",
-			children: t3
-		});
-		$[7] = t3;
-		$[8] = t4;
-	} else t4 = $[8];
-	let t5;
-	if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-		t5 = { WebkitAppRegion: "no-drag" };
-		$[9] = t5;
-	} else t5 = $[9];
-	let t6;
-	if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-		t6 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			style: t5,
-			"data-pipper-id": "Theme Toggle",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeToggle, {})
-		});
-		$[10] = t6;
-	} else t6 = $[10];
-	let t7;
-	if ($[11] !== t4) {
-		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
-			className: "h-11 flex items-center justify-between pl-[80px] pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0",
-			style: t2,
-			"data-pipper-id": "header",
-			children: [t4, t6]
-		});
-		$[11] = t4;
-		$[12] = t7;
-	} else t7 = $[12];
-	let t8;
-	if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-		t8 = {
-			agent: 40,
-			others: 60
-		};
-		$[13] = t8;
-	} else t8 = $[13];
-	let t9;
-	if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
-		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
-			"data-pipper-id": "agent panel",
-			minSize: "40%",
-			className: "overflow-hidden",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentView, {})
-		});
-		$[14] = t9;
-	} else t9 = $[14];
-	let t10;
-	if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
-		t10 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Qt, {
-			className: "group relative w-px bg-border data-[separator-state=hover]:bg-foreground/20 data-[separator-state=drag]:bg-foreground/30 transition-colors",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-y-0 -left-1 -right-1 cursor-col-resize" })
-		});
-		$[15] = t10;
-	} else t10 = $[15];
-	let t11;
-	if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
-		t11 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Ut, {
-			orientation: "horizontal",
-			defaultLayout: t8,
-			className: "flex-1 flex min-h-0",
-			"data-pipper-id": "workspace panel",
-			children: [
-				t9,
-				t10,
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
-					"data-pipper-id": "others panel",
-					minSize: "40%",
-					className: "overflow-hidden",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OthersView, {})
-				})
-			]
-		});
-		$[16] = t11;
-	} else t11 = $[16];
-	let t12;
-	if ($[17] !== t7) {
-		t12 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "relative h-screen w-screen flex flex-col bg-surface-1 text-foreground",
-			children: [t7, t11]
-		});
-		$[17] = t7;
-		$[18] = t12;
-	} else t12 = $[18];
-	return t12;
-}
-function AgentView() {
-	const $ = (0, import_compiler_runtime.c)(108);
-	const { activeProject, loadActiveProject } = useProjectStore();
-	const { threads, activeThreadId, loadThreads, setActiveThreadId, createThread } = useThreadStore();
-	let t0;
-	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-		t0 = [];
-		$[0] = t0;
-	} else t0 = $[0];
-	const [projectsList, setProjectsList] = (0, import_react.useState)(t0);
-	const [isDropdownOpen, setIsDropdownOpen] = (0, import_react.useState)(false);
-	const [inputValue, setInputValue] = (0, import_react.useState)("");
-	let t1;
-	if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-		t1 = [];
-		$[1] = t1;
-	} else t1 = $[1];
-	const [messages, setMessages] = (0, import_react.useState)(t1);
-	const dropdownRef = (0, import_react.useRef)(null);
-	const buttonRef = (0, import_react.useRef)(null);
-	const ChevronDownIcon = useIcon("chevron-down");
-	let t2;
-	let t3;
-	if ($[2] !== loadThreads) {
-		t2 = () => {
-			loadThreads();
-		};
-		t3 = [loadThreads];
-		$[2] = loadThreads;
-		$[3] = t2;
-		$[4] = t3;
-	} else {
-		t2 = $[3];
-		t3 = $[4];
-	}
-	(0, import_react.useEffect)(t2, t3);
-	let t4;
-	let t5;
-	if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-		t4 = () => {
-			(async function loadProjects() {
-				if (window.omni?.projects?.list) setProjectsList(await window.omni.projects.list());
-			})();
-		};
-		t5 = [];
-		$[5] = t4;
-		$[6] = t5;
-	} else {
-		t4 = $[5];
-		t5 = $[6];
-	}
-	(0, import_react.useEffect)(t4, t5);
-	let t6;
-	if ($[7] !== activeProject?.id || $[8] !== activeThreadId || $[9] !== loadActiveProject || $[10] !== threads) {
-		t6 = () => {
-			if (activeThreadId && threads.length > 0) {
-				const activeThread = threads.find((t) => t.id === activeThreadId);
-				if (activeThread && activeThread.project_id !== activeProject?.id) window.omni.projects.setActive(activeThread.project_id).then(() => {
-					loadActiveProject();
-				});
-			}
-		};
-		$[7] = activeProject?.id;
-		$[8] = activeThreadId;
-		$[9] = loadActiveProject;
-		$[10] = threads;
-		$[11] = t6;
-	} else t6 = $[11];
-	let t7;
-	if ($[12] !== activeProject || $[13] !== activeThreadId || $[14] !== loadActiveProject || $[15] !== threads) {
-		t7 = [
-			activeThreadId,
-			threads,
-			activeProject,
-			loadActiveProject
-		];
-		$[12] = activeProject;
-		$[13] = activeThreadId;
-		$[14] = loadActiveProject;
-		$[15] = threads;
-		$[16] = t7;
-	} else t7 = $[16];
-	(0, import_react.useEffect)(t6, t7);
-	let t8;
-	let t9;
-	if ($[17] !== activeThreadId) {
-		t8 = () => {
-			if (!activeThreadId) {
-				setMessages([]);
-				return;
-			}
-			let active = true;
-			window.omni.messages.list(activeThreadId).then((msgs) => {
-				if (!active) return;
-				setMessages(msgs);
-			});
-			return () => {
-				active = false;
-			};
-		};
-		t9 = [activeThreadId];
-		$[17] = activeThreadId;
-		$[18] = t8;
-		$[19] = t9;
-	} else {
-		t8 = $[18];
-		t9 = $[19];
-	}
-	(0, import_react.useEffect)(t8, t9);
-	let t10;
-	if ($[20] !== activeProject?.id || $[21] !== loadActiveProject || $[22] !== setActiveThreadId || $[23] !== threads) {
-		t10 = async (threadId) => {
-			setActiveThreadId(threadId);
-			const selectedThread = threads.find((t_0) => t_0.id === threadId);
-			if (selectedThread && selectedThread.project_id !== activeProject?.id) {
-				if (window.omni?.projects?.setActive) {
-					await window.omni.projects.setActive(selectedThread.project_id);
-					await loadActiveProject();
-				}
-			}
-		};
-		$[20] = activeProject?.id;
-		$[21] = loadActiveProject;
-		$[22] = setActiveThreadId;
-		$[23] = threads;
-		$[24] = t10;
-	} else t10 = $[24];
-	const handleSelectThread = t10;
-	let t11;
-	if ($[25] !== activeProject || $[26] !== activeThreadId || $[27] !== createThread || $[28] !== setActiveThreadId || $[29] !== threads) {
-		t11 = async (text) => {
-			if (!text.trim() || !activeProject) return;
-			let targetThreadId = activeThreadId;
-			if (!targetThreadId) {
-				const title = `${activeProject.name} #${threads.filter((t_1) => t_1.project_id === activeProject.id).length + 1}`;
-				if (createThread) {
-					const thread = await createThread(activeProject.id, title);
-					if (thread) {
-						targetThreadId = thread.id;
-						setActiveThreadId(thread.id);
-					}
-				}
-			}
-			if (!targetThreadId) return;
-			const userMsg = await window.omni.messages.create({
-				thread_id: targetThreadId,
-				role: "user",
-				content: text.trim()
-			});
-			if (targetThreadId === activeThreadId) setMessages((current) => [...current, userMsg]);
-			setInputValue("");
-			setTimeout(async () => {
-				const assistantMsg = await window.omni.messages.create({
-					thread_id: targetThreadId,
-					role: "assistant",
-					content: `I received your message: "${text.trim()}". I am ready to help you with the project "${activeProject.name}".`
-				});
-				const currentActiveId = useThreadStore.getState().activeThreadId;
-				if (targetThreadId === currentActiveId) setMessages((current_0) => [...current_0, assistantMsg]);
-			}, 1e3);
-		};
-		$[25] = activeProject;
-		$[26] = activeThreadId;
-		$[27] = createThread;
-		$[28] = setActiveThreadId;
-		$[29] = threads;
-		$[30] = t11;
-	} else t11 = $[30];
-	const handleSend = t11;
-	let t12;
-	if ($[31] === Symbol.for("react.memo_cache_sentinel")) {
-		t12 = async () => {
-			setIsDropdownOpen(false);
-			if (window.omni?.launch?.show) await window.omni.launch.show("add");
-		};
-		$[31] = t12;
-	} else t12 = $[31];
-	const handleAddProject = t12;
-	let t13;
-	let t14;
-	if ($[32] !== isDropdownOpen) {
-		t13 = () => {
-			const handleClickOutside = function handleClickOutside(event) {
-				if (isDropdownOpen && dropdownRef.current && !dropdownRef.current.contains(event.target) && buttonRef.current && !buttonRef.current.contains(event.target)) setIsDropdownOpen(false);
-			};
-			document.addEventListener("mousedown", handleClickOutside);
-			return () => document.removeEventListener("mousedown", handleClickOutside);
-		};
-		t14 = [isDropdownOpen];
-		$[32] = isDropdownOpen;
-		$[33] = t13;
-		$[34] = t14;
-	} else {
-		t13 = $[33];
-		t14 = $[34];
-	}
-	(0, import_react.useEffect)(t13, t14);
-	let T0;
-	let t15;
-	let t16;
-	let t17;
-	let t18;
-	let t19;
-	let t20;
-	let t21;
-	let t22;
-	let t23;
-	let t24;
-	if ($[35] !== activeProject?.id || $[36] !== activeThreadId || $[37] !== createThread || $[38] !== handleSelectThread || $[39] !== isDropdownOpen || $[40] !== loadActiveProject || $[41] !== projectsList || $[42] !== setActiveThreadId || $[43] !== threads) {
-		const projectItems = projectsList.map(_temp);
-		let t25;
-		if ($[55] !== activeProject?.id) {
-			t25 = (p) => p.id === activeProject?.id;
-			$[55] = activeProject?.id;
-			$[56] = t25;
-		} else t25 = $[56];
-		const activeIdx = projectItems.findIndex(t25);
-		const checkedIndex = activeIdx !== -1 ? activeIdx : void 0;
-		const addProjectIdx = projectItems.length;
-		let t26;
-		if ($[57] !== projectsList) {
-			t26 = (projectId) => {
-				const p_0 = projectsList.find((proj) => proj.id === projectId);
-				return p_0 ? p_0.icon : null;
-			};
-			$[57] = projectsList;
-			$[58] = t26;
-		} else t26 = $[58];
-		const getProjectIcon = t26;
-		t24 = "h-full w-full flex flex-col bg-surface-1";
-		T0 = Tabs;
-		t20 = activeThreadId || "";
-		t21 = handleSelectThread;
-		t22 = "flex-1 flex flex-col min-h-0";
-		t23 = "threads panel";
-		t18 = "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
-		let t27;
-		if ($[59] !== getProjectIcon || $[60] !== threads) {
-			let t28;
-			if ($[62] !== getProjectIcon) {
-				t28 = (thread_0) => {
-					const projIcon = getProjectIcon(thread_0.project_id);
-					const ProjectIconComp = (props_0) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
-						name: projIcon,
-						className: props_0.className
-					});
-					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabItem, {
-						value: thread_0.id,
-						label: thread_0.title,
-						icon: ProjectIconComp
-					}, thread_0.id);
-				};
-				$[62] = getProjectIcon;
-				$[63] = t28;
-			} else t28 = $[63];
-			t27 = threads.map(t28);
-			$[59] = getProjectIcon;
-			$[60] = threads;
-			$[61] = t27;
-		} else t27 = $[61];
-		if ($[64] !== t27) {
-			t19 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
-				className: "bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
-				children: t27
-			});
-			$[64] = t27;
-			$[65] = t19;
-		} else t19 = $[65];
-		t15 = "relative";
-		let t28;
-		let t29;
-		if ($[66] === Symbol.for("react.memo_cache_sentinel")) {
-			t28 = () => setIsDropdownOpen(_temp2);
-			t29 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
-			$[66] = t28;
-			$[67] = t29;
-		} else {
-			t28 = $[66];
-			t29 = $[67];
-		}
-		if ($[68] !== isDropdownOpen) {
-			t16 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-				ref: buttonRef,
-				variant: "ghost",
-				size: "icon-sm",
-				active: isDropdownOpen,
-				onClick: t28,
-				children: t29
-			});
-			$[68] = isDropdownOpen;
-			$[69] = t16;
-		} else t16 = $[69];
-		t17 = isDropdownOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			ref: dropdownRef,
-			className: "absolute right-0 top-full mt-1.5 z-50 origin-top-right",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Dropdown, {
-				checkedIndex,
-				children: [
-					projectItems.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
-						index: item.index,
-						label: item.name,
-						icon: item.icon,
-						checked: activeProject?.id === item.id,
-						onSelect: async () => {
-							setIsDropdownOpen(false);
-							const title_0 = `${item.name} #${threads.filter((t_2) => t_2.project_id === item.id).length + 1}`;
-							if (createThread) {
-								const thread_1 = await createThread(item.id, title_0);
-								if (thread_1) {
-									setActiveThreadId(thread_1.id);
-									if (window.omni?.projects?.setActive) {
-										await window.omni.projects.setActive(item.id);
-										await loadActiveProject();
-									}
-								}
-							}
-						}
-					}, item.id)),
-					projectItems.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DropdownSeparator, {}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
-						index: addProjectIdx,
-						label: "Add Project",
-						icon: m$2,
-						onSelect: handleAddProject
-					})
-				]
-			})
-		});
-		$[35] = activeProject?.id;
-		$[36] = activeThreadId;
-		$[37] = createThread;
-		$[38] = handleSelectThread;
-		$[39] = isDropdownOpen;
-		$[40] = loadActiveProject;
-		$[41] = projectsList;
-		$[42] = setActiveThreadId;
-		$[43] = threads;
-		$[44] = T0;
-		$[45] = t15;
-		$[46] = t16;
-		$[47] = t17;
-		$[48] = t18;
-		$[49] = t19;
-		$[50] = t20;
-		$[51] = t21;
-		$[52] = t22;
-		$[53] = t23;
-		$[54] = t24;
-	} else {
-		T0 = $[44];
-		t15 = $[45];
-		t16 = $[46];
-		t17 = $[47];
-		t18 = $[48];
-		t19 = $[49];
-		t20 = $[50];
-		t21 = $[51];
-		t22 = $[52];
-		t23 = $[53];
-		t24 = $[54];
-	}
-	let t25;
-	if ($[70] !== t15 || $[71] !== t16 || $[72] !== t17) {
-		t25 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: t15,
-			children: [t16, t17]
-		});
-		$[70] = t15;
-		$[71] = t16;
-		$[72] = t17;
-		$[73] = t25;
-	} else t25 = $[73];
-	let t26;
-	if ($[74] !== t18 || $[75] !== t19 || $[76] !== t25) {
-		t26 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: t18,
-			children: [t19, t25]
-		});
-		$[74] = t18;
-		$[75] = t19;
-		$[76] = t25;
-		$[77] = t26;
-	} else t26 = $[77];
-	let t27;
-	if ($[78] !== activeProject?.id || $[79] !== loadActiveProject || $[80] !== messages || $[81] !== projectsList) {
-		t27 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "flex-1 overflow-y-auto min-h-0",
-			children: messages.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "h-full flex flex-col items-center justify-center gap-6 p-6",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
-					className: "text-xl font-semibold tracking-tight text-foreground/60 flex items-center gap-2 flex-wrap justify-center select-none",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "What should we cook in" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
-							value: activeProject?.id || "",
-							onValueChange: async (val) => {
-								if (window.omni?.projects?.setActive) {
-									await window.omni.projects.setActive(val);
-									await loadActiveProject();
-								}
-							},
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectTrigger, {
-								className: cn("min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none", "text-xl font-semibold text-foreground tracking-tight", "underline underline-offset-4 decoration-border/60 hover:decoration-[#6B97FF]/60", "[&>svg]:hidden"),
-								placeholder: "Select project"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectContent, { children: projectsList.map(_temp3) })]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "?" })
-					]
-				})
-			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "flex flex-col gap-3 p-4",
-				children: messages.map(_temp4)
-			})
-		});
-		$[78] = activeProject?.id;
-		$[79] = loadActiveProject;
-		$[80] = messages;
-		$[81] = projectsList;
-		$[82] = t27;
-	} else t27 = $[82];
-	const t28 = messages.length > 0 && "border-t border-border/60";
-	let t29;
-	if ($[83] !== t28) {
-		t29 = cn("p-3 shrink-0 bg-surface-1", t28);
-		$[83] = t28;
-		$[84] = t29;
-	} else t29 = $[84];
-	let t30;
-	if ($[85] !== ChevronDownIcon) {
-		t30 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-			variant: "ghost",
-			size: "sm",
-			trailingIcon: ChevronDownIcon,
-			children: "Sonnet 4.6"
-		});
-		$[85] = ChevronDownIcon;
-		$[86] = t30;
-	} else t30 = $[86];
-	let t31;
-	if ($[87] !== handleSend || $[88] !== inputValue || $[89] !== t30) {
-		t31 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "w-full max-w-2xl mx-auto",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputMessage, {
-				value: inputValue,
-				onValueChange: setInputValue,
-				placeholder: "Ask me anything to start a thread...",
-				rightSlot: t30,
-				onSend: handleSend
-			})
-		});
-		$[87] = handleSend;
-		$[88] = inputValue;
-		$[89] = t30;
-		$[90] = t31;
-	} else t31 = $[90];
-	let t32;
-	if ($[91] !== t29 || $[92] !== t31) {
-		t32 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: t29,
-			children: t31
-		});
-		$[91] = t29;
-		$[92] = t31;
-		$[93] = t32;
-	} else t32 = $[93];
-	let t33;
-	if ($[94] !== t27 || $[95] !== t32) {
-		t33 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
-			children: [t27, t32]
-		});
-		$[94] = t27;
-		$[95] = t32;
-		$[96] = t33;
-	} else t33 = $[96];
-	let t34;
-	if ($[97] !== T0 || $[98] !== t20 || $[99] !== t21 || $[100] !== t22 || $[101] !== t23 || $[102] !== t26 || $[103] !== t33) {
-		t34 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(T0, {
-			value: t20,
-			onValueChange: t21,
-			className: t22,
-			"data-pipper-id": t23,
-			children: [t26, t33]
-		});
-		$[97] = T0;
-		$[98] = t20;
-		$[99] = t21;
-		$[100] = t22;
-		$[101] = t23;
-		$[102] = t26;
-		$[103] = t33;
-		$[104] = t34;
-	} else t34 = $[104];
-	let t35;
-	if ($[105] !== t24 || $[106] !== t34) {
-		t35 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
-			className: t24,
-			children: t34
-		});
-		$[105] = t24;
-		$[106] = t34;
-		$[107] = t35;
-	} else t35 = $[107];
-	return t35;
-}
-function _temp4(msg) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatMessage, {
-		from: msg.role === "user" ? "user" : "assistant",
-		children: msg.content
-	}, msg.id);
-}
-function _temp3(project_0, idx_0) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
-		value: project_0.id,
-		index: idx_0,
-		children: project_0.name
-	}, project_0.id);
-}
-function _temp2(prev) {
-	return !prev;
-}
-function _temp(project, idx) {
-	const ProjectIconWrapper = (props) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
-		name: project.icon,
-		className: props.className
-	});
-	return {
-		id: project.id,
-		name: project.name,
-		icon: ProjectIconWrapper,
-		index: idx
-	};
-}
+//#region src/components/others-view.tsx
 function OthersView() {
 	const $ = (0, import_compiler_runtime.c)(38);
 	const { activeProject } = useProjectStore();
@@ -15060,7 +14941,6 @@ function OthersView() {
 			t7 = (session) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabItem, {
 				value: session.id,
 				label: session.title,
-				icon: c,
 				onClose: () => closeSession(session.id)
 			}, session.id);
 			$[12] = closeSession;
@@ -15074,7 +14954,7 @@ function OthersView() {
 	let t7;
 	if ($[14] !== t6) {
 		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
-			className: "bg-transparent p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+			className: "p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
 			children: t6
 		});
 		$[14] = t6;
@@ -15083,8 +14963,8 @@ function OthersView() {
 	let t8;
 	let t9;
 	if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
-		t8 = () => setIsDropdownOpen(_temp5);
-		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(n$6, { size: 16 });
+		t8 = () => setIsDropdownOpen(_temp$1);
+		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$4, { size: 16 });
 		$[16] = t8;
 		$[17] = t9;
 	} else {
@@ -15112,7 +14992,6 @@ function OthersView() {
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Dropdown, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
 				index: 0,
 				label: "Terminal",
-				icon: c,
 				onSelect: () => {
 					setIsDropdownOpen(false);
 					createSession(activeProject?.path);
@@ -15137,7 +15016,8 @@ function OthersView() {
 	let t13;
 	if ($[27] !== t12 || $[28] !== t7) {
 		t13 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "h-11 border-b border-border/60 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1",
+			className: "h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1",
+			"data-pipper-id": "others-tab-panel",
 			children: [t7, t12]
 		});
 		$[27] = t12;
@@ -15147,26 +15027,17 @@ function OthersView() {
 	let t14;
 	if ($[30] !== activeTabId || $[31] !== sessions) {
 		t14 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
+			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1 p-2",
+			"data-pipper-id": "others-content-panel",
 			children: sessions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				"data-pipper-id": "others-emptyView-panel",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 					className: "flex flex-col items-center gap-2 text-muted-foreground",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(c, {
-							size: 32,
-							strokeWidth: 1.5,
-							className: "text-muted-foreground/60"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "text-[13px] font-medium tracking-tight",
-							children: "No active terminal sessions"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "text-[11px] font-mono text-muted-foreground/80",
-							children: "Click the plus icon to start a new terminal"
-						})
-					]
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-[13px] font-medium tracking-tight",
+						children: "Click the plus icon to add new views"
+					})
 				})
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "flex-1 overflow-hidden min-h-0",
@@ -15188,11 +15059,11 @@ function OthersView() {
 	if ($[33] !== handleTabChange || $[34] !== t13 || $[35] !== t14 || $[36] !== t5) {
 		t15 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
 			className: "h-full w-full flex flex-col bg-surface-1",
+			"data-pipper-id": "others-panel",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Tabs, {
 				value: t5,
 				onValueChange: handleTabChange,
 				className: "flex-1 flex flex-col min-h-0",
-				"data-pipper-id": "others-tabs-panel",
 				children: [t13, t14]
 			})
 		});
@@ -15204,8 +15075,306 @@ function OthersView() {
 	} else t15 = $[37];
 	return t15;
 }
-function _temp5(prev) {
+function _temp$1(prev) {
 	return !prev;
+}
+//#endregion
+//#region src/components/flyout-view.tsx
+function FlyoutView() {
+	const { activeProject, loadActiveProject } = useProjectStore();
+	const [projects, setProjects] = (0, import_react.useState)([]);
+	const [isLoading, setIsLoading] = (0, import_react.useState)(true);
+	(0, import_react.useEffect)(() => {
+		loadActiveProject();
+		async function loadProjects() {
+			if (window.omni?.projects?.list) try {
+				setProjects(await window.omni.projects.list());
+			} catch (err) {
+				console.error("Failed to load projects in flyout:", err);
+			} finally {
+				setIsLoading(false);
+			}
+		}
+		loadProjects();
+	}, [loadActiveProject]);
+	(0, import_react.useEffect)(() => {
+		if (!window.omni?.projects?.onActiveChanged) return;
+		return window.omni.projects.onActiveChanged(() => {
+			loadActiveProject();
+		});
+	}, [loadActiveProject]);
+	const handleSelectProject = async (projectId) => {
+		if (window.omni?.projects?.setActive) {
+			await window.omni.projects.setActive(projectId);
+			await loadActiveProject();
+		}
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "h-screen w-screen flex flex-col bg-surface-1 text-foreground select-none overflow-hidden",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("header", {
+			className: "h-10 flex items-center justify-between px-4 border-b border-border/60  shrink-0",
+			style: { WebkitAppRegion: "none" }
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex-1 overflow-y-auto p-4 flex flex-col gap-6",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex flex-col gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground px-1",
+					children: "Active Workspace"
+				}), activeProject ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "relative group overflow-hidden rounded-xl border border-border/80 bg-surface-2 p-4 shadow-sm hover:shadow-md transition-all duration-300",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50 group-hover:scale-105 transition-transform duration-500 pointer-events-none" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "relative flex items-start gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "p-2 rounded-lg bg-surface-3 border border-border/40 shadow-inner shrink-0",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+								name: activeProject.icon,
+								className: "size-5 text-foreground"
+							})
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "min-w-0 flex-1",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "text-sm font-semibold tracking-tight text-foreground truncate",
+								children: activeProject.name
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[11px] font-mono text-muted-foreground truncate mt-0.5",
+								children: activeProject.path
+							})]
+						})]
+					})]
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "rounded-xl border border-dashed border-border bg-surface-1/50 p-4 text-center text-xs text-muted-foreground",
+					children: "No active workspace selected"
+				})]
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex flex-col gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground px-1",
+					children: "Switch Workspace"
+				}), isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "text-xs text-muted-foreground p-2 font-mono",
+					children: "Loading workspaces…"
+				}) : projects.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "text-xs text-muted-foreground p-2",
+					children: "No other workspaces found."
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "flex flex-col gap-1.5",
+					children: projects.map((project) => {
+						const isActive = activeProject?.id === project.id;
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: () => handleSelectProject(project.id),
+							className: cn("group flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border text-left transition-all duration-200", isActive ? "bg-accent/30 border-primary/30 shadow-sm" : "bg-surface-2 hover:bg-accent/40 border-border/40 hover:border-border/80"),
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: cn("p-1.5 rounded-md shrink-0 border transition-colors", isActive ? "bg-primary/10 border-primary/20" : "bg-surface-3 border-border/40 group-hover:border-border/80"),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+									name: project.icon,
+									className: cn("size-3.5", isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground")
+								})
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "min-w-0 flex-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-xs font-medium text-foreground truncate",
+										children: project.name
+									}), isActive && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/10",
+										children: "Active"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "block text-[10px] font-mono text-muted-foreground truncate mt-0.5",
+									children: project.path
+								})]
+							})]
+						}, project.id);
+					})
+				})]
+			})]
+		})]
+	});
+}
+//#endregion
+//#region src/App.tsx
+function App() {
+	const $ = (0, import_compiler_runtime.c)(23);
+	const [stage] = (0, import_react.useState)(_temp);
+	const { activeProject, loadActiveProject, isLoading } = useProjectStore();
+	let t0;
+	let t1;
+	if ($[0] !== loadActiveProject) {
+		t0 = () => {
+			loadActiveProject();
+		};
+		t1 = [loadActiveProject];
+		$[0] = loadActiveProject;
+		$[1] = t0;
+		$[2] = t1;
+	} else {
+		t0 = $[1];
+		t1 = $[2];
+	}
+	(0, import_react.useEffect)(t0, t1);
+	let t2;
+	let t3;
+	if ($[3] !== loadActiveProject) {
+		t2 = () => {
+			if (!window.omni?.projects?.onActiveChanged) return;
+			return window.omni.projects.onActiveChanged(() => {
+				loadActiveProject();
+			});
+		};
+		t3 = [loadActiveProject];
+		$[3] = loadActiveProject;
+		$[4] = t2;
+		$[5] = t3;
+	} else {
+		t2 = $[4];
+		t3 = $[5];
+	}
+	(0, import_react.useEffect)(t2, t3);
+	if (stage === "flyout") {
+		let t4;
+		if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
+			t4 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FlyoutView, {});
+			$[6] = t4;
+		} else t4 = $[6];
+		return t4;
+	}
+	if (isLoading) {
+		let t4;
+		if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
+			t4 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-screen w-screen flex items-center justify-center bg-surface-1 text-muted-foreground text-sm font-mono",
+				children: "Loading project context…"
+			});
+			$[7] = t4;
+		} else t4 = $[7];
+		return t4;
+	}
+	let t4;
+	if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
+		t4 = { WebkitAppRegion: "drag" };
+		$[8] = t4;
+	} else t4 = $[8];
+	let t5;
+	if ($[9] !== activeProject) {
+		t5 = activeProject && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+			name: activeProject.icon,
+			className: "size-4 text-muted-foreground"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "text-[13px] font-medium tracking-tight text-foreground",
+			children: activeProject.name
+		})] });
+		$[9] = activeProject;
+		$[10] = t5;
+	} else t5 = $[10];
+	let t6;
+	if ($[11] !== t5) {
+		t6 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex items-center gap-2",
+			"data-pipper-id": "Project Name",
+			children: t5
+		});
+		$[11] = t5;
+		$[12] = t6;
+	} else t6 = $[12];
+	let t7;
+	if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
+		t7 = { WebkitAppRegion: "no-drag" };
+		$[13] = t7;
+	} else t7 = $[13];
+	let t8;
+	if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
+		t8 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex items-center gap-1",
+			style: t7,
+			"data-pipper-id": "Theme and Flyout Controls",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				onClick: _temp2,
+				"aria-label": "Open Flyout",
+				title: "Open Flyout",
+				className: "inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(m, { className: "size-4" })
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeToggle, {})]
+		});
+		$[14] = t8;
+	} else t8 = $[14];
+	let t9;
+	if ($[15] !== t6) {
+		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+			className: "h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0",
+			style: t4,
+			"data-pipper-id": "header",
+			children: [t6, t8]
+		});
+		$[15] = t6;
+		$[16] = t9;
+	} else t9 = $[16];
+	let t10;
+	if ($[17] === Symbol.for("react.memo_cache_sentinel")) {
+		t10 = {
+			agent: 40,
+			others: 60
+		};
+		$[17] = t10;
+	} else t10 = $[17];
+	let t11;
+	if ($[18] === Symbol.for("react.memo_cache_sentinel")) {
+		t11 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
+			"data-pipper-id": "agent panel",
+			minSize: "40%",
+			className: "overflow-hidden",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentView, {})
+		});
+		$[18] = t11;
+	} else t11 = $[18];
+	let t12;
+	if ($[19] === Symbol.for("react.memo_cache_sentinel")) {
+		t12 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Qt, {
+			className: "group relative w-px bg-border data-[separator-state=hover]:bg-foreground/20 data-[separator-state=drag]:bg-foreground/30 transition-colors",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-y-0 -left-1 -right-1 cursor-col-resize" })
+		});
+		$[19] = t12;
+	} else t12 = $[19];
+	let t13;
+	if ($[20] === Symbol.for("react.memo_cache_sentinel")) {
+		t13 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Ut, {
+			orientation: "horizontal",
+			defaultLayout: t10,
+			className: "flex-1 flex min-h-0",
+			"data-pipper-id": "workspace panel",
+			children: [
+				t11,
+				t12,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
+					"data-pipper-id": "others panel",
+					minSize: "40%",
+					className: "overflow-hidden",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OthersView, {})
+				})
+			]
+		});
+		$[20] = t13;
+	} else t13 = $[20];
+	let t14;
+	if ($[21] !== t9) {
+		t14 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "relative h-screen w-screen flex flex-col bg-surface-1 text-foreground",
+			children: [t9, t13]
+		});
+		$[21] = t9;
+		$[22] = t14;
+	} else t14 = $[22];
+	return t14;
+}
+function _temp2() {
+	if (window.omni?.flyout?.open) window.omni.flyout.open();
+}
+function _temp() {
+	if (typeof window !== "undefined") return new URLSearchParams(window.location.search).get("stage");
+	return null;
 }
 //#endregion
 //#region src/main.tsx

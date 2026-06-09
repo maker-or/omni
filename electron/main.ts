@@ -24,6 +24,7 @@ function generateRandomId(): string {
 
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
+let flyoutWindow: BrowserWindow | null = null;
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
   const base = process.env["ELECTRON_RENDERER_URL"];
@@ -148,6 +149,73 @@ function createLaunchWindow(stage: "list" | "add" = "list"): void {
   void loadInto(launchWindow, "launch", stage);
 }
 
+function createFlyoutWindow(): void {
+  console.log("[Main] createFlyoutWindow");
+  if (flyoutWindow && !flyoutWindow.isDestroyed()) {
+    console.log("[Main] flyoutWindow already exists, showing it");
+    flyoutWindow.show();
+    flyoutWindow.focus();
+    return;
+  }
+
+  let x: number | undefined;
+  let y: number | undefined;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const bounds = mainWindow.getBounds();
+    x = bounds.x + bounds.width + 10;
+    y = bounds.y;
+  }
+
+  console.log(`[Main] Creating new flyoutWindow at x: ${x}, y: ${y}`);
+  flyoutWindow = new BrowserWindow({
+    width: 360,
+    height: 600,
+    minWidth: 300,
+    minHeight: 400,
+    x,
+    y,
+    parent: mainWindow ?? undefined,
+    title: "Flyout",
+    show: false,
+    backgroundColor: "#fafafa",
+    titleBarStyle: "hidden",
+    webPreferences: {
+      preload: join(mainDir, "../preload/index.js"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  flyoutWindow.on("ready-to-show", () => {
+    console.log("[Main] flyoutWindow ready-to-show");
+    flyoutWindow?.show();
+  });
+
+  flyoutWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Flyout Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+  });
+
+  flyoutWindow.on("closed", () => {
+    console.log("[Main] flyoutWindow closed");
+    flyoutWindow = null;
+  });
+
+  void loadInto(flyoutWindow, "main", "flyout");
+}
+
+function broadcastToWindows(channel: string, ...args: any[]) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+  if (flyoutWindow && !flyoutWindow.isDestroyed()) {
+    flyoutWindow.webContents.send(channel, ...args);
+  }
+  if (launchWindow && !launchWindow.isDestroyed()) {
+    launchWindow.webContents.send(channel, ...args);
+  }
+}
+
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -259,6 +327,11 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:setActive", (_event, projectId: string) => {
     setActiveProjectId(projectId);
+    broadcastToWindows("projects:activeChanged", projectId);
+  });
+
+  ipcMain.handle("flyout:open", () => {
+    createFlyoutWindow();
   });
 
   ipcMain.handle("threads:list", () => {
@@ -292,21 +365,29 @@ function registerIpc(): void {
       ptyProcesses.delete(sessionId);
     }
 
-    const defaultShell = process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
+    const defaultShell =
+      process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
     const shellArgs: string[] = [];
-    if (process.platform !== "win32" && (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))) {
+    if (
+      process.platform !== "win32" &&
+      (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))
+    ) {
       shellArgs.push("-l");
     }
-    
+
     let spawnCwd = cwd || os.homedir();
     if (spawnCwd && !fs.existsSync(spawnCwd)) {
-      console.warn(`[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`);
+      console.warn(
+        `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
+      );
       spawnCwd = os.homedir();
     }
 
     let ptyProcess: pty.IPty;
     try {
-      console.log(`[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`);
+      console.log(
+        `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
+      );
       ptyProcess = pty.spawn(defaultShell, shellArgs, {
         name: "xterm-256color",
         cols: 80,
@@ -338,23 +419,29 @@ function registerIpc(): void {
     });
   });
 
-  ipcMain.on("terminal:write", (_event, { sessionId, data }: { sessionId: string; data: string }) => {
-    const ptyProcess = ptyProcesses.get(sessionId);
-    if (ptyProcess) {
-      ptyProcess.write(data);
-    }
-  });
-
-  ipcMain.on("terminal:resize", (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
-    const ptyProcess = ptyProcesses.get(sessionId);
-    if (ptyProcess) {
-      try {
-        ptyProcess.resize(cols, rows);
-      } catch (e) {
-        console.error(`Error resizing PTY ${sessionId}:`, e);
+  ipcMain.on(
+    "terminal:write",
+    (_event, { sessionId, data }: { sessionId: string; data: string }) => {
+      const ptyProcess = ptyProcesses.get(sessionId);
+      if (ptyProcess) {
+        ptyProcess.write(data);
       }
-    }
-  });
+    },
+  );
+
+  ipcMain.on(
+    "terminal:resize",
+    (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+      const ptyProcess = ptyProcesses.get(sessionId);
+      if (ptyProcess) {
+        try {
+          ptyProcess.resize(cols, rows);
+        } catch (e) {
+          console.error(`Error resizing PTY ${sessionId}:`, e);
+        }
+      }
+    },
+  );
 
   ipcMain.handle("terminal:kill", (_event, sessionId: string) => {
     const ptyProcess = ptyProcesses.get(sessionId);
@@ -366,6 +453,10 @@ function registerIpc(): void {
       }
       ptyProcesses.delete(sessionId);
     }
+  });
+
+  ipcMain.on("theme:changed", (_event, theme: string) => {
+    broadcastToWindows("theme:changed", theme);
   });
 }
 

@@ -37,7 +37,7 @@ interface UseProximityHoverReturn {
 
 export function useProximityHover<T extends HTMLElement>(
   containerRef: RefObject<T | null>,
-  options: UseProximityHoverOptions = {}
+  options: UseProximityHoverOptions = {},
 ): UseProximityHoverReturn {
   const { axis = "y" } = options;
   const itemsRef = useRef(new Map<number, HTMLElement>());
@@ -88,7 +88,7 @@ export function useProximityHover<T extends HTMLElement>(
         measureItems();
       });
     },
-    [measureItems]
+    [measureItems],
   );
 
   const handleMouseMove = useCallback(
@@ -150,7 +150,7 @@ export function useProximityHover<T extends HTMLElement>(
         setActiveIndex(containingIndex ?? closestIndex);
       });
     },
-    [axis, containerRef]
+    [axis, containerRef],
   );
 
   const handleMouseEnter = useCallback(() => {
@@ -199,7 +199,7 @@ export function useProximityHover<T extends HTMLElement>(
 export function useRegisterProximityItem(
   registerItem: (index: number, element: HTMLElement | null) => void,
   index: number,
-  ref: RefObject<HTMLElement | null>
+  ref: RefObject<HTMLElement | null>,
 ) {
   useEffect(() => {
     registerItem(index, ref.current);
