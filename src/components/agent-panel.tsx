@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { PlusIcon, FolderPlusIcon, PauseIcon } from "@phosphor-icons/react";
+import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
@@ -163,16 +163,18 @@ export function AgentPanel() {
     switchThread,
     createThread,
     respondToUiRequest,
-    abort,
+    setModel,
   } = useAgentStore();
   const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string; icon: string }>>([]);
   const [inputValue, setInputValue] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
   const threadPaneRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
   const ChevronDownIcon = useIcon("chevron-down");
 
@@ -195,6 +197,9 @@ export function AgentPanel() {
   useEffect(() => {
     if (!isDropdownOpen) {
       setHoveredProjectId(null);
+    }
+    if (isDropdownOpen) {
+      setIsModelDropdownOpen(false);
     }
   }, [isDropdownOpen]);
 
@@ -240,23 +245,32 @@ export function AgentPanel() {
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
       if (
         isDropdownOpen &&
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
+        !dropdownRef.current.contains(target) &&
         buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
+        !buttonRef.current.contains(target)
       ) {
-        if (threadPaneRef.current?.contains(event.target as Node)) return;
+        if (threadPaneRef.current?.contains(target)) return;
         setIsDropdownOpen(false);
+      }
+      if (
+        isModelDropdownOpen &&
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(target)
+      ) {
+        setIsModelDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isDropdownOpen]);
+  }, [isDropdownOpen, isModelDropdownOpen]);
 
   const commands = snapshot?.commands ?? [];
   const modelName = snapshot?.model?.name ?? "No model";
+  const models = snapshot?.models ?? [];
   const threadId = snapshot?.threadId ?? "";
   const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
   const activeMessages = snapshot?.messages ?? [];
@@ -314,6 +328,11 @@ export function AgentPanel() {
   const hoveredProjectThreads = hoveredProjectId
     ? threads.filter((thread) => thread.project_id === hoveredProjectId)
     : [];
+  const activeModelIndex = models.findIndex(
+    (model) =>
+      model.provider === snapshot?.model?.provider &&
+      model.modelId === snapshot?.model?.modelId,
+  );
 
   return (
     <section className="relative z-20 h-full w-full flex flex-col bg-surface-1 overflow-visible">
@@ -358,7 +377,10 @@ export function AgentPanel() {
                 active={isDropdownOpen}
                 onClick={() => setIsDropdownOpen((prev) => {
                   const next = !prev;
-                  if (next) setHoveredProjectId(null);
+                  if (next) {
+                    setHoveredProjectId(null);
+                    setIsModelDropdownOpen(false);
+                  }
                   return next;
                 })}
               >
@@ -536,16 +558,48 @@ export function AgentPanel() {
                     }
                   },
                 }}
-                leftSlot={
-                  <Button variant="ghost" size="sm" onClick={abort} disabled={!snapshot?.isStreaming}>
-                    <PauseIcon size={14} />
-                    Stop
-                  </Button>
-                }
                 rightSlot={
-                  <Button variant="ghost" size="sm" trailingIcon={ChevronDownIcon}>
-                    {modelName}
-                  </Button>
+                  <div ref={modelDropdownRef} className="relative">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      trailingIcon={ChevronDownIcon}
+                      active={isModelDropdownOpen}
+                      disabled={models.length === 0}
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        setIsModelDropdownOpen((prev) => !prev);
+                      }}
+                    >
+                      {modelName}
+                    </Button>
+                    {isModelDropdownOpen && models.length > 0 && (
+                      <div className="absolute right-0 bottom-full mb-1.5 z-[250]">
+                        <Dropdown checkedIndex={activeModelIndex >= 0 ? activeModelIndex : undefined} className="w-72">
+                          {models.map((model, index) => (
+                            <MenuItem
+                              key={`${model.provider}:${model.modelId}`}
+                              index={index}
+                              label={model.name}
+                              checked={
+                                model.provider === snapshot?.model?.provider &&
+                                model.modelId === snapshot?.model?.modelId
+                              }
+                              onSelect={async () => {
+                                const success = await setModel({
+                                  provider: model.provider,
+                                  modelId: model.modelId,
+                                });
+                                if (success) {
+                                  setIsModelDropdownOpen(false);
+                                }
+                              }}
+                            />
+                          ))}
+                        </Dropdown>
+                      </div>
+                    )}
+                  </div>
                 }
               />
 
