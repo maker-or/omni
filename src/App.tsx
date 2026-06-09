@@ -90,13 +90,21 @@ export default function App() {
         className="flex-1 flex min-h-0"
         data-pipper-id="workspace panel"
       >
-        <Panel data-pipper-id="agent panel" minSize="40%" className="overflow-hidden">
+        <Panel
+          data-pipper-id="agent panel"
+          minSize="40%"
+          className="relative z-20 overflow-visible"
+        >
           <AgentView />
         </Panel>
         <Separator className="group relative w-px bg-border data-[separator-state=hover]:bg-foreground/20 data-[separator-state=drag]:bg-foreground/30 transition-colors">
           <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
         </Separator>
-        <Panel data-pipper-id="others panel" minSize="40%" className="overflow-hidden">
+        <Panel
+          data-pipper-id="others panel"
+          minSize="40%"
+          className="relative z-10 overflow-hidden"
+        >
           <OthersView />
         </Panel>
       </Group>

@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:out/renderer/assets/pdf-B3OxZYPF.js
 import { t as __vitePreload } from "./main-BRfE4z8I.js";
+========
+import { t as __vitePreload } from "./main-C2JjxwVo.js";
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/pdf-CvgNq6y_.js
 //#region node_modules/pdfjs-dist/build/pdf.mjs
 var isNodeJS = typeof process === "object" && process + "" === "[object process]" && !process.versions.nw && !(process.versions.electron && process.type && process.type !== "browser");
 var BBOX_INIT = [

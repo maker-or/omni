@@ -8,12 +8,14 @@ export interface LaunchState {
   completed: boolean;
   completedAt: string | null;
   projectId: string | null;
+  threadId: string | null;
 }
 
 const DEFAULT_STATE: LaunchState = {
   completed: false,
   completedAt: null,
   projectId: null,
+  threadId: null,
 };
 
 function statePath(): string {
@@ -28,6 +30,7 @@ export async function readLaunchState(): Promise<LaunchState> {
       completed: parsed.completed === true,
       completedAt: typeof parsed.completedAt === "string" ? parsed.completedAt : null,
       projectId: typeof parsed.projectId === "string" ? parsed.projectId : null,
+      threadId: typeof parsed.threadId === "string" ? parsed.threadId : null,
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -45,5 +48,18 @@ export async function markLaunchComplete(projectId: string): Promise<void> {
     completed: true,
     completedAt: new Date().toISOString(),
     projectId,
+    threadId: null,
+  });
+}
+
+export async function updateLaunchSelection(selection: {
+  projectId?: string | null;
+  threadId?: string | null;
+}): Promise<void> {
+  const current = await readLaunchState();
+  await writeLaunchState({
+    ...current,
+    projectId: selection.projectId !== undefined ? selection.projectId : current.projectId,
+    threadId: selection.threadId !== undefined ? selection.threadId : current.threadId,
   });
 }

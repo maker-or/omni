@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-B_F1szUf.js";
+========
+import { A as require_compiler_runtime, C as AnimatePresence, D as ArrowLeft, E as cn, M as require_react_dom, N as require_react, O as createLucideIcon, P as __toESM, S as motion, T as useTheme, a as useComposedRefs, b as useProximityHover, c as p$1, d as SelectItem, f as SelectTrigger, g as useSurface, h as SurfaceProvider, i as createSlottable, j as require_client, k as require_jsx_runtime, l as Select, m as surfaceClasses, n as Button, p as Elevated, r as createSlot, s as ProjectIcon, t as fontWeights, u as SelectContent, v as shapeMap, w as ThemeProvider, x as springs, y as useShape } from "./font-weight-Fkyh1dzw.js";
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 //#region node_modules/react-resizable-panels/dist/react-resizable-panels.js
 var import_client = require_client();
 var import_compiler_runtime = require_compiler_runtime();
@@ -3089,7 +3093,7 @@ var r$9 = import_react.forwardRef((t, w) => /* @__PURE__ */ import_react.createE
 	weights: a$21
 }));
 r$9.displayName = "ArrowElbowDownRightIcon";
-var m$3 = r$9;
+var m$2 = r$9;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/ArrowLeft.es.js
 var r$8 = import_react.forwardRef((e, t) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3219,12 +3223,64 @@ var c$6 = t$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Envelope.es.js
 var o$12 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
+========
 	ref: t,
 	...r,
 	weights: a$14
 }));
 o$12.displayName = "EnvelopeIcon";
 var c$5 = o$12;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Eyedropper.es.js
+var o$11 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: p,
+	...r,
+	weights: l$2
+}));
+o$11.displayName = "EyedropperIcon";
+var s$5 = o$11;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/FolderPlus.es.js
+var e$8 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: s,
+	...r,
+	weights: e$27
+}));
+e$8.displayName = "FolderPlusIcon";
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Gear.es.js
+var o$10 = import_react.forwardRef((r, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: a,
+	...r,
+	weights: l$1
+}));
+o$10.displayName = "GearIcon";
+var n$14 = o$10;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Globe.es.js
+var e$7 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: t,
+	...r,
+	weights: e$26
+}));
+e$7.displayName = "GlobeIcon";
+var n$13 = e$7;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Heart.es.js
+var o$9 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
+	ref: t,
+	...r,
+	weights: a$13
+}));
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
+o$12.displayName = "EnvelopeIcon";
+var c$5 = o$12;
+========
+o$9.displayName = "HeartIcon";
+var n$12 = o$9;
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Eyedropper.es.js
 var o$11 = import_react.forwardRef((r, p) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3303,8 +3359,13 @@ var e$6 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createE
 	...r,
 	weights: e$24
 }));
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 e$6.displayName = "LinkIcon";
 var c$4 = e$6;
+========
+e$5.displayName = "LinkIcon";
+var c$4 = e$5;
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/List.es.js
 var t$1 = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3385,7 +3446,11 @@ var o$5 = import_react.forwardRef((c, r) => /* @__PURE__ */ import_react.createE
 	weights: a$9
 }));
 o$5.displayName = "PencilIcon";
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 var m$1 = o$5;
+========
+var m = o$5;
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Play.es.js
 var a = import_react.forwardRef((e, r) => /* @__PURE__ */ import_react.createElement(p$1, {
@@ -3401,14 +3466,30 @@ var e$4 = import_react.forwardRef((r, s) => /* @__PURE__ */ import_react.createE
 	ref: s,
 	...r,
 	weights: a$7
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 }));
 e$4.displayName = "PlusIcon";
 var n$6 = e$4;
+========
+}));
+e$3.displayName = "PlusIcon";
+var n$6 = e$3;
 //#endregion
 //#region node_modules/@phosphor-icons/react/dist/csr/Rectangle.es.js
 var o$4 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
 	ref: a,
 	...t,
+	weights: a$6
+}));
+o$4.displayName = "RectangleIcon";
+var s$2 = o$4;
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Rectangle.es.js
+var o$4 = import_react.forwardRef((t, a) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: a,
+	...t,
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 	weights: a$6
 }));
 o$4.displayName = "RectangleIcon";
@@ -3438,6 +3519,19 @@ var o$3 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createE
 	...r,
 	weights: a$5
 }));
+========
+	weights: e$16
+}));
+e$2.displayName = "RocketIcon";
+var n$5 = e$2;
+//#endregion
+//#region node_modules/@phosphor-icons/react/dist/csr/Shield.es.js
+var o$3 = import_react.forwardRef((r, t) => /* @__PURE__ */ import_react.createElement(p$1, {
+	ref: t,
+	...r,
+	weights: a$5
+}));
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 o$3.displayName = "ShieldIcon";
 var s$1 = o$3;
 //#endregion
@@ -8783,104 +8877,105 @@ var iconMap = {
 	lucide: {
 		"chevron-right": ChevronRight,
 		"chevron-down": ChevronDown,
-		pipette: Pipette,
-		x: X,
-		copy: Copy,
-		menu: Menu,
-		dot: Dot,
-		monitor: Monitor,
-		sun: Sun,
-		moon: Moon,
+		"pipette": Pipette,
+		"x": X,
+		"copy": Copy,
+		"menu": Menu,
+		"dot": Dot,
+		"monitor": Monitor,
+		"sun": Sun,
+		"moon": Moon,
 		"rectangle-horizontal": RectangleHorizontal,
-		circle: Circle,
+		"circle": Circle,
 		"square-library": SquareLibrary,
-		clock: Clock,
-		star: Star,
-		settings: Settings,
-		plus: Plus,
+		"clock": Clock,
+		"star": Star,
+		"settings": Settings,
+		"plus": Plus,
 		"arrow-left": ArrowLeft,
 		"arrow-right": ArrowRight,
 		"arrow-up": ArrowUp,
-		search: Search,
-		loader: Loader,
-		users: Users,
-		lock: Lock,
-		mail: Mail,
-		bell: Bell,
-		shield: Shield,
-		palette: Palette,
-		lightbulb: Lightbulb,
-		rocket: Rocket,
-		heart: Heart,
-		paintbrush: Paintbrush,
-		brain: Brain,
-		globe: Globe,
-		user: User,
-		image: Image,
-		link: Link,
-		check: Check,
+		"search": Search,
+		"loader": Loader,
+		"users": Users,
+		"lock": Lock,
+		"mail": Mail,
+		"bell": Bell,
+		"shield": Shield,
+		"palette": Palette,
+		"lightbulb": Lightbulb,
+		"rocket": Rocket,
+		"heart": Heart,
+		"paintbrush": Paintbrush,
+		"brain": Brain,
+		"globe": Globe,
+		"user": User,
+		"image": Image,
+		"link": Link,
+		"check": Check,
 		"rotate-ccw": RotateCcw,
-		play: Play,
-		pause: Pause,
-		home: House,
+		"play": Play,
+		"pause": Pause,
+		"home": House,
 		"message-circle": MessageCircle,
-		inbox: Inbox,
-		pencil: Pencil,
+		"inbox": Inbox,
+		"pencil": Pencil,
 		"skip-forward": SkipForward,
 		"corner-down-right": CornerDownRight
 	},
 	tabler: {
 		"chevron-right": tabler(IconChevronRight),
 		"chevron-down": tabler(IconChevronDown),
-		pipette: tabler(IconColorPicker),
-		x: tabler(IconX),
-		copy: tabler(IconCopy),
-		menu: tabler(IconMenu2),
-		dot: tabler(IconPoint),
-		monitor: tabler(IconDeviceDesktop),
-		sun: tabler(IconSun),
-		moon: tabler(IconMoon),
+		"pipette": tabler(IconColorPicker),
+		"x": tabler(IconX),
+		"copy": tabler(IconCopy),
+		"menu": tabler(IconMenu2),
+		"dot": tabler(IconPoint),
+		"monitor": tabler(IconDeviceDesktop),
+		"sun": tabler(IconSun),
+		"moon": tabler(IconMoon),
 		"rectangle-horizontal": tabler(IconSquare),
-		circle: tabler(IconCircle),
+		"circle": tabler(IconCircle),
 		"square-library": tabler(IconLibrary),
-		clock: tabler(IconClock),
-		star: tabler(IconStar),
-		settings: tabler(IconSettings),
-		plus: tabler(IconPlus),
+		"clock": tabler(IconClock),
+		"star": tabler(IconStar),
+		"settings": tabler(IconSettings),
+		"plus": tabler(IconPlus),
 		"arrow-left": tabler(IconArrowLeft),
 		"arrow-right": tabler(IconArrowRight),
 		"arrow-up": tabler(IconArrowUp),
-		search: tabler(IconSearch),
-		loader: tabler(IconLoader2),
-		users: tabler(IconUsers),
-		lock: tabler(IconLock),
-		mail: tabler(IconMail),
-		bell: tabler(IconBell),
-		shield: tabler(IconShield),
-		palette: tabler(IconPalette),
-		lightbulb: tabler(IconBulb),
-		rocket: tabler(IconRocket),
-		heart: tabler(IconHeart),
-		paintbrush: tabler(IconBrush),
-		brain: tabler(IconBrain),
-		globe: tabler(IconGlobe),
-		user: tabler(IconUser),
-		image: tabler(IconPhoto),
-		link: tabler(IconLink),
-		check: tabler(IconCheck),
+		"search": tabler(IconSearch),
+		"loader": tabler(IconLoader2),
+		"users": tabler(IconUsers),
+		"lock": tabler(IconLock),
+		"mail": tabler(IconMail),
+		"bell": tabler(IconBell),
+		"shield": tabler(IconShield),
+		"palette": tabler(IconPalette),
+		"lightbulb": tabler(IconBulb),
+		"rocket": tabler(IconRocket),
+		"heart": tabler(IconHeart),
+		"paintbrush": tabler(IconBrush),
+		"brain": tabler(IconBrain),
+		"globe": tabler(IconGlobe),
+		"user": tabler(IconUser),
+		"image": tabler(IconPhoto),
+		"link": tabler(IconLink),
+		"check": tabler(IconCheck),
 		"rotate-ccw": tabler(IconRotate2),
-		play: tabler(IconPlayerPlay),
-		pause: tabler(IconPlayerPause),
-		home: tabler(IconHome),
+		"play": tabler(IconPlayerPlay),
+		"pause": tabler(IconPlayerPause),
+		"home": tabler(IconHome),
 		"message-circle": tabler(IconMessageCircle),
-		inbox: tabler(IconInbox),
-		pencil: tabler(IconPencil),
+		"inbox": tabler(IconInbox),
+		"pencil": tabler(IconPencil),
 		"skip-forward": tabler(IconPlayerSkipForward),
 		"corner-down-right": tabler(IconCornerDownRight)
 	},
 	phosphor: {
 		"chevron-right": phosphor(s$9),
 		"chevron-down": phosphor(s$10),
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 		pipette: phosphor(s$5),
 		x: phosphor(n),
 		copy: phosphor(s$6),
@@ -8889,16 +8984,27 @@ var iconMap = {
 		monitor: phosphor(c$1),
 		sun: phosphor(s),
 		moon: phosphor(s$3),
+========
+		"pipette": phosphor(s$5),
+		"x": phosphor(n),
+		"copy": phosphor(s$6),
+		"menu": phosphor(c$3),
+		"dot": phosphor(c$6),
+		"monitor": phosphor(c$1),
+		"sun": phosphor(s),
+		"moon": phosphor(s$3),
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 		"rectangle-horizontal": phosphor(s$2),
-		circle: phosphor(s$7),
+		"circle": phosphor(s$7),
 		"square-library": phosphor(n$17),
-		clock: phosphor(n$15),
-		star: phosphor(n$4),
-		settings: phosphor(n$14),
-		plus: phosphor(n$6),
+		"clock": phosphor(n$15),
+		"star": phosphor(n$4),
+		"settings": phosphor(n$14),
+		"plus": phosphor(n$6),
 		"arrow-left": phosphor(s$14),
 		"arrow-right": phosphor(s$13),
 		"arrow-up": phosphor(s$12),
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 		search: phosphor(f),
 		loader: phosphor(p),
 		users: phosphor(n$1),
@@ -8917,62 +9023,89 @@ var iconMap = {
 		image: phosphor(I),
 		link: phosphor(c$4),
 		check: phosphor(n$16),
+========
+		"search": phosphor(f),
+		"loader": phosphor(p),
+		"users": phosphor(n$1),
+		"lock": phosphor(n$10),
+		"mail": phosphor(c$5),
+		"bell": phosphor(s$11),
+		"shield": phosphor(s$1),
+		"palette": phosphor(n$9),
+		"lightbulb": phosphor(s$4),
+		"rocket": phosphor(n$5),
+		"heart": phosphor(n$12),
+		"paintbrush": phosphor(m$1),
+		"brain": phosphor(c$8),
+		"globe": phosphor(n$13),
+		"user": phosphor(n$2),
+		"image": phosphor(I),
+		"link": phosphor(c$4),
+		"check": phosphor(n$16),
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 		"rotate-ccw": phosphor(i),
-		play: phosphor(n$7),
-		pause: phosphor(n$8),
-		home: phosphor(n$11),
+		"play": phosphor(n$7),
+		"pause": phosphor(n$8),
+		"home": phosphor(n$11),
 		"message-circle": phosphor(s$8),
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 		inbox: phosphor(n$3),
 		pencil: phosphor(m$1),
 		"skip-forward": phosphor(c),
 		"corner-down-right": phosphor(m$3)
+========
+		"inbox": phosphor(n$3),
+		"pencil": phosphor(m),
+		"skip-forward": phosphor(c),
+		"corner-down-right": phosphor(m$2)
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 	},
 	hugeicons: {
 		"chevron-right": hugeicons(ArrowRight01Icon),
 		"chevron-down": hugeicons(ArrowDown01Icon),
-		pipette: hugeicons(DropperIcon),
-		x: hugeicons(Cancel01Icon),
-		copy: hugeicons(Copy01Icon),
-		menu: hugeicons(Menu01Icon),
-		dot: hugeicons(CircleIcon),
-		monitor: hugeicons(ComputerIcon),
-		sun: hugeicons(Sun01Icon),
-		moon: hugeicons(Moon01Icon),
+		"pipette": hugeicons(DropperIcon),
+		"x": hugeicons(Cancel01Icon),
+		"copy": hugeicons(Copy01Icon),
+		"menu": hugeicons(Menu01Icon),
+		"dot": hugeicons(CircleIcon),
+		"monitor": hugeicons(ComputerIcon),
+		"sun": hugeicons(Sun01Icon),
+		"moon": hugeicons(Moon01Icon),
 		"rectangle-horizontal": hugeicons(DashboardCircleIcon),
-		circle: hugeicons(CircleIcon),
+		"circle": hugeicons(CircleIcon),
 		"square-library": hugeicons(LibraryIcon),
-		clock: hugeicons(Clock01Icon),
-		star: hugeicons(StarIcon),
-		settings: hugeicons(Settings01Icon),
-		plus: hugeicons(PlusSignIcon),
+		"clock": hugeicons(Clock01Icon),
+		"star": hugeicons(StarIcon),
+		"settings": hugeicons(Settings01Icon),
+		"plus": hugeicons(PlusSignIcon),
 		"arrow-left": hugeicons(ArrowLeft01Icon),
 		"arrow-right": hugeicons(ArrowRight01Icon),
 		"arrow-up": hugeicons(ArrowUp01Icon),
-		search: hugeicons(Search01Icon),
-		loader: hugeicons(Loading01Icon),
-		users: hugeicons(UserGroupIcon),
-		lock: hugeicons(LockIcon),
-		mail: hugeicons(Mail01Icon),
-		bell: hugeicons(Notification01Icon),
-		shield: hugeicons(Shield01Icon),
-		palette: hugeicons(PaintBrush01Icon),
-		lightbulb: hugeicons(BulbIcon),
-		rocket: hugeicons(Rocket01Icon),
-		heart: hugeicons(FavouriteIcon),
-		paintbrush: hugeicons(PaintBrush02Icon),
-		brain: hugeicons(BrainIcon),
-		globe: hugeicons(GlobeIcon),
-		user: hugeicons(UserIcon),
-		image: hugeicons(Image01Icon),
-		link: hugeicons(Link01Icon),
-		check: hugeicons(Tick02Icon),
+		"search": hugeicons(Search01Icon),
+		"loader": hugeicons(Loading01Icon),
+		"users": hugeicons(UserGroupIcon),
+		"lock": hugeicons(LockIcon),
+		"mail": hugeicons(Mail01Icon),
+		"bell": hugeicons(Notification01Icon),
+		"shield": hugeicons(Shield01Icon),
+		"palette": hugeicons(PaintBrush01Icon),
+		"lightbulb": hugeicons(BulbIcon),
+		"rocket": hugeicons(Rocket01Icon),
+		"heart": hugeicons(FavouriteIcon),
+		"paintbrush": hugeicons(PaintBrush02Icon),
+		"brain": hugeicons(BrainIcon),
+		"globe": hugeicons(GlobeIcon),
+		"user": hugeicons(UserIcon),
+		"image": hugeicons(Image01Icon),
+		"link": hugeicons(Link01Icon),
+		"check": hugeicons(Tick02Icon),
 		"rotate-ccw": hugeicons(ArrowReloadHorizontalIcon),
-		play: Play,
-		pause: Pause,
-		home: hugeicons(Home01Icon),
+		"play": Play,
+		"pause": Pause,
+		"home": hugeicons(Home01Icon),
 		"message-circle": hugeicons(BubbleChatIcon),
-		inbox: hugeicons(InboxIcon),
-		pencil: hugeicons(PencilEdit01Icon),
+		"inbox": hugeicons(InboxIcon),
+		"pencil": hugeicons(PencilEdit01Icon),
 		"skip-forward": hugeicons(NextIcon),
 		"corner-down-right": hugeicons(ArrowMoveDownRightIcon)
 	}
@@ -9053,7 +9186,11 @@ var __vitePreload = function preload(baseModule, deps, importerUrl) {
 //#region @/components/ui/file-thumbnail.tsx
 var pdfjsPromise = null;
 async function loadPdfjs() {
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-B3OxZYPF.js").then((mod) => {
+========
+	if (!pdfjsPromise) pdfjsPromise = __vitePreload(() => import("./pdf-CvgNq6y_.js").then((mod) => {
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 		if (!mod.GlobalWorkerOptions.workerSrc) mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${mod.version}/build/pdf.worker.min.mjs`;
 		return mod;
 	}), [], import.meta.url);
@@ -9116,7 +9253,11 @@ function FileThumbnail(t0) {
 			let cancelled = false;
 			renderPdfFirstPage(file, size).then((url_0) => {
 				if (!cancelled) setPdfUrl(url_0);
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 			}).catch(_temp$4);
+========
+			}).catch(_temp$2);
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 			return () => {
 				cancelled = true;
 			};
@@ -9185,7 +9326,11 @@ function FileThumbnail(t0) {
 	} else t9 = $[22];
 	return t9;
 }
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 function _temp$4() {}
+========
+function _temp$2() {}
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 typeof window !== "undefined" && window.document && window.document.createElement;
 function composeEventHandlers(originalEventHandler, ourEventHandler, { checkForDefaultPrevented = true } = {}) {
 	return function handleEvent(event) {
@@ -14745,7 +14890,11 @@ function TerminalInner(t0) {
 			if (!createdRef.current) {
 				createdRef.current = true;
 				console.log("Connecting to shell process..");
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 				window.omni.terminal.create(sessionId, cwd).then(_temp$2).catch((err_0) => {
+========
+				window.omni.terminal.create(sessionId, cwd).then(_temp$1).catch((err_0) => {
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 					console.error("[Terminal Session] Failed to create backend PTY:", err_0);
 					setError(err_0 instanceof Error ? err_0.message : String(err_0));
 					write(`\r\nError: Failed to connect to shell backend. ${err_0 instanceof Error ? err_0.message : String(err_0)}\r\n`);
@@ -14873,11 +15022,690 @@ function TerminalInner(t0) {
 	} else t10 = $[26];
 	return t10;
 }
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 function _temp$2() {
 	console.log("[Terminal Session] Backend PTY created successfully.");
 }
 //#endregion
 //#region src/components/others-view.tsx
+========
+function _temp$1() {
+	console.log("[Terminal Session] Backend PTY created successfully.");
+}
+//#endregion
+//#region src/App.tsx
+function App() {
+	const $ = (0, import_compiler_runtime.c)(19);
+	const { activeProject, loadActiveProject, isLoading } = useProjectStore();
+	let t0;
+	let t1;
+	if ($[0] !== loadActiveProject) {
+		t0 = () => {
+			loadActiveProject();
+		};
+		t1 = [loadActiveProject];
+		$[0] = loadActiveProject;
+		$[1] = t0;
+		$[2] = t1;
+	} else {
+		t0 = $[1];
+		t1 = $[2];
+	}
+	(0, import_react.useEffect)(t0, t1);
+	if (isLoading) {
+		let t2;
+		if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
+			t2 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-screen w-screen flex items-center justify-center bg-surface-1 text-muted-foreground text-sm font-mono",
+				children: "Loading project context…"
+			});
+			$[3] = t2;
+		} else t2 = $[3];
+		return t2;
+	}
+	let t2;
+	if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
+		t2 = { WebkitAppRegion: "drag" };
+		$[4] = t2;
+	} else t2 = $[4];
+	let t3;
+	if ($[5] !== activeProject) {
+		t3 = activeProject && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+			name: activeProject.icon,
+			className: "size-4 text-muted-foreground"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "text-[13px] font-medium tracking-tight text-foreground",
+			children: activeProject.name
+		})] });
+		$[5] = activeProject;
+		$[6] = t3;
+	} else t3 = $[6];
+	let t4;
+	if ($[7] !== t3) {
+		t4 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex items-center gap-2",
+			"data-pipper-id": "Project Name",
+			children: t3
+		});
+		$[7] = t3;
+		$[8] = t4;
+	} else t4 = $[8];
+	let t5;
+	if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
+		t5 = { WebkitAppRegion: "no-drag" };
+		$[9] = t5;
+	} else t5 = $[9];
+	let t6;
+	if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
+		t6 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			style: t5,
+			"data-pipper-id": "Theme Toggle",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeToggle, {})
+		});
+		$[10] = t6;
+	} else t6 = $[10];
+	let t7;
+	if ($[11] !== t4) {
+		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+			className: "h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0",
+			style: t2,
+			"data-pipper-id": "header",
+			children: [t4, t6]
+		});
+		$[11] = t4;
+		$[12] = t7;
+	} else t7 = $[12];
+	let t8;
+	if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
+		t8 = {
+			agent: 40,
+			others: 60
+		};
+		$[13] = t8;
+	} else t8 = $[13];
+	let t9;
+	if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
+		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
+			"data-pipper-id": "agent panel",
+			minSize: "40%",
+			className: "overflow-hidden",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentView, {})
+		});
+		$[14] = t9;
+	} else t9 = $[14];
+	let t10;
+	if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
+		t10 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Qt, {
+			className: "group relative w-px bg-border data-[separator-state=hover]:bg-foreground/20 data-[separator-state=drag]:bg-foreground/30 transition-colors",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-y-0 -left-1 -right-1 cursor-col-resize" })
+		});
+		$[15] = t10;
+	} else t10 = $[15];
+	let t11;
+	if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
+		t11 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Ut, {
+			orientation: "horizontal",
+			defaultLayout: t8,
+			className: "flex-1 flex min-h-0",
+			"data-pipper-id": "workspace panel",
+			children: [
+				t9,
+				t10,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Yt, {
+					"data-pipper-id": "others panel",
+					minSize: "40%",
+					className: "overflow-hidden",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OthersView, {})
+				})
+			]
+		});
+		$[16] = t11;
+	} else t11 = $[16];
+	let t12;
+	if ($[17] !== t7) {
+		t12 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "relative h-screen w-screen flex flex-col bg-surface-1 text-foreground",
+			children: [t7, t11]
+		});
+		$[17] = t7;
+		$[18] = t12;
+	} else t12 = $[18];
+	return t12;
+}
+function AgentView() {
+	const $ = (0, import_compiler_runtime.c)(108);
+	const { activeProject, loadActiveProject } = useProjectStore();
+	const { threads, activeThreadId, loadThreads, setActiveThreadId, createThread } = useThreadStore();
+	let t0;
+	if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
+		t0 = [];
+		$[0] = t0;
+	} else t0 = $[0];
+	const [projectsList, setProjectsList] = (0, import_react.useState)(t0);
+	const [isDropdownOpen, setIsDropdownOpen] = (0, import_react.useState)(false);
+	const [inputValue, setInputValue] = (0, import_react.useState)("");
+	let t1;
+	if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
+		t1 = [];
+		$[1] = t1;
+	} else t1 = $[1];
+	const [messages, setMessages] = (0, import_react.useState)(t1);
+	const dropdownRef = (0, import_react.useRef)(null);
+	const buttonRef = (0, import_react.useRef)(null);
+	const ChevronDownIcon = useIcon("chevron-down");
+	let t2;
+	let t3;
+	if ($[2] !== loadThreads) {
+		t2 = () => {
+			loadThreads();
+		};
+		t3 = [loadThreads];
+		$[2] = loadThreads;
+		$[3] = t2;
+		$[4] = t3;
+	} else {
+		t2 = $[3];
+		t3 = $[4];
+	}
+	(0, import_react.useEffect)(t2, t3);
+	let t4;
+	let t5;
+	if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
+		t4 = () => {
+			(async function loadProjects() {
+				if (window.omni?.projects?.list) setProjectsList(await window.omni.projects.list());
+			})();
+		};
+		t5 = [];
+		$[5] = t4;
+		$[6] = t5;
+	} else {
+		t4 = $[5];
+		t5 = $[6];
+	}
+	(0, import_react.useEffect)(t4, t5);
+	let t6;
+	if ($[7] !== activeProject?.id || $[8] !== activeThreadId || $[9] !== loadActiveProject || $[10] !== threads) {
+		t6 = () => {
+			if (activeThreadId && threads.length > 0) {
+				const activeThread = threads.find((t) => t.id === activeThreadId);
+				if (activeThread && activeThread.project_id !== activeProject?.id) window.omni.projects.setActive(activeThread.project_id).then(() => {
+					loadActiveProject();
+				});
+			}
+		};
+		$[7] = activeProject?.id;
+		$[8] = activeThreadId;
+		$[9] = loadActiveProject;
+		$[10] = threads;
+		$[11] = t6;
+	} else t6 = $[11];
+	let t7;
+	if ($[12] !== activeProject || $[13] !== activeThreadId || $[14] !== loadActiveProject || $[15] !== threads) {
+		t7 = [
+			activeThreadId,
+			threads,
+			activeProject,
+			loadActiveProject
+		];
+		$[12] = activeProject;
+		$[13] = activeThreadId;
+		$[14] = loadActiveProject;
+		$[15] = threads;
+		$[16] = t7;
+	} else t7 = $[16];
+	(0, import_react.useEffect)(t6, t7);
+	let t8;
+	let t9;
+	if ($[17] !== activeThreadId) {
+		t8 = () => {
+			if (!activeThreadId) {
+				setMessages([]);
+				return;
+			}
+			let active = true;
+			window.omni.messages.list(activeThreadId).then((msgs) => {
+				if (!active) return;
+				setMessages(msgs);
+			});
+			return () => {
+				active = false;
+			};
+		};
+		t9 = [activeThreadId];
+		$[17] = activeThreadId;
+		$[18] = t8;
+		$[19] = t9;
+	} else {
+		t8 = $[18];
+		t9 = $[19];
+	}
+	(0, import_react.useEffect)(t8, t9);
+	let t10;
+	if ($[20] !== activeProject?.id || $[21] !== loadActiveProject || $[22] !== setActiveThreadId || $[23] !== threads) {
+		t10 = async (threadId) => {
+			setActiveThreadId(threadId);
+			const selectedThread = threads.find((t_0) => t_0.id === threadId);
+			if (selectedThread && selectedThread.project_id !== activeProject?.id) {
+				if (window.omni?.projects?.setActive) {
+					await window.omni.projects.setActive(selectedThread.project_id);
+					await loadActiveProject();
+				}
+			}
+		};
+		$[20] = activeProject?.id;
+		$[21] = loadActiveProject;
+		$[22] = setActiveThreadId;
+		$[23] = threads;
+		$[24] = t10;
+	} else t10 = $[24];
+	const handleSelectThread = t10;
+	let t11;
+	if ($[25] !== activeProject || $[26] !== activeThreadId || $[27] !== createThread || $[28] !== setActiveThreadId || $[29] !== threads) {
+		t11 = async (text) => {
+			if (!text.trim() || !activeProject) return;
+			let targetThreadId = activeThreadId;
+			if (!targetThreadId) {
+				const title = `${activeProject.name} #${threads.filter((t_1) => t_1.project_id === activeProject.id).length + 1}`;
+				if (createThread) {
+					const thread = await createThread(activeProject.id, title);
+					if (thread) {
+						targetThreadId = thread.id;
+						setActiveThreadId(thread.id);
+					}
+				}
+			}
+			if (!targetThreadId) return;
+			const userMsg = await window.omni.messages.create({
+				thread_id: targetThreadId,
+				role: "user",
+				content: text.trim()
+			});
+			if (targetThreadId === activeThreadId) setMessages((current) => [...current, userMsg]);
+			setInputValue("");
+			setTimeout(async () => {
+				const assistantMsg = await window.omni.messages.create({
+					thread_id: targetThreadId,
+					role: "assistant",
+					content: `I received your message: "${text.trim()}". I am ready to help you with the project "${activeProject.name}".`
+				});
+				const currentActiveId = useThreadStore.getState().activeThreadId;
+				if (targetThreadId === currentActiveId) setMessages((current_0) => [...current_0, assistantMsg]);
+			}, 1e3);
+		};
+		$[25] = activeProject;
+		$[26] = activeThreadId;
+		$[27] = createThread;
+		$[28] = setActiveThreadId;
+		$[29] = threads;
+		$[30] = t11;
+	} else t11 = $[30];
+	const handleSend = t11;
+	let t12;
+	if ($[31] === Symbol.for("react.memo_cache_sentinel")) {
+		t12 = async () => {
+			setIsDropdownOpen(false);
+			if (window.omni?.launch?.show) await window.omni.launch.show("add");
+		};
+		$[31] = t12;
+	} else t12 = $[31];
+	const handleAddProject = t12;
+	let t13;
+	let t14;
+	if ($[32] !== isDropdownOpen) {
+		t13 = () => {
+			const handleClickOutside = function handleClickOutside(event) {
+				if (isDropdownOpen && dropdownRef.current && !dropdownRef.current.contains(event.target) && buttonRef.current && !buttonRef.current.contains(event.target)) setIsDropdownOpen(false);
+			};
+			document.addEventListener("mousedown", handleClickOutside);
+			return () => document.removeEventListener("mousedown", handleClickOutside);
+		};
+		t14 = [isDropdownOpen];
+		$[32] = isDropdownOpen;
+		$[33] = t13;
+		$[34] = t14;
+	} else {
+		t13 = $[33];
+		t14 = $[34];
+	}
+	(0, import_react.useEffect)(t13, t14);
+	let T0;
+	let t15;
+	let t16;
+	let t17;
+	let t18;
+	let t19;
+	let t20;
+	let t21;
+	let t22;
+	let t23;
+	let t24;
+	if ($[35] !== activeProject?.id || $[36] !== activeThreadId || $[37] !== createThread || $[38] !== handleSelectThread || $[39] !== isDropdownOpen || $[40] !== loadActiveProject || $[41] !== projectsList || $[42] !== setActiveThreadId || $[43] !== threads) {
+		const projectItems = projectsList.map(_temp);
+		let t25;
+		if ($[55] !== activeProject?.id) {
+			t25 = (p) => p.id === activeProject?.id;
+			$[55] = activeProject?.id;
+			$[56] = t25;
+		} else t25 = $[56];
+		const activeIdx = projectItems.findIndex(t25);
+		const checkedIndex = activeIdx !== -1 ? activeIdx : void 0;
+		const addProjectIdx = projectItems.length;
+		let t26;
+		if ($[57] !== projectsList) {
+			t26 = (projectId) => {
+				const p_0 = projectsList.find((proj) => proj.id === projectId);
+				return p_0 ? p_0.icon : null;
+			};
+			$[57] = projectsList;
+			$[58] = t26;
+		} else t26 = $[58];
+		const getProjectIcon = t26;
+		t24 = "h-full w-full flex flex-col bg-surface-1";
+		T0 = Tabs;
+		t20 = activeThreadId || "";
+		t21 = handleSelectThread;
+		t22 = "flex-1 flex flex-col min-h-0";
+		t23 = "threads panel";
+		t18 = "h-11  flex items-center justify-between px-4 select-none shrink-0 bg-surface-1";
+		let t27;
+		if ($[59] !== getProjectIcon || $[60] !== threads) {
+			let t28;
+			if ($[62] !== getProjectIcon) {
+				t28 = (thread_0) => {
+					const projIcon = getProjectIcon(thread_0.project_id);
+					const ProjectIconComp = (props_0) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+						name: projIcon,
+						className: props_0.className
+					});
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabItem, {
+						value: thread_0.id,
+						label: thread_0.title,
+						icon: ProjectIconComp
+					}, thread_0.id);
+				};
+				$[62] = getProjectIcon;
+				$[63] = t28;
+			} else t28 = $[63];
+			t27 = threads.map(t28);
+			$[59] = getProjectIcon;
+			$[60] = threads;
+			$[61] = t27;
+		} else t27 = $[61];
+		if ($[64] !== t27) {
+			t19 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
+				className: "p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+				children: t27
+			});
+			$[64] = t27;
+			$[65] = t19;
+		} else t19 = $[65];
+		t15 = "relative";
+		let t28;
+		let t29;
+		if ($[66] === Symbol.for("react.memo_cache_sentinel")) {
+			t28 = () => setIsDropdownOpen(_temp2);
+			t29 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$3, { size: 16 });
+			$[66] = t28;
+			$[67] = t29;
+		} else {
+			t28 = $[66];
+			t29 = $[67];
+		}
+		if ($[68] !== isDropdownOpen) {
+			t16 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+				ref: buttonRef,
+				variant: "ghost",
+				size: "icon-sm",
+				active: isDropdownOpen,
+				onClick: t28,
+				children: t29
+			});
+			$[68] = isDropdownOpen;
+			$[69] = t16;
+		} else t16 = $[69];
+		t17 = isDropdownOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			ref: dropdownRef,
+			className: "absolute right-0 top-full mt-1.5 z-50 origin-top-right",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Dropdown, {
+				checkedIndex,
+				children: [
+					projectItems.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
+						index: item.index,
+						label: item.name,
+						icon: item.icon,
+						checked: activeProject?.id === item.id,
+						onSelect: async () => {
+							setIsDropdownOpen(false);
+							const title_0 = `${item.name} #${threads.filter((t_2) => t_2.project_id === item.id).length + 1}`;
+							if (createThread) {
+								const thread_1 = await createThread(item.id, title_0);
+								if (thread_1) {
+									setActiveThreadId(thread_1.id);
+									if (window.omni?.projects?.setActive) {
+										await window.omni.projects.setActive(item.id);
+										await loadActiveProject();
+									}
+								}
+							}
+						}
+					}, item.id)),
+					projectItems.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DropdownSeparator, {}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(MenuItem, {
+						index: addProjectIdx,
+						label: "Add Project",
+						icon: e$8,
+						onSelect: handleAddProject
+					})
+				]
+			})
+		});
+		$[35] = activeProject?.id;
+		$[36] = activeThreadId;
+		$[37] = createThread;
+		$[38] = handleSelectThread;
+		$[39] = isDropdownOpen;
+		$[40] = loadActiveProject;
+		$[41] = projectsList;
+		$[42] = setActiveThreadId;
+		$[43] = threads;
+		$[44] = T0;
+		$[45] = t15;
+		$[46] = t16;
+		$[47] = t17;
+		$[48] = t18;
+		$[49] = t19;
+		$[50] = t20;
+		$[51] = t21;
+		$[52] = t22;
+		$[53] = t23;
+		$[54] = t24;
+	} else {
+		T0 = $[44];
+		t15 = $[45];
+		t16 = $[46];
+		t17 = $[47];
+		t18 = $[48];
+		t19 = $[49];
+		t20 = $[50];
+		t21 = $[51];
+		t22 = $[52];
+		t23 = $[53];
+		t24 = $[54];
+	}
+	let t25;
+	if ($[70] !== t15 || $[71] !== t16 || $[72] !== t17) {
+		t25 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: t15,
+			children: [t16, t17]
+		});
+		$[70] = t15;
+		$[71] = t16;
+		$[72] = t17;
+		$[73] = t25;
+	} else t25 = $[73];
+	let t26;
+	if ($[74] !== t18 || $[75] !== t19 || $[76] !== t25) {
+		t26 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: t18,
+			children: [t19, t25]
+		});
+		$[74] = t18;
+		$[75] = t19;
+		$[76] = t25;
+		$[77] = t26;
+	} else t26 = $[77];
+	let t27;
+	if ($[78] !== activeProject?.id || $[79] !== loadActiveProject || $[80] !== messages || $[81] !== projectsList) {
+		t27 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex-1 overflow-y-auto min-h-0",
+			children: messages.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "h-full flex flex-col items-center justify-center gap-6 p-6",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
+					className: "text-xl font-semibold tracking-tight text-foreground/60 flex items-center gap-2 flex-wrap justify-center select-none",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "What should we cook in" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
+							value: activeProject?.id || "",
+							onValueChange: async (val) => {
+								if (window.omni?.projects?.setActive) {
+									await window.omni.projects.setActive(val);
+									await loadActiveProject();
+								}
+							},
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectTrigger, {
+								className: cn("min-w-0 h-auto p-0 border-0 bg-transparent hover:bg-transparent shadow-none rounded-none", "text-xl font-semibold text-foreground tracking-tight", "underline underline-offset-4 decoration-border/60 hover:decoration-[#6B97FF]/60", "[&>svg]:hidden"),
+								placeholder: "Select project"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectContent, { children: projectsList.map(_temp3) })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "?" })
+					]
+				})
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "flex flex-col gap-3 p-4",
+				children: messages.map(_temp4)
+			})
+		});
+		$[78] = activeProject?.id;
+		$[79] = loadActiveProject;
+		$[80] = messages;
+		$[81] = projectsList;
+		$[82] = t27;
+	} else t27 = $[82];
+	const t28 = messages.length > 0 && "border-t border-border/60";
+	let t29;
+	if ($[83] !== t28) {
+		t29 = cn("p-3 shrink-0 bg-surface-1", t28);
+		$[83] = t28;
+		$[84] = t29;
+	} else t29 = $[84];
+	let t30;
+	if ($[85] !== ChevronDownIcon) {
+		t30 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+			variant: "ghost",
+			size: "sm",
+			trailingIcon: ChevronDownIcon,
+			children: "Sonnet 4.6"
+		});
+		$[85] = ChevronDownIcon;
+		$[86] = t30;
+	} else t30 = $[86];
+	let t31;
+	if ($[87] !== handleSend || $[88] !== inputValue || $[89] !== t30) {
+		t31 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "w-full max-w-2xl mx-auto",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputMessage, {
+				value: inputValue,
+				onValueChange: setInputValue,
+				placeholder: "Ask me anything to start a thread...",
+				rightSlot: t30,
+				onSend: handleSend
+			})
+		});
+		$[87] = handleSend;
+		$[88] = inputValue;
+		$[89] = t30;
+		$[90] = t31;
+	} else t31 = $[90];
+	let t32;
+	if ($[91] !== t29 || $[92] !== t31) {
+		t32 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: t29,
+			children: t31
+		});
+		$[91] = t29;
+		$[92] = t31;
+		$[93] = t32;
+	} else t32 = $[93];
+	let t33;
+	if ($[94] !== t27 || $[95] !== t32) {
+		t33 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1",
+			children: [t27, t32]
+		});
+		$[94] = t27;
+		$[95] = t32;
+		$[96] = t33;
+	} else t33 = $[96];
+	let t34;
+	if ($[97] !== T0 || $[98] !== t20 || $[99] !== t21 || $[100] !== t22 || $[101] !== t23 || $[102] !== t26 || $[103] !== t33) {
+		t34 = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(T0, {
+			value: t20,
+			onValueChange: t21,
+			className: t22,
+			"data-pipper-id": t23,
+			children: [t26, t33]
+		});
+		$[97] = T0;
+		$[98] = t20;
+		$[99] = t21;
+		$[100] = t22;
+		$[101] = t23;
+		$[102] = t26;
+		$[103] = t33;
+		$[104] = t34;
+	} else t34 = $[104];
+	let t35;
+	if ($[105] !== t24 || $[106] !== t34) {
+		t35 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+			className: t24,
+			children: t34
+		});
+		$[105] = t24;
+		$[106] = t34;
+		$[107] = t35;
+	} else t35 = $[107];
+	return t35;
+}
+function _temp4(msg) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatMessage, {
+		from: msg.role === "user" ? "user" : "assistant",
+		children: msg.content
+	}, msg.id);
+}
+function _temp3(project_0, idx_0) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
+		value: project_0.id,
+		index: idx_0,
+		children: project_0.name
+	}, project_0.id);
+}
+function _temp2(prev) {
+	return !prev;
+}
+function _temp(project, idx) {
+	const ProjectIconWrapper = (props) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectIcon, {
+		name: project.icon,
+		className: props.className
+	});
+	return {
+		id: project.id,
+		name: project.name,
+		icon: ProjectIconWrapper,
+		index: idx
+	};
+}
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 function OthersView() {
 	const $ = (0, import_compiler_runtime.c)(38);
 	const { activeProject } = useProjectStore();
@@ -14954,7 +15782,11 @@ function OthersView() {
 	let t7;
 	if ($[14] !== t6) {
 		t7 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TabsList, {
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 			className: "p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+========
+			className: "p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]",
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 			children: t6
 		});
 		$[14] = t6;
@@ -14963,8 +15795,13 @@ function OthersView() {
 	let t8;
 	let t9;
 	if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
+<<<<<<<< HEAD:out/renderer/assets/main-BRfE4z8I.js
 		t8 = () => setIsDropdownOpen(_temp$1);
 		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$4, { size: 16 });
+========
+		t8 = () => setIsDropdownOpen(_temp5);
+		t9 = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(e$3, { size: 16 });
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/main-C2JjxwVo.js
 		$[16] = t8;
 		$[17] = t9;
 	} else {

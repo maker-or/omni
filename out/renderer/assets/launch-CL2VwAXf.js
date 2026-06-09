@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:out/renderer/assets/launch-CL2VwAXf.js
 import { A as require_compiler_runtime, D as ArrowLeft, E as cn, N as require_react, O as createLucideIcon, P as __toESM, _ as ShapeProvider, c as p, h as SurfaceProvider, j as require_client, k as require_jsx_runtime, n as Button, o as IconPicker, s as ProjectIcon, t as fontWeights, w as ThemeProvider, y as useShape } from "./font-weight-B_F1szUf.js";
+========
+import { A as require_compiler_runtime, D as ArrowLeft, E as cn, N as require_react, O as createLucideIcon, P as __toESM, _ as ShapeProvider, c as p, h as SurfaceProvider, j as require_client, k as require_jsx_runtime, n as Button, o as IconPicker, s as ProjectIcon, t as fontWeights, w as ThemeProvider, y as useShape } from "./font-weight-Fkyh1dzw.js";
+>>>>>>>> 4f1bdc5b9f321974a6ad792c237fc832b9c2438f:out/renderer/assets/launch-Btfgw-8B.js
 /**
 * @license lucide-react v1.17.0 - ISC
 *

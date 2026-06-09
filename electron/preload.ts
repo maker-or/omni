@@ -2,6 +2,14 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
 import type { Thread } from "../contracts/threads.ts";
 import type { Message } from "../contracts/messages.ts";
+import type {
+  AgentBridgeEvent,
+  AgentModelSummary,
+  AgentPromptInput,
+  AgentRuntimeSnapshot,
+  AgentUiResponse,
+} from "../contracts/agent.ts";
+import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 export interface CreateProjectInput {
   name: string;
@@ -40,6 +48,41 @@ const api = {
     list: (threadId: string): Promise<Message[]> => ipcRenderer.invoke("messages:list", threadId),
     create: (input: { thread_id: string; role: string; content: string }): Promise<Message> =>
       ipcRenderer.invoke("messages:create", input),
+  },
+  agent: {
+    getState: (): Promise<AgentRuntimeSnapshot> => ipcRenderer.invoke("agent:getState"),
+    getCommands: (): Promise<SlashCommandInfo[]> => ipcRenderer.invoke("agent:getCommands"),
+    getModels: (): Promise<AgentModelSummary[]> => ipcRenderer.invoke("agent:getModels"),
+    getStats: (): Promise<SessionStats | null> => ipcRenderer.invoke("agent:getStats"),
+    sendPrompt: (input: AgentPromptInput): Promise<void> => ipcRenderer.invoke("agent:sendPrompt", input),
+    abort: (): Promise<void> => ipcRenderer.invoke("agent:abort"),
+    switchThread: (threadId: string): Promise<void> => ipcRenderer.invoke("agent:switchThread", threadId),
+    createThread: (projectId: string, title: string): Promise<Thread> =>
+      ipcRenderer.invoke("agent:createThread", projectId, title),
+    cycleModel: (direction?: "forward" | "backward"): Promise<AgentModelSummary | null> =>
+      ipcRenderer.invoke("agent:cycleModel", direction),
+    setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
+      ipcRenderer.invoke("agent:setModel", model),
+    compact: (customInstructions?: string): Promise<void> =>
+      ipcRenderer.invoke("agent:compact", customInstructions),
+    respondToUiRequest: (response: AgentUiResponse): Promise<void> =>
+      ipcRenderer.invoke("agent:respondToUiRequest", response),
+    setEditorText: (text: string): Promise<void> =>
+      ipcRenderer.invoke("agent:setEditorText", text),
+    getEditorText: (): Promise<string> => ipcRenderer.invoke("agent:getEditorText"),
+    pasteToEditor: (text: string): Promise<void> =>
+      ipcRenderer.invoke("agent:pasteToEditor", text),
+    reportEditorText: (text: string): Promise<void> => {
+      ipcRenderer.send("agent:reportEditorText", text);
+      return Promise.resolve();
+    },
+    onEvent: (callback: (payload: AgentBridgeEvent) => void) => {
+      const listener = (_event: any, payload: AgentBridgeEvent) => callback(payload);
+      ipcRenderer.on("agent:event", listener);
+      return () => {
+        ipcRenderer.removeListener("agent:event", listener);
+      };
+    },
   },
   dialog: {
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("dialog:pickDirectory"),
