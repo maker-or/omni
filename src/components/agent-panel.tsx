@@ -161,6 +161,7 @@ export function AgentPanel() {
     refresh,
     sendPrompt,
     switchThread,
+    createThread,
     respondToUiRequest,
     abort,
   } = useAgentStore();
@@ -291,6 +292,16 @@ export function AgentPanel() {
     setInputValue(`/${commandName} `);
   };
 
+  const handleCreateThread = async () => {
+    const projectId = hoveredProjectId ?? activeProject?.id;
+    if (!projectId) return;
+    const project = projectsList.find((item) => item.id === projectId);
+    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
+    const title = `${project?.name ?? "Thread"} #${nextCount}`;
+    const thread = await createThread(projectId, title);
+    await handleSelectThread(thread.id);
+  };
+
   const projectItems = projectsList.map((project, idx) => ({
     id: project.id,
     name: project.name,
@@ -398,29 +409,52 @@ export function AgentPanel() {
                         style={threadPaneStyle}
                       >
                         <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                          Projects
+                          Threads
                         </div>
                         <div className="flex flex-col gap-1">
                           {hoveredProjectThreads.length > 0 ? (
-                            hoveredProjectThreads.map((thread) => (
-                              <button
-                                key={thread.id}
-                                type="button"
-                                className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                                onClick={async () => {
-                                  setIsDropdownOpen(false);
-                                  await handleSelectThread(thread.id);
-                                }}
-                              >
-                                <span className="size-4 shrink-0 rounded-full border border-border/70" />
-                                <span className="min-w-0 truncate">{thread.title}</span>
-                              </button>
-                            ))
+                            hoveredProjectThreads.map((thread) => {
+                              const isActive = thread.id === threadId;
+                              return (
+                                <button
+                                  key={thread.id}
+                                  type="button"
+                                  className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] transition-colors hover:bg-muted"
+                                  onClick={async () => {
+                                    setIsDropdownOpen(false);
+                                    await handleSelectThread(thread.id);
+                                  }}
+                                >
+                                  <span
+                                    className={
+                                      isActive
+                                        ? "min-w-0 truncate text-foreground font-medium"
+                                        : "min-w-0 truncate text-muted-foreground hover:text-foreground"
+                                    }
+                                  >
+                                    {thread.title}
+                                  </span>
+                                </button>
+                              );
+                            })
                           ) : (
                             <div className="px-2 py-3 text-[13px] text-muted-foreground">
                               No threads yet.
                             </div>
                           )}
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-border/60">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="w-full justify-start"
+                            onClick={async () => {
+                              setIsDropdownOpen(false);
+                              await handleCreateThread();
+                            }}
+                          >
+                            Create new thread
+                          </Button>
                         </div>
                       </div>,
                       document.body,
