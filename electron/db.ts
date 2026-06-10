@@ -5,6 +5,20 @@ import { join } from "node:path";
 let db: DatabaseSync | null = null;
 
 function ensureColumn(table: string, column: string, ddl: string): void {
+  const identifierRegex = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  if (!identifierRegex.test(table)) {
+    throw new Error(`Invalid table name: ${table}`);
+  }
+  if (!identifierRegex.test(column)) {
+    throw new Error(`Invalid column name: ${column}`);
+  }
+
+  const ddlPrefix = `ALTER TABLE ${table} ADD COLUMN ${column}`.toLowerCase();
+  const normalizedDdl = ddl.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalizedDdl.startsWith(ddlPrefix)) {
+    throw new Error(`Invalid DDL statement: ${ddl}`);
+  }
+
   const current = db?.prepare(`PRAGMA table_info(${table})`).all() as
     | Array<{ name: string }>
     | undefined;

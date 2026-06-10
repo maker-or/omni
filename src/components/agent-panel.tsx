@@ -102,7 +102,11 @@ function AssistantTraceDeck({
   isStreaming: boolean;
   activeMessages: MessageLike[];
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(isStreaming);
+
+  useEffect(() => {
+    setOpen(isStreaming);
+  }, [isStreaming]);
 
   const getToolIcon = (toolName: string): IconName => {
     const name = toolName.toLowerCase();
@@ -366,20 +370,20 @@ function MessageBody({
 
       return (
         <div className="space-y-3">
-          {textBody.trim() && (
-            <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-              <Streamdown mode={isStreaming ? "streaming" : "static"}>
-                {textBody}
-              </Streamdown>
-            </div>
-          )}
-
           {traceParts.length > 0 && (
             <AssistantTraceDeck
               traceParts={traceParts}
               isStreaming={isStreaming}
               activeMessages={activeMessages}
             />
+          )}
+
+          {textBody.trim() && (
+            <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
+              <Streamdown mode={isStreaming ? "streaming" : "static"}>
+                {textBody}
+              </Streamdown>
+            </div>
           )}
         </div>
       );
@@ -512,6 +516,7 @@ export function AgentPanel() {
   const threadPaneRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(
     null,
   );
@@ -521,6 +526,26 @@ export function AgentPanel() {
   const CheckIcon = useIcon("check");
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
+
+  function CopyButton({
+    msgId,
+    bodyText,
+  }: {
+    msgId: string;
+    bodyText: string;
+  }) {
+    const isCopied = copiedMessageId === msgId;
+    return (
+      <button
+        type="button"
+        aria-label="Copy message"
+        className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+        onClick={() => handleCopy(msgId, bodyText)}
+      >
+        {isCopied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+      </button>
+    );
+  }
 
   const formatMessageTime = (message: MessageLike): string | undefined => {
     const meta = message as { timestamp?: number; created_at?: string };
@@ -676,6 +701,27 @@ export function AgentPanel() {
       command.name.toLowerCase().includes(query),
     );
   }, [commands, inputValue]);
+
+  const allMessages = useMemo(() => {
+    const entries = activeMessages
+      .map((message, index) => ({
+        message: message as MessageLike,
+        originalIndex: index,
+        isStreaming: false,
+      }))
+      .filter(
+        ({ message }) =>
+          message.role === "user" || message.role === "assistant",
+      );
+    if (streamingMessage) {
+      entries.push({
+        message: streamingMessage as MessageLike,
+        originalIndex: activeMessages.length,
+        isStreaming: true,
+      });
+    }
+    return entries;
+  }, [activeMessages, streamingMessage]);
 
   const handleSelectThread = async (id: string) => {
     if (id === threadId && !isSwitchingThread) return;
@@ -921,7 +967,7 @@ export function AgentPanel() {
                   : "min-h-full opacity-100 transition-opacity duration-150 ease-out"
               }
             >
-              {activeMessages.length === 0 && !streamingMessage ? (
+              {allMessages.length === 0 ? (
                 <div className="h-full min-h-[280px] flex items-center justify-center p-6">
                   <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
                     <span className="text-2xl font-semibold tracking-tight text-foreground/55">
@@ -937,71 +983,38 @@ export function AgentPanel() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3 p-4">
-                  {activeMessages
-                    .map((message, index) => ({
-                      message,
-                      originalIndex: index,
-                    }))
-                    .filter(
-                      ({ message }) =>
-                        message.role === "user" || message.role === "assistant",
-                    )
-                    .map(({ message, originalIndex }) => {
-                      const msg = message as MessageLike;
-                      const from = msg.role === "user" ? "user" : "assistant";
-                      const msgId = getMessageKey(msg, originalIndex);
-                      const isCopied = copiedMessageId === msgId;
-                      const bodyText = stringifyMessageContent(msg);
-                      const timeStr = formatMessageTime(msg);
-                      const hasContent =
-                        bodyText.trim() !== "" ||
-                        (from === "assistant" && getToolSummary(msg) !== null);
+                  {allMessages.map(({ message, originalIndex, isStreaming }) => {
+                    const msg = message as MessageLike;
+                    const from = msg.role === "user" ? "user" : "assistant";
+                    const msgId = isStreaming ? "streaming" : getMessageKey(msg, originalIndex);
+                    const bodyText = stringifyMessageContent(msg);
+                    const timeStr = isStreaming ? undefined : formatMessageTime(msg);
+                    const hasContent =
+                      bodyText.trim() !== "" ||
+                      (from === "assistant" && getToolSummary(msg) !== null);
 
-                      const actions =
-                        from === "user" ? (
-                          <>
-                            <button
-                              type="button"
-                              aria-label="Copy message"
-                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
-                              onClick={() => handleCopy(msgId, bodyText)}
-                            >
-                              {isCopied ? (
-                                <CheckIcon size={13} />
-                              ) : (
-                                <CopyIcon size={13} />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Edit message"
-                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
-                              onClick={() => {
-                                setInputValue(bodyText);
-                                const textarea =
-                                  document.querySelector("textarea");
-                                if (textarea) {
-                                  (textarea as HTMLTextAreaElement).focus();
-                                }
-                              }}
-                            >
-                              <PencilIcon size={13} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              aria-label="Copy message"
-                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
-                              onClick={() => handleCopy(msgId, bodyText)}
-                            >
-                              {isCopied ? (
-                                <CheckIcon size={13} />
-                              ) : (
-                                <CopyIcon size={13} />
-                              )}
-                            </button>
+                    const actions =
+                      from === "user" ? (
+                        <div data-pipper-id="user-actions-buttons">
+                          <CopyButton msgId={msgId} bodyText={bodyText} />
+                          <button
+                            type="button"
+                            aria-label="Edit message"
+                            className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                            onClick={() => {
+                              setInputValue(bodyText);
+                              if (composerTextareaRef.current) {
+                                composerTextareaRef.current.focus();
+                              }
+                            }}
+                          >
+                            <PencilIcon size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div data-pipper-id="agent-actions-buttons">
+                          <CopyButton msgId={msgId} bodyText={bodyText} />
+                          {!isStreaming && (
                             <button
                               type="button"
                               aria-label="Regenerate response"
@@ -1010,70 +1023,33 @@ export function AgentPanel() {
                             >
                               <RotateCcwIcon size={13} />
                             </button>
-                          </>
-                        );
-
-                      return (
-                        <ChatMessage
-                          key={msgId}
-                          from={from}
-                          time={timeStr}
-                          actions={actions}
-                        >
-                          {hasContent ? (
-                            <MessageBody
-                              message={msg}
-                              isStreaming={false}
-                              activeMessages={activeMessages}
-                            />
-                          ) : undefined}
-                        </ChatMessage>
-                      );
-                    })}
-                  {streamingMessage &&
-                    (() => {
-                      const streamingMsg = streamingMessage as MessageLike;
-                      const streamingBody =
-                        stringifyMessageContent(streamingMsg);
-                      const isStreamingCopied = copiedMessageId === "streaming";
-                      const hasStreamingContent =
-                        streamingBody.trim() !== "" ||
-                        getToolSummary(streamingMsg) !== null;
-
-                      const streamingActions = (
-                        <button
-                          type="button"
-                          aria-label="Copy message"
-                          className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
-                          onClick={() => handleCopy("streaming", streamingBody)}
-                        >
-                          {isStreamingCopied ? (
-                            <CheckIcon size={13} />
-                          ) : (
-                            <CopyIcon size={13} />
                           )}
-                        </button>
+                        </div>
                       );
 
-                      return (
-                        <ChatMessage
-                          key="streaming"
-                          from="assistant"
-                          actions={streamingActions}
-                        >
-                          {hasStreamingContent ? (
-                            <MessageBody
-                              message={streamingMsg}
-                              isStreaming={true}
-                              activeMessages={activeMessages}
-                            />
-                          ) : undefined}
-                        </ChatMessage>
-                      );
-                    })()}
+                    return (
+                      <ChatMessage
+                        key={msgId}
+                        from={from}
+                        time={timeStr}
+                        actions={actions}
+                      >
+                        {hasContent ? (
+                          <MessageBody
+                            message={msg}
+                            isStreaming={isStreaming}
+                            activeMessages={activeMessages}
+                          />
+                        ) : undefined}
+                      </ChatMessage>
+                    );
+                  })}
 
                   {snapshot?.isStreaming && !streamingMessage && (
-                    <div className="flex justify-start px-4 py-2">
+                    <div
+                      className="flex justify-start px-4 py-2"
+                      data-pipper-id="Thinking-indicator"
+                    >
                       <ThinkingIndicator />
                     </div>
                   )}
@@ -1105,6 +1081,7 @@ export function AgentPanel() {
               )}
 
               <InputMessage
+                textareaRef={composerTextareaRef}
                 value={inputValue}
                 onValueChange={setInputValue}
                 placeholder="Type here"

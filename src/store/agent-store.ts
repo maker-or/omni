@@ -27,11 +27,11 @@ interface AgentState {
   cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
   setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
   cycleThinkingLevel: () => Promise<string | null>;
-  setThinkingLevel: (level: any) => Promise<void>;
+  setThinkingLevel: (level: ThinkingLevel) => Promise<void>;
   compact: (customInstructions?: string) => Promise<void>;
   setEditorText: (text: string) => Promise<void>;
   pasteToEditor: (text: string) => Promise<void>;
-  reportEditorText: (text: string) => Promise<void>;
+  reportEditorText: (text: string) => void;
   getState: () => AgentRuntimeSnapshot | null;
   getCommands: () => SlashCommandInfo[];
   getModels: () => AgentModelSummary[];
@@ -126,11 +126,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (!window.omni?.agent) return;
     set({ isConnecting: true, error: null });
     try {
-      if (!unsubscribeBridge) {
-        unsubscribeBridge = window.omni.agent.onEvent((payload) => {
-          set((state) => applyBridgeEvent(state, payload));
-        });
+      if (unsubscribeBridge) {
+        try {
+          unsubscribeBridge();
+        } catch (err) {
+          console.error("Failed to unsubscribe previous bridge listener:", err);
+        }
+        unsubscribeBridge = null;
       }
+      const rawCleanup = window.omni.agent.onEvent((payload) => {
+        set((state) => applyBridgeEvent(state, payload));
+      });
+      unsubscribeBridge = () => {
+        rawCleanup();
+        unsubscribeBridge = null;
+      };
       const snapshot = await window.omni.agent.getState();
       set({ snapshot, isConnecting: false });
     } catch (err) {
@@ -239,8 +249,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   pasteToEditor: async (text) => {
     await window.omni.agent.pasteToEditor(text);
   },
-  reportEditorText: async (text) => {
-    await window.omni.agent.reportEditorText(text);
+  reportEditorText: (text) => {
+    window.omni.agent.reportEditorText(text);
   },
   getState: () => get().snapshot,
   getCommands: () => get().snapshot?.commands ?? [],

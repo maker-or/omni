@@ -514,11 +514,26 @@ export class AgentManager {
       if (requestedThreadId) {
         const thread = getThread(requestedThreadId);
         if (thread?.session_file && existsSync(thread.session_file)) {
-          sessionManager = SessionManager.open(
-            thread.session_file,
-            undefined,
-            project.path,
-          );
+          try {
+            sessionManager = SessionManager.open(
+              thread.session_file,
+              undefined,
+              project.path,
+            );
+          } catch (error: any) {
+            const isMissingFile =
+              error?.code === "ENOENT" ||
+              (error?.message && (
+                error.message.includes("ENOENT") ||
+                error.message.toLowerCase().includes("not found") ||
+                error.message.toLowerCase().includes("no such file")
+              ));
+            if (isMissingFile) {
+              sessionManager = SessionManager.continueRecent(project.path);
+            } else {
+              throw error;
+            }
+          }
         } else {
           sessionManager = SessionManager.continueRecent(project.path);
         }

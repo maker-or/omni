@@ -19,6 +19,8 @@ export interface CreateProjectInput {
 export {};
 
 declare global {
+  type ThinkingLevel = "low" | "medium" | "high";
+
   interface Window {
     omni: {
       launch: {
@@ -52,14 +54,14 @@ declare global {
         createThread: (projectId: string, title: string) => Promise<Thread>;
         cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
         setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
-        setThinkingLevel: (level: any) => Promise<void>;
+        setThinkingLevel: (level: ThinkingLevel) => Promise<void>;
         cycleThinkingLevel: () => Promise<string | null>;
         compact: (customInstructions?: string) => Promise<void>;
         respondToUiRequest: (response: AgentUiResponse) => Promise<void>;
         setEditorText: (text: string) => Promise<void>;
         getEditorText: () => Promise<string>;
         pasteToEditor: (text: string) => Promise<void>;
-        reportEditorText: (text: string) => Promise<void>;
+        reportEditorText: (text: string) => void;
         onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
       };
       dialog: {

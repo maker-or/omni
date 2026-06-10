@@ -37,6 +37,7 @@
     "@wterm/ghostty": "^0.3.0",
     "@wterm/react": "^0.3.0",
     "anser": "^2.3.5",
+    "border-beam": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",

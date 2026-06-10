@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
 import { cn } from "@/lib/utils";
+import type { Project } from "../../contracts/projects.ts";
 
 export function FlyoutView() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadActiveProject();
@@ -35,13 +37,24 @@ export function FlyoutView() {
 
   const handleSelectProject = async (projectId: string) => {
     if (window.omni?.projects?.setActive) {
-      await window.omni.projects.setActive(projectId);
-      await loadActiveProject();
+      try {
+        await window.omni.projects.setActive(projectId);
+        await loadActiveProject();
+      } catch (err) {
+        console.error("Workspace switch failed:", err);
+        setError("Workspace switch failed. Please try again.");
+        setTimeout(() => setError(null), 4000);
+      }
     }
   };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-surface-1 text-foreground select-none overflow-hidden">
+      {error && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-destructive text-destructive-foreground text-xs font-medium rounded-lg shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
+          {error}
+        </div>
+      )}
       {/* Frameless Drag Handle & Custom Header */}
       <header
         className="h-10 flex items-center justify-between px-4 border-b border-border/60  shrink-0"

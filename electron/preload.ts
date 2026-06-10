@@ -17,6 +17,8 @@ export interface CreateProjectInput {
   icon: string;
 }
 
+export type ThinkingLevel = "low" | "medium" | "high";
+
 const api = {
   launch: {
     complete: (projectId: string): Promise<void> =>
@@ -65,7 +67,7 @@ const api = {
       ipcRenderer.invoke("agent:cycleModel", direction),
     setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
       ipcRenderer.invoke("agent:setModel", model),
-    setThinkingLevel: (level: any): Promise<void> =>
+    setThinkingLevel: (level: ThinkingLevel): Promise<void> =>
       ipcRenderer.invoke("agent:setThinkingLevel", level),
     cycleThinkingLevel: (): Promise<string | null> =>
       ipcRenderer.invoke("agent:cycleThinkingLevel"),
@@ -76,9 +78,8 @@ const api = {
     setEditorText: (text: string): Promise<void> => ipcRenderer.invoke("agent:setEditorText", text),
     getEditorText: (): Promise<string> => ipcRenderer.invoke("agent:getEditorText"),
     pasteToEditor: (text: string): Promise<void> => ipcRenderer.invoke("agent:pasteToEditor", text),
-    reportEditorText: (text: string): Promise<void> => {
+    reportEditorText: (text: string): void => {
       ipcRenderer.send("agent:reportEditorText", text);
-      return Promise.resolve();
     },
     onEvent: (callback: (payload: AgentBridgeEvent) => void) => {
       const listener = (_event: any, payload: AgentBridgeEvent) => callback(payload);

@@ -7,11 +7,17 @@ import { Tabs, TabsList, TabItem, TabPanel } from "@/components/ui/tabs";
 import { useProjectStore } from "@/store/project-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { TerminalSession } from "@/components/terminal-session";
+import { BorderBeam } from "border-beam";
 
 export function OthersView() {
   const { activeProject } = useProjectStore();
-  const { sessions, activeSessionId, createSession, closeSession, setActiveSessionId } =
-    useTerminalStore();
+  const {
+    sessions,
+    activeSessionId,
+    createSession,
+    closeSession,
+    setActiveSessionId,
+  } = useTerminalStore();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -50,92 +56,100 @@ export function OthersView() {
   }, [isDropdownOpen]);
 
   return (
-    <section className="h-full w-full flex flex-col bg-surface-1" data-pipper-id="others-panel">
-      <Tabs
-        value={activeTabId || ""}
-        onValueChange={handleTabChange}
-        className="flex-1 flex flex-col min-h-0"
+    <BorderBeam colorVariant="mono">
+      <section
+        className="h-full w-full flex flex-col bg-surface-1"
+        data-pipper-id="others-panel"
       >
-        {/* Tab Header bar - always shown */}
-        <div
-          className="h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1"
-          data-pipper-id="others-tab-panel"
+        <Tabs
+          value={activeTabId || ""}
+          onValueChange={handleTabChange}
+          className="flex-1 flex flex-col min-h-0"
         >
-          <TabsList className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
-            {sessions.map((session) => (
-              <TabItem
-                key={session.id}
-                value={session.id}
-                label={session.title}
-                onClose={() => closeSession(session.id)}
-              />
-            ))}
-          </TabsList>
+          {/* Tab Header bar - always shown */}
+          <div
+            className="h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1"
+            data-pipper-id="others-tab-panel"
+          >
+            <TabsList className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
+              {sessions.map((session) => (
+                <TabItem
+                  key={session.id}
+                  value={session.id}
+                  label={session.title}
+                  onClose={() => closeSession(session.id)}
+                />
+              ))}
+            </TabsList>
 
-          <div className="relative">
-            <Button
-              ref={buttonRef}
-              variant="ghost"
-              size="icon-sm"
-              active={isDropdownOpen}
-              onClick={() => setIsDropdownOpen((prev) => !prev)}
-            >
-              <PlusIcon size={16} />
-            </Button>
-
-            {isDropdownOpen && (
-              <div
-                ref={dropdownRef}
-                className="absolute right-0 top-full mt-1.5 z-50 origin-top-right"
+            <div className="relative">
+              <Button
+                ref={buttonRef}
+                variant="ghost"
+                size="icon-sm"
+                active={isDropdownOpen}
+                onClick={() => setIsDropdownOpen((prev) => !prev)}
               >
-                <Dropdown>
-                  <MenuItem
-                    index={0}
-                    label="Terminal"
-                    onSelect={() => {
-                      setIsDropdownOpen(false);
-                      createSession(activeProject?.path);
-                    }}
-                  />
-                </Dropdown>
+                <PlusIcon size={16} />
+              </Button>
+
+              {isDropdownOpen && (
+                <div
+                  ref={dropdownRef}
+                  className="absolute right-0 top-full mt-1.5 z-50 origin-top-right"
+                >
+                  <Dropdown>
+                    <MenuItem
+                      index={0}
+                      label="Terminal"
+                      onSelect={() => {
+                        setIsDropdownOpen(false);
+                        createSession(activeProject?.path);
+                      }}
+                    />
+                  </Dropdown>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tab contents */}
+          <div
+            className="flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1 p-2"
+            data-pipper-id="others-content-panel"
+          >
+            {sessions.length === 0 ? (
+              <div
+                className="h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none"
+                data-pipper-id="others-emptyView-panel"
+              >
+                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                  <span className="text-[13px] font-medium tracking-tight">
+                    Click the plus icon to add new views
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-hidden min-h-0">
+                {sessions.map((session) => (
+                  <TabPanel
+                    key={session.id}
+                    value={session.id}
+                    className="h-full w-full outline-none"
+                  >
+                    {activeTabId === session.id && (
+                      <TerminalSession
+                        sessionId={session.id}
+                        cwd={session.cwd}
+                      />
+                    )}
+                  </TabPanel>
+                ))}
               </div>
             )}
           </div>
-        </div>
-
-        {/* Tab contents */}
-        <div
-          className="flex-1 overflow-hidden min-h-0 flex flex-col bg-surface-1 p-2"
-          data-pipper-id="others-content-panel"
-        >
-          {sessions.length === 0 ? (
-            <div
-              className="h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none"
-              data-pipper-id="others-emptyView-panel"
-            >
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <span className="text-[13px] font-medium tracking-tight">
-                  Click the plus icon to add new views
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 overflow-hidden min-h-0">
-              {sessions.map((session) => (
-                <TabPanel
-                  key={session.id}
-                  value={session.id}
-                  className="h-full w-full outline-none"
-                >
-                  {activeTabId === session.id && (
-                    <TerminalSession sessionId={session.id} cwd={session.cwd} />
-                  )}
-                </TabPanel>
-              ))}
-            </div>
-          )}
-        </div>
-      </Tabs>
-    </section>
+        </Tabs>
+      </section>
+    </BorderBeam>
   );
 }

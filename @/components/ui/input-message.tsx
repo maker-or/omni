@@ -84,6 +84,8 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
     TextareaHTMLAttributes<HTMLTextAreaElement>,
     "value" | "onChange" | "disabled" | "placeholder"
   >;
+  /** Ref for the underlying textarea. */
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
 }
 
 // ─── File preview tile ────────────────────────────────────────────────────
@@ -157,6 +159,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       maxFiles,
       filePreviewSize = 80,
       textareaProps,
+      textareaRef,
       className,
       style,
       ...props
@@ -166,8 +169,22 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const shape = useShape();
     const ArrowUpIcon = useIcon("arrow-up");
 
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleRef = useCallback(
+      (node: HTMLTextAreaElement | null) => {
+        (internalTextareaRef as any).current = node;
+        if (textareaRef) {
+          if (typeof textareaRef === "function") {
+            textareaRef(node);
+          } else {
+            (textareaRef as any).current = node;
+          }
+        }
+      },
+      [textareaRef],
+    );
     const [focusVisible, setFocusVisible] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [hovered, setHovered] = useState(false);
@@ -177,7 +194,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const { onKeyDown: textareaOnKeyDown, ...forwardedTextareaProps } = textareaProps ?? {};
 
     useIsoLayoutEffect(() => {
-      const el = textareaRef.current;
+      const el = internalTextareaRef.current;
       if (!el) return;
       el.style.height = "auto";
       const computed = getComputedStyle(el);
@@ -231,14 +248,14 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       (e: React.MouseEvent<HTMLDivElement>) => {
         if (!clickToFocus || disabled) return;
         const target = e.target as HTMLElement;
-        if (target === textareaRef.current) return;
+        if (target === internalTextareaRef.current) return;
         if (
           target.closest('button, a, input, select, textarea, [contenteditable], [role="button"]')
         ) {
           return;
         }
         e.preventDefault();
-        textareaRef.current?.focus();
+        internalTextareaRef.current?.focus();
       },
       [clickToFocus, disabled],
     );
@@ -435,7 +452,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
           </AnimatePresence>
 
           <textarea
-            ref={textareaRef}
+            ref={handleRef}
             value={value}
             onChange={(e) => onValueChange(e.target.value)}
             onKeyDown={handleKeyDown}
