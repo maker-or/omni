@@ -121,8 +121,48 @@ const api = {
       };
     },
   },
-  flyout: {
-    open: (): Promise<void> => ipcRenderer.invoke("flyout:open"),
+  companion: {
+    open: (): Promise<void> => ipcRenderer.invoke("companion:open"),
+    minimize: (): void => ipcRenderer.send("companion:minimize"),
+    close: (): void => ipcRenderer.send("companion:close"),
+  },
+  editor: {
+    activate: (): Promise<void> => ipcRenderer.invoke("editor:activate"),
+    getState: (): Promise<import("../contracts/agent.ts").AgentRuntimeSnapshot> =>
+      ipcRenderer.invoke("editor:getState"),
+    sendPrompt: (input: { message: string }): Promise<void> =>
+      ipcRenderer.invoke("editor:sendPrompt", input),
+    dispose: (): Promise<void> => ipcRenderer.invoke("editor:dispose"),
+    onEvent: (callback: (payload: import("../contracts/agent.ts").AgentBridgeEvent) => void) => {
+      const listener = (_event: any, payload: import("../contracts/agent.ts").AgentBridgeEvent) =>
+        callback(payload);
+      ipcRenderer.on("editor:event", listener);
+      return () => ipcRenderer.removeListener("editor:event", listener);
+    },
+  },
+  pipper: {
+    enterEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:enterEditMode"),
+    exitEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:exitEditMode"),
+    setProcessing: (processingId: string | null): Promise<void> =>
+      ipcRenderer.invoke("pipper:setProcessing", processingId),
+    addComment: (pipperId: string, text: string): Promise<void> =>
+      ipcRenderer.invoke("pipper:addComment", pipperId, text),
+    onStateChanged: (
+      callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
+    ) => {
+      const listener = (
+        _event: any,
+        payload: { processingId?: string | null; editMode?: boolean },
+      ) => callback(payload);
+      ipcRenderer.on("pipper:stateChanged", listener);
+      return () => ipcRenderer.removeListener("pipper:stateChanged", listener);
+    },
+    onCommentAdded: (callback: (pipperId: string, text: string) => void) => {
+      const listener = (_event: any, payload: { pipperId: string; text: string }) =>
+        callback(payload.pipperId, payload.text);
+      ipcRenderer.on("pipper:commentAdded", listener);
+      return () => ipcRenderer.removeListener("pipper:commentAdded", listener);
+    },
   },
   theme: {
     changed: (theme: string): void => ipcRenderer.send("theme:changed", theme),

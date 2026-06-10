@@ -6,7 +6,10 @@ import { useProjectStore } from "@/store/project-store";
 import { SelectionBackground } from "@phosphor-icons/react";
 import { AgentView } from "@/components/agent-view";
 import { OthersView } from "@/components/others-view";
-import { FlyoutView } from "@/components/flyout-view";
+import { CompanionView } from "@/components/companion-view";
+import { PipperOverlay } from "@/components/pipper-overlay";
+import { usePipperStore } from "@/store/pipper-store";
+import { MetalFx } from "metal-fx";
 
 export default function App() {
   const [stage] = useState<string | null>(() => {
@@ -18,6 +21,16 @@ export default function App() {
   });
 
   const { activeProject, loadActiveProject, isLoading } = useProjectStore();
+  const { syncFromBroadcast } = usePipperStore();
+
+  // Subscribe to pipper cross-window state broadcasts
+  useEffect(() => {
+    if (!window.omni?.pipper?.onStateChanged) return;
+    const unsub = window.omni.pipper.onStateChanged((payload) => {
+      syncFromBroadcast(payload);
+    });
+    return unsub;
+  }, [syncFromBroadcast]);
 
   useEffect(() => {
     void loadActiveProject();
@@ -31,8 +44,8 @@ export default function App() {
     return unsubscribe;
   }, [loadActiveProject]);
 
-  if (stage === "flyout") {
-    return <FlyoutView />;
+  if (stage === "companion") {
+    return <CompanionView />;
   }
 
   if (isLoading) {
@@ -45,6 +58,9 @@ export default function App() {
 
   return (
     <div className="relative h-screen w-screen flex flex-col bg-surface-1 text-foreground">
+      {/* Pipper overlay — sits above everything in the main window */}
+      <PipperOverlay />
+
       {/* Title Bar / Header */}
       <header
         className="h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
@@ -61,6 +77,7 @@ export default function App() {
             </>
           )}
         </div>
+
         <div
           className="flex items-center gap-1"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -69,16 +86,17 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
-              if (window.omni?.flyout?.open) {
-                void window.omni.flyout.open();
+              if (window.omni?.companion?.open) {
+                void window.omni.companion.open();
               }
             }}
-            aria-label="Open Flyout"
-            title="Open Flyout"
+            aria-label="Open Companion"
+            title="Open Companion"
             className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
           >
             <SelectionBackground className="size-4" />
           </button>
+
           <ThemeToggle />
         </div>
       </header>

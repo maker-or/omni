@@ -77,8 +77,27 @@ declare global {
           callback: (payload: { sessionId: string; exitCode: number; signal?: number }) => void,
         ) => () => void;
       };
-      flyout: {
+      companion: {
         open: () => Promise<void>;
+        minimize: () => void;
+        close: () => void;
+      };
+      editor: {
+        activate: () => Promise<void>;
+        getState: () => Promise<AgentRuntimeSnapshot>;
+        sendPrompt: (input: { message: string }) => Promise<void>;
+        dispose: () => Promise<void>;
+        onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
+      };
+      pipper: {
+        enterEditMode: () => Promise<void>;
+        exitEditMode: () => Promise<void>;
+        setProcessing: (processingId: string | null) => Promise<void>;
+        addComment: (pipperId: string, text: string) => Promise<void>;
+        onStateChanged: (
+          callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
+        ) => () => void;
+        onCommentAdded: (callback: (pipperId: string, text: string) => void) => () => void;
       };
       theme: {
         changed: (theme: string) => void;

@@ -6,6 +6,7 @@ import os from "node:os";
 import fs from "node:fs";
 import * as pty from "node-pty";
 import { markLaunchComplete, readLaunchState } from "./launch-state";
+import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { getDb } from "./db";
@@ -25,7 +26,7 @@ function generateRandomId(): string {
 
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
-let flyoutWindow: BrowserWindow | null = null;
+let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
 
 function requireAgentManager(): AgentManager {
@@ -52,6 +53,12 @@ function resolveRendererFile(page: "main" | "launch"): string {
 function sendToMainWindow(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function sendToCompanionWindow(channel: string, payload: unknown): void {
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    companionWindow.webContents.send(channel, payload);
   }
 }
 
@@ -170,33 +177,27 @@ function createLaunchWindow(stage: "list" | "add" = "list"): void {
   void loadInto(launchWindow, "launch", stage);
 }
 
-function createFlyoutWindow(): void {
-  console.log("[Main] createFlyoutWindow");
-  if (flyoutWindow && !flyoutWindow.isDestroyed()) {
-    console.log("[Main] flyoutWindow already exists, showing it");
-    flyoutWindow.show();
-    flyoutWindow.focus();
+async function createCompanionWindow(): Promise<void> {
+  console.log("[Main] createCompanionWindow");
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    console.log("[Main] companionWindow already exists, showing it");
+    companionWindow.show();
+    companionWindow.focus();
     return;
   }
 
-  let x: number | undefined;
-  let y: number | undefined;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    const bounds = mainWindow.getBounds();
-    x = bounds.x + bounds.width + 10;
-    y = bounds.y;
-  }
+  const savedBounds = await readCompanionState();
 
-  console.log(`[Main] Creating new flyoutWindow at x: ${x}, y: ${y}`);
-  flyoutWindow = new BrowserWindow({
-    width: 360,
-    height: 600,
-    minWidth: 300,
-    minHeight: 400,
-    x,
-    y,
-    parent: mainWindow ?? undefined,
-    title: "Flyout",
+  console.log("[Main] Creating new companionWindow");
+  companionWindow = new BrowserWindow({
+    width: savedBounds?.width ?? 400,
+    height: savedBounds?.height ?? 640,
+    minWidth: 320,
+    minHeight: 480,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
+    alwaysOnTop: true,
+    title: "Companion",
     show: false,
     backgroundColor: "#fafafa",
     titleBarStyle: "hidden",
@@ -208,29 +209,38 @@ function createFlyoutWindow(): void {
     },
   });
 
-  flyoutWindow.on("ready-to-show", () => {
-    console.log("[Main] flyoutWindow ready-to-show");
-    flyoutWindow?.show();
+  companionWindow.on("ready-to-show", () => {
+    console.log("[Main] companionWindow ready-to-show");
+    companionWindow?.show();
   });
 
-  flyoutWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[Flyout Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+  companionWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Companion Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
   });
 
-  flyoutWindow.on("closed", () => {
-    console.log("[Main] flyoutWindow closed");
-    flyoutWindow = null;
+  const saveBounds = () => {
+    if (companionWindow && !companionWindow.isDestroyed()) {
+      void writeCompanionState(companionWindow.getBounds());
+    }
+  };
+
+  companionWindow.on("resize", saveBounds);
+  companionWindow.on("move", saveBounds);
+
+  companionWindow.on("closed", () => {
+    console.log("[Main] companionWindow closed");
+    companionWindow = null;
   });
 
-  void loadInto(flyoutWindow, "main", "flyout");
+  void loadInto(companionWindow, "main", "companion");
 }
 
 function broadcastToWindows(channel: string, ...args: any[]) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
   }
-  if (flyoutWindow && !flyoutWindow.isDestroyed()) {
-    flyoutWindow.webContents.send(channel, ...args);
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    companionWindow.webContents.send(channel, ...args);
   }
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send(channel, ...args);
@@ -352,13 +362,21 @@ function registerIpc(): void {
     broadcastToWindows("projects:activeChanged", projectId);
   });
 
-  ipcMain.handle("flyout:open", () => {
-    createFlyoutWindow();
+  ipcMain.handle("companion:open", () => {
+    createCompanionWindow();
     const projectId = getActiveProjectId();
     if (projectId) {
       return requireAgentManager().activateProject(projectId);
     }
     return;
+  });
+
+  ipcMain.on("companion:minimize", () => {
+    companionWindow?.minimize();
+  });
+
+  ipcMain.on("companion:close", () => {
+    companionWindow?.close();
   });
 
   ipcMain.handle("threads:list", () => {
@@ -405,9 +423,7 @@ function registerIpc(): void {
   ipcMain.handle("agent:setThinkingLevel", (_event, level: any) =>
     requireAgentManager().setThinkingLevel(level),
   );
-  ipcMain.handle("agent:cycleThinkingLevel", () =>
-    requireAgentManager().cycleThinkingLevel(),
-  );
+  ipcMain.handle("agent:cycleThinkingLevel", () => requireAgentManager().cycleThinkingLevel());
   ipcMain.handle("agent:compact", (_event, customInstructions?: string) =>
     requireAgentManager().compact(customInstructions),
   );
@@ -530,6 +546,29 @@ function registerIpc(): void {
   ipcMain.on("theme:changed", (_event, theme: string) => {
     broadcastToWindows("theme:changed", theme);
   });
+
+  // ─── Editor IPC ─────────────────────────────────────────────────────────────
+  ipcMain.handle("editor:activate", () => requireAgentManager().activateEditor());
+  ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
+  ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
+    requireAgentManager().sendEditorPrompt(input),
+  );
+  ipcMain.handle("editor:dispose", () => requireAgentManager().disposeEditor());
+
+  // ─── Pipper IPC ─────────────────────────────────────────────────────────────
+  ipcMain.handle("pipper:setProcessing", (_event, processingId: string | null) => {
+    broadcastToWindows("pipper:stateChanged", { processingId });
+  });
+  ipcMain.handle("pipper:enterEditMode", () => {
+    broadcastToWindows("pipper:stateChanged", { editMode: true });
+  });
+  ipcMain.handle("pipper:exitEditMode", () => {
+    broadcastToWindows("pipper:stateChanged", { editMode: false });
+  });
+  ipcMain.handle("pipper:addComment", (_event, pipperId: string, text: string) => {
+    // broadcast to companion window so it can auto-fill the InputMessage
+    broadcastToWindows("pipper:commentAdded", { pipperId, text });
+  });
 }
 
 app.whenReady().then(async () => {
@@ -538,6 +577,7 @@ app.whenReady().then(async () => {
   agentManager = new AgentManager({
     sendToRenderer: sendToMainWindow,
     setWindowTitle: setMainWindowTitle,
+    sendToFlyout: sendToCompanionWindow,
   });
   registerIpc();
 

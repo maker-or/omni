@@ -1,13 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
@@ -46,10 +40,8 @@ function stringifyMessageContent(message: MessageLike): string {
     .map((part) => {
       if (!part || typeof part !== "object") return "";
       const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string")
-        return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string")
-        return typed.thinking;
+      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
+      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
       return "";
     })
     .filter(Boolean)
@@ -68,9 +60,7 @@ function getToolSummary(message: MessageLike): string | null {
         ? (part as { name?: string }).name
         : null,
     )
-    .filter(
-      (value): value is string => typeof value === "string" && value.length > 0,
-    );
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
   if (!toolNames.length) return null;
   return toolNames.join(", ");
 }
@@ -110,11 +100,7 @@ function AssistantTraceDeck({
 
   const getToolIcon = (toolName: string): IconName => {
     const name = toolName.toLowerCase();
-    if (
-      name.includes("search") ||
-      name.includes("web") ||
-      name.includes("globe")
-    ) {
+    if (name.includes("search") || name.includes("web") || name.includes("globe")) {
       return "globe";
     }
     if (
@@ -197,9 +183,7 @@ function AssistantTraceDeck({
             } else {
               const keys = Object.keys(args);
               if (keys.length > 0) {
-                stepDescription = keys
-                  .map((k) => `${k}: ${JSON.stringify(args[k])}`)
-                  .join(", ");
+                stepDescription = keys.map((k) => `${k}: ${JSON.stringify(args[k])}`).join(", ");
               }
             }
 
@@ -228,9 +212,7 @@ function AssistantTraceDeck({
                 toolName.includes("image") ||
                 toolName.includes("layout")
               ) {
-                const imageMatch = resultText.match(
-                  /data:image\/[a-zA-Z]+;base64,[^\s]+/,
-                );
+                const imageMatch = resultText.match(/data:image\/[a-zA-Z]+;base64,[^\s]+/);
                 if (imageMatch) {
                   imageSrc = imageMatch[0];
                   imageCaption = "Screenshot output";
@@ -279,9 +261,7 @@ function AssistantTraceDeck({
                   </ThinkingStepSources>
                 )}
 
-                {imageSrc && (
-                  <ThinkingStepImage src={imageSrc} caption={imageCaption} />
-                )}
+                {imageSrc && <ThinkingStepImage src={imageSrc} caption={imageCaption} />}
 
                 {detailsLinesArray.length > 0 && (
                   <ThinkingStepDetails
@@ -332,9 +312,7 @@ function MessageBody({
         <div className="font-medium text-foreground/80">
           {(message as { toolName?: string }).toolName ?? "Tool result"}
         </div>
-        <div className="mt-1 whitespace-pre-wrap break-words">
-          {body || "Completed"}
-        </div>
+        <div className="mt-1 whitespace-pre-wrap break-words">{body || "Completed"}</div>
       </div>
     );
   }
@@ -345,13 +323,7 @@ function MessageBody({
     if (typeof content === "string") {
       return (
         <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-          {body ? (
-            <Streamdown mode={isStreaming ? "streaming" : "static"}>
-              {body}
-            </Streamdown>
-          ) : (
-            " "
-          )}
+          {body ? <Streamdown mode={isStreaming ? "streaming" : "static"}>{body}</Streamdown> : " "}
         </div>
       );
     }
@@ -359,8 +331,7 @@ function MessageBody({
     if (Array.isArray(content)) {
       const textParts = content.filter((part) => part && part.type === "text");
       const traceParts = content.filter(
-        (part) =>
-          part && (part.type === "thinking" || part.type === "toolCall"),
+        (part) => part && (part.type === "thinking" || part.type === "toolCall"),
       );
 
       const textBody = textParts
@@ -380,9 +351,7 @@ function MessageBody({
 
           {textBody.trim() && (
             <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-              <Streamdown mode={isStreaming ? "streaming" : "static"}>
-                {textBody}
-              </Streamdown>
+              <Streamdown mode={isStreaming ? "streaming" : "static"}>{textBody}</Streamdown>
             </div>
           )}
         </div>
@@ -390,11 +359,7 @@ function MessageBody({
     }
   }
 
-  return (
-    <div className="whitespace-pre-wrap break-words text-[14px] leading-6">
-      {body}
-    </div>
-  );
+  return <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{body}</div>;
 }
 
 function UiRequestDialog({
@@ -404,9 +369,7 @@ function UiRequestDialog({
   request: AgentUiRequest;
   onClose: (value: string | boolean | undefined) => void;
 }) {
-  const [text, setText] = useState(() =>
-    "prefill" in request ? (request.prefill ?? "") : "",
-  );
+  const [text, setText] = useState(() => ("prefill" in request ? (request.prefill ?? "") : ""));
   useEffect(() => {
     setText("prefill" in request ? (request.prefill ?? "") : "");
   }, [request]);
@@ -415,13 +378,9 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">
-            {request.title}
-          </div>
+          <div className="text-sm font-medium text-foreground">{request.title}</div>
           {request.message && (
-            <div className="mt-2 text-sm text-muted-foreground">
-              {request.message}
-            </div>
+            <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
           )}
           <div className="mt-4 flex flex-col gap-2">
             {request.options.map((option) => (
@@ -444,12 +403,8 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">
-            {request.title}
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            {request.message}
-          </div>
+          <div className="text-sm font-medium text-foreground">{request.title}</div>
+          <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => onClose(false)}>
               No
@@ -464,9 +419,7 @@ function UiRequestDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-        <div className="text-sm font-medium text-foreground">
-          {request.title}
-        </div>
+        <div className="text-sm font-medium text-foreground">{request.title}</div>
         <textarea
           autoFocus
           value={text}
@@ -478,9 +431,7 @@ function UiRequestDialog({
           <Button variant="secondary" onClick={() => onClose(undefined)}>
             Cancel
           </Button>
-          <Button onClick={() => onClose(text.trim() || undefined)}>
-            Submit
-          </Button>
+          <Button onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
         </div>
       </div>
     </div>
@@ -517,9 +468,7 @@ export function AgentPanel() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(
-    null,
-  );
+  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
   const ChevronDownIcon = useIcon("chevron-down");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const CopyIcon = useIcon("copy");
@@ -527,13 +476,7 @@ export function AgentPanel() {
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
 
-  function CopyButton({
-    msgId,
-    bodyText,
-  }: {
-    msgId: string;
-    bodyText: string;
-  }) {
+  function CopyButton({ msgId, bodyText }: { msgId: string; bodyText: string }) {
     const isCopied = copiedMessageId === msgId;
     return (
       <button
@@ -549,8 +492,7 @@ export function AgentPanel() {
 
   const formatMessageTime = (message: MessageLike): string | undefined => {
     const meta = message as { timestamp?: number; created_at?: string };
-    const timeVal =
-      meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
+    const timeVal = meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
     if (!timeVal) return undefined;
     const date = new Date(timeVal);
     if (isNaN(date.getTime())) return undefined;
@@ -614,9 +556,7 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (!hoveredProjectId) return;
-    const exists = projectsList.some(
-      (project) => project.id === hoveredProjectId,
-    );
+    const exists = projectsList.some((project) => project.id === hoveredProjectId);
     if (!exists) {
       setHoveredProjectId(projectsList[0]?.id ?? null);
     }
@@ -684,22 +624,17 @@ export function AgentPanel() {
   const models = snapshot?.models ?? [];
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = pendingThreadId ?? snapshotThreadId;
-  const isSwitchingThread = Boolean(
-    pendingThreadId && pendingThreadId !== snapshotThreadId,
-  );
+  const isSwitchingThread = Boolean(pendingThreadId && pendingThreadId !== snapshotThreadId);
   const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
   const activeMessages = snapshot?.messages ?? [];
   const streamingMessage = snapshot?.streamingMessage ?? null;
   const queueCount =
-    (snapshot?.queue.steering.length ?? 0) +
-    (snapshot?.queue.followUp.length ?? 0);
+    (snapshot?.queue.steering.length ?? 0) + (snapshot?.queue.followUp.length ?? 0);
   const slashMatches = useMemo(() => {
     const trimmed = inputValue.trimStart();
     if (!trimmed.startsWith("/")) return [];
     const query = trimmed.slice(1).split(/\s+/, 1)[0].toLowerCase();
-    return commands.filter((command) =>
-      command.name.toLowerCase().includes(query),
-    );
+    return commands.filter((command) => command.name.toLowerCase().includes(query));
   }, [commands, inputValue]);
 
   const allMessages = useMemo(() => {
@@ -709,10 +644,7 @@ export function AgentPanel() {
         originalIndex: index,
         isStreaming: false,
       }))
-      .filter(
-        ({ message }) =>
-          message.role === "user" || message.role === "assistant",
-      );
+      .filter(({ message }) => message.role === "user" || message.role === "assistant");
     if (streamingMessage) {
       entries.push({
         message: streamingMessage as MessageLike,
@@ -748,8 +680,7 @@ export function AgentPanel() {
     const projectId = hoveredProjectId ?? activeProject?.id;
     if (!projectId) return;
     const project = projectsList.find((item) => item.id === projectId);
-    const nextCount =
-      threads.filter((thread) => thread.project_id === projectId).length + 1;
+    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
     const thread = await createThread(projectId, title);
     await handleSelectThread(thread.id);
@@ -762,21 +693,21 @@ export function AgentPanel() {
     index: idx,
   }));
 
-  const checkedIndex = projectItems.findIndex(
-    (item) => item.id === activeProject?.id,
-  );
+  const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
   const addProjectIndex = projectItems.length;
   const hoveredProjectThreads = hoveredProjectId
     ? threads.filter((thread) => thread.project_id === hoveredProjectId)
     : [];
   const activeModelIndex = models.findIndex(
     (model) =>
-      model.provider === snapshot?.model?.provider &&
-      model.modelId === snapshot?.model?.modelId,
+      model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
   );
 
   return (
-    <section className="relative z-20 h-full w-full flex flex-col bg-surface-1 overflow-visible">
+    <section
+      data-pipper-id="agent-panel"
+      className="relative z-20 h-full w-full flex flex-col bg-surface-1 overflow-visible"
+    >
       {uiRequest && (
         <UiRequestDialog
           request={uiRequest}
@@ -795,17 +726,15 @@ export function AgentPanel() {
         className="flex-1 flex flex-col min-h-0"
       >
         <div className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1 border-b border-border/60">
-          <TabsList className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
+          <TabsList
+            data-pipper-id="thread-tabs"
+            className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
+          >
             {threads.map((thread) => {
-              const project = projectsList.find(
-                (item) => item.id === thread.project_id,
-              );
+              const project = projectsList.find((item) => item.id === thread.project_id);
               const Icon = project
                 ? (((props: { className?: string }) => (
-                    <ProjectIcon
-                      name={project.icon}
-                      className={props.className}
-                    />
+                    <ProjectIcon name={project.icon} className={props.className} />
                   )) as any)
                 : undefined;
               return (
@@ -822,6 +751,7 @@ export function AgentPanel() {
 
           <div className="relative">
             <Button
+              data-pipper-id="add-thread-button"
               ref={buttonRef}
               variant="ghost"
               size="icon-sm"
@@ -842,21 +772,17 @@ export function AgentPanel() {
 
             {isDropdownOpen && (
               <div
+                data-pipper-id="project-dropdown"
                 ref={dropdownRef}
                 className="absolute right-0 top-full mt-1.5 z-[200]"
               >
                 <div ref={projectListRef} className="relative">
                   <Dropdown checkedIndex={checkedIndex} className="w-72">
                     {projectItems.map((item) => {
-                      const project = projectsList.find(
-                        (p) => p.id === item.id,
-                      );
+                      const project = projectsList.find((p) => p.id === item.id);
                       const ProjectIconItem = project
                         ? (((props: { className?: string }) => (
-                            <ProjectIcon
-                              name={project.icon}
-                              className={props.className}
-                            />
+                            <ProjectIcon name={project.icon} className={props.className} />
                           )) as any)
                         : undefined;
                       return (
@@ -884,11 +810,10 @@ export function AgentPanel() {
                     />
                   </Dropdown>
                 </div>
-                {hoveredProjectId &&
-                threadPaneStyle &&
-                typeof document !== "undefined"
+                {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
                   ? createPortal(
                       <div
+                        data-pipper-id="thread-pane"
                         className="w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
                         ref={threadPaneRef}
                         style={threadPaneStyle}
@@ -951,10 +876,7 @@ export function AgentPanel() {
         </div>
 
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-          <div
-            className="relative flex-1 overflow-y-auto min-h-0"
-            aria-busy={isSwitchingThread}
-          >
+          <div className="relative flex-1 overflow-y-auto min-h-0" aria-busy={isSwitchingThread}>
             {isSwitchingThread && (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden bg-border/40">
                 <div className="h-full w-1/3 animate-pulse bg-foreground/35" />
@@ -968,7 +890,10 @@ export function AgentPanel() {
               }
             >
               {allMessages.length === 0 ? (
-                <div className="h-full min-h-[280px] flex items-center justify-center p-6">
+                <div
+                  data-pipper-id="empty-state"
+                  className="h-full min-h-[280px] flex items-center justify-center p-6"
+                >
                   <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
                     <span className="text-2xl font-semibold tracking-tight text-foreground/55">
                       What should we cook in
@@ -982,7 +907,7 @@ export function AgentPanel() {
                   </h2>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3 p-4">
+                <div data-pipper-id="messages-list" className="flex flex-col gap-3 p-4">
                   {allMessages.map(({ message, originalIndex, isStreaming }) => {
                     const msg = message as MessageLike;
                     const from = msg.role === "user" ? "user" : "assistant";
@@ -1028,12 +953,7 @@ export function AgentPanel() {
                       );
 
                     return (
-                      <ChatMessage
-                        key={msgId}
-                        from={from}
-                        time={timeStr}
-                        actions={actions}
-                      >
+                      <ChatMessage key={msgId} from={from} time={timeStr} actions={actions}>
                         {hasContent ? (
                           <MessageBody
                             message={msg}
@@ -1058,10 +978,13 @@ export function AgentPanel() {
             </div>
           </div>
 
-          <div className="bg-surface-1  p-3">
+          <div data-pipper-id="input-area" className="bg-surface-1  p-3">
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
               {slashMatches.length > 0 && (
-                <div className="rounded-lg border border-border bg-surface-2 p-2">
+                <div
+                  data-pipper-id="slash-commands"
+                  className="rounded-lg border border-border bg-surface-2 p-2"
+                >
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground px-1 pb-2">
                     Slash commands
                   </div>
@@ -1095,23 +1018,20 @@ export function AgentPanel() {
                   },
                 }}
                 rightSlot={
-                  <div
-                    ref={modelDropdownRef}
-                    className="relative flex items-center gap-1.5"
-                  >
-                    {snapshot?.thinkingLevel !== undefined &&
-                      snapshot?.thinkingLevel !== null && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            await cycleThinkingLevel();
-                          }}
-                        >
-                          Reasoning: {snapshot.thinkingLevel}
-                        </Button>
-                      )}
+                  <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
+                    {snapshot?.thinkingLevel !== undefined && snapshot?.thinkingLevel !== null && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          await cycleThinkingLevel();
+                        }}
+                      >
+                        Reasoning: {snapshot.thinkingLevel}
+                      </Button>
+                    )}
                     <Button
+                      data-pipper-id="model-selector"
                       variant="ghost"
                       size="sm"
                       trailingIcon={ChevronDownIcon}
@@ -1125,11 +1045,12 @@ export function AgentPanel() {
                       {modelName}
                     </Button>
                     {isModelDropdownOpen && models.length > 0 && (
-                      <div className="absolute right-0 bottom-full mb-1.5 z-[250]">
+                      <div
+                        data-pipper-id="model-dropdown"
+                        className="absolute right-0 bottom-full mb-1.5 z-[250]"
+                      >
                         <Dropdown
-                          checkedIndex={
-                            activeModelIndex >= 0 ? activeModelIndex : undefined
-                          }
+                          checkedIndex={activeModelIndex >= 0 ? activeModelIndex : undefined}
                           className="w-72"
                         >
                           {models.map((model, index) => (
@@ -1159,16 +1080,17 @@ export function AgentPanel() {
                 }
               />
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground">
+              <div
+                data-pipper-id="stats-bar"
+                className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
+              >
                 <div className="flex flex-wrap items-center gap-2"></div>
                 <div className="flex flex-wrap items-center gap-2">
                   {snapshot?.stats && (
                     <div className="flex items-center gap-2">
                       <span>{snapshot.stats.tokens.total} tks</span>
                       {snapshot.stats.cost > 0 && (
-                        <span className="opacity-70">
-                          (${snapshot.stats.cost.toFixed(4)})
-                        </span>
+                        <span className="opacity-70">(${snapshot.stats.cost.toFixed(4)})</span>
                       )}
                     </div>
                   )}
