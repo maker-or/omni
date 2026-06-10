@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import { usePipperStore } from "@/store/pipper-store";
 import { cn } from "@/lib/utils";
+import { BorderBeam } from "border-beam";
 
 interface PipperBeamProps {
   /** The data-pipper-id that this element carries. If falsy, children are rendered as-is. */
@@ -31,17 +32,11 @@ export function PipperBeam({ pipperId, children, className }: PipperBeamProps) {
     >
       {children}
       {isActive && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 rounded-[inherit] border-2 border-transparent pipper-beam-active"
-          style={{
-            backgroundImage:
-              "linear-gradient(var(--background), var(--background)), conic-gradient(from var(--pipper-beam-angle, 0deg), transparent 0%, oklch(0.7 0.2 260) 20%, oklch(0.8 0.15 200) 40%, transparent 60%)",
-            backgroundOrigin: "border-box",
-            backgroundClip: "padding-box, border-box",
-            animation: "pipper-beam-spin 1.5s linear infinite",
-          }}
-        />
+        <div className="pointer-events-none absolute inset-0 rounded-[inherit]">
+          <BorderBeam size="pulse-inner" colorVariant="mono" className="w-full h-full">
+            <div className="absolute inset-0 rounded-[inherit]" />
+          </BorderBeam>
+        </div>
       )}
     </div>
   );

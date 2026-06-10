@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X } from "@phosphor-icons/react";
 import { usePipperStore } from "@/store/pipper-store";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
+import { InputMessage } from "@/components/ui/input-message";
 import { Streamdown } from "streamdown";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
@@ -137,13 +137,6 @@ export function CompanionView() {
     activePipperIdRef.current = null;
     await window.omni?.pipper?.setProcessing?.(null);
     await sendPrompt(trimmed);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void handleSend(inputValue);
-    }
   };
 
   return (
@@ -290,52 +283,14 @@ export function CompanionView() {
       </div>
 
       {/* ── Input Area ────────────────────────────────────────────────── */}
-      <div className={cn("shrink-0 p-2", "border-t border-border/40")}>
-        <div
-          className={cn("relative flex items-end gap-2 rounded-xl px-3 py-2", surfaceClasses(2, 2))}
-        >
-          <textarea
-            ref={inputRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={isStreaming ? "Agent is working…" : "Free-form prompt… (Enter to send)"}
-            disabled={isStreaming}
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-40"
-            style={{ minHeight: "1.5rem", maxHeight: "8rem" }}
-            onInput={(e) => {
-              const t = e.currentTarget;
-              t.style.height = "auto";
-              t.style.height = `${Math.min(t.scrollHeight, 128)}px`;
-            }}
-          />
-          <button
-            type="button"
-            disabled={!inputValue.trim() || isStreaming}
-            onClick={() => void handleSend(inputValue)}
-            className={cn(
-              "shrink-0 inline-flex size-7 items-center justify-center rounded-lg",
-              "text-foreground transition-opacity disabled:opacity-25",
-              surfaceClasses(5, 4),
-            )}
-            aria-label="Send"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-            >
-              <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
-        <p className="mt-1 px-1 text-[10px] text-muted-foreground">
-          ↵ send · shift+↵ newline · click elements in main window to annotate
-        </p>
+      <div className={cn("shrink-0 p-2")}>
+        <InputMessage
+          textareaRef={inputRef}
+          value={inputValue}
+          onValueChange={setInputValue}
+          onSend={handleSend}
+          placeholder="start here"
+        />
       </div>
     </div>
   );

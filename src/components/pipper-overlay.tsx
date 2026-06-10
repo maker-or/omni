@@ -38,6 +38,8 @@ export function PipperOverlay() {
   const processingId = usePipperStore((s) => s.processingId);
   const exitEditMode = usePipperStore((s) => s.exitEditMode);
 
+  const isBeaming = !!processingId;
+
   const [highlight, setHighlight] = useState<HighlightRect | null>(null);
   const [popup, setPopup] = useState<CommentPopup | null>(null);
   const [commentText, setCommentText] = useState("");
@@ -110,7 +112,7 @@ export function PipperOverlay() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (popup) return;
+      if (popup || isBeaming) return;
       const found = findPipperElement(e.clientX, e.clientY);
       if (!found) {
         setHighlight(null);
@@ -126,17 +128,20 @@ export function PipperOverlay() {
         label: found.pipperId,
       });
     },
-    [popup, findPipperElement],
+    [popup, isBeaming, findPipperElement],
   );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (popup) return;
+      if (popup || isBeaming) return;
       const found = findPipperElement(e.clientX, e.clientY);
       if (!found) return;
       const rect = found.el.getBoundingClientRect();
       const popupTop = Math.min(rect.bottom + 10, window.innerHeight - 200);
-      const popupLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 320));
+      const popupLeft = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - 320),
+      );
       // Explicitly lock the highlight to the clicked element
       // so it stays visible while the popup is open
       setHighlight({
@@ -156,16 +161,14 @@ export function PipperOverlay() {
       });
       setCommentText("");
     },
-    [popup, findPipperElement],
+    [popup, isBeaming, findPipperElement],
   );
 
   const handleMouseLeave = useCallback(() => {
-    if (!popup) setHighlight(null);
-  }, [popup]);
+    if (!popup && !isBeaming) setHighlight(null);
+  }, [popup, isBeaming]);
 
   if (!editMode) return null;
-
-  const isBeaming = !!processingId;
 
   return (
     <>
@@ -200,12 +203,12 @@ export function PipperOverlay() {
           {/* Label chip — sits on the surface level above the page */}
           <div
             className={cn(
-              "absolute -top-7 left-0 flex items-center gap-1 rounded-md px-2 py-1",
+              "absolute buttom-1 left-0 flex items-center gap-1 rounded-md px-2 py-1",
               "text-[11px] font-semibold text-foreground whitespace-nowrap",
               surfaceClasses(5, 4),
             )}
           >
-            ✏️ {highlight.label}
+            @ {highlight.label}
           </div>
         </div>
       )}
@@ -222,19 +225,13 @@ export function PipperOverlay() {
           }}
         >
           {/* Same BorderBeam settings as the InputMessage popup */}
-          <BorderBeam size="pulse-outside" colorVariant="mono" className="w-full h-full">
+          <BorderBeam
+            size="pulse-inner"
+            colorVariant="mono"
+            className="w-full h-full"
+          >
             <div className="absolute inset-0 rounded-sm" />
           </BorderBeam>
-
-          <div
-            className={cn(
-              "absolute -top-7 left-0 flex items-center gap-1 rounded-md px-2 py-1",
-              "text-[11px] font-semibold text-foreground whitespace-nowrap",
-              surfaceClasses(5, 4),
-            )}
-          >
-            {highlight.label}
-          </div>
         </div>
       )}
 
@@ -243,24 +240,17 @@ export function PipperOverlay() {
         <div
           className="fixed z-[9991] pointer-events-none"
           style={{
-            top: highlight.top - 3,
-            left: highlight.left - 3,
-            width: highlight.width + 6,
-            height: highlight.height + 6,
+            top: highlight.top - 2,
+            left: highlight.left - 2,
+            width: highlight.width + 4,
+            height: highlight.height + 4,
           }}
         >
-          {/* Spinning beam border */}
-          <div
-            className="absolute inset-0 rounded-sm"
-            style={{
-              border: "2px solid transparent",
-              backgroundImage:
-                "linear-gradient(var(--surface-1), var(--surface-1)), conic-gradient(from var(--pipper-beam-angle, 0deg), transparent 0%, color-mix(in oklch, var(--ring) 90%, white) 20%, var(--ring) 45%, transparent 65%)",
-              backgroundOrigin: "border-box",
-              backgroundClip: "padding-box, border-box",
-              animation: "pipper-beam-spin 1.5s linear infinite",
-            }}
-          />
+          {/* Same BorderBeam settings as the selected highlight */}
+          <BorderBeam size="line" colorVariant="mono" className="w-full h-full">
+            <div className="absolute inset-0 rounded-sm" />
+          </BorderBeam>
+
           {/* "Editing…" label chip */}
           <div
             className={cn(
@@ -296,7 +286,10 @@ export function PipperOverlay() {
                     /* noop */
                   }
                   try {
-                    await window.omni?.pipper?.addComment(pipperId, text.trim());
+                    await window.omni?.pipper?.addComment(
+                      pipperId,
+                      text.trim(),
+                    );
                   } catch (err) {
                     console.error("[PipperOverlay] addComment failed:", err);
                   }

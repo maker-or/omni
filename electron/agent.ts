@@ -1003,7 +1003,7 @@ export class AgentManager {
       icon: "code",
     };
 
-    const sessionManager = SessionManager.continueRecent(omniPath);
+    const sessionManager = SessionManager.inMemory(omniPath);
     const runtime = await createProjectRuntime(fakeProject, sessionManager);
 
     const record: ProjectRuntimeRecord = {
