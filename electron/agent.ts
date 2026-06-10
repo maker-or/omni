@@ -33,6 +33,7 @@ import {
   type CreateAgentSessionRuntimeFactory,
   type SlashCommandInfo,
   type SessionStats,
+  Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -260,8 +261,8 @@ export class AgentManager {
       getEditorComponent() {
         return undefined;
       },
-      get theme() {
-        return {} as never;
+      get theme(): Theme {
+        throw new Error("Theme not supported in this environment");
       },
       getAllThemes() {
         return [];
@@ -326,9 +327,13 @@ export class AgentManager {
         .map((thread) => thread.session_file as string),
     );
     const existingCount = listThreads().filter((thread) => thread.project_id === project.id).length;
+    let counter = existingCount;
     for (const info of sessions) {
       if (existing.has(info.path)) continue;
-      const title = info.name?.trim() || defaultThreadTitle(project, existingCount + 1);
+      const title = info.name?.trim() || defaultThreadTitle(project, counter + 1);
+      if (!info.name?.trim()) {
+        counter++;
+      }
       createThread(project.id, title, info.path);
     }
   }
@@ -969,8 +974,8 @@ export class AgentManager {
       getEditorComponent() {
         return undefined;
       },
-      get theme() {
-        return {} as never;
+      get theme(): Theme {
+        throw new Error("Theme not supported in this environment");
       },
       getAllThemes() {
         return [];

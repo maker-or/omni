@@ -42,9 +42,9 @@ function Button({
   className,
   variant = "default",
   size = "default",
-  "data-pipper-id": pipperId,
+  pipperId,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { "data-pipper-id"?: string }) {
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { pipperId?: string }) {
   return (
     <PipperBeam pipperId={pipperId}>
       <ButtonPrimitive

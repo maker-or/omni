@@ -9,7 +9,6 @@ import { OthersView } from "@/components/others-view";
 import { CompanionView } from "@/components/companion-view";
 import { PipperOverlay } from "@/components/pipper-overlay";
 import { usePipperStore } from "@/store/pipper-store";
-import { MetalFx } from "metal-fx";
 
 export default function App() {
   const [stage] = useState<string | null>(() => {

@@ -751,7 +751,7 @@ export function AgentPanel() {
 
           <div className="relative">
             <Button
-              data-pipper-id="add-thread-button"
+              pipperId="add-thread-button"
               ref={buttonRef}
               variant="ghost"
               size="icon-sm"
@@ -1031,7 +1031,7 @@ export function AgentPanel() {
                       </Button>
                     )}
                     <Button
-                      data-pipper-id="model-selector"
+                      pipperId="model-selector"
                       variant="ghost"
                       size="sm"
                       trailingIcon={ChevronDownIcon}
