@@ -54,24 +54,28 @@ const api = {
     getCommands: (): Promise<SlashCommandInfo[]> => ipcRenderer.invoke("agent:getCommands"),
     getModels: (): Promise<AgentModelSummary[]> => ipcRenderer.invoke("agent:getModels"),
     getStats: (): Promise<SessionStats | null> => ipcRenderer.invoke("agent:getStats"),
-    sendPrompt: (input: AgentPromptInput): Promise<void> => ipcRenderer.invoke("agent:sendPrompt", input),
+    sendPrompt: (input: AgentPromptInput): Promise<void> =>
+      ipcRenderer.invoke("agent:sendPrompt", input),
     abort: (): Promise<void> => ipcRenderer.invoke("agent:abort"),
-    switchThread: (threadId: string): Promise<void> => ipcRenderer.invoke("agent:switchThread", threadId),
+    switchThread: (threadId: string): Promise<void> =>
+      ipcRenderer.invoke("agent:switchThread", threadId),
     createThread: (projectId: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("agent:createThread", projectId, title),
     cycleModel: (direction?: "forward" | "backward"): Promise<AgentModelSummary | null> =>
       ipcRenderer.invoke("agent:cycleModel", direction),
     setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
       ipcRenderer.invoke("agent:setModel", model),
+    setThinkingLevel: (level: any): Promise<void> =>
+      ipcRenderer.invoke("agent:setThinkingLevel", level),
+    cycleThinkingLevel: (): Promise<string | null> =>
+      ipcRenderer.invoke("agent:cycleThinkingLevel"),
     compact: (customInstructions?: string): Promise<void> =>
       ipcRenderer.invoke("agent:compact", customInstructions),
     respondToUiRequest: (response: AgentUiResponse): Promise<void> =>
       ipcRenderer.invoke("agent:respondToUiRequest", response),
-    setEditorText: (text: string): Promise<void> =>
-      ipcRenderer.invoke("agent:setEditorText", text),
+    setEditorText: (text: string): Promise<void> => ipcRenderer.invoke("agent:setEditorText", text),
     getEditorText: (): Promise<string> => ipcRenderer.invoke("agent:getEditorText"),
-    pasteToEditor: (text: string): Promise<void> =>
-      ipcRenderer.invoke("agent:pasteToEditor", text),
+    pasteToEditor: (text: string): Promise<void> => ipcRenderer.invoke("agent:pasteToEditor", text),
     reportEditorText: (text: string): Promise<void> => {
       ipcRenderer.send("agent:reportEditorText", text);
       return Promise.resolve();

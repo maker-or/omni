@@ -23,3 +23,5 @@ omni.sqlite
 *.njsproj
 *.sln
 *.sw?
+# Build output
+out

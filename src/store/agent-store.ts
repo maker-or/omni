@@ -26,6 +26,8 @@ interface AgentState {
   createThread: (projectId: string, title: string) => Promise<Thread>;
   cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
   setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
+  cycleThinkingLevel: () => Promise<string | null>;
+  setThinkingLevel: (level: any) => Promise<void>;
   compact: (customInstructions?: string) => Promise<void>;
   setEditorText: (text: string) => Promise<void>;
   pasteToEditor: (text: string) => Promise<void>;
@@ -218,6 +220,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const success = await window.omni.agent.setModel(model);
     await get().refresh();
     return success;
+  },
+  cycleThinkingLevel: async () => {
+    const nextLevel = await window.omni.agent.cycleThinkingLevel();
+    await get().refresh();
+    return nextLevel;
+  },
+  setThinkingLevel: async (level) => {
+    await window.omni.agent.setThinkingLevel(level);
+    await get().refresh();
   },
   compact: async (customInstructions) => {
     await window.omni.agent.compact(customInstructions);

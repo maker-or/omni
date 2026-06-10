@@ -244,11 +244,11 @@ In the Electron main process, we import the SDK modules directly and manage the 
 ### Spawning and Initialization
 
 ```typescript
-import { 
-  createAgentSessionRuntime, 
-  SessionManager, 
-  AuthStorage, 
-  ModelRegistry 
+import {
+  createAgentSessionRuntime,
+  SessionManager,
+  AuthStorage,
+  ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 
 const authStorage = AuthStorage.create();
@@ -540,6 +540,7 @@ The `AgentSession` streams events directly to the subscriber. We parse and map t
   ```
 
   - _UI Action:_ Show transient status toast: _"Provider overloaded. Retrying (Attempt 1/3)..."_
+
 - **`auto_retry_end`** `{"type": "auto_retry_end", "success": true}`
   - _UI Action:_ Dismiss the retry status toast.
 - **`extension_error`** `{"type": "extension_error", "extensionPath": "...", "error": "..."}`

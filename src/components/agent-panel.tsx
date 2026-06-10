@@ -1,7 +1,13 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
@@ -11,10 +17,22 @@ import { ProjectIcon } from "@/components/ui/icon-picker";
 import { InputMessage } from "@/components/ui/input-message";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { useIcon } from "@/lib/icon-context";
+import type { IconName } from "@/lib/icon-context";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { Streamdown } from "streamdown";
+import {
+  ThinkingSteps,
+  ThinkingStepsHeader,
+  ThinkingStepsContent,
+  ThinkingStep,
+  ThinkingStepDetails,
+  ThinkingStepSources,
+  ThinkingStepSource,
+  ThinkingStepImage,
+} from "@/components/ui/thinking-steps";
+import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import type { AgentUiRequest } from "../../contracts/agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -28,8 +46,10 @@ function stringifyMessageContent(message: MessageLike): string {
     .map((part) => {
       if (!part || typeof part !== "object") return "";
       const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
+      if (typed.type === "text" && typeof typed.text === "string")
+        return typed.text;
+      if (typed.type === "thinking" && typeof typed.thinking === "string")
+        return typed.thinking;
       return "";
     })
     .filter(Boolean)
@@ -40,28 +60,274 @@ function getToolSummary(message: MessageLike): string | null {
   const content = (message as unknown as { content?: unknown }).content;
   if (!Array.isArray(content)) return null;
   const toolNames = content
-    .map((part) => (part && typeof part === "object" && "type" in part && (part as { type?: string; name?: string }).type === "toolCall"
-      ? (part as { name?: string }).name
-      : null))
-    .filter((value): value is string => typeof value === "string" && value.length > 0);
+    .map((part) =>
+      part &&
+      typeof part === "object" &&
+      "type" in part &&
+      (part as { type?: string; name?: string }).type === "toolCall"
+        ? (part as { name?: string }).name
+        : null,
+    )
+    .filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
   if (!toolNames.length) return null;
   return toolNames.join(", ");
 }
 
 function getMessageKey(message: MessageLike, index: number): string {
-  const meta = message as { id?: string; timestamp?: number; created_at?: string };
-  return `${message.role ?? "message"}-${meta.id ?? meta.timestamp ?? meta.created_at ?? index}`;
+  const meta = message as {
+    id?: string;
+    toolCallId?: string;
+    timestamp?: number;
+    created_at?: string;
+  };
+  const uniqueId = meta.id ?? meta.toolCallId;
+  if (uniqueId) {
+    return `${message.role ?? "message"}-${uniqueId}`;
+  }
+  const timePart = meta.timestamp ?? meta.created_at;
+  if (timePart !== undefined) {
+    return `${message.role ?? "message"}-${timePart}-${index}`;
+  }
+  return `${message.role ?? "message"}-${index}`;
 }
 
-function MessageBody({ message }: { message: MessageLike }) {
+function AssistantTraceDeck({
+  traceParts,
+  isStreaming,
+  activeMessages,
+}: {
+  traceParts: any[];
+  isStreaming: boolean;
+  activeMessages: MessageLike[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  const getToolIcon = (toolName: string): IconName => {
+    const name = toolName.toLowerCase();
+    if (
+      name.includes("search") ||
+      name.includes("web") ||
+      name.includes("globe")
+    ) {
+      return "globe";
+    }
+    if (
+      name.includes("file") ||
+      name.includes("replace") ||
+      name.includes("write") ||
+      name.includes("read") ||
+      name.includes("grep")
+    ) {
+      return "brain";
+    }
+    if (name.includes("check") || name.includes("complete")) {
+      return "check";
+    }
+    return "dot";
+  };
+
+  const extractSources = (text: string): string[] => {
+    const domains: string[] = [];
+    const regex = /https?:\/\/([a-zA-Z0-9.-]+)/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      let domain = match[1];
+      if (domain.startsWith("www.")) {
+        domain = domain.slice(4);
+      }
+      if (domains.length < 5 && !domains.includes(domain)) {
+        domains.push(domain);
+      }
+    }
+    return domains;
+  };
+
+  return (
+    <ThinkingSteps open={open} onOpenChange={setOpen}>
+      <ThinkingStepsHeader>Research Agent</ThinkingStepsHeader>
+      <ThinkingStepsContent>
+        {traceParts.map((part, index) => {
+          const isLast = index === traceParts.length - 1;
+
+          if (part.type === "thinking") {
+            const isPartStreaming = isStreaming && isLast;
+            return (
+              <ThinkingStep
+                key={`thinking-${index}`}
+                index={index}
+                icon="brain"
+                label="Thinking"
+                description={part.thinking}
+                status={isPartStreaming ? "active" : "complete"}
+                isLast={isLast}
+              >
+                {isPartStreaming && <ThinkingIndicator className="mt-1" />}
+              </ThinkingStep>
+            );
+          }
+
+          if (part.type === "toolCall") {
+            const toolCallId = part.id;
+            const toolName = part.name || "";
+            const args = part.arguments ?? part.args ?? {};
+
+            const resultMsg = activeMessages.find(
+              (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
+            );
+
+            const isPartStreaming = isStreaming && isLast && !resultMsg;
+
+            let status: "active" | "complete" | "pending" = "complete";
+            if (isPartStreaming) {
+              status = "active";
+            } else if (!resultMsg && !isStreaming) {
+              status = "complete";
+            }
+
+            const stepLabel = toolName;
+            let stepDescription = "";
+            if (toolName === "bash") {
+              stepDescription = args.command || "";
+            } else {
+              const keys = Object.keys(args);
+              if (keys.length > 0) {
+                stepDescription = keys
+                  .map((k) => `${k}: ${JSON.stringify(args[k])}`)
+                  .join(", ");
+              }
+            }
+
+            const iconName = getToolIcon(toolName);
+
+            let sources: string[] = [];
+            let imageSrc = "";
+            let imageCaption = "";
+            let detailsSummary = "";
+            let detailsLinesArray: string[] = [];
+            let resultText = "";
+
+            if (resultMsg) {
+              resultText = stringifyMessageContent(resultMsg);
+
+              if (
+                toolName.includes("search") ||
+                toolName.includes("web") ||
+                toolName.includes("globe")
+              ) {
+                sources = extractSources(resultText);
+              }
+
+              if (
+                toolName.includes("screenshot") ||
+                toolName.includes("image") ||
+                toolName.includes("layout")
+              ) {
+                const imageMatch = resultText.match(
+                  /data:image\/[a-zA-Z]+;base64,[^\s]+/,
+                );
+                if (imageMatch) {
+                  imageSrc = imageMatch[0];
+                  imageCaption = "Screenshot output";
+                } else {
+                  const pathMatch = resultText.match(
+                    /(?:[a-zA-Z]:)?[\w/.-]+\.(?:png|jpg|jpeg|gif)/,
+                  );
+                  if (pathMatch) {
+                    imageSrc = pathMatch[0];
+                    imageCaption = "Preview Image";
+                  }
+                }
+              }
+
+              if (
+                toolName.includes("file") ||
+                toolName.includes("replace") ||
+                toolName.includes("write") ||
+                toolName.includes("read") ||
+                toolName.includes("grep")
+              ) {
+                detailsSummary = `${toolName} execution details`;
+                detailsLinesArray = resultText
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+                  .slice(0, 10);
+              }
+            }
+
+            return (
+              <ThinkingStep
+                key={`tool-${toolCallId || index}`}
+                index={index}
+                icon={iconName}
+                label={stepLabel}
+                description={stepDescription}
+                status={status}
+                isLast={isLast}
+              >
+                {sources.length > 0 && (
+                  <ThinkingStepSources>
+                    {sources.map((src, sIdx) => (
+                      <ThinkingStepSource key={sIdx}>{src}</ThinkingStepSource>
+                    ))}
+                  </ThinkingStepSources>
+                )}
+
+                {imageSrc && (
+                  <ThinkingStepImage src={imageSrc} caption={imageCaption} />
+                )}
+
+                {detailsLinesArray.length > 0 && (
+                  <ThinkingStepDetails
+                    summary={detailsSummary || "Details"}
+                    details={detailsLinesArray}
+                  />
+                )}
+
+                {resultMsg && toolName === "bash" && (
+                  <div className="mt-1.5 rounded bg-black/95 p-2 font-mono text-[11px] text-zinc-100 max-h-48 overflow-y-auto whitespace-pre-wrap">
+                    {resultText}
+                  </div>
+                )}
+
+                {resultMsg?.isError && (
+                  <div className="mt-1.5 text-red-500 text-[12px] font-medium leading-snug">
+                    Error: {resultText}
+                  </div>
+                )}
+
+                {isPartStreaming && <ThinkingIndicator className="mt-1" />}
+              </ThinkingStep>
+            );
+          }
+
+          return null;
+        })}
+      </ThinkingStepsContent>
+    </ThinkingSteps>
+  );
+}
+
+function MessageBody({
+  message,
+  isStreaming = false,
+  activeMessages = [],
+}: {
+  message: MessageLike;
+  isStreaming?: boolean;
+  activeMessages?: MessageLike[];
+}) {
   const role = message.role;
   const body = stringifyMessageContent(message);
-  const toolSummary = getToolSummary(message);
 
   if (role === "toolResult") {
     return (
       <div className="rounded-md border border-border/70 bg-surface-2 px-3 py-2 text-[13px] text-muted-foreground">
-        <div className="font-medium text-foreground/80">{(message as { toolName?: string }).toolName ?? "Tool result"}</div>
+        <div className="font-medium text-foreground/80">
+          {(message as { toolName?: string }).toolName ?? "Tool result"}
+        </div>
         <div className="mt-1 whitespace-pre-wrap break-words">
           {body || "Completed"}
         </div>
@@ -70,21 +336,61 @@ function MessageBody({ message }: { message: MessageLike }) {
   }
 
   if (role === "assistant") {
-    return (
-      <div className="space-y-2">
+    const content = (message as unknown as { content?: unknown }).content;
+
+    if (typeof content === "string") {
+      return (
         <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-          <Streamdown className="text-[14px] leading-6">{body || " "}</Streamdown>
+          {body ? (
+            <Streamdown mode={isStreaming ? "streaming" : "static"}>
+              {body}
+            </Streamdown>
+          ) : (
+            " "
+          )}
         </div>
-        {toolSummary && (
-          <div className="text-[12px] text-muted-foreground font-mono">
-            Tools: {toolSummary}
-          </div>
-        )}
-      </div>
-    );
+      );
+    }
+
+    if (Array.isArray(content)) {
+      const textParts = content.filter((part) => part && part.type === "text");
+      const traceParts = content.filter(
+        (part) =>
+          part && (part.type === "thinking" || part.type === "toolCall"),
+      );
+
+      const textBody = textParts
+        .map((part) => part.text)
+        .filter(Boolean)
+        .join("\n");
+
+      return (
+        <div className="space-y-3">
+          {textBody.trim() && (
+            <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
+              <Streamdown mode={isStreaming ? "streaming" : "static"}>
+                {textBody}
+              </Streamdown>
+            </div>
+          )}
+
+          {traceParts.length > 0 && (
+            <AssistantTraceDeck
+              traceParts={traceParts}
+              isStreaming={isStreaming}
+              activeMessages={activeMessages}
+            />
+          )}
+        </div>
+      );
+    }
   }
 
-  return <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{body}</div>;
+  return (
+    <div className="whitespace-pre-wrap break-words text-[14px] leading-6">
+      {body}
+    </div>
+  );
 }
 
 function UiRequestDialog({
@@ -94,20 +400,33 @@ function UiRequestDialog({
   request: AgentUiRequest;
   onClose: (value: string | boolean | undefined) => void;
 }) {
-  const [text, setText] = useState(() => ("prefill" in request ? request.prefill ?? "" : ""));
+  const [text, setText] = useState(() =>
+    "prefill" in request ? (request.prefill ?? "") : "",
+  );
   useEffect(() => {
-    setText("prefill" in request ? request.prefill ?? "" : "");
+    setText("prefill" in request ? (request.prefill ?? "") : "");
   }, [request]);
 
   if (request.kind === "select") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
-          {request.message && <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>}
+          <div className="text-sm font-medium text-foreground">
+            {request.title}
+          </div>
+          {request.message && (
+            <div className="mt-2 text-sm text-muted-foreground">
+              {request.message}
+            </div>
+          )}
           <div className="mt-4 flex flex-col gap-2">
             {request.options.map((option) => (
-              <Button key={option} variant="secondary" className="justify-start" onClick={() => onClose(option)}>
+              <Button
+                key={option}
+                variant="secondary"
+                className="justify-start"
+                onClick={() => onClose(option)}
+              >
                 {option}
               </Button>
             ))}
@@ -121,8 +440,12 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
-          <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
+          <div className="text-sm font-medium text-foreground">
+            {request.title}
+          </div>
+          <div className="mt-2 text-sm text-muted-foreground">
+            {request.message}
+          </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => onClose(false)}>
               No
@@ -137,7 +460,9 @@ function UiRequestDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-        <div className="text-sm font-medium text-foreground">{request.title}</div>
+        <div className="text-sm font-medium text-foreground">
+          {request.title}
+        </div>
         <textarea
           autoFocus
           value={text}
@@ -149,7 +474,9 @@ function UiRequestDialog({
           <Button variant="secondary" onClick={() => onClose(undefined)}>
             Cancel
           </Button>
-          <Button onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
+          <Button onClick={() => onClose(text.trim() || undefined)}>
+            Submit
+          </Button>
         </div>
       </div>
     </div>
@@ -158,7 +485,7 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, loadThreads } = useThreadStore();
+  const { threads, loadThreads, deleteThread } = useThreadStore();
   const {
     snapshot,
     pendingThreadId,
@@ -170,8 +497,12 @@ export function AgentPanel() {
     createThread,
     respondToUiRequest,
     setModel,
+    cycleThinkingLevel,
+    setThinkingLevel,
   } = useAgentStore();
-  const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string; icon: string }>>([]);
+  const [projectsList, setProjectsList] = useState<
+    Array<{ id: string; name: string; icon: string }>
+  >([]);
   const [inputValue, setInputValue] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -181,8 +512,55 @@ export function AgentPanel() {
   const threadPaneRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
-  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
+  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(
+    null,
+  );
   const ChevronDownIcon = useIcon("chevron-down");
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const CopyIcon = useIcon("copy");
+  const CheckIcon = useIcon("check");
+  const PencilIcon = useIcon("pencil");
+  const RotateCcwIcon = useIcon("rotate-ccw");
+
+  const formatMessageTime = (message: MessageLike): string | undefined => {
+    const meta = message as { timestamp?: number; created_at?: string };
+    const timeVal =
+      meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
+    if (!timeVal) return undefined;
+    const date = new Date(timeVal);
+    if (isNaN(date.getTime())) return undefined;
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date);
+  };
+
+  const handleCopy = (msgId: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMessageId(msgId);
+    setTimeout(() => {
+      setCopiedMessageId((prev) => (prev === msgId ? null : prev));
+    }, 2000);
+  };
+
+  const handleRegenerate = async (currentIndex: number) => {
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      const msg = activeMessages[i] as MessageLike;
+      if (msg.role === "user") {
+        const promptText = stringifyMessageContent(msg);
+        if (promptText) {
+          await sendPrompt({
+            threadId: snapshot?.threadId ?? undefined,
+            message: promptText,
+          });
+        }
+        break;
+      }
+    }
+  };
 
   useEffect(() => {
     void connect();
@@ -211,7 +589,9 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (!hoveredProjectId) return;
-    const exists = projectsList.some((project) => project.id === hoveredProjectId);
+    const exists = projectsList.some(
+      (project) => project.id === hoveredProjectId,
+    );
     if (!exists) {
       setHoveredProjectId(projectsList[0]?.id ?? null);
     }
@@ -279,11 +659,15 @@ export function AgentPanel() {
   const models = snapshot?.models ?? [];
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = pendingThreadId ?? snapshotThreadId;
-  const isSwitchingThread = Boolean(pendingThreadId && pendingThreadId !== snapshotThreadId);
+  const isSwitchingThread = Boolean(
+    pendingThreadId && pendingThreadId !== snapshotThreadId,
+  );
   const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
   const activeMessages = snapshot?.messages ?? [];
   const streamingMessage = snapshot?.streamingMessage ?? null;
-  const queueCount = (snapshot?.queue.steering.length ?? 0) + (snapshot?.queue.followUp.length ?? 0);
+  const queueCount =
+    (snapshot?.queue.steering.length ?? 0) +
+    (snapshot?.queue.followUp.length ?? 0);
   const slashMatches = useMemo(() => {
     const trimmed = inputValue.trimStart();
     if (!trimmed.startsWith("/")) return [];
@@ -318,7 +702,8 @@ export function AgentPanel() {
     const projectId = hoveredProjectId ?? activeProject?.id;
     if (!projectId) return;
     const project = projectsList.find((item) => item.id === projectId);
-    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
+    const nextCount =
+      threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
     const thread = await createThread(projectId, title);
     await handleSelectThread(thread.id);
@@ -331,7 +716,9 @@ export function AgentPanel() {
     index: idx,
   }));
 
-  const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
+  const checkedIndex = projectItems.findIndex(
+    (item) => item.id === activeProject?.id,
+  );
   const addProjectIndex = projectItems.length;
   const hoveredProjectThreads = hoveredProjectId
     ? threads.filter((thread) => thread.project_id === hoveredProjectId)
@@ -356,15 +743,24 @@ export function AgentPanel() {
         />
       )}
 
-      <Tabs value={threadId} onValueChange={handleSelectThread} className="flex-1 flex flex-col min-h-0">
+      <Tabs
+        value={threadId}
+        onValueChange={handleSelectThread}
+        className="flex-1 flex flex-col min-h-0"
+      >
         <div className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1 border-b border-border/60">
           <TabsList className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
             {threads.map((thread) => {
-              const project = projectsList.find((item) => item.id === thread.project_id);
+              const project = projectsList.find(
+                (item) => item.id === thread.project_id,
+              );
               const Icon = project
-                ? ((props: { className?: string }) => (
-                    <ProjectIcon name={project.icon} className={props.className} />
-                  )) as any
+                ? (((props: { className?: string }) => (
+                    <ProjectIcon
+                      name={project.icon}
+                      className={props.className}
+                    />
+                  )) as any)
                 : undefined;
               return (
                 <TabItem
@@ -372,66 +768,79 @@ export function AgentPanel() {
                   value={thread.id}
                   label={thread.title}
                   icon={Icon}
+                  onClose={() => deleteThread(thread.id)}
                 />
               );
             })}
           </TabsList>
 
-            <div className="relative">
-              <Button
-                ref={buttonRef}
-                variant="ghost"
-                size="icon-sm"
-                active={isDropdownOpen}
-                onClick={() => setIsDropdownOpen((prev) => {
+          <div className="relative">
+            <Button
+              ref={buttonRef}
+              variant="ghost"
+              size="icon-sm"
+              active={isDropdownOpen}
+              onClick={() =>
+                setIsDropdownOpen((prev) => {
                   const next = !prev;
                   if (next) {
                     setHoveredProjectId(null);
                     setIsModelDropdownOpen(false);
                   }
                   return next;
-                })}
-              >
-                <PlusIcon size={16} />
-              </Button>
+                })
+              }
+            >
+              <PlusIcon size={16} />
+            </Button>
 
             {isDropdownOpen && (
-              <div ref={dropdownRef} className="absolute right-0 top-full mt-1.5 z-[200]">
+              <div
+                ref={dropdownRef}
+                className="absolute right-0 top-full mt-1.5 z-[200]"
+              >
                 <div ref={projectListRef} className="relative">
                   <Dropdown checkedIndex={checkedIndex} className="w-72">
-                  {projectItems.map((item) => {
-                    const project = projectsList.find((p) => p.id === item.id);
-                    const ProjectIconItem = project
-                      ? ((props: { className?: string }) => (
-                          <ProjectIcon name={project.icon} className={props.className} />
-                        )) as any
-                      : undefined;
-                    return (
-                      <MenuItem
-                        key={item.id}
-                        index={item.index}
-                        label={item.name}
-                        icon={ProjectIconItem}
-                        checked={activeProject?.id === item.id}
-                        onMouseEnter={() => setHoveredProjectId(item.id)}
-                        onFocus={() => setHoveredProjectId(item.id)}
-                        onSelect={() => setHoveredProjectId(item.id)}
-                      />
-                    );
-                  })}
-                  {projectItems.length > 0 && <DropdownSeparator />}
-                  <MenuItem
-                    index={addProjectIndex}
-                    label="Add Project"
-                    icon={FolderPlusIcon}
-                    onSelect={async () => {
-                      setIsDropdownOpen(false);
-                      await window.omni.launch.show("add");
-                    }}
-                  />
+                    {projectItems.map((item) => {
+                      const project = projectsList.find(
+                        (p) => p.id === item.id,
+                      );
+                      const ProjectIconItem = project
+                        ? (((props: { className?: string }) => (
+                            <ProjectIcon
+                              name={project.icon}
+                              className={props.className}
+                            />
+                          )) as any)
+                        : undefined;
+                      return (
+                        <MenuItem
+                          key={item.id}
+                          index={item.index}
+                          label={item.name}
+                          icon={ProjectIconItem}
+                          checked={activeProject?.id === item.id}
+                          onMouseEnter={() => setHoveredProjectId(item.id)}
+                          onFocus={() => setHoveredProjectId(item.id)}
+                          onSelect={() => setHoveredProjectId(item.id)}
+                        />
+                      );
+                    })}
+                    {projectItems.length > 0 && <DropdownSeparator />}
+                    <MenuItem
+                      index={addProjectIndex}
+                      label="Add Project"
+                      icon={FolderPlusIcon}
+                      onSelect={async () => {
+                        setIsDropdownOpen(false);
+                        await window.omni.launch.show("add");
+                      }}
+                    />
                   </Dropdown>
                 </div>
-                {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
+                {hoveredProjectId &&
+                threadPaneStyle &&
+                typeof document !== "undefined"
                   ? createPortal(
                       <div
                         className="w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
@@ -496,7 +905,10 @@ export function AgentPanel() {
         </div>
 
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-          <div className="relative flex-1 overflow-y-auto min-h-0" aria-busy={isSwitchingThread}>
+          <div
+            className="relative flex-1 overflow-y-auto min-h-0"
+            aria-busy={isSwitchingThread}
+          >
             {isSwitchingThread && (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden bg-border/40">
                 <div className="h-full w-1/3 animate-pulse bg-foreground/35" />
@@ -518,41 +930,159 @@ export function AgentPanel() {
                     <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
                       {activeProject?.name ?? "your project"}
                     </span>
-                    <span className="text-2xl font-semibold tracking-tight text-foreground/55">?</span>
+                    <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                      ?
+                    </span>
                   </h2>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3 p-4">
-                  {activeMessages.map((message, index) => {
-                    const msg = message as MessageLike;
-                    const from = msg.role === "user" ? "user" : "assistant";
-                    return (
-                      <ChatMessage
-                        key={getMessageKey(msg, index)}
-                        from={from}
-                        initial={false}
-                        layout={false}
-                      >
-                        <MessageBody message={msg} />
-                      </ChatMessage>
-                    );
-                  })}
-                  {streamingMessage && (
-                    <ChatMessage
-                      key="streaming"
-                      from="assistant"
-                      initial={false}
-                      layout={false}
-                    >
-                      <MessageBody message={streamingMessage as MessageLike} />
-                    </ChatMessage>
+                  {activeMessages
+                    .map((message, index) => ({
+                      message,
+                      originalIndex: index,
+                    }))
+                    .filter(
+                      ({ message }) =>
+                        message.role === "user" || message.role === "assistant",
+                    )
+                    .map(({ message, originalIndex }) => {
+                      const msg = message as MessageLike;
+                      const from = msg.role === "user" ? "user" : "assistant";
+                      const msgId = getMessageKey(msg, originalIndex);
+                      const isCopied = copiedMessageId === msgId;
+                      const bodyText = stringifyMessageContent(msg);
+                      const timeStr = formatMessageTime(msg);
+                      const hasContent =
+                        bodyText.trim() !== "" ||
+                        (from === "assistant" && getToolSummary(msg) !== null);
+
+                      const actions =
+                        from === "user" ? (
+                          <>
+                            <button
+                              type="button"
+                              aria-label="Copy message"
+                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                              onClick={() => handleCopy(msgId, bodyText)}
+                            >
+                              {isCopied ? (
+                                <CheckIcon size={13} />
+                              ) : (
+                                <CopyIcon size={13} />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Edit message"
+                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                              onClick={() => {
+                                setInputValue(bodyText);
+                                const textarea =
+                                  document.querySelector("textarea");
+                                if (textarea) {
+                                  (textarea as HTMLTextAreaElement).focus();
+                                }
+                              }}
+                            >
+                              <PencilIcon size={13} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              aria-label="Copy message"
+                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                              onClick={() => handleCopy(msgId, bodyText)}
+                            >
+                              {isCopied ? (
+                                <CheckIcon size={13} />
+                              ) : (
+                                <CopyIcon size={13} />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Regenerate response"
+                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                              onClick={() => handleRegenerate(originalIndex)}
+                            >
+                              <RotateCcwIcon size={13} />
+                            </button>
+                          </>
+                        );
+
+                      return (
+                        <ChatMessage
+                          key={msgId}
+                          from={from}
+                          time={timeStr}
+                          actions={actions}
+                        >
+                          {hasContent ? (
+                            <MessageBody
+                              message={msg}
+                              isStreaming={false}
+                              activeMessages={activeMessages}
+                            />
+                          ) : undefined}
+                        </ChatMessage>
+                      );
+                    })}
+                  {streamingMessage &&
+                    (() => {
+                      const streamingMsg = streamingMessage as MessageLike;
+                      const streamingBody =
+                        stringifyMessageContent(streamingMsg);
+                      const isStreamingCopied = copiedMessageId === "streaming";
+                      const hasStreamingContent =
+                        streamingBody.trim() !== "" ||
+                        getToolSummary(streamingMsg) !== null;
+
+                      const streamingActions = (
+                        <button
+                          type="button"
+                          aria-label="Copy message"
+                          className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                          onClick={() => handleCopy("streaming", streamingBody)}
+                        >
+                          {isStreamingCopied ? (
+                            <CheckIcon size={13} />
+                          ) : (
+                            <CopyIcon size={13} />
+                          )}
+                        </button>
+                      );
+
+                      return (
+                        <ChatMessage
+                          key="streaming"
+                          from="assistant"
+                          actions={streamingActions}
+                        >
+                          {hasStreamingContent ? (
+                            <MessageBody
+                              message={streamingMsg}
+                              isStreaming={true}
+                              activeMessages={activeMessages}
+                            />
+                          ) : undefined}
+                        </ChatMessage>
+                      );
+                    })()}
+
+                  {snapshot?.isStreaming && !streamingMessage && (
+                    <div className="flex justify-start px-4 py-2">
+                      <ThinkingIndicator />
+                    </div>
                   )}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="border-t border-border/60 bg-surface-1 p-3">
+          <div className="bg-surface-1  p-3">
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
               {slashMatches.length > 0 && (
                 <div className="rounded-lg border border-border bg-surface-2 p-2">
@@ -577,13 +1107,7 @@ export function AgentPanel() {
               <InputMessage
                 value={inputValue}
                 onValueChange={setInputValue}
-                placeholder={
-                  isSwitchingThread
-                    ? "Loading thread…"
-                    : activeThread
-                      ? `Message ${activeThread.title}`
-                      : "Ask the agent something…"
-                }
+                placeholder="Type here"
                 onSend={handleSend}
                 disabled={isSwitchingThread}
                 textareaProps={{
@@ -594,7 +1118,22 @@ export function AgentPanel() {
                   },
                 }}
                 rightSlot={
-                  <div ref={modelDropdownRef} className="relative">
+                  <div
+                    ref={modelDropdownRef}
+                    className="relative flex items-center gap-1.5"
+                  >
+                    {snapshot?.thinkingLevel !== undefined &&
+                      snapshot?.thinkingLevel !== null && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            await cycleThinkingLevel();
+                          }}
+                        >
+                          Reasoning: {snapshot.thinkingLevel}
+                        </Button>
+                      )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -610,7 +1149,12 @@ export function AgentPanel() {
                     </Button>
                     {isModelDropdownOpen && models.length > 0 && (
                       <div className="absolute right-0 bottom-full mb-1.5 z-[250]">
-                        <Dropdown checkedIndex={activeModelIndex >= 0 ? activeModelIndex : undefined} className="w-72">
+                        <Dropdown
+                          checkedIndex={
+                            activeModelIndex >= 0 ? activeModelIndex : undefined
+                          }
+                          className="w-72"
+                        >
                           {models.map((model, index) => (
                             <MenuItem
                               key={`${model.provider}:${model.modelId}`}
@@ -639,24 +1183,17 @@ export function AgentPanel() {
               />
 
               <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>
-                    {isSwitchingThread
-                      ? activeThread?.title ?? "Switching thread"
-                      : snapshot?.sessionName ?? activeThread?.title ?? "No active session"}
-                  </span>
-                  <span>•</span>
-                  <span>{queueCount} queued</span>
-                  <span>•</span>
-                  <span>{snapshot?.isStreaming ? "streaming" : "idle"}</span>
-                </div>
+                <div className="flex flex-wrap items-center gap-2"></div>
                 <div className="flex flex-wrap items-center gap-2">
                   {snapshot?.stats && (
-                    <>
-                      <span>{snapshot.stats.userMessages} user</span>
-                      <span>{snapshot.stats.assistantMessages} assistant</span>
-                      <span>{snapshot.stats.tokens.total} tokens</span>
-                    </>
+                    <div className="flex items-center gap-2">
+                      <span>{snapshot.stats.tokens.total} tks</span>
+                      {snapshot.stats.cost > 0 && (
+                        <span className="opacity-70">
+                          (${snapshot.stats.cost.toFixed(4)})
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

@@ -46,11 +46,7 @@ function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
 }
 
 function resolveRendererFile(page: "main" | "launch"): string {
-  return join(
-    mainDir,
-    "../renderer",
-    page === "launch" ? "launch.html" : "index.html",
-  );
+  return join(mainDir, "../renderer", page === "launch" ? "launch.html" : "index.html");
 }
 
 function sendToMainWindow(channel: string, payload: unknown): void {
@@ -65,14 +61,8 @@ function setMainWindowTitle(title: string): void {
   }
 }
 
-function loadInto(
-  win: BrowserWindow,
-  page: "main" | "launch",
-  stage?: string,
-): Promise<void> {
-  console.log(
-    `[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`,
-  );
+function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
+  console.log(`[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`);
   if (isDev) {
     const url = resolveRendererUrl(page, stage);
     console.log(`[Main] loadInto (dev) - loading url: ${url}`);
@@ -119,14 +109,9 @@ function createMainWindow(): void {
     }
   });
 
-  mainWindow.webContents.on(
-    "console-message",
-    (_event, level, message, line, sourceId) => {
-      console.log(
-        `[Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`,
-      );
-    },
-  );
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -143,10 +128,7 @@ function createMainWindow(): void {
 function createLaunchWindow(stage: "list" | "add" = "list"): void {
   console.log(`[Main] createLaunchWindow - stage: ${stage}`);
   if (launchWindow && !launchWindow.isDestroyed()) {
-    console.log(
-      "[Main] launchWindow already exists, reusing and loading stage:",
-      stage,
-    );
+    console.log("[Main] launchWindow already exists, reusing and loading stage:", stage);
     void loadInto(launchWindow, "launch", stage);
     launchWindow.show();
     launchWindow.focus();
@@ -176,14 +158,9 @@ function createLaunchWindow(stage: "list" | "add" = "list"): void {
     launchWindow?.show();
   });
 
-  launchWindow.webContents.on(
-    "console-message",
-    (_event, level, message, line, sourceId) => {
-      console.log(
-        `[Launch Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`,
-      );
-    },
-  );
+  launchWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Launch Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+  });
 
   launchWindow.on("closed", () => {
     console.log("[Main] launchWindow closed");
@@ -236,14 +213,9 @@ function createFlyoutWindow(): void {
     flyoutWindow?.show();
   });
 
-  flyoutWindow.webContents.on(
-    "console-message",
-    (_event, level, message, line, sourceId) => {
-      console.log(
-        `[Flyout Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`,
-      );
-    },
-  );
+  flyoutWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Flyout Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+  });
 
   flyoutWindow.on("closed", () => {
     console.log("[Main] flyoutWindow closed");
@@ -268,9 +240,7 @@ function broadcastToWindows(channel: string, ...args: any[]) {
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? ([{ role: "appMenu" }] as Electron.MenuItemConstructorOptions[])
-      : []),
+    ...(isMac ? ([{ role: "appMenu" }] as Electron.MenuItemConstructorOptions[]) : []),
     {
       label: "File",
       submenu: [isMac ? { role: "close" } : { role: "quit" }],
@@ -311,10 +281,7 @@ function buildAppMenu(): void {
       submenu: [
         { role: "minimize" },
         ...(isMac
-          ? ([
-              { type: "separator" },
-              { role: "front" },
-            ] as Electron.MenuItemConstructorOptions[])
+          ? ([{ type: "separator" }, { role: "front" }] as Electron.MenuItemConstructorOptions[])
           : ([{ role: "close" }] as Electron.MenuItemConstructorOptions[])),
       ],
     },
@@ -387,19 +354,20 @@ function registerIpc(): void {
 
   ipcMain.handle("flyout:open", () => {
     createFlyoutWindow();
-    return requireAgentManager().activateProject(projectId);
+    const projectId = getActiveProjectId();
+    if (projectId) {
+      return requireAgentManager().activateProject(projectId);
+    }
+    return;
   });
 
   ipcMain.handle("threads:list", () => {
     return listThreads();
   });
 
-  ipcMain.handle(
-    "threads:create",
-    (_event, projectId: string, title: string) => {
-      return requireAgentManager().createThread(projectId, title);
-    },
-  );
+  ipcMain.handle("threads:create", (_event, projectId: string, title: string) => {
+    return requireAgentManager().createThread(projectId, title);
+  });
 
   ipcMain.handle("threads:delete", (_event, id: string) => {
     return requireAgentManager().deleteThread(id);
@@ -417,32 +385,28 @@ function registerIpc(): void {
   );
 
   ipcMain.handle("agent:getState", () => requireAgentManager().getState());
-  ipcMain.handle("agent:getCommands", () =>
-    requireAgentManager().getCommands(),
-  );
+  ipcMain.handle("agent:getCommands", () => requireAgentManager().getCommands());
   ipcMain.handle("agent:getModels", () => requireAgentManager().getModels());
   ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
-  ipcMain.handle("agent:sendPrompt", (_event, input) =>
-    requireAgentManager().sendPrompt(input),
-  );
+  ipcMain.handle("agent:sendPrompt", (_event, input) => requireAgentManager().sendPrompt(input));
   ipcMain.handle("agent:abort", () => requireAgentManager().abort());
   ipcMain.handle("agent:switchThread", (_event, threadId: string) =>
     requireAgentManager().switchThread(threadId),
   );
-  ipcMain.handle(
-    "agent:createThread",
-    (_event, projectId: string, title: string) =>
-      requireAgentManager().createThread(projectId, title),
+  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string) =>
+    requireAgentManager().createThread(projectId, title),
   );
-  ipcMain.handle(
-    "agent:cycleModel",
-    (_event, direction?: "forward" | "backward") =>
-      requireAgentManager().cycleModel(direction),
+  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
+    requireAgentManager().cycleModel(direction),
   );
-  ipcMain.handle(
-    "agent:setModel",
-    (_event, model: { provider: string; modelId: string }) =>
-      requireAgentManager().setModel(model),
+  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) =>
+    requireAgentManager().setModel(model),
+  );
+  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) =>
+    requireAgentManager().setThinkingLevel(level),
+  );
+  ipcMain.handle("agent:cycleThinkingLevel", () =>
+    requireAgentManager().cycleThinkingLevel(),
   );
   ipcMain.handle("agent:compact", (_event, customInstructions?: string) =>
     requireAgentManager().compact(customInstructions),
@@ -453,9 +417,7 @@ function registerIpc(): void {
   ipcMain.handle("agent:setEditorText", (_event, text: string) =>
     requireAgentManager().setEditorText(text),
   );
-  ipcMain.handle("agent:getEditorText", () =>
-    requireAgentManager().getEditorText(),
-  );
+  ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
   ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
     requireAgentManager().pasteToEditor(text),
   );
@@ -463,80 +425,71 @@ function registerIpc(): void {
     requireAgentManager().reportEditorText(text);
   });
 
-  ipcMain.handle(
-    "terminal:create",
-    (_event, sessionId: string, cwd?: string) => {
-      if (ptyProcesses.has(sessionId)) {
-        try {
-          ptyProcesses.get(sessionId)?.kill();
-        } catch (e) {}
-        ptyProcesses.delete(sessionId);
-      }
-
-      const defaultShell =
-        process.env["SHELL"] ||
-        (process.platform === "win32" ? "powershell.exe" : "bash");
-      const shellArgs: string[] = [];
-      if (
-        process.platform !== "win32" &&
-        (defaultShell.endsWith("zsh") ||
-          defaultShell.endsWith("bash") ||
-          defaultShell.endsWith("sh"))
-      ) {
-        shellArgs.push("-l");
-      }
-
-      let spawnCwd = cwd || os.homedir();
-      if (spawnCwd && !fs.existsSync(spawnCwd)) {
-        console.warn(
-          `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
-        );
-        spawnCwd = os.homedir();
-      }
-
-      let ptyProcess: pty.IPty;
+  ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
+    if (ptyProcesses.has(sessionId)) {
       try {
-        console.log(
-          `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
-        );
-        ptyProcess = pty.spawn(defaultShell, shellArgs, {
-          name: "xterm-256color",
-          cols: 80,
-          rows: 24,
-          cwd: spawnCwd,
-          env: {
-            ...process.env,
-            TERM: "xterm-256color",
-          } as Record<string, string>,
-        });
+        ptyProcesses.get(sessionId)?.kill();
+      } catch (e) {}
+      ptyProcesses.delete(sessionId);
+    }
 
-        ptyProcesses.set(sessionId, ptyProcess);
-      } catch (err) {
-        console.error(
-          `[Main] Error spawning PTY process for session ${sessionId}:`,
-          err,
-        );
-        throw err;
+    const defaultShell =
+      process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
+    const shellArgs: string[] = [];
+    if (
+      process.platform !== "win32" &&
+      (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))
+    ) {
+      shellArgs.push("-l");
+    }
+
+    let spawnCwd = cwd || os.homedir();
+    if (spawnCwd && !fs.existsSync(spawnCwd)) {
+      console.warn(
+        `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
+      );
+      spawnCwd = os.homedir();
+    }
+
+    let ptyProcess: pty.IPty;
+    try {
+      console.log(
+        `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
+      );
+      ptyProcess = pty.spawn(defaultShell, shellArgs, {
+        name: "xterm-256color",
+        cols: 80,
+        rows: 24,
+        cwd: spawnCwd,
+        env: {
+          ...process.env,
+          TERM: "xterm-256color",
+        } as Record<string, string>,
+      });
+
+      ptyProcesses.set(sessionId, ptyProcess);
+    } catch (err) {
+      console.error(`[Main] Error spawning PTY process for session ${sessionId}:`, err);
+      throw err;
+    }
+
+    ptyProcess.onData((data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("terminal:data", { sessionId, data });
       }
+    });
 
-      ptyProcess.onData((data) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("terminal:data", { sessionId, data });
-        }
-      });
-
-      ptyProcess.onExit(({ exitCode, signal }) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("terminal:exit", {
-            sessionId,
-            exitCode,
-            signal,
-          });
-        }
-        ptyProcesses.delete(sessionId);
-      });
-    },
-  );
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("terminal:exit", {
+          sessionId,
+          exitCode,
+          signal,
+        });
+      }
+      ptyProcesses.delete(sessionId);
+    });
+  });
 
   ipcMain.on(
     "terminal:write",
@@ -550,14 +503,7 @@ function registerIpc(): void {
 
   ipcMain.on(
     "terminal:resize",
-    (
-      _event,
-      {
-        sessionId,
-        cols,
-        rows,
-      }: { sessionId: string; cols: number; rows: number },
-    ) => {
+    (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
       const ptyProcess = ptyProcesses.get(sessionId);
       if (ptyProcess) {
         try {

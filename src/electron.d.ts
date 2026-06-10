@@ -52,6 +52,8 @@ declare global {
         createThread: (projectId: string, title: string) => Promise<Thread>;
         cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
         setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
+        setThinkingLevel: (level: any) => Promise<void>;
+        cycleThinkingLevel: () => Promise<string | null>;
         compact: (customInstructions?: string) => Promise<void>;
         respondToUiRequest: (response: AgentUiResponse) => Promise<void>;
         setEditorText: (text: string) => Promise<void>;

@@ -14,7 +14,13 @@ import type { Project } from "../contracts/projects.ts";
 import type { Thread } from "../contracts/threads.ts";
 import { getProject } from "./projects.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session.ts";
-import { getThread, listThreads, createThread, updateThreadSessionFile, deleteThread as removeThreadRow } from "./threads.ts";
+import {
+  getThread,
+  listThreads,
+  createThread,
+  updateThreadSessionFile,
+  deleteThread as removeThreadRow,
+} from "./threads.ts";
 import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
 import {
   createAgentSessionRuntime,
@@ -47,7 +53,9 @@ interface ProjectRuntimeRecord {
   toolsExpanded: boolean;
 }
 
-function modelToSummary(model: Model<any> | undefined): AgentModelSummary | null {
+function modelToSummary(
+  model: Model<any> | undefined,
+): AgentModelSummary | null {
   if (!model) return null;
   return {
     provider: model.provider,
@@ -60,15 +68,24 @@ function modelToSummary(model: Model<any> | undefined): AgentModelSummary | null
 }
 
 function modelsToSummary(models: Model<any>[]): AgentModelSummary[] {
-  return models.map((model) => modelToSummary(model)).filter((value): value is AgentModelSummary => value != null);
+  return models
+    .map((model) => modelToSummary(model))
+    .filter((value): value is AgentModelSummary => value != null);
 }
 
 function defaultThreadTitle(project: Project, existingCount: number): string {
   return `${project.name} #${existingCount + 1}`;
 }
 
-async function createProjectRuntime(project: Project, sessionManager: SessionManager) {
-  const servicesFactory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager: manager, sessionStartEvent }) => {
+async function createProjectRuntime(
+  project: Project,
+  sessionManager: SessionManager,
+) {
+  const servicesFactory: CreateAgentSessionRuntimeFactory = async ({
+    cwd,
+    sessionManager: manager,
+    sessionStartEvent,
+  }) => {
     const services = await createAgentSessionServices({
       cwd,
       agentDir: getAgentDir(),
@@ -109,7 +126,10 @@ export class AgentManager {
   private activeProjectId: string | null = null;
   private activeThreadId: string | null = null;
 
-  constructor(options: { sendToRenderer: SendToRenderer; setWindowTitle: SetWindowTitle }) {
+  constructor(options: {
+    sendToRenderer: SendToRenderer;
+    setWindowTitle: SetWindowTitle;
+  }) {
     this.sendToRenderer = options.sendToRenderer;
     this.setWindowTitle = options.setWindowTitle;
   }
@@ -122,7 +142,10 @@ export class AgentManager {
     return this.projectRuntimes.get(projectId);
   }
 
-  private async lockProject(projectId: string, task: () => Promise<void>): Promise<void> {
+  private async lockProject(
+    projectId: string,
+    task: () => Promise<void>,
+  ): Promise<void> {
     const previous = this.projectLocks.get(projectId) ?? Promise.resolve();
     const next = previous.then(task).finally(() => {
       if (this.projectLocks.get(projectId) === next) {
@@ -249,7 +272,10 @@ export class AgentManager {
         return undefined;
       },
       setTheme() {
-        return { success: false, error: "Theme switching is not available in the agent bridge." };
+        return {
+          success: false,
+          error: "Theme switching is not available in the agent bridge.",
+        };
       },
       getToolsExpanded() {
         return manager.getRecord(projectId)?.toolsExpanded ?? false;
@@ -295,24 +321,37 @@ export class AgentManager {
   }
 
   private async syncThreadsFromSessions(project: Project): Promise<void> {
-      const sessions = await SessionManager.list(project.path);
+    const sessions = await SessionManager.list(project.path);
     const existing = new Set(
       listThreads()
-        .filter((thread) => thread.project_id === project.id && thread.session_file != null)
+        .filter(
+          (thread) =>
+            thread.project_id === project.id && thread.session_file != null,
+        )
         .map((thread) => thread.session_file as string),
     );
-    const existingCount = listThreads().filter((thread) => thread.project_id === project.id).length;
+    const existingCount = listThreads().filter(
+      (thread) => thread.project_id === project.id,
+    ).length;
     for (const info of sessions) {
       if (existing.has(info.path)) continue;
-      const title = info.name?.trim() || defaultThreadTitle(project, existingCount + 1);
+      const title =
+        info.name?.trim() || defaultThreadTitle(project, existingCount + 1);
       createThread(project.id, title, info.path);
     }
   }
 
-  private resolveProjectThread(projectId: string, sessionFile: string | null): Thread | null {
-    const threads = listThreads().filter((thread) => thread.project_id === projectId);
+  private resolveProjectThread(
+    projectId: string,
+    sessionFile: string | null,
+  ): Thread | null {
+    const threads = listThreads().filter(
+      (thread) => thread.project_id === projectId,
+    );
     if (sessionFile) {
-      const match = threads.find((thread) => thread.session_file === sessionFile);
+      const match = threads.find(
+        (thread) => thread.session_file === sessionFile,
+      );
       if (match) return match;
     }
     return threads[0] ?? null;
@@ -324,7 +363,8 @@ export class AgentManager {
       const project = getProject(projectId);
       return {
         projectId,
-        threadId: this.activeProjectId === projectId ? this.activeThreadId : null,
+        threadId:
+          this.activeProjectId === projectId ? this.activeThreadId : null,
         sessionFile: null,
         sessionId: null,
         sessionName: null,
@@ -369,12 +409,14 @@ export class AgentManager {
       messages: [...session.messages],
       streamingMessage: session.state.streamingMessage ?? null,
       queue: record.queue,
-      commands: session.extensionRunner.getRegisteredCommands().map((command) => ({
-        name: command.name,
-        description: command.description,
-        source: "extension",
-        sourceInfo: command.sourceInfo,
-      })),
+      commands: session.extensionRunner
+        .getRegisteredCommands()
+        .map((command) => ({
+          name: command.name,
+          description: command.description,
+          source: "extension",
+          sourceInfo: command.sourceInfo,
+        })),
       models: modelsToSummary(session.modelRegistry.getAvailable()),
       stats: session.getSessionStats(),
       status: { ...record.status },
@@ -390,7 +432,10 @@ export class AgentManager {
     this.emit({ type: "snapshot", snapshot: this.resolveSnapshot(projectId) });
   }
 
-  private async requestUi(projectId: string, request: AgentUiRequest): Promise<string | boolean | undefined> {
+  private async requestUi(
+    projectId: string,
+    request: AgentUiRequest,
+  ): Promise<string | boolean | undefined> {
     const record = this.getRecord(projectId);
     if (!record) return undefined;
 
@@ -423,10 +468,17 @@ export class AgentManager {
     this.pendingUi.delete(response.requestId);
     if (pending.timeout) clearTimeout(pending.timeout);
     pending.resolve(response.value);
-    this.emit({ type: "ui-response", requestId: response.requestId, value: response.value });
+    this.emit({
+      type: "ui-response",
+      requestId: response.requestId,
+      value: response.value,
+    });
   }
 
-  async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
+  async activateProject(
+    projectId: string,
+    preferredThreadId?: string | null,
+  ): Promise<void> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
@@ -436,8 +488,13 @@ export class AgentManager {
       setActiveProjectId(projectId);
       if (preferredThreadId && preferredThreadId !== this.activeThreadId) {
         const thread = getThread(preferredThreadId);
-        if (thread?.session_file && thread.session_file !== existingRecord.runtime.session.sessionFile) {
-          await existingRecord.runtime.switchSession(thread.session_file, { cwdOverride: project.path });
+        if (
+          thread?.session_file &&
+          thread.session_file !== existingRecord.runtime.session.sessionFile
+        ) {
+          await existingRecord.runtime.switchSession(thread.session_file, {
+            cwdOverride: project.path,
+          });
         }
         this.activeThreadId = preferredThreadId;
         await updateLaunchSelection({ projectId, threadId: preferredThreadId });
@@ -449,14 +506,19 @@ export class AgentManager {
     await this.lockProject(projectId, async () => {
       const launchState = await readLaunchState();
       const requestedThreadId =
-        preferredThreadId ?? (launchState.projectId === projectId ? launchState.threadId : null);
+        preferredThreadId ??
+        (launchState.projectId === projectId ? launchState.threadId : null);
 
       let sessionManager: SessionManager;
 
       if (requestedThreadId) {
         const thread = getThread(requestedThreadId);
         if (thread?.session_file && existsSync(thread.session_file)) {
-          sessionManager = SessionManager.open(thread.session_file, undefined, project.path);
+          sessionManager = SessionManager.open(
+            thread.session_file,
+            undefined,
+            project.path,
+          );
         } else {
           sessionManager = SessionManager.continueRecent(project.path);
         }
@@ -493,12 +555,18 @@ export class AgentManager {
       const activeThread =
         requestedThreadId != null
           ? getThread(requestedThreadId)
-          : this.resolveProjectThread(projectId, runtime.session.sessionFile ?? null);
+          : this.resolveProjectThread(
+              projectId,
+              runtime.session.sessionFile ?? null,
+            );
 
       const resolvedThread =
         activeThread?.project_id === projectId
           ? activeThread
-          : this.resolveProjectThread(projectId, runtime.session.sessionFile ?? null);
+          : this.resolveProjectThread(
+              projectId,
+              runtime.session.sessionFile ?? null,
+            );
 
       if (resolvedThread) {
         this.activeThreadId = resolvedThread.id;
@@ -526,11 +594,19 @@ export class AgentManager {
     const record = this.getRecord(project.id);
     if (!record) return;
 
-    if (thread.session_file && thread.session_file !== record.runtime.session.sessionFile) {
-      await record.runtime.switchSession(thread.session_file, { cwdOverride: project.path });
+    if (
+      thread.session_file &&
+      thread.session_file !== record.runtime.session.sessionFile
+    ) {
+      await record.runtime.switchSession(thread.session_file, {
+        cwdOverride: project.path,
+      });
     } else if (!thread.session_file) {
       await record.runtime.newSession();
-      updateThreadSessionFile(threadId, record.runtime.session.sessionFile ?? null);
+      updateThreadSessionFile(
+        threadId,
+        record.runtime.session.sessionFile ?? null,
+      );
     }
 
     this.activeThreadId = threadId;
@@ -554,13 +630,23 @@ export class AgentManager {
     record.editorText = "";
 
     await this.syncThreadsFromSessions(project);
-    const existing = this.resolveProjectThread(projectId, record.runtime.session.sessionFile ?? null);
+    const existing = this.resolveProjectThread(
+      projectId,
+      record.runtime.session.sessionFile ?? null,
+    );
     const thread =
       existing ??
-      createThread(projectId, title, record.runtime.session.sessionFile ?? null);
+      createThread(
+        projectId,
+        title,
+        record.runtime.session.sessionFile ?? null,
+      );
 
     if (thread.session_file !== record.runtime.session.sessionFile) {
-      updateThreadSessionFile(thread.id, record.runtime.session.sessionFile ?? null);
+      updateThreadSessionFile(
+        thread.id,
+        record.runtime.session.sessionFile ?? null,
+      );
     }
 
     this.activeThreadId = thread.id;
@@ -577,7 +663,9 @@ export class AgentManager {
 
     const projectId = thread.project_id;
     const record = this.getRecord(projectId);
-    const nextThread = listThreads().find((row) => row.project_id === projectId && row.id !== threadId);
+    const nextThread = listThreads().find(
+      (row) => row.project_id === projectId && row.id !== threadId,
+    );
 
     if (thread.session_file && existsSync(thread.session_file)) {
       await rm(thread.session_file, { force: true });
@@ -605,7 +693,9 @@ export class AgentManager {
   }
 
   async sendPrompt(input: AgentPromptInput): Promise<void> {
-    const projectId = input.threadId ? getThread(input.threadId)?.project_id ?? null : this.currentProjectId();
+    const projectId = input.threadId
+      ? (getThread(input.threadId)?.project_id ?? null)
+      : this.currentProjectId();
     if (!projectId) throw new Error("No active project is available.");
 
     if (input.threadId && input.threadId !== this.activeThreadId) {
@@ -620,7 +710,13 @@ export class AgentManager {
     if (!record) throw new Error("Agent runtime is unavailable.");
 
     if (!this.activeThreadId) {
-      const thread = await this.createThread(projectId, defaultThreadTitle(record.project, listThreads().filter((row) => row.project_id === projectId).length));
+      const thread = await this.createThread(
+        projectId,
+        defaultThreadTitle(
+          record.project,
+          listThreads().filter((row) => row.project_id === projectId).length,
+        ),
+      );
       this.activeThreadId = thread.id;
     }
 
@@ -629,9 +725,23 @@ export class AgentManager {
         images: input.images,
         streamingBehavior: input.streamingBehavior,
       })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Failed to send prompt.";
+      .catch(async (error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Failed to send prompt.";
         this.emit({ type: "notification", message, level: "error" });
+        try {
+          const fallback = await record.runtime.session.cycleModel();
+          if (fallback) {
+            this.emit({
+              type: "notification",
+              message: `Automatically switched to fallback model: ${fallback.model.name}`,
+              level: "warning",
+            });
+            this.pushSnapshot(record.project.id);
+          }
+        } catch (cycleErr) {
+          console.error("Failed to cycle model on error:", cycleErr);
+        }
       });
 
     this.pushSnapshot(projectId);
@@ -647,34 +757,82 @@ export class AgentManager {
   async compact(customInstructions?: string): Promise<void> {
     const record = this.getCurrentRecord();
     if (!record) return;
-    void record.runtime.session.compact(customInstructions).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "Failed to compact session.";
-      this.emit({ type: "notification", message, level: "error" });
-    });
+    void record.runtime.session
+      .compact(customInstructions)
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Failed to compact session.";
+        this.emit({ type: "notification", message, level: "error" });
+      });
     this.pushSnapshot(record.project.id);
   }
 
-  async cycleModel(direction: "forward" | "backward" = "forward"): Promise<AgentModelSummary | null> {
+  async cycleModel(
+    direction: "forward" | "backward" = "forward",
+  ): Promise<AgentModelSummary | null> {
     const record = this.getCurrentRecord();
     if (!record) return null;
     const result = await record.runtime.session.cycleModel(direction);
     this.pushSnapshot(record.project.id);
-    return result ? modelToSummary(result.model) : modelToSummary(record.runtime.session.model);
+    return result
+      ? modelToSummary(result.model)
+      : modelToSummary(record.runtime.session.model);
   }
 
-  async setModel(model: { provider: string; modelId: string }): Promise<boolean> {
+  async setModel(model: {
+    provider: string;
+    modelId: string;
+  }): Promise<boolean> {
     const record = this.getCurrentRecord();
     if (!record) return false;
-    const resolved = record.runtime.session.modelRegistry.find(model.provider, model.modelId);
+    const resolved = record.runtime.session.modelRegistry.find(
+      model.provider,
+      model.modelId,
+    );
     if (!resolved) return false;
-    await record.runtime.session.setModel(resolved);
+    try {
+      await record.runtime.session.setModel(resolved);
+      this.pushSnapshot(record.project.id);
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to set model.";
+      this.emit({ type: "notification", message, level: "error" });
+      try {
+        const fallback = await record.runtime.session.cycleModel();
+        if (fallback) {
+          this.emit({
+            type: "notification",
+            message: `Automatically switched to fallback model: ${fallback.model.name}`,
+            level: "warning",
+          });
+          this.pushSnapshot(record.project.id);
+        }
+      } catch (cycleErr) {
+        console.error("Failed to cycle model on error:", cycleErr);
+      }
+      return false;
+    }
+  }
+
+  async setThinkingLevel(level: any): Promise<void> {
+    const record = this.getCurrentRecord();
+    if (!record) return;
+    record.runtime.session.setThinkingLevel(level);
     this.pushSnapshot(record.project.id);
-    return true;
+  }
+
+  async cycleThinkingLevel(): Promise<string | null> {
+    const record = this.getCurrentRecord();
+    if (!record) return null;
+    const nextLevel = record.runtime.session.cycleThinkingLevel();
+    this.pushSnapshot(record.project.id);
+    return nextLevel ?? null;
   }
 
   getCommands(): SlashCommandInfo[] {
     const record = this.getCurrentRecord();
-    const commands = record?.runtime.session.extensionRunner.getRegisteredCommands() ?? [];
+    const commands =
+      record?.runtime.session.extensionRunner.getRegisteredCommands() ?? [];
     return commands.map((command) => ({
       name: command.name,
       description: command.description,
@@ -685,7 +843,9 @@ export class AgentManager {
 
   getModels(): AgentModelSummary[] {
     const record = this.getCurrentRecord();
-    return record ? modelsToSummary(record.runtime.session.modelRegistry.getAvailable()) : [];
+    return record
+      ? modelsToSummary(record.runtime.session.modelRegistry.getAvailable())
+      : [];
   }
 
   getStats(): SessionStats | null {

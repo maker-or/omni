@@ -5,7 +5,9 @@ import { join } from "node:path";
 let db: DatabaseSync | null = null;
 
 function ensureColumn(table: string, column: string, ddl: string): void {
-  const current = db?.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }> | undefined;
+  const current = db?.prepare(`PRAGMA table_info(${table})`).all() as
+    | Array<{ name: string }>
+    | undefined;
   if (!current?.some((row) => row.name === column)) {
     db?.exec(ddl);
   }
