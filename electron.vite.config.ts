@@ -33,7 +33,7 @@ export default defineConfig({
         {
           find: /^\@\/(.*)$/,
           replacement: "$1",
-          customResolver(source, importer, options) {
+          customResolver(source, _importer, _options) {
             const srcPath = resolve(__dirname, "src", source);
             const extensions = [".tsx", ".ts", ".jsx", ".js", ".css"];
 

@@ -6,10 +6,12 @@ import os from "node:os";
 import fs from "node:fs";
 import * as pty from "node-pty";
 import { markLaunchComplete, readLaunchState } from "./launch-state";
+import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { getDb } from "./db";
-import { listThreads, createThread, deleteThread, getMessages, createMessage } from "./threads";
+import { listThreads, getMessages, createMessage } from "./threads";
+import { AgentManager } from "./agent";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +26,15 @@ function generateRandomId(): string {
 
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
+let companionWindow: BrowserWindow | null = null;
+let agentManager: AgentManager | null = null;
+
+function requireAgentManager(): AgentManager {
+  if (!agentManager) {
+    throw new Error("Agent manager is not initialized.");
+  }
+  return agentManager;
+}
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
   const base = process.env["ELECTRON_RENDERER_URL"];
@@ -37,6 +48,24 @@ function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
 
 function resolveRendererFile(page: "main" | "launch"): string {
   return join(mainDir, "../renderer", page === "launch" ? "launch.html" : "index.html");
+}
+
+function sendToMainWindow(channel: string, payload: unknown): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function sendToCompanionWindow(channel: string, payload: unknown): void {
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    companionWindow.webContents.send(channel, payload);
+  }
+}
+
+function setMainWindowTitle(title: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(title);
+  }
 }
 
 function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
@@ -148,6 +177,76 @@ function createLaunchWindow(stage: "list" | "add" = "list"): void {
   void loadInto(launchWindow, "launch", stage);
 }
 
+async function createCompanionWindow(): Promise<void> {
+  console.log("[Main] createCompanionWindow");
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    console.log("[Main] companionWindow already exists, showing it");
+    companionWindow.show();
+    companionWindow.focus();
+    return;
+  }
+
+  const savedBounds = await readCompanionState();
+
+  console.log("[Main] Creating new companionWindow");
+  companionWindow = new BrowserWindow({
+    width: savedBounds?.width ?? 400,
+    height: savedBounds?.height ?? 640,
+    minWidth: 320,
+    minHeight: 480,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
+    alwaysOnTop: true,
+    title: "Companion",
+    show: false,
+    backgroundColor: "#fafafa",
+    titleBarStyle: "hidden",
+    webPreferences: {
+      preload: join(mainDir, "../preload/index.js"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  companionWindow.on("ready-to-show", () => {
+    console.log("[Main] companionWindow ready-to-show");
+    companionWindow?.show();
+  });
+
+  companionWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Companion Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
+  });
+
+  const saveBounds = () => {
+    if (companionWindow && !companionWindow.isDestroyed()) {
+      void writeCompanionState(companionWindow.getBounds());
+    }
+  };
+
+  companionWindow.on("resize", saveBounds);
+  companionWindow.on("move", saveBounds);
+
+  companionWindow.on("closed", () => {
+    console.log("[Main] companionWindow closed");
+    companionWindow = null;
+  });
+
+  void loadInto(companionWindow, "main", "companion");
+}
+
+function broadcastToWindows(channel: string, ...args: any[]) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    companionWindow.webContents.send(channel, ...args);
+  }
+  if (launchWindow && !launchWindow.isDestroyed()) {
+    launchWindow.webContents.send(channel, ...args);
+  }
+}
+
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -238,6 +337,7 @@ function registerIpc(): void {
 
     setActiveProjectId(projectId);
     await markLaunchComplete(projectId);
+    await requireAgentManager().activateProject(projectId);
 
     if (launchWindow && !launchWindow.isDestroyed()) {
       launchWindow.close();
@@ -259,6 +359,24 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:setActive", (_event, projectId: string) => {
     setActiveProjectId(projectId);
+    broadcastToWindows("projects:activeChanged", projectId);
+  });
+
+  ipcMain.handle("companion:open", () => {
+    createCompanionWindow();
+    const projectId = getActiveProjectId();
+    if (projectId) {
+      return requireAgentManager().activateProject(projectId);
+    }
+    return;
+  });
+
+  ipcMain.on("companion:minimize", () => {
+    companionWindow?.minimize();
+  });
+
+  ipcMain.on("companion:close", () => {
+    companionWindow?.close();
   });
 
   ipcMain.handle("threads:list", () => {
@@ -266,11 +384,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("threads:create", (_event, projectId: string, title: string) => {
-    return createThread(projectId, title);
+    return requireAgentManager().createThread(projectId, title);
   });
 
   ipcMain.handle("threads:delete", (_event, id: string) => {
-    return deleteThread(id);
+    return requireAgentManager().deleteThread(id);
   });
 
   ipcMain.handle("messages:list", (_event, threadId: string) => {
@@ -284,6 +402,45 @@ function registerIpc(): void {
     },
   );
 
+  ipcMain.handle("agent:getState", () => requireAgentManager().getState());
+  ipcMain.handle("agent:getCommands", () => requireAgentManager().getCommands());
+  ipcMain.handle("agent:getModels", () => requireAgentManager().getModels());
+  ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
+  ipcMain.handle("agent:sendPrompt", (_event, input) => requireAgentManager().sendPrompt(input));
+  ipcMain.handle("agent:abort", () => requireAgentManager().abort());
+  ipcMain.handle("agent:switchThread", (_event, threadId: string) =>
+    requireAgentManager().switchThread(threadId),
+  );
+  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string) =>
+    requireAgentManager().createThread(projectId, title),
+  );
+  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
+    requireAgentManager().cycleModel(direction),
+  );
+  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) =>
+    requireAgentManager().setModel(model),
+  );
+  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) =>
+    requireAgentManager().setThinkingLevel(level),
+  );
+  ipcMain.handle("agent:cycleThinkingLevel", () => requireAgentManager().cycleThinkingLevel());
+  ipcMain.handle("agent:compact", (_event, customInstructions?: string) =>
+    requireAgentManager().compact(customInstructions),
+  );
+  ipcMain.handle("agent:respondToUiRequest", (_event, response) =>
+    requireAgentManager().respondToUiRequest(response),
+  );
+  ipcMain.handle("agent:setEditorText", (_event, text: string) =>
+    requireAgentManager().setEditorText(text),
+  );
+  ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
+  ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
+    requireAgentManager().pasteToEditor(text),
+  );
+  ipcMain.on("agent:reportEditorText", (_event, text: string) => {
+    requireAgentManager().reportEditorText(text);
+  });
+
   ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
     if (ptyProcesses.has(sessionId)) {
       try {
@@ -292,21 +449,29 @@ function registerIpc(): void {
       ptyProcesses.delete(sessionId);
     }
 
-    const defaultShell = process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
+    const defaultShell =
+      process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
     const shellArgs: string[] = [];
-    if (process.platform !== "win32" && (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))) {
+    if (
+      process.platform !== "win32" &&
+      (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))
+    ) {
       shellArgs.push("-l");
     }
-    
+
     let spawnCwd = cwd || os.homedir();
     if (spawnCwd && !fs.existsSync(spawnCwd)) {
-      console.warn(`[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`);
+      console.warn(
+        `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
+      );
       spawnCwd = os.homedir();
     }
 
     let ptyProcess: pty.IPty;
     try {
-      console.log(`[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`);
+      console.log(
+        `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
+      );
       ptyProcess = pty.spawn(defaultShell, shellArgs, {
         name: "xterm-256color",
         cols: 80,
@@ -332,29 +497,39 @@ function registerIpc(): void {
 
     ptyProcess.onExit(({ exitCode, signal }) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("terminal:exit", { sessionId, exitCode, signal });
+        mainWindow.webContents.send("terminal:exit", {
+          sessionId,
+          exitCode,
+          signal,
+        });
       }
       ptyProcesses.delete(sessionId);
     });
   });
 
-  ipcMain.on("terminal:write", (_event, { sessionId, data }: { sessionId: string; data: string }) => {
-    const ptyProcess = ptyProcesses.get(sessionId);
-    if (ptyProcess) {
-      ptyProcess.write(data);
-    }
-  });
-
-  ipcMain.on("terminal:resize", (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
-    const ptyProcess = ptyProcesses.get(sessionId);
-    if (ptyProcess) {
-      try {
-        ptyProcess.resize(cols, rows);
-      } catch (e) {
-        console.error(`Error resizing PTY ${sessionId}:`, e);
+  ipcMain.on(
+    "terminal:write",
+    (_event, { sessionId, data }: { sessionId: string; data: string }) => {
+      const ptyProcess = ptyProcesses.get(sessionId);
+      if (ptyProcess) {
+        ptyProcess.write(data);
       }
-    }
-  });
+    },
+  );
+
+  ipcMain.on(
+    "terminal:resize",
+    (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+      const ptyProcess = ptyProcesses.get(sessionId);
+      if (ptyProcess) {
+        try {
+          ptyProcess.resize(cols, rows);
+        } catch (e) {
+          console.error(`Error resizing PTY ${sessionId}:`, e);
+        }
+      }
+    },
+  );
 
   ipcMain.handle("terminal:kill", (_event, sessionId: string) => {
     const ptyProcess = ptyProcesses.get(sessionId);
@@ -367,17 +542,50 @@ function registerIpc(): void {
       ptyProcesses.delete(sessionId);
     }
   });
+
+  ipcMain.on("theme:changed", (_event, theme: string) => {
+    broadcastToWindows("theme:changed", theme);
+  });
+
+  // ─── Editor IPC ─────────────────────────────────────────────────────────────
+  ipcMain.handle("editor:activate", () => requireAgentManager().activateEditor());
+  ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
+  ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
+    requireAgentManager().sendEditorPrompt(input),
+  );
+  ipcMain.handle("editor:dispose", () => requireAgentManager().disposeEditor());
+
+  // ─── Pipper IPC ─────────────────────────────────────────────────────────────
+  ipcMain.handle("pipper:setProcessing", (_event, processingId: string | null) => {
+    broadcastToWindows("pipper:stateChanged", { processingId });
+  });
+  ipcMain.handle("pipper:enterEditMode", () => {
+    broadcastToWindows("pipper:stateChanged", { editMode: true });
+  });
+  ipcMain.handle("pipper:exitEditMode", () => {
+    broadcastToWindows("pipper:stateChanged", { editMode: false });
+  });
+  ipcMain.handle("pipper:addComment", (_event, pipperId: string, text: string) => {
+    // broadcast to companion window so it can auto-fill the InputMessage
+    broadcastToWindows("pipper:commentAdded", { pipperId, text });
+  });
 }
 
 app.whenReady().then(async () => {
   buildAppMenu();
   getDb();
+  agentManager = new AgentManager({
+    sendToRenderer: sendToMainWindow,
+    setWindowTitle: setMainWindowTitle,
+    sendToFlyout: sendToCompanionWindow,
+  });
   registerIpc();
 
   const state = await readLaunchState();
   if (state.completed) {
     if (state.projectId) {
       setActiveProjectId(state.projectId);
+      await agentManager.activateFromLaunchState();
     }
     createMainWindow();
   } else {
@@ -392,6 +600,7 @@ app.whenReady().then(async () => {
         if (s.completed) {
           if (s.projectId) {
             setActiveProjectId(s.projectId);
+            void agentManager?.activateFromLaunchState();
           }
           createMainWindow();
         } else {
@@ -407,6 +616,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  void agentManager?.dispose();
   for (const [id, ptyProc] of ptyProcesses.entries()) {
     try {
       ptyProc.kill();

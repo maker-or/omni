@@ -41,7 +41,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
     let nextActiveId = activeSessionId;
     if (activeSessionId === id) {
-      nextActiveId = filteredSessions.length > 0 ? filteredSessions[filteredSessions.length - 1].id : null;
+      nextActiveId =
+        filteredSessions.length > 0 ? filteredSessions[filteredSessions.length - 1].id : null;
     }
 
     set({

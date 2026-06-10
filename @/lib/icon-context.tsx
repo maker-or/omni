@@ -78,7 +78,8 @@ function IconProvider({
       if (e.key !== "i" && e.key !== "I") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable)
+        return;
       e.preventDefault();
       setIconLibraryState((prev) => {
         const idx = iconLibraryOrder.indexOf(prev);
@@ -90,9 +91,7 @@ function IconProvider({
   }, []);
 
   return (
-    <IconContext.Provider value={{ iconLibrary, setIconLibrary }}>
-      {children}
-    </IconContext.Provider>
+    <IconContext.Provider value={{ iconLibrary, setIconLibrary }}>{children}</IconContext.Provider>
   );
 }
 

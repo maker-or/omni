@@ -105,10 +105,7 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
           console.log("[Terminal Session] Backend PTY created successfully.");
         })
         .catch((err) => {
-          console.error(
-            "[Terminal Session] Failed to create backend PTY:",
-            err,
-          );
+          console.error("[Terminal Session] Failed to create backend PTY:", err);
           setError(err instanceof Error ? err.message : String(err));
           write(
             `\r\nError: Failed to connect to shell backend. ${err instanceof Error ? err.message : String(err)}\r\n`,
@@ -119,9 +116,7 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
     // Subscribe to stdout data stream
     const unsubscribeData = window.omni.terminal.onData((payload) => {
       if (payload.sessionId === sessionId) {
-        console.log(
-          `[Terminal Session] stdout data received (${payload.data.length} bytes)`,
-        );
+        console.log(`[Terminal Session] stdout data received (${payload.data.length} bytes)`);
         write(payload.data);
       }
     });

@@ -5,6 +5,7 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
+@import "streamdown/styles.css";
 
 /* =============================================================================
  * Dark mode variant (class-based: toggle `.dark` on <html>)
@@ -219,18 +220,57 @@
 
   /* --- Keyframes -------------------------------------------------------- */
   @keyframes spinner-move {
-  to {
-    stroke-dashoffset: -100;
+    to {
+      stroke-dashoffset: -100;
     }
   }
   @keyframes spinner-dash {
-  0%, 100% {
-    stroke-dasharray: 15 85;
+    0%,
+    100% {
+      stroke-dasharray: 15 85;
     }
-  50% {
-    stroke-dasharray: 40 60;
+    50% {
+      stroke-dasharray: 40 60;
     }
   }
+  @keyframes pipper-beam-spin {
+    from {
+      --pipper-beam-angle: 0deg;
+    }
+    to {
+      --pipper-beam-angle: 360deg;
+    }
+  }
+  @keyframes pipper-highlight-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      box-shadow:
+        0 0 0 1px oklch(0.65 0.2 260 / 0.25),
+        inset 0 0 0 1px oklch(0.65 0.2 260 / 0.1);
+    }
+    50% {
+      opacity: 0.75;
+      box-shadow: 0 0 0 3px oklch(0.65 0.2 260 / 0.12);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+}
+
+/* @property must live at top level — not inside @theme */
+@property --pipper-beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
 }
 
 /* =============================================================================

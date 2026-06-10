@@ -65,15 +65,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => media.removeEventListener("change", onChange);
   }, [theme]);
 
+  useEffect(() => {
+    if (!window.omni?.theme?.onChanged) return;
+    const unsubscribe = window.omni.theme.onChanged((nextTheme) => {
+      setThemeState((current) => {
+        if (current !== nextTheme) {
+          window.localStorage.setItem(STORAGE_KEY, nextTheme);
+          return nextTheme as Theme;
+        }
+        return current;
+      });
+    });
+    return unsubscribe;
+  }, []);
+
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
     window.localStorage.setItem(STORAGE_KEY, next);
+    if (window.omni?.theme?.changed) {
+      window.omni.theme.changed(next);
+    }
   }, []);
 
   const cycleTheme = useCallback(() => {
     setThemeState((current) => {
       const next = NEXT_THEME[current];
       window.localStorage.setItem(STORAGE_KEY, next);
+      if (window.omni?.theme?.changed) {
+        window.omni.theme.changed(next);
+      }
       return next;
     });
   }, []);

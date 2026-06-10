@@ -4,6 +4,7 @@ import { forwardRef, type HTMLAttributes } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { useShape } from "@/lib/shape-context";
+import { PipperBeam } from "@/components/ui/pipper-beam";
 
 const badgeColors = {
   gray: "#a3a3a3",
@@ -48,11 +49,21 @@ const badgeVariants = cva("inline-flex items-center font-medium whitespace-nowra
 interface BadgeProps
   extends Omit<HTMLAttributes<HTMLSpanElement>, "color">, VariantProps<typeof badgeVariants> {
   color?: BadgeColor;
+  pipperId?: string;
 }
 
 const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
   (
-    { className, variant = "solid", size = "md", color = "gray", children, style, ...props },
+    {
+      className,
+      variant = "solid",
+      size = "md",
+      color = "gray",
+      children,
+      style,
+      pipperId,
+      ...props
+    },
     ref,
   ) => {
     const shape = useShape();
@@ -72,24 +83,27 @@ const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
     const dotColor = color === "gray" ? "var(--muted-foreground)" : colorValue;
 
     return (
-      <span
-        ref={ref}
-        className={cn(badgeVariants({ variant, size }), shape.item, className)}
-        style={{ ...colorStyle, ...style }}
-        {...props}
-      >
-        {!isSolid && (
-          <span
-            className="shrink-0 rounded-full"
-            style={{
-              width: dotSize,
-              height: dotSize,
-              backgroundColor: dotColor,
-            }}
-          />
-        )}
-        {children}
-      </span>
+      <PipperBeam pipperId={pipperId}>
+        <span
+          ref={ref}
+          data-pipper-id={pipperId}
+          className={cn(badgeVariants({ variant, size }), shape.item, className)}
+          style={{ ...colorStyle, ...style }}
+          {...props}
+        >
+          {!isSolid && (
+            <span
+              className="shrink-0 rounded-full"
+              style={{
+                width: dotSize,
+                height: dotSize,
+                backgroundColor: dotColor,
+              }}
+            />
+          )}
+          {children}
+        </span>
+      </PipperBeam>
     );
   },
 );

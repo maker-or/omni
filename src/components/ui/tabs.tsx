@@ -386,7 +386,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
         value={value}
         data-proximity-index={_index}
         className={cn(
-          "relative z-10 flex items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none",
+          "relative z-10 flex items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none group",
           className,
         )}
         {...props}
@@ -436,7 +436,12 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
                 onClose();
               }
             }}
-            className="relative z-20 ml-1 p-0.5 rounded-full hover:bg-neutral-200/50 dark:hover:bg-neutral-800/50 text-muted-foreground hover:text-foreground transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
+            className={cn(
+              "relative z-20 transition-all duration-150 rounded-full hover:bg-neutral-200/50 dark:hover:bg-neutral-800/50 text-muted-foreground hover:text-foreground border-none bg-transparent cursor-pointer flex items-center justify-center p-0.5",
+              isSelected
+                ? "opacity-100 scale-100 w-4 h-4 ml-1 pointer-events-auto"
+                : "opacity-0 scale-75 w-0 h-0 ml-0 overflow-hidden pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:w-4 group-hover:h-4 group-hover:ml-1 group-hover:pointer-events-auto",
+            )}
             title="Close Tab"
           >
             <X size={12} />

@@ -26,6 +26,7 @@ import { SurfaceProvider } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { PipperBeam } from "@/components/ui/pipper-beam";
 
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
@@ -82,8 +83,12 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   /** Extra props forwarded to the underlying textarea. */
   textareaProps?: Omit<
     TextareaHTMLAttributes<HTMLTextAreaElement>,
-    "value" | "onChange" | "onKeyDown" | "disabled" | "placeholder"
+    "value" | "onChange" | "disabled" | "placeholder"
   >;
+  /** Ref for the underlying textarea. */
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
+  /** Optional pipper-id for visual edit mode targeting */
+  pipperId?: string;
 }
 
 // ─── File preview tile ────────────────────────────────────────────────────
@@ -157,8 +162,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       maxFiles,
       filePreviewSize = 80,
       textareaProps,
+      textareaRef,
       className,
       style,
+      pipperId,
       ...props
     },
     ref,
@@ -166,17 +173,32 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const shape = useShape();
     const ArrowUpIcon = useIcon("arrow-up");
 
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleRef = useCallback(
+      (node: HTMLTextAreaElement | null) => {
+        (internalTextareaRef as any).current = node;
+        if (textareaRef) {
+          if (typeof textareaRef === "function") {
+            textareaRef(node);
+          } else {
+            (textareaRef as any).current = node;
+          }
+        }
+      },
+      [textareaRef],
+    );
     const [focusVisible, setFocusVisible] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [hovered, setHovered] = useState(false);
 
     const filesArr = useMemo(() => files ?? [], [files]);
     const supportsFiles = onFilesChange !== undefined;
+    const { onKeyDown: textareaOnKeyDown, ...forwardedTextareaProps } = textareaProps ?? {};
 
     useIsoLayoutEffect(() => {
-      const el = textareaRef.current;
+      const el = internalTextareaRef.current;
       if (!el) return;
       el.style.height = "auto";
       const computed = getComputedStyle(el);
@@ -215,27 +237,29 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
 
     const handleKeyDown = useCallback(
       (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+        textareaOnKeyDown?.(e);
+        if (e.defaultPrevented) return;
         if (e.nativeEvent.isComposing) return;
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           handleSend();
         }
       },
-      [handleSend],
+      [handleSend, textareaOnKeyDown],
     );
 
     const handleContainerMouseDown = useCallback(
       (e: React.MouseEvent<HTMLDivElement>) => {
         if (!clickToFocus || disabled) return;
         const target = e.target as HTMLElement;
-        if (target === textareaRef.current) return;
+        if (target === internalTextareaRef.current) return;
         if (
           target.closest('button, a, input, select, textarea, [contenteditable], [role="button"]')
         ) {
           return;
         }
         e.preventDefault();
-        textareaRef.current?.focus();
+        internalTextareaRef.current?.focus();
       },
       [clickToFocus, disabled],
     );
@@ -360,44 +384,42 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     );
 
     return (
-      <div
-        ref={ref}
-        onMouseDown={handleContainerMouseDown}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={cn(
-          // The edge is the box-shadow's hairline ring (from surface-2), not a
-          // border. State changes recolor that same 1px ring in place rather
-          // than layering a second colored border beside it — so hover / focus
-          // bump *contrast* without ever appearing to thicken the stroke.
-          "flex flex-col gap-1 p-2 transition-[box-shadow,color] duration-80",
-          surfaceClasses(2, 2),
-          shape.container,
-          clickToFocus && !disabled && "cursor-text",
-          disabled && "opacity-50 pointer-events-none",
-          className,
-        )}
-        style={edgeShadow ? { boxShadow: edgeShadow, ...style } : style}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        {...props}
-      >
-        <SurfaceProvider value={2}>
-          {supportsFiles && (
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={accept}
-              multiple={maxFiles == null || maxFiles > 1}
-              className="hidden"
-              onChange={handleFileInputChange}
-              aria-hidden="true"
-              tabIndex={-1}
-            />
+      <PipperBeam pipperId={pipperId}>
+        <div
+          ref={ref}
+          data-pipper-id={pipperId}
+          onMouseDown={handleContainerMouseDown}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={cn(
+            "flex flex-col gap-1 p-2 transition-[box-shadow,color] duration-80",
+            surfaceClasses(2, 2),
+            shape.container,
+            clickToFocus && !disabled && "cursor-text",
+            disabled && "opacity-50 pointer-events-none",
+            className,
           )}
+          style={edgeShadow ? { boxShadow: edgeShadow, ...style } : style}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          {...props}
+        >
+          <SurfaceProvider value={2}>
+            {supportsFiles && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={accept}
+                multiple={maxFiles == null || maxFiles > 1}
+                className="hidden"
+                onChange={handleFileInputChange}
+                aria-hidden="true"
+                tabIndex={-1}
+              />
+            )}
 
-          {/* Attached files preview row — sits above the textarea.
+            {/* Attached files preview row — sits above the textarea.
               The outer motion.div animates the row's height (collapsing the
               whole component height) when files appear / disappear.
               The inner `mode="popLayout"` AnimatePresence pulls a removing
@@ -405,71 +427,74 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               without fighting its exit anim. Keys are purely file-identity
               (no index) so removing the first file doesn't re-key — and
               remount — every surviving sibling. */}
-          <AnimatePresence initial={false}>
-            {filesArr.length > 0 && (
-              <motion.div
-                key="preview-row"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ ...springs.moderate, bounce: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="flex flex-wrap gap-2 pb-1">
-                  <AnimatePresence initial={false} mode="popLayout">
-                    {filesArr.map((file, i) => (
-                      <FilePreviewTile
-                        key={`${file.name}-${file.size}-${file.lastModified}`}
-                        file={file}
-                        onRemove={() => removeFile(i)}
-                        size={filePreviewSize}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            <AnimatePresence initial={false}>
+              {filesArr.length > 0 && (
+                <motion.div
+                  key="preview-row"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ ...springs.moderate, bounce: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="flex flex-wrap gap-2 pb-1">
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {filesArr.map((file, i) => (
+                        <FilePreviewTile
+                          key={`${file.name}-${file.size}-${file.lastModified}`}
+                          file={file}
+                          onRemove={() => removeFile(i)}
+                          size={filePreviewSize}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => onValueChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={(e) => {
-              if (e.target.matches(":focus-visible")) setFocusVisible(true);
-            }}
-            onBlur={() => setFocusVisible(false)}
-            placeholder={dragOver && supportsFiles ? "Drop files here to add to chat" : placeholder}
-            disabled={disabled}
-            rows={minRows}
-            aria-label={textareaProps?.["aria-label"] ?? "Message"}
-            className={cn(
-              "w-full resize-none bg-transparent outline-none",
-              "text-[14px] text-foreground placeholder:text-muted-foreground",
-              "px-2 py-2",
-            )}
-            style={{ fontVariationSettings: fontWeights.normal }}
-            {...textareaProps}
-          />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {rightContent}
-              <Button
-                type="button"
-                variant="primary"
-                size="icon-sm"
-                onClick={handleSend}
-                disabled={!canSend}
-                aria-label={sendLabel}
-              >
-                <ArrowUpIcon />
-              </Button>
+            <textarea
+              ref={handleRef}
+              value={value}
+              onChange={(e) => onValueChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={(e) => {
+                if (e.target.matches(":focus-visible")) setFocusVisible(true);
+              }}
+              onBlur={() => setFocusVisible(false)}
+              placeholder={
+                dragOver && supportsFiles ? "Drop files here to add to chat" : placeholder
+              }
+              disabled={disabled}
+              rows={minRows}
+              aria-label={textareaProps?.["aria-label"] ?? "Message"}
+              className={cn(
+                "w-full resize-none bg-transparent outline-none",
+                "text-[14px] text-foreground placeholder:text-muted-foreground",
+                "px-2 py-2",
+              )}
+              style={{ fontVariationSettings: fontWeights.normal }}
+              {...forwardedTextareaProps}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {rightContent}
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="icon-sm"
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  aria-label={sendLabel}
+                >
+                  <ArrowUpIcon />
+                </Button>
+              </div>
             </div>
-          </div>
-        </SurfaceProvider>
-      </div>
+          </SurfaceProvider>
+        </div>
+      </PipperBeam>
     );
   },
 );

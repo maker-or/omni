@@ -4,6 +4,7 @@ import { forwardRef, useState, useEffect, type HTMLAttributes } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
+import { PipperBeam } from "@/components/ui/pipper-beam";
 
 const circleA =
   "M 12 8 C 14.21 8 16 9.79 16 12 C 16 14.21 14.21 16 12 16 C 9.79 16 8 14.21 8 12 C 8 9.79 9.79 8 12 8 Z";
@@ -16,21 +17,25 @@ const circleB =
 
 const words = ["Thinking", "Moonwalking", "Planning", "Refining"];
 
-const ThinkingIndicator = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => {
-    const [index, setIndex] = useState(0);
+const ThinkingIndicator = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement> & { pipperId?: string }
+>(({ className, pipperId, ...props }, ref) => {
+  const [index, setIndex] = useState(0);
 
-    useEffect(() => {
-      const interval = setInterval(() => {
-        setIndex((i) => (i + 1) % words.length);
-      }, 4000);
-      return () => clearInterval(interval);
-    }, []);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIndex((i) => (i + 1) % words.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
-    return (
+  return (
+    <PipperBeam pipperId={pipperId}>
       <div
         ref={ref}
         role="status"
+        data-pipper-id={pipperId}
         className={cn("flex items-center gap-2 px-3 py-2", className)}
         {...props}
       >
@@ -84,9 +89,9 @@ const ThinkingIndicator = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEleme
           </AnimatePresence>
         </span>
       </div>
-    );
-  },
-);
+    </PipperBeam>
+  );
+});
 
 ThinkingIndicator.displayName = "ThinkingIndicator";
 

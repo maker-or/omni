@@ -77,7 +77,10 @@ const InputGroup = forwardRef<HTMLDivElement, InputGroupProps>(
           ref={ref}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
-          className={cn("flex flex-col gap-3 w-72 max-w-full", className)}
+          className={cn(
+            "flex flex-col gap-3 w-72 max-w-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
+            className,
+          )}
           {...props}
         >
           {children}
