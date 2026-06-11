@@ -611,15 +611,16 @@ export class AgentManager {
     record.editorText = "";
 
     await this.syncThreadsFromSessions(project);
-    const existing = this.resolveProjectThread(
-      projectId,
-      record.runtime.session.sessionFile ?? null,
+    const sessionFile = record.runtime.session.sessionFile ?? null;
+    let thread = listThreads().find(
+      (row) => row.project_id === projectId && row.session_file === sessionFile,
     );
-    const thread =
-      existing ?? createThread(projectId, title, record.runtime.session.sessionFile ?? null);
+    if (!thread) {
+      thread = createThread(projectId, title, sessionFile);
+    }
 
-    if (thread.session_file !== record.runtime.session.sessionFile) {
-      updateThreadSessionFile(thread.id, record.runtime.session.sessionFile ?? null);
+    if (thread.session_file !== sessionFile) {
+      updateThreadSessionFile(thread.id, sessionFile);
     }
 
     this.activeThreadId = thread.id;
