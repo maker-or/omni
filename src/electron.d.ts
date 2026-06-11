@@ -25,7 +25,7 @@ declare global {
     omni: {
       launch: {
         complete: (projectId: string) => Promise<void>;
-        show: (stage?: "list" | "add") => Promise<void>;
+        show: (stage?: "list" | "add" | "onboarding") => Promise<void>;
       };
       projects: {
         list: () => Promise<Project[]>;
@@ -34,9 +34,25 @@ declare global {
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
       };
+      onboarding: {
+        verifyGit: () => Promise<boolean>;
+        startSetup: () => Promise<void>;
+        onProgress: (
+          callback: (payload: {
+            step: string;
+            status: "pending" | "running" | "complete" | "failed";
+            progress?: number;
+            error?: string;
+            gitInstalled?: boolean;
+            nodeMatch?: boolean;
+            bunMatch?: boolean;
+          }) => void,
+        ) => () => void;
+      };
       threads: {
         list: () => Promise<Thread[]>;
-        create: (projectId: string, title: string) => Promise<Thread>;
+        create: (projectId: string, title: string, afterThreadId?: string | null) => Promise<Thread>;
+        rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
       };
       messages: {
@@ -51,7 +67,11 @@ declare global {
         sendPrompt: (input: AgentPromptInput) => Promise<void>;
         abort: () => Promise<void>;
         switchThread: (threadId: string) => Promise<void>;
-        createThread: (projectId: string, title: string) => Promise<Thread>;
+        createThread: (
+          projectId: string,
+          title: string,
+          afterThreadId?: string | null,
+        ) => Promise<Thread>;
         cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
         setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
         setThinkingLevel: (level: ThinkingLevel) => Promise<void>;
@@ -94,6 +114,8 @@ declare global {
         exitEditMode: () => Promise<void>;
         setProcessing: (processingId: string | null) => Promise<void>;
         addComment: (pipperId: string, text: string) => Promise<void>;
+        acceptChanges: () => Promise<void>;
+        rejectChanges: () => Promise<void>;
         onStateChanged: (
           callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
         ) => () => void;

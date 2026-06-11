@@ -1,9 +1,12 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
+import net from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
+import { spawn, exec } from "node:child_process";
+import { promisify } from "node:util";
 import * as pty from "node-pty";
 import { markLaunchComplete, readLaunchState } from "./launch-state";
 import { readCompanionState, writeCompanionState } from "./companion-state";
@@ -12,6 +15,28 @@ import { getActiveProjectId, setActiveProjectId } from "./session";
 import { getDb } from "./db";
 import { listThreads, getMessages, createMessage } from "./threads";
 import { AgentManager } from "./agent";
+import {
+  checkAllDependencies,
+  checkGit,
+  checkNode,
+  checkBun,
+  installMise,
+  installNodeAndBunWithMise,
+  getMisePath,
+  prependStandardPaths,
+} from "./dependency-installer";
+
+// Initialize PATH prepend early for child process resolutions
+prependStandardPaths();
+
+import {
+  initializeWorkspaces,
+  backupActiveWorkspace,
+  restoreFromBackup,
+  getActivePath,
+  getBackupPath,
+  getSharedPath,
+} from "./workspace-manager";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
@@ -85,7 +110,104 @@ function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): 
   return win.loadURL(fileUrl);
 }
 
-function createMainWindow(): void {
+let viteProcess: import("node:child_process").ChildProcess | null = null;
+
+function startViteServer(): Promise<string> {
+  return new Promise((resolve) => {
+    if (viteProcess) {
+      resolve("http://localhost:1953");
+      return;
+    }
+
+    const activePath = getActivePath();
+    const cmd = getMisePath();
+    console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise on port 1953`);
+
+    // Use bun run vite directly for faster startup
+    viteProcess = spawn(cmd, ["exec", "--", "bun", "run", "vite", "--port", "1953", "--strictPort"], {
+      cwd: activePath,
+      env: { ...process.env, NODE_ENV: "development" },
+    });
+
+    let resolved = false;
+
+    viteProcess.stdout?.on("data", (data) => {
+      const output = data.toString();
+      console.log(`[Vite compiler stdout] ${output}`);
+      if (output.includes("http://localhost:1953") && !resolved) {
+        resolved = true;
+        resolve("http://localhost:1953");
+      }
+    });
+
+    viteProcess.stderr?.on("data", (data) => {
+      console.error(`[Vite compiler stderr] ${data}`);
+    });
+
+    viteProcess.on("close", (code) => {
+      console.log(`[Vite compiler] exited with code ${code}`);
+      viteProcess = null;
+    });
+
+    // Polling loop to check if port 1953 is ready
+    const pollInterval = 200;
+    const maxTimeout = 10000;
+    const startTime = Date.now();
+
+    const checkInterval = setInterval(() => {
+      if (resolved) {
+        clearInterval(checkInterval);
+        return;
+      }
+
+      const socket = net.connect({ port: 1953, host: "127.0.0.1" }, () => {
+        socket.end();
+        if (!resolved) {
+          resolved = true;
+          clearInterval(checkInterval);
+          console.log("[Main] Vite server detected online via port polling.");
+          resolve("http://localhost:1953");
+        }
+      });
+
+      socket.on("error", () => {
+        // Socket connection failed, port is not ready yet
+      });
+
+      socket.setTimeout(150);
+      socket.on("timeout", () => {
+        socket.destroy();
+      });
+
+      if (Date.now() - startTime > maxTimeout) {
+        clearInterval(checkInterval);
+        if (!resolved) {
+          resolved = true;
+          console.warn("[Main] Vite server port check timed out, resolving fallback url");
+          resolve("http://localhost:1953");
+        }
+      }
+    }, pollInterval);
+  });
+}
+
+async function restartViteServer(): Promise<void> {
+  console.log("[Main] Restarting Vite Dev Server to reflect changes...");
+  if (viteProcess) {
+    try {
+      viteProcess.kill("SIGKILL");
+    } catch (err) {
+      console.error("[Main] Error killing Vite process:", err);
+    }
+    viteProcess = null;
+    // Brief sleep to allow OS to release the port
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  const url = await startViteServer();
+  console.log(`[Main] Vite Dev Server restarted at: ${url}`);
+}
+
+async function createMainWindow(): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
     mainWindow.focus();
@@ -129,10 +251,17 @@ function createMainWindow(): void {
     return { action: "deny" };
   });
 
-  void loadInto(mainWindow, "main");
+  try {
+    const url = await startViteServer();
+    console.log(`[Main] Loading guest UI URL: ${url}`);
+    await mainWindow.loadURL(url);
+  } catch (err) {
+    console.error("[Main] Failed to start local compiler or load url:", err);
+    void loadInto(mainWindow, "main");
+  }
 }
 
-function createLaunchWindow(stage: "list" | "add" = "list"): void {
+function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void {
   console.log(`[Main] createLaunchWindow - stage: ${stage}`);
   if (launchWindow && !launchWindow.isDestroyed()) {
     console.log("[Main] launchWindow already exists, reusing and loading stage:", stage);
@@ -352,7 +481,7 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle("launch:show", (_event, stage?: "list" | "add") => {
+  ipcMain.handle("launch:show", (_event, stage?: "list" | "add" | "onboarding") => {
     console.log("[Main] IPC launch:show - received stage:", stage);
     createLaunchWindow(stage);
   });
@@ -383,8 +512,15 @@ function registerIpc(): void {
     return listThreads();
   });
 
-  ipcMain.handle("threads:create", (_event, projectId: string, title: string) => {
-    return requireAgentManager().createThread(projectId, title);
+  ipcMain.handle(
+    "threads:create",
+    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
+      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+    },
+  );
+
+  ipcMain.handle("threads:rename", (_event, id: string, title: string) => {
+    return requireAgentManager().renameThread(id, title);
   });
 
   ipcMain.handle("threads:delete", (_event, id: string) => {
@@ -411,8 +547,8 @@ function registerIpc(): void {
   ipcMain.handle("agent:switchThread", (_event, threadId: string) =>
     requireAgentManager().switchThread(threadId),
   );
-  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string) =>
-    requireAgentManager().createThread(projectId, title),
+  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string, afterThreadId?: string | null) =>
+    requireAgentManager().createThread(projectId, title, afterThreadId ?? null),
   );
   ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
     requireAgentManager().cycleModel(direction),
@@ -569,6 +705,82 @@ function registerIpc(): void {
     // broadcast to companion window so it can auto-fill the InputMessage
     broadcastToWindows("pipper:commentAdded", { pipperId, text });
   });
+
+  // ─── Onboarding IPC ─────────────────────────────────────────────────────────────
+  ipcMain.handle("onboarding:verifyGit", async () => {
+    return await checkGit();
+  });
+
+  ipcMain.handle("onboarding:startSetup", async (event) => {
+    const sendProgress = (step: string, status: string, error?: string, gitInstalled?: boolean) => {
+      event.sender.send("onboarding:progress", { step, status, error, gitInstalled });
+    };
+
+    try {
+      sendProgress("Checking Git installation...", "running");
+      const gitOk = await checkGit();
+      if (!gitOk) {
+        sendProgress("Git is required. Please install Git.", "failed", undefined, false);
+        return;
+      }
+
+      sendProgress("Checking Node and Bun versions...", "running", undefined, true);
+      const nodeOk = await checkNode();
+      const bunOk = await checkBun();
+
+      if (!nodeOk || !bunOk) {
+        sendProgress("Installing Mise version manager...", "running", undefined, true);
+        await installMise();
+
+        sendProgress("Setting up Node and Bun versions locally...", "running", undefined, true);
+        await installNodeAndBunWithMise();
+      }
+
+      sendProgress(
+        "Initializing workspaces inside ~/Library/pipper...",
+        "running",
+        undefined,
+        true,
+      );
+      await initializeWorkspaces(app.getAppPath(), isDev);
+
+      sendProgress("Pipper is ready!", "complete", undefined, true);
+    } catch (err: any) {
+      console.error("[Onboarding] Setup failed:", err);
+      sendProgress("Setup failed.", "failed", err.message || String(err), true);
+    }
+  });
+
+  // ─── Pipper Accept/Reject IPC ───────────────────────────────────────────────
+  ipcMain.handle("pipper:acceptChanges", async () => {
+    const activePath = getActivePath();
+    const execPromise = promisify(exec);
+    try {
+      await execPromise('git add -u && git commit -m "Pipper Visual Edit Accept"', {
+        cwd: activePath,
+      });
+    } catch (err) {
+      console.warn("[Accept] git commit warning (probably no changes to commit):", err);
+    }
+    try {
+      await backupActiveWorkspace();
+    } catch (err: any) {
+      console.error("[Accept] Failed to back up active workspace:", err.message || err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle("pipper:rejectChanges", async () => {
+    try {
+      await restoreFromBackup();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.reload();
+      }
+    } catch (err: any) {
+      console.error("[Reject] Failed to restore workspace from backup:", err.message || err);
+      throw err;
+    }
+  });
 }
 
 app.whenReady().then(async () => {
@@ -578,24 +790,66 @@ app.whenReady().then(async () => {
     sendToRenderer: sendToMainWindow,
     setWindowTitle: setMainWindowTitle,
     sendToFlyout: sendToCompanionWindow,
+    reloadMainWindow: async () => {
+      console.log("[Main] agent_end triggered. Restarting dev server and reloading main window...");
+      try {
+        await restartViteServer();
+      } catch (err) {
+        console.error("[Main] Failed to restart Vite server on agent_end:", err);
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.reload();
+      }
+    },
   });
   registerIpc();
 
-  const state = await readLaunchState();
-  if (state.completed) {
-    if (state.projectId) {
-      setActiveProjectId(state.projectId);
-      await agentManager.activateFromLaunchState();
-    }
-    createMainWindow();
+  // Check dependencies and workspace status on startup
+  const deps = await checkAllDependencies();
+  const activePath = getActivePath();
+  const backupPath = getBackupPath();
+  const sharedPath = getSharedPath();
+  const workspacesInitialized =
+    fs.existsSync(activePath) &&
+    fs.existsSync(backupPath) &&
+    fs.existsSync(join(sharedPath, "node_modules"));
+
+  if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch || !workspacesInitialized) {
+    console.log("[Main] Launching onboarding wizard: requirements not met.");
+    createLaunchWindow("onboarding");
   } else {
-    createLaunchWindow();
+    const state = await readLaunchState();
+    if (state.completed) {
+      if (state.projectId) {
+        setActiveProjectId(state.projectId);
+        await agentManager.activateFromLaunchState();
+      }
+      createMainWindow();
+    } else {
+      createLaunchWindow("list");
+    }
   }
 
-  app.on("activate", () => {
+  app.on("activate", async () => {
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
     if (!hasMain && !hasLaunch) {
+      const activeDeps = await checkAllDependencies();
+      const activeInit =
+        fs.existsSync(activePath) &&
+        fs.existsSync(backupPath) &&
+        fs.existsSync(join(sharedPath, "node_modules"));
+
+      if (
+        !activeDeps.gitInstalled ||
+        !activeDeps.nodeMatch ||
+        !activeDeps.bunMatch ||
+        !activeInit
+      ) {
+        createLaunchWindow("onboarding");
+        return;
+      }
+
       void readLaunchState().then((s) => {
         if (s.completed) {
           if (s.projectId) {
@@ -604,7 +858,7 @@ app.whenReady().then(async () => {
           }
           createMainWindow();
         } else {
-          createLaunchWindow();
+          createLaunchWindow("list");
         }
       });
     }
@@ -625,4 +879,13 @@ app.on("will-quit", () => {
     }
   }
   ptyProcesses.clear();
+
+  if (viteProcess) {
+    try {
+      viteProcess.kill();
+    } catch (e) {
+      console.error("Failed to kill Vite compiler process:", e);
+    }
+    viteProcess = null;
+  }
 });

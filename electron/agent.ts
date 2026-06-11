@@ -17,8 +17,12 @@ import { getActiveProjectId, setActiveProjectId } from "./session.ts";
 import {
   getThread,
   listThreads,
+  getMessages,
   createThread,
   updateThreadSessionFile,
+  updateThreadTitle,
+  getMaxThreadSortOrder,
+  getThreadSortOrder,
   deleteThread as removeThreadRow,
 } from "./threads.ts";
 import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
@@ -36,6 +40,8 @@ import {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
+
+import { getActivePath } from "./workspace-manager.ts";
 
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type SetWindowTitle = (title: string) => void;
@@ -73,8 +79,24 @@ function modelsToSummary(models: Model<any>[]): AgentModelSummary[] {
     .filter((value): value is AgentModelSummary => value != null);
 }
 
-function defaultThreadTitle(project: Project, existingCount: number): string {
-  return `${project.name} #${existingCount + 1}`;
+function stripThreadSuffix(title: string): string {
+  const match = title.trim().match(/^(.*?)(?:\s+#\d+)?$/);
+  return match?.[1]?.trim() || title.trim();
+}
+
+function buildNextThreadTitle(project: Project, baseTitle: string): string {
+  const base = stripThreadSuffix(baseTitle) || project.name;
+  const pattern = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+#(\\d+)$`, "i");
+  const nextNumber = Math.max(
+    0,
+    ...listThreads()
+      .filter((thread) => thread.project_id === project.id)
+      .map((thread) => thread.title.match(pattern)?.[1])
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value)),
+  );
+  return `${base} #${nextNumber + 1}`;
 }
 
 async function createProjectRuntime(project: Project, sessionManager: SessionManager) {
@@ -109,6 +131,7 @@ export class AgentManager {
   private readonly sendToRenderer: SendToRenderer;
   private readonly setWindowTitle: SetWindowTitle;
   private readonly sendToFlyout: SendToFlyout;
+  private readonly reloadMainWindow?: () => void;
   private readonly projectRuntimes = new Map<string, ProjectRuntimeRecord>();
   private readonly projectLocks = new Map<string, Promise<void>>();
   private readonly pendingUi = new Map<
@@ -130,10 +153,12 @@ export class AgentManager {
     sendToRenderer: SendToRenderer;
     setWindowTitle: SetWindowTitle;
     sendToFlyout?: SendToFlyout;
+    reloadMainWindow?: () => void;
   }) {
     this.sendToRenderer = options.sendToRenderer;
     this.setWindowTitle = options.setWindowTitle;
     this.sendToFlyout = options.sendToFlyout ?? (() => {});
+    this.reloadMainWindow = options.reloadMainWindow;
   }
 
   private emit(payload: AgentBridgeEvent): void {
@@ -319,21 +344,21 @@ export class AgentManager {
     });
   }
 
-  private async syncThreadsFromSessions(project: Project): Promise<void> {
+  private async syncThreadsFromSessions(
+    project: Project,
+    excludeSessionFile: string | null = null,
+  ): Promise<void> {
     const sessions = await SessionManager.list(project.path);
     const existing = new Set(
       listThreads()
         .filter((thread) => thread.project_id === project.id && thread.session_file != null)
         .map((thread) => thread.session_file as string),
     );
-    const existingCount = listThreads().filter((thread) => thread.project_id === project.id).length;
-    let counter = existingCount;
     for (const info of sessions) {
+      if (excludeSessionFile && info.path === excludeSessionFile) continue;
       if (existing.has(info.path)) continue;
-      const title = info.name?.trim() || defaultThreadTitle(project, counter + 1);
-      if (!info.name?.trim()) {
-        counter++;
-      }
+      const baseTitle = info.name?.trim() || project.name;
+      const title = buildNextThreadTitle(project, baseTitle);
       createThread(project.id, title, info.path);
     }
   }
@@ -344,7 +369,13 @@ export class AgentManager {
       const match = threads.find((thread) => thread.session_file === sessionFile);
       if (match) return match;
     }
-    return threads[0] ?? null;
+
+    const emptyThreads = threads.filter((thread) => getMessages(thread.id).length === 0);
+    if (emptyThreads.length > 0) {
+      return emptyThreads[emptyThreads.length - 1] ?? null;
+    }
+
+    return threads[threads.length - 1] ?? null;
   }
 
   private resolveSnapshot(projectId: string): AgentRuntimeSnapshot {
@@ -465,6 +496,9 @@ export class AgentManager {
   async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
+    
+    // Always use the active library workspace path as the working directory for the agent
+    const effectiveProject = { ...project, path: getActivePath() };
 
     const existingRecord = this.getRecord(projectId);
     if (existingRecord) {
@@ -477,7 +511,7 @@ export class AgentManager {
           thread.session_file !== existingRecord.runtime.session.sessionFile
         ) {
           await existingRecord.runtime.switchSession(thread.session_file, {
-            cwdOverride: project.path,
+            cwdOverride: effectiveProject.path,
           });
         }
         this.activeThreadId = preferredThreadId;
@@ -498,7 +532,7 @@ export class AgentManager {
         const thread = getThread(requestedThreadId);
         if (thread?.session_file && existsSync(thread.session_file)) {
           try {
-            sessionManager = SessionManager.open(thread.session_file, undefined, project.path);
+            sessionManager = SessionManager.open(thread.session_file, undefined, effectiveProject.path);
           } catch (error: any) {
             const isMissingFile =
               error?.code === "ENOENT" ||
@@ -507,28 +541,28 @@ export class AgentManager {
                   error.message.toLowerCase().includes("not found") ||
                   error.message.toLowerCase().includes("no such file")));
             if (isMissingFile) {
-              sessionManager = SessionManager.continueRecent(project.path);
+              sessionManager = SessionManager.continueRecent(effectiveProject.path);
             } else {
               throw error;
             }
           }
         } else {
-          sessionManager = SessionManager.continueRecent(project.path);
+          sessionManager = SessionManager.continueRecent(effectiveProject.path);
         }
       } else {
-        sessionManager = SessionManager.continueRecent(project.path);
+        sessionManager = SessionManager.continueRecent(effectiveProject.path);
       }
 
-      const runtime = await createProjectRuntime(project, sessionManager);
+      const runtime = await createProjectRuntime(effectiveProject, sessionManager);
       const record: ProjectRuntimeRecord = {
-        project,
+        project: effectiveProject,
         runtime,
         queue: { steering: [], followUp: [] },
         status: {},
         workingMessage: null,
         workingVisible: false,
         hiddenThinkingLabel: null,
-        title: runtime.session.sessionName ?? project.name,
+        title: runtime.session.sessionName ?? effectiveProject.name,
         editorText: "",
         toolsExpanded: false,
       };
@@ -543,7 +577,7 @@ export class AgentManager {
       });
 
       await this.bindSession(projectId, runtime.session);
-      await this.syncThreadsFromSessions(project);
+      await this.syncThreadsFromSessions(effectiveProject);
 
       const activeThread =
         requestedThreadId != null
@@ -597,7 +631,11 @@ export class AgentManager {
     this.pushSnapshot(project.id);
   }
 
-  async createThread(projectId: string, title: string): Promise<Thread> {
+  async createThread(
+    projectId: string,
+    title: string,
+    afterThreadId: string | null = null,
+  ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
@@ -605,21 +643,40 @@ export class AgentManager {
     const record = this.getRecord(projectId);
     if (!record) throw new Error("Agent runtime is unavailable.");
 
+    const referenceThread =
+      afterThreadId != null ? getThread(afterThreadId) : null;
+    const effectiveReferenceThread =
+      referenceThread?.project_id === projectId ? referenceThread : null;
+    const nextTitle = buildNextThreadTitle(
+      project,
+      effectiveReferenceThread?.title ?? title,
+    );
+    const insertAfterOrder =
+      effectiveReferenceThread != null
+        ? getThreadSortOrder(effectiveReferenceThread.id)
+        : null;
+    const sortOrder =
+      insertAfterOrder != null ? insertAfterOrder + 1 : getMaxThreadSortOrder() + 1;
+
     await record.runtime.newSession();
-    record.runtime.session.setSessionName(title.trim());
-    record.title = title.trim();
+    record.runtime.session.setSessionName(nextTitle);
+    record.title = nextTitle;
     record.editorText = "";
 
-    await this.syncThreadsFromSessions(project);
-    const existing = this.resolveProjectThread(
-      projectId,
-      record.runtime.session.sessionFile ?? null,
+    const sessionFile = record.runtime.session.sessionFile ?? null;
+    await this.syncThreadsFromSessions(project, sessionFile);
+    let thread = listThreads().find(
+      (row) => row.project_id === projectId && row.session_file === sessionFile,
     );
-    const thread =
-      existing ?? createThread(projectId, title, record.runtime.session.sessionFile ?? null);
+    if (!thread) {
+      thread = createThread(projectId, nextTitle, sessionFile, sortOrder);
+    } else if (thread.title !== nextTitle) {
+      updateThreadTitle(thread.id, nextTitle);
+      thread = { ...thread, title: nextTitle };
+    }
 
-    if (thread.session_file !== record.runtime.session.sessionFile) {
-      updateThreadSessionFile(thread.id, record.runtime.session.sessionFile ?? null);
+    if (thread.session_file !== sessionFile) {
+      updateThreadSessionFile(thread.id, sessionFile);
     }
 
     this.activeThreadId = thread.id;
@@ -665,6 +722,34 @@ export class AgentManager {
     this.pushSnapshot(projectId);
   }
 
+  async renameThread(threadId: string, title: string): Promise<Thread> {
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      throw new Error("Thread title cannot be empty.");
+    }
+
+    const thread = getThread(threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
+
+    updateThreadTitle(threadId, nextTitle);
+    const updatedThread = getThread(threadId);
+    if (!updatedThread) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
+
+    const record = this.getRecord(thread.project_id);
+    if (record && this.activeThreadId === threadId) {
+      record.title = nextTitle;
+      record.runtime.session.setSessionName(nextTitle);
+      this.setWindowTitle(nextTitle);
+      this.pushSnapshot(thread.project_id);
+    }
+
+    return updatedThread;
+  }
+
   async sendPrompt(input: AgentPromptInput): Promise<void> {
     const projectId = input.threadId
       ? (getThread(input.threadId)?.project_id ?? null)
@@ -683,13 +768,7 @@ export class AgentManager {
     if (!record) throw new Error("Agent runtime is unavailable.");
 
     if (!this.activeThreadId) {
-      const thread = await this.createThread(
-        projectId,
-        defaultThreadTitle(
-          record.project,
-          listThreads().filter((row) => row.project_id === projectId).length,
-        ),
-      );
+      const thread = await this.createThread(projectId, record.project.name);
       this.activeThreadId = thread.id;
     }
 
@@ -999,8 +1078,8 @@ export class AgentManager {
   async activateEditor(): Promise<void> {
     if (this.editorRecord) return; // already active
 
-    // Create a synthetic project pointing at the app's own source
-    const omniPath = process.env["OMNI_CWD"] ?? process.cwd();
+    // Create a synthetic project pointing at the active library workspace path
+    const omniPath = getActivePath();
     const fakeProject: Project = {
       id: "__omni_editor__",
       name: "Omni Editor",
@@ -1033,6 +1112,9 @@ export class AgentManager {
           steering: [...event.steering],
           followUp: [...event.followUp],
         };
+      }
+      if (event.type === "agent_end") {
+        this.reloadMainWindow?.();
       }
       this.emitEditor({ type: "event", event });
       // push a lightweight snapshot

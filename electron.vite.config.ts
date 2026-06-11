@@ -1,9 +1,22 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { resolve } from "node:path";
-import { existsSync } from "node:fs";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
+import { createCustomResolver } from "./src/lib/alias-resolver.ts";
+
+const resolveCache = new Map<string, string | null>();
+
+const cacheInvalidatorPlugin = {
+  name: "resolve-cache-invalidator",
+  configureServer(server: any) {
+    server.watcher.on("all", (event: string) => {
+      if (event === "add" || event === "unlink" || event === "change") {
+        resolveCache.clear();
+      }
+    });
+  },
+};
 
 export default defineConfig({
   main: {
@@ -31,33 +44,18 @@ export default defineConfig({
     resolve: {
       alias: [
         {
-          find: /^\@\/(.*)$/,
+          find: /^@\/(.*)$/,
           replacement: "$1",
-          customResolver(source, _importer, _options) {
-            const srcPath = resolve(__dirname, "src", source);
-            const extensions = [".tsx", ".ts", ".jsx", ".js", ".css"];
-
-            for (const ext of ["", ...extensions]) {
-              const fullPath = srcPath + ext;
-              if (existsSync(fullPath)) {
-                return fullPath;
-              }
-            }
-
-            const atPath = resolve(__dirname, "@", source);
-            for (const ext of ["", ...extensions]) {
-              const fullPath = atPath + ext;
-              if (existsSync(fullPath)) {
-                return fullPath;
-              }
-            }
-
-            return null;
-          },
+          customResolver: createCustomResolver(resolveCache, __dirname),
         },
       ],
     },
-    plugins: [tailwindcss(), react(), babel({ presets: [reactCompilerPreset()] })],
+    plugins: [
+      tailwindcss(),
+      react(),
+      babel({ presets: [reactCompilerPreset()] }),
+      cacheInvalidatorPlugin,
+    ],
     build: {
       outDir: "out/renderer",
       rollupOptions: {

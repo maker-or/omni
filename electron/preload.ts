@@ -23,7 +23,7 @@ const api = {
   launch: {
     complete: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("launch:complete", projectId),
-    show: (stage?: "list" | "add"): Promise<void> => ipcRenderer.invoke("launch:show", stage),
+    show: (stage?: "list" | "add" | "onboarding"): Promise<void> => ipcRenderer.invoke("launch:show", stage),
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke("projects:list"),
@@ -40,10 +40,23 @@ const api = {
       };
     },
   },
+  onboarding: {
+    verifyGit: (): Promise<boolean> => ipcRenderer.invoke("onboarding:verifyGit"),
+    startSetup: (): Promise<void> => ipcRenderer.invoke("onboarding:startSetup"),
+    onProgress: (callback: (payload: any) => void) => {
+      const listener = (_event: any, payload: any) => callback(payload);
+      ipcRenderer.on("onboarding:progress", listener);
+      return () => {
+        ipcRenderer.removeListener("onboarding:progress", listener);
+      };
+    },
+  },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
-    create: (projectId: string, title: string): Promise<Thread> =>
-      ipcRenderer.invoke("threads:create", projectId, title),
+    create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
+      ipcRenderer.invoke("threads:create", projectId, title, afterThreadId),
+    rename: (id: string, title: string): Promise<Thread> =>
+      ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
   },
   messages: {
@@ -61,8 +74,11 @@ const api = {
     abort: (): Promise<void> => ipcRenderer.invoke("agent:abort"),
     switchThread: (threadId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchThread", threadId),
-    createThread: (projectId: string, title: string): Promise<Thread> =>
-      ipcRenderer.invoke("agent:createThread", projectId, title),
+    createThread: (
+      projectId: string,
+      title: string,
+      afterThreadId?: string | null,
+    ): Promise<Thread> => ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId),
     cycleModel: (direction?: "forward" | "backward"): Promise<AgentModelSummary | null> =>
       ipcRenderer.invoke("agent:cycleModel", direction),
     setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
@@ -147,6 +163,8 @@ const api = {
       ipcRenderer.invoke("pipper:setProcessing", processingId),
     addComment: (pipperId: string, text: string): Promise<void> =>
       ipcRenderer.invoke("pipper:addComment", pipperId, text),
+    acceptChanges: (): Promise<void> => ipcRenderer.invoke("pipper:acceptChanges"),
+    rejectChanges: (): Promise<void> => ipcRenderer.invoke("pipper:rejectChanges"),
     onStateChanged: (
       callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
     ) => {

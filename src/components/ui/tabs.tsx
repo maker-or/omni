@@ -21,8 +21,6 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
-import { useSurface } from "@/lib/surface-context";
-import { surfaceClasses } from "@/lib/surface-classes";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { X } from "@phosphor-icons/react";
 
@@ -32,6 +30,7 @@ interface TabsValueOrderContextValue {
   valueOrder: string[];
   setValueOrder: (order: string[]) => void;
   selectedValue: string | undefined;
+  isControlled: boolean;
 }
 
 const TabsValueOrderContext = createContext<TabsValueOrderContextValue | null>(null);
@@ -41,6 +40,7 @@ interface TabsListContextValue {
   hoveredIndex: number | null;
   selectedValue: string | undefined;
   setOptimisticIdx: (index: number) => void;
+  isControlled: boolean;
 }
 
 const TabsListContext = createContext<TabsListContextValue | null>(null);
@@ -79,6 +79,7 @@ const Tabs = forwardRef<HTMLDivElement, TabsProps>(
 
     const resolvedValue =
       value ?? (selectedIndex != null ? valueOrder[selectedIndex] : uncontrolledValue);
+    const isControlled = value !== undefined || selectedIndex != null;
 
     // Base UI passes (value, eventDetails); we only need value.
     const handleValueChange = useCallback(
@@ -102,6 +103,7 @@ const Tabs = forwardRef<HTMLDivElement, TabsProps>(
           valueOrder,
           setValueOrder: updateValueOrder,
           selectedValue: resolvedValue,
+          isControlled,
         }}
       >
         <TabsPrimitive.Root
@@ -129,8 +131,6 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const isMouseInside = useRef(false);
     const shape = useShape();
-    const substrate = useSurface();
-    const indicatorLevel = Math.min(substrate + 3, 8);
     const valueOrderCtx = useContext(TabsValueOrderContext);
     const [optimisticIdx, setOptimisticIdx] = useState<number | null>(null);
 
@@ -188,6 +188,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
 
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
     const selectedValue = valueOrderCtx?.selectedValue;
+    const isControlled = valueOrderCtx?.isControlled ?? false;
     const selectedIdx = selectedValue !== undefined ? values.indexOf(selectedValue) : -1;
 
     useEffect(() => {
@@ -215,6 +216,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           hoveredIndex,
           selectedValue,
           setOptimisticIdx,
+          isControlled,
         }}
       >
         <TabsPrimitive.List
@@ -244,7 +246,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
             setHoveredIndex(null);
           }}
           className={cn(
-            "relative inline-flex items-center gap-0.5 p-1 select-none bg-muted",
+            "relative inline-flex items-center gap-0.5 p-1 select-none bg-muted overflow-x-auto overflow-y-visible",
             shape.container,
             className,
           )}
@@ -254,8 +256,8 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           {selectedRect && (
             <motion.div
               className={cn(
-                "absolute pointer-events-none",
-                surfaceClasses(indicatorLevel),
+                "absolute pointer-events-none z-0 border border-border/60 bg-surface-4",
+                "shadow-surface-3",
                 shape.bg,
               )}
               initial={false}
@@ -355,13 +357,36 @@ interface TabItemProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Tab
   icon?: IconComponent;
   label: string;
   onClose?: () => void;
+  editing?: boolean;
+  editValue?: string;
+  onEditValueChange?: (value: string) => void;
+  onEditCommit?: () => boolean | Promise<boolean>;
+  onEditCancel?: () => void;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
 
 const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
-  ({ value, icon: Icon, label, onClose, _index = 0, className, ...props }, ref) => {
+  (
+    {
+      value,
+      icon: Icon,
+      label,
+      onClose,
+      editing = false,
+      editValue = "",
+      onEditValueChange,
+      onEditCommit,
+      onEditCancel,
+      _index = 0,
+      className,
+      ...props
+    },
+    ref,
+  ) => {
     const internalRef = useRef<HTMLButtonElement>(null);
+    const editInputRef = useRef<HTMLInputElement>(null);
+    const editActionRef = useRef<"submit" | "cancel" | null>(null);
     const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
 
     useEffect(() => {
@@ -369,12 +394,21 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
       return () => registerTab(_index, value, null);
     }, [_index, value, registerTab]);
 
+    useEffect(() => {
+      if (!editing) return;
+      editActionRef.current = null;
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }, [editing]);
+
     const isSelected = selectedValue === value;
     const isActive = hoveredIndex === _index || isSelected;
 
     return (
       <TabsPrimitive.Tab
-        onClick={() => setOptimisticIdx(_index)}
+        onClick={() => {
+          setOptimisticIdx(_index);
+        }}
         ref={(node) => {
           (internalRef as React.MutableRefObject<HTMLElement | null>).current =
             node as HTMLButtonElement | null;
@@ -386,7 +420,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
         value={value}
         data-proximity-index={_index}
         className={cn(
-          "relative z-10 flex items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none group",
+          "relative z-10 flex shrink-0 items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none group",
           className,
         )}
         {...props}
@@ -401,27 +435,77 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
             )}
           />
         )}
-        <span className="inline-grid text-[13px] whitespace-nowrap">
-          <span
-            className="col-start-1 row-start-1 invisible"
-            style={{ fontVariationSettings: fontWeights.semibold }}
-            aria-hidden="true"
-          >
-            {label}
-          </span>
-          <span
-            className={cn(
-              "col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80",
-              isActive ? "text-foreground" : "text-muted-foreground",
-            )}
-            style={{
-              fontVariationSettings: isSelected ? fontWeights.semibold : fontWeights.normal,
+        {editing ? (
+          <input
+            ref={editInputRef}
+            value={editValue}
+            onChange={(event) => onEditValueChange?.(event.target.value)}
+            onBlur={() => {
+              if (editActionRef.current) {
+                editActionRef.current = null;
+                return;
+              }
+              void (async () => {
+                const committed = await onEditCommit?.();
+                if (committed === false) {
+                  editInputRef.current?.focus();
+                  editInputRef.current?.select();
+                }
+              })();
             }}
-          >
-            {label}
+            onKeyDown={(event) => {
+              const input = event.currentTarget;
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void (async () => {
+                  const committed = await onEditCommit?.();
+                  if (committed === false) {
+                    editInputRef.current?.focus();
+                    editInputRef.current?.select();
+                    return;
+                  }
+                  editActionRef.current = "submit";
+                  input.blur();
+                })();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                editActionRef.current = "cancel";
+                onEditCancel?.();
+                input.blur();
+              }
+            }}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            className={cn(
+              "min-w-0 w-[10ch] max-w-56 bg-transparent border-none p-0 outline-none",
+              "text-[13px] leading-none text-foreground",
+            )}
+          />
+        ) : (
+          <span className="inline-grid text-[13px] whitespace-nowrap">
+            <span
+              className="col-start-1 row-start-1 invisible"
+              style={{ fontVariationSettings: fontWeights.semibold }}
+              aria-hidden="true"
+            >
+              {label}
+            </span>
+            <span
+              className={cn(
+                "col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80",
+                isActive ? "text-foreground" : "text-muted-foreground",
+              )}
+              style={{
+                fontVariationSettings: isSelected ? fontWeights.semibold : fontWeights.normal,
+              }}
+            >
+              {label}
+            </span>
           </span>
-        </span>
-        {onClose && (
+        )}
+        {onClose && !editing && (
           <span
             role="button"
             tabIndex={0}
@@ -437,10 +521,10 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
               }
             }}
             className={cn(
-              "relative z-20 transition-all duration-150 rounded-full hover:bg-neutral-200/50 dark:hover:bg-neutral-800/50 text-muted-foreground hover:text-foreground border-none bg-transparent cursor-pointer flex items-center justify-center p-0.5",
+              "relative z-20 ml-1 flex size-4 items-center justify-center rounded-full border-none bg-transparent text-muted-foreground transition-[background-color,color,opacity,transform] duration-150 hover:bg-neutral-200/50 hover:text-foreground dark:hover:bg-neutral-800/50 cursor-pointer",
               isSelected
-                ? "opacity-100 scale-100 w-4 h-4 ml-1 pointer-events-auto"
-                : "opacity-0 scale-75 w-0 h-0 ml-0 overflow-hidden pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:w-4 group-hover:h-4 group-hover:ml-1 group-hover:pointer-events-auto",
+                ? "opacity-100 scale-100 pointer-events-auto"
+                : "opacity-0 scale-75 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto",
             )}
             title="Close Tab"
           >

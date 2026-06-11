@@ -49,6 +49,7 @@ export function getDb(): DatabaseSync {
           id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL,
           title TEXT NOT NULL,
+          sort_order INTEGER,
           session_file TEXT,
           FOREIGN KEY (project_id) REFERENCES
   projects(id) ON DELETE CASCADE
@@ -57,7 +58,9 @@ export function getDb(): DatabaseSync {
   ON threads(project_id);
       `);
 
+  ensureColumn("threads", "sort_order", "ALTER TABLE threads ADD COLUMN sort_order INTEGER;");
   ensureColumn("threads", "session_file", "ALTER TABLE threads ADD COLUMN session_file TEXT;");
+  db.exec("UPDATE threads SET sort_order = rowid WHERE sort_order IS NULL;");
 
   db.exec(`
         CREATE TABLE IF NOT EXISTS messages (
