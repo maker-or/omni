@@ -21,8 +21,6 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
-import { useSurface } from "@/lib/surface-context";
-import { surfaceClasses } from "@/lib/surface-classes";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { X } from "@phosphor-icons/react";
 
@@ -32,6 +30,7 @@ interface TabsValueOrderContextValue {
   valueOrder: string[];
   setValueOrder: (order: string[]) => void;
   selectedValue: string | undefined;
+  isControlled: boolean;
 }
 
 const TabsValueOrderContext = createContext<TabsValueOrderContextValue | null>(null);
@@ -41,6 +40,7 @@ interface TabsListContextValue {
   hoveredIndex: number | null;
   selectedValue: string | undefined;
   setOptimisticIdx: (index: number) => void;
+  isControlled: boolean;
 }
 
 const TabsListContext = createContext<TabsListContextValue | null>(null);
@@ -79,6 +79,7 @@ const Tabs = forwardRef<HTMLDivElement, TabsProps>(
 
     const resolvedValue =
       value ?? (selectedIndex != null ? valueOrder[selectedIndex] : uncontrolledValue);
+    const isControlled = value !== undefined || selectedIndex != null;
 
     // Base UI passes (value, eventDetails); we only need value.
     const handleValueChange = useCallback(
@@ -102,6 +103,7 @@ const Tabs = forwardRef<HTMLDivElement, TabsProps>(
           valueOrder,
           setValueOrder: updateValueOrder,
           selectedValue: resolvedValue,
+          isControlled,
         }}
       >
         <TabsPrimitive.Root
@@ -129,8 +131,6 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const isMouseInside = useRef(false);
     const shape = useShape();
-    const substrate = useSurface();
-    const indicatorLevel = Math.min(substrate + 3, 8);
     const valueOrderCtx = useContext(TabsValueOrderContext);
     const [optimisticIdx, setOptimisticIdx] = useState<number | null>(null);
 
@@ -188,6 +188,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
 
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
     const selectedValue = valueOrderCtx?.selectedValue;
+    const isControlled = valueOrderCtx?.isControlled ?? false;
     const selectedIdx = selectedValue !== undefined ? values.indexOf(selectedValue) : -1;
 
     useEffect(() => {
@@ -215,6 +216,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           hoveredIndex,
           selectedValue,
           setOptimisticIdx,
+          isControlled,
         }}
       >
         <TabsPrimitive.List
@@ -244,7 +246,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
             setHoveredIndex(null);
           }}
           className={cn(
-            "relative inline-flex items-center gap-0.5 p-1 select-none bg-muted",
+            "relative inline-flex items-center gap-0.5 p-1 select-none bg-muted overflow-hidden",
             shape.container,
             className,
           )}
@@ -253,11 +255,7 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           {/* Active segment indicator */}
           {selectedRect && (
             <motion.div
-              className={cn(
-                "absolute pointer-events-none",
-                surfaceClasses(indicatorLevel),
-                shape.bg,
-              )}
+              className={cn("absolute pointer-events-none bg-active", shape.bg)}
               initial={false}
               animate={{
                 left: selectedRect.left,
@@ -362,7 +360,8 @@ interface TabItemProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Tab
 const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
   ({ value, icon: Icon, label, onClose, _index = 0, className, ...props }, ref) => {
     const internalRef = useRef<HTMLButtonElement>(null);
-    const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
+    const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx, isControlled } =
+      useTabsList();
 
     useEffect(() => {
       registerTab(_index, value, internalRef.current);
@@ -374,7 +373,11 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
 
     return (
       <TabsPrimitive.Tab
-        onClick={() => setOptimisticIdx(_index)}
+        onClick={() => {
+          if (!isControlled) {
+            setOptimisticIdx(_index);
+          }
+        }}
         ref={(node) => {
           (internalRef as React.MutableRefObject<HTMLElement | null>).current =
             node as HTMLButtonElement | null;

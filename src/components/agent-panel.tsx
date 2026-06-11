@@ -32,6 +32,10 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 type MessageLike = AgentMessage & { role?: string };
 
+const buttonBorderClass = "border border-border/60";
+const iconButtonClass =
+  "inline-flex size-6 items-center justify-center rounded-full border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
 function stringifyMessageContent(message: MessageLike): string {
   const content = (message as unknown as { content?: unknown }).content;
   if (typeof content === "string") return content;
@@ -387,7 +391,7 @@ function UiRequestDialog({
               <Button
                 key={option}
                 variant="secondary"
-                className="justify-start"
+                className={`justify-start ${buttonBorderClass}`}
                 onClick={() => onClose(option)}
               >
                 {option}
@@ -406,10 +410,10 @@ function UiRequestDialog({
           <div className="text-sm font-medium text-foreground">{request.title}</div>
           <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => onClose(false)}>
+            <Button variant="secondary" className={buttonBorderClass} onClick={() => onClose(false)}>
               No
             </Button>
-            <Button onClick={() => onClose(true)}>Yes</Button>
+            <Button className={buttonBorderClass} onClick={() => onClose(true)}>Yes</Button>
           </div>
         </div>
       </div>
@@ -428,10 +432,10 @@ function UiRequestDialog({
           className="mt-3 min-h-28 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
         />
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => onClose(undefined)}>
+          <Button variant="secondary" className={buttonBorderClass} onClick={() => onClose(undefined)}>
             Cancel
           </Button>
-          <Button onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
+          <Button className={buttonBorderClass} onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
         </div>
       </div>
     </div>
@@ -443,7 +447,7 @@ export function AgentPanel() {
   const { threads, loadThreads, deleteThread } = useThreadStore();
   const {
     snapshot,
-    pendingThreadId,
+    error,
     uiRequest,
     connect,
     refresh,
@@ -462,6 +466,7 @@ export function AgentPanel() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
   const threadPaneRef = useRef<HTMLDivElement>(null);
@@ -482,7 +487,7 @@ export function AgentPanel() {
       <button
         type="button"
         aria-label="Copy message"
-        className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+        className={iconButtonClass}
         onClick={() => handleCopy(msgId, bodyText)}
       >
         {isCopied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
@@ -595,6 +600,18 @@ export function AgentPanel() {
   }, [activeProject?.id, refresh]);
 
   useEffect(() => {
+    if (requestedThreadId && snapshot?.threadId === requestedThreadId) {
+      setRequestedThreadId(null);
+    }
+  }, [requestedThreadId, snapshot?.threadId]);
+
+  useEffect(() => {
+    if (requestedThreadId && error) {
+      setRequestedThreadId(null);
+    }
+  }, [error, requestedThreadId]);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
       if (
@@ -623,9 +640,8 @@ export function AgentPanel() {
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
   const snapshotThreadId = snapshot?.threadId ?? "";
-  const threadId = pendingThreadId ?? snapshotThreadId;
-  const isSwitchingThread = Boolean(pendingThreadId && pendingThreadId !== snapshotThreadId);
-  const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
+  const threadId = snapshotThreadId;
+  const isSwitchingThread = Boolean(requestedThreadId && requestedThreadId !== snapshotThreadId);
   const activeMessages = snapshot?.messages ?? [];
   const streamingMessage = snapshot?.streamingMessage ?? null;
   const queueCount =
@@ -655,11 +671,10 @@ export function AgentPanel() {
     return entries;
   }, [activeMessages, streamingMessage]);
 
-  const handleSelectThread = async (id: string) => {
+  const handleSelectThread = (id: string) => {
     if (id === threadId && !isSwitchingThread) return;
-    await switchThread(id);
-    await loadActiveProject();
-    await loadThreads();
+    setRequestedThreadId(id);
+    void switchThread(id);
   };
 
   const handleSend = async (text: string) => {
@@ -683,7 +698,8 @@ export function AgentPanel() {
     const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
     const thread = await createThread(projectId, title);
-    await handleSelectThread(thread.id);
+    setRequestedThreadId(thread.id);
+    await loadThreads();
   };
 
   const projectItems = projectsList.map((project, idx) => ({
@@ -756,6 +772,7 @@ export function AgentPanel() {
               variant="ghost"
               size="icon-sm"
               active={isDropdownOpen}
+              className={buttonBorderClass}
               onClick={() =>
                 setIsDropdownOpen((prev) => {
                   const next = !prev;
@@ -857,7 +874,7 @@ export function AgentPanel() {
                           <Button
                             type="button"
                             variant="secondary"
-                            className="w-full justify-start"
+                            className={`w-full justify-start ${buttonBorderClass}`}
                             onClick={async () => {
                               setIsDropdownOpen(false);
                               await handleCreateThread();
@@ -925,7 +942,7 @@ export function AgentPanel() {
                           <button
                             type="button"
                             aria-label="Edit message"
-                            className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                            className={iconButtonClass}
                             onClick={() => {
                               setInputValue(bodyText);
                               if (composerTextareaRef.current) {
@@ -943,7 +960,7 @@ export function AgentPanel() {
                             <button
                               type="button"
                               aria-label="Regenerate response"
-                              className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
+                              className={iconButtonClass}
                               onClick={() => handleRegenerate(originalIndex)}
                             >
                               <RotateCcwIcon size={13} />
@@ -994,6 +1011,7 @@ export function AgentPanel() {
                         key={command.name}
                         variant="secondary"
                         size="sm"
+                        className={buttonBorderClass}
                         onClick={() => applyCommand(command.name)}
                       >
                         /{command.name}
@@ -1023,6 +1041,7 @@ export function AgentPanel() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        className={buttonBorderClass}
                         onClick={async () => {
                           await cycleThinkingLevel();
                         }}
@@ -1034,6 +1053,7 @@ export function AgentPanel() {
                       pipperId="model-selector"
                       variant="ghost"
                       size="sm"
+                      className={buttonBorderClass}
                       trailingIcon={ChevronDownIcon}
                       active={isModelDropdownOpen}
                       disabled={models.length === 0}
