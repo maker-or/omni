@@ -37,6 +37,7 @@ declare global {
       threads: {
         list: () => Promise<Thread[]>;
         create: (projectId: string, title: string) => Promise<Thread>;
+        rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
       };
       messages: {

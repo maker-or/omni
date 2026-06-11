@@ -7,6 +7,7 @@ interface ThreadState {
   error: string | null;
   loadThreads: () => Promise<void>;
   createThread: (projectId: string, title: string) => Promise<Thread | null>;
+  renameThread: (id: string, title: string) => Promise<Thread | null>;
   deleteThread: (id: string) => Promise<void>;
 }
 
@@ -35,6 +36,18 @@ export const useThreadStore = create<ThreadState>((set) => ({
       return thread;
     } catch (err) {
       console.error("Failed to create thread:", err);
+      return null;
+    }
+  },
+  renameThread: async (id, title) => {
+    try {
+      const thread = await window.omni.threads.rename(id, title);
+      set((state) => ({
+        threads: state.threads.map((item) => (item.id === id ? thread : item)),
+      }));
+      return thread;
+    } catch (err) {
+      console.error("Failed to rename thread:", err);
       return null;
     }
   },

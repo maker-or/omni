@@ -46,6 +46,12 @@ export function updateThreadSessionFile(id: string, sessionFile: string | null):
   stmt.run(sessionFile, id);
 }
 
+export function updateThreadTitle(id: string, title: string): void {
+  const db = getDb();
+  const stmt = db.prepare("UPDATE threads SET title = ? WHERE id = ?");
+  stmt.run(title.trim(), id);
+}
+
 export function getMessages(threadId: string): Message[] {
   const db = getDb();
   const query = db.prepare("SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC");

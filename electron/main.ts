@@ -387,6 +387,10 @@ function registerIpc(): void {
     return requireAgentManager().createThread(projectId, title);
   });
 
+  ipcMain.handle("threads:rename", (_event, id: string, title: string) => {
+    return requireAgentManager().renameThread(id, title);
+  });
+
   ipcMain.handle("threads:delete", (_event, id: string) => {
     return requireAgentManager().deleteThread(id);
   });

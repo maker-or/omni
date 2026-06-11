@@ -357,20 +357,49 @@ interface TabItemProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Tab
   icon?: IconComponent;
   label: string;
   onClose?: () => void;
+  editing?: boolean;
+  editValue?: string;
+  onEditValueChange?: (value: string) => void;
+  onEditCommit?: () => boolean | Promise<boolean>;
+  onEditCancel?: () => void;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
 
 const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
-  ({ value, icon: Icon, label, onClose, _index = 0, className, ...props }, ref) => {
+  (
+    {
+      value,
+      icon: Icon,
+      label,
+      onClose,
+      editing = false,
+      editValue = "",
+      onEditValueChange,
+      onEditCommit,
+      onEditCancel,
+      _index = 0,
+      className,
+      ...props
+    },
+    ref,
+  ) => {
     const internalRef = useRef<HTMLButtonElement>(null);
-    const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx, isControlled } =
-      useTabsList();
+    const editInputRef = useRef<HTMLInputElement>(null);
+    const editActionRef = useRef<"submit" | "cancel" | null>(null);
+    const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
 
     useEffect(() => {
       registerTab(_index, value, internalRef.current);
       return () => registerTab(_index, value, null);
     }, [_index, value, registerTab]);
+
+    useEffect(() => {
+      if (!editing) return;
+      editActionRef.current = null;
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }, [editing]);
 
     const isSelected = selectedValue === value;
     const isActive = hoveredIndex === _index || isSelected;
@@ -406,27 +435,77 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
             )}
           />
         )}
-        <span className="inline-grid text-[13px] whitespace-nowrap">
-          <span
-            className="col-start-1 row-start-1 invisible"
-            style={{ fontVariationSettings: fontWeights.semibold }}
-            aria-hidden="true"
-          >
-            {label}
-          </span>
-          <span
-            className={cn(
-              "col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80",
-              isActive ? "text-foreground" : "text-muted-foreground",
-            )}
-            style={{
-              fontVariationSettings: isSelected ? fontWeights.semibold : fontWeights.normal,
+        {editing ? (
+          <input
+            ref={editInputRef}
+            value={editValue}
+            onChange={(event) => onEditValueChange?.(event.target.value)}
+            onBlur={() => {
+              if (editActionRef.current) {
+                editActionRef.current = null;
+                return;
+              }
+              void (async () => {
+                const committed = await onEditCommit?.();
+                if (committed === false) {
+                  editInputRef.current?.focus();
+                  editInputRef.current?.select();
+                }
+              })();
             }}
-          >
-            {label}
+            onKeyDown={(event) => {
+              const input = event.currentTarget;
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void (async () => {
+                  const committed = await onEditCommit?.();
+                  if (committed === false) {
+                    editInputRef.current?.focus();
+                    editInputRef.current?.select();
+                    return;
+                  }
+                  editActionRef.current = "submit";
+                  input.blur();
+                })();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                editActionRef.current = "cancel";
+                onEditCancel?.();
+                input.blur();
+              }
+            }}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            className={cn(
+              "min-w-0 w-[10ch] max-w-56 bg-transparent border-none p-0 outline-none",
+              "text-[13px] leading-none text-foreground",
+            )}
+          />
+        ) : (
+          <span className="inline-grid text-[13px] whitespace-nowrap">
+            <span
+              className="col-start-1 row-start-1 invisible"
+              style={{ fontVariationSettings: fontWeights.semibold }}
+              aria-hidden="true"
+            >
+              {label}
+            </span>
+            <span
+              className={cn(
+                "col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80",
+                isActive ? "text-foreground" : "text-muted-foreground",
+              )}
+              style={{
+                fontVariationSettings: isSelected ? fontWeights.semibold : fontWeights.normal,
+              }}
+            >
+              {label}
+            </span>
           </span>
-        </span>
-        {onClose && (
+        )}
+        {onClose && !editing && (
           <span
             role="button"
             tabIndex={0}

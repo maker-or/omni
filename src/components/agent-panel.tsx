@@ -444,7 +444,7 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, loadThreads, deleteThread } = useThreadStore();
+  const { threads, loadThreads, deleteThread, renameThread } = useThreadStore();
   const {
     snapshot,
     error,
@@ -467,6 +467,9 @@ export function AgentPanel() {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingThreadTitle, setEditingThreadTitle] = useState("");
+  const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
   const threadPaneRef = useRef<HTMLDivElement>(null);
@@ -532,6 +535,38 @@ export function AgentPanel() {
         break;
       }
     }
+  };
+
+  const startRenameThread = (threadId: string, title: string) => {
+    setEditingThreadId(threadId);
+    setEditingThreadTitle(title);
+    setEditingThreadOriginalTitle(title);
+  };
+
+  const cancelRenameThread = () => {
+    setEditingThreadId(null);
+    setEditingThreadTitle("");
+    setEditingThreadOriginalTitle("");
+  };
+
+  const commitRenameThread = async () => {
+    if (!editingThreadId) return false;
+
+    const nextTitle = editingThreadTitle.trim();
+    const originalTitle = editingThreadOriginalTitle.trim();
+
+    if (!nextTitle || nextTitle === originalTitle) {
+      cancelRenameThread();
+      return true;
+    }
+
+    const renamedThread = await renameThread(editingThreadId, nextTitle);
+    if (!renamedThread) {
+      return false;
+    }
+
+    cancelRenameThread();
+    return true;
   };
 
   useEffect(() => {
@@ -610,6 +645,12 @@ export function AgentPanel() {
       setRequestedThreadId(null);
     }
   }, [error, requestedThreadId]);
+
+  useEffect(() => {
+    if (!editingThreadId) return;
+    if (threads.some((thread) => thread.id === editingThreadId)) return;
+    cancelRenameThread();
+  }, [editingThreadId, threads]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -753,6 +794,7 @@ export function AgentPanel() {
                     <ProjectIcon name={project.icon} className={props.className} />
                   )) as any)
                 : undefined;
+              const isEditing = editingThreadId === thread.id;
               return (
                 <TabItem
                   key={thread.id}
@@ -760,6 +802,12 @@ export function AgentPanel() {
                   label={thread.title}
                   icon={Icon}
                   onClose={() => deleteThread(thread.id)}
+                  editing={isEditing}
+                  editValue={isEditing ? editingThreadTitle : thread.title}
+                  onEditValueChange={setEditingThreadTitle}
+                  onEditCommit={commitRenameThread}
+                  onEditCancel={cancelRenameThread}
+                  onDoubleClick={() => startRenameThread(thread.id, thread.title)}
                 />
               );
             })}

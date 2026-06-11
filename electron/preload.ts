@@ -44,6 +44,8 @@ const api = {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
     create: (projectId: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("threads:create", projectId, title),
+    rename: (id: string, title: string): Promise<Thread> =>
+      ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
   },
   messages: {

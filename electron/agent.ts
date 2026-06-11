@@ -19,6 +19,7 @@ import {
   listThreads,
   createThread,
   updateThreadSessionFile,
+  updateThreadTitle,
   deleteThread as removeThreadRow,
 } from "./threads.ts";
 import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
@@ -664,6 +665,34 @@ export class AgentManager {
     }
 
     this.pushSnapshot(projectId);
+  }
+
+  async renameThread(threadId: string, title: string): Promise<Thread> {
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      throw new Error("Thread title cannot be empty.");
+    }
+
+    const thread = getThread(threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
+
+    updateThreadTitle(threadId, nextTitle);
+    const updatedThread = getThread(threadId);
+    if (!updatedThread) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
+
+    const record = this.getRecord(thread.project_id);
+    if (record && this.activeThreadId === threadId) {
+      record.title = nextTitle;
+      record.runtime.session.setSessionName(nextTitle);
+      this.setWindowTitle(nextTitle);
+      this.pushSnapshot(thread.project_id);
+    }
+
+    return updatedThread;
   }
 
   async sendPrompt(input: AgentPromptInput): Promise<void> {
