@@ -17,6 +17,7 @@ import { getActiveProjectId, setActiveProjectId } from "./session.ts";
 import {
   getThread,
   listThreads,
+  getMessages,
   createThread,
   updateThreadSessionFile,
   updateThreadTitle,
@@ -363,7 +364,13 @@ export class AgentManager {
       const match = threads.find((thread) => thread.session_file === sessionFile);
       if (match) return match;
     }
-    return threads[0] ?? null;
+
+    const emptyThreads = threads.filter((thread) => getMessages(thread.id).length === 0);
+    if (emptyThreads.length > 0) {
+      return emptyThreads[emptyThreads.length - 1] ?? null;
+    }
+
+    return threads[threads.length - 1] ?? null;
   }
 
   private resolveSnapshot(projectId: string): AgentRuntimeSnapshot {

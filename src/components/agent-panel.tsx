@@ -761,6 +761,8 @@ export function AgentPanel() {
     (model) =>
       model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
   );
+  const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
+  const emptyStateSubject = activeThread?.title ?? activeProject?.name ?? "your project";
 
   return (
     <section
@@ -955,7 +957,7 @@ export function AgentPanel() {
                       What should we cook in
                     </span>
                     <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                      {activeProject?.name ?? "your project"}
+                      {emptyStateSubject}
                     </span>
                     <span className="text-2xl font-semibold tracking-tight text-foreground/55">
                       ?
