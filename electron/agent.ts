@@ -20,6 +20,8 @@ import {
   createThread,
   updateThreadSessionFile,
   updateThreadTitle,
+  getMaxThreadSortOrder,
+  getThreadSortOrder,
   deleteThread as removeThreadRow,
 } from "./threads.ts";
 import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
@@ -74,8 +76,24 @@ function modelsToSummary(models: Model<any>[]): AgentModelSummary[] {
     .filter((value): value is AgentModelSummary => value != null);
 }
 
-function defaultThreadTitle(project: Project, existingCount: number): string {
-  return `${project.name} #${existingCount + 1}`;
+function stripThreadSuffix(title: string): string {
+  const match = title.trim().match(/^(.*?)(?:\s+#\d+)?$/);
+  return match?.[1]?.trim() || title.trim();
+}
+
+function buildNextThreadTitle(project: Project, baseTitle: string): string {
+  const base = stripThreadSuffix(baseTitle) || project.name;
+  const pattern = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+#(\\d+)$`, "i");
+  const nextNumber = Math.max(
+    0,
+    ...listThreads()
+      .filter((thread) => thread.project_id === project.id)
+      .map((thread) => thread.title.match(pattern)?.[1])
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value)),
+  );
+  return `${base} #${nextNumber + 1}`;
 }
 
 async function createProjectRuntime(project: Project, sessionManager: SessionManager) {
@@ -320,21 +338,21 @@ export class AgentManager {
     });
   }
 
-  private async syncThreadsFromSessions(project: Project): Promise<void> {
+  private async syncThreadsFromSessions(
+    project: Project,
+    excludeSessionFile: string | null = null,
+  ): Promise<void> {
     const sessions = await SessionManager.list(project.path);
     const existing = new Set(
       listThreads()
         .filter((thread) => thread.project_id === project.id && thread.session_file != null)
         .map((thread) => thread.session_file as string),
     );
-    const existingCount = listThreads().filter((thread) => thread.project_id === project.id).length;
-    let counter = existingCount;
     for (const info of sessions) {
+      if (excludeSessionFile && info.path === excludeSessionFile) continue;
       if (existing.has(info.path)) continue;
-      const title = info.name?.trim() || defaultThreadTitle(project, counter + 1);
-      if (!info.name?.trim()) {
-        counter++;
-      }
+      const baseTitle = info.name?.trim() || project.name;
+      const title = buildNextThreadTitle(project, baseTitle);
       createThread(project.id, title, info.path);
     }
   }
@@ -598,7 +616,11 @@ export class AgentManager {
     this.pushSnapshot(project.id);
   }
 
-  async createThread(projectId: string, title: string): Promise<Thread> {
+  async createThread(
+    projectId: string,
+    title: string,
+    afterThreadId: string | null = null,
+  ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
@@ -606,18 +628,36 @@ export class AgentManager {
     const record = this.getRecord(projectId);
     if (!record) throw new Error("Agent runtime is unavailable.");
 
+    const referenceThread =
+      afterThreadId != null ? getThread(afterThreadId) : null;
+    const effectiveReferenceThread =
+      referenceThread?.project_id === projectId ? referenceThread : null;
+    const nextTitle = buildNextThreadTitle(
+      project,
+      effectiveReferenceThread?.title ?? title,
+    );
+    const insertAfterOrder =
+      effectiveReferenceThread != null
+        ? getThreadSortOrder(effectiveReferenceThread.id)
+        : null;
+    const sortOrder =
+      insertAfterOrder != null ? insertAfterOrder + 1 : getMaxThreadSortOrder() + 1;
+
     await record.runtime.newSession();
-    record.runtime.session.setSessionName(title.trim());
-    record.title = title.trim();
+    record.runtime.session.setSessionName(nextTitle);
+    record.title = nextTitle;
     record.editorText = "";
 
-    await this.syncThreadsFromSessions(project);
     const sessionFile = record.runtime.session.sessionFile ?? null;
+    await this.syncThreadsFromSessions(project, sessionFile);
     let thread = listThreads().find(
       (row) => row.project_id === projectId && row.session_file === sessionFile,
     );
     if (!thread) {
-      thread = createThread(projectId, title, sessionFile);
+      thread = createThread(projectId, nextTitle, sessionFile, sortOrder);
+    } else if (thread.title !== nextTitle) {
+      updateThreadTitle(thread.id, nextTitle);
+      thread = { ...thread, title: nextTitle };
     }
 
     if (thread.session_file !== sessionFile) {
@@ -713,13 +753,7 @@ export class AgentManager {
     if (!record) throw new Error("Agent runtime is unavailable.");
 
     if (!this.activeThreadId) {
-      const thread = await this.createThread(
-        projectId,
-        defaultThreadTitle(
-          record.project,
-          listThreads().filter((row) => row.project_id === projectId).length,
-        ),
-      );
+      const thread = await this.createThread(projectId, record.project.name);
       this.activeThreadId = thread.id;
     }
 

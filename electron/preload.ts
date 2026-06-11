@@ -42,8 +42,8 @@ const api = {
   },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
-    create: (projectId: string, title: string): Promise<Thread> =>
-      ipcRenderer.invoke("threads:create", projectId, title),
+    create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
+      ipcRenderer.invoke("threads:create", projectId, title, afterThreadId),
     rename: (id: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
@@ -63,8 +63,11 @@ const api = {
     abort: (): Promise<void> => ipcRenderer.invoke("agent:abort"),
     switchThread: (threadId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchThread", threadId),
-    createThread: (projectId: string, title: string): Promise<Thread> =>
-      ipcRenderer.invoke("agent:createThread", projectId, title),
+    createThread: (
+      projectId: string,
+      title: string,
+      afterThreadId?: string | null,
+    ): Promise<Thread> => ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId),
     cycleModel: (direction?: "forward" | "backward"): Promise<AgentModelSummary | null> =>
       ipcRenderer.invoke("agent:cycleModel", direction),
     setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>

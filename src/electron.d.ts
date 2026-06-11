@@ -36,7 +36,7 @@ declare global {
       };
       threads: {
         list: () => Promise<Thread[]>;
-        create: (projectId: string, title: string) => Promise<Thread>;
+        create: (projectId: string, title: string, afterThreadId?: string | null) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
       };
@@ -52,7 +52,11 @@ declare global {
         sendPrompt: (input: AgentPromptInput) => Promise<void>;
         abort: () => Promise<void>;
         switchThread: (threadId: string) => Promise<void>;
-        createThread: (projectId: string, title: string) => Promise<Thread>;
+        createThread: (
+          projectId: string,
+          title: string,
+          afterThreadId?: string | null,
+        ) => Promise<Thread>;
         cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
         setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
         setThinkingLevel: (level: ThinkingLevel) => Promise<void>;

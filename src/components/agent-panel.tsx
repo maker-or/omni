@@ -736,9 +736,11 @@ export function AgentPanel() {
     const projectId = hoveredProjectId ?? activeProject?.id;
     if (!projectId) return;
     const project = projectsList.find((item) => item.id === projectId);
-    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
-    const title = `${project?.name ?? "Thread"} #${nextCount}`;
-    const thread = await createThread(projectId, title);
+    const thread = await createThread(
+      projectId,
+      project?.name ?? "Thread",
+      snapshot?.threadId ?? null,
+    );
     setRequestedThreadId(thread.id);
     await loadThreads();
   };
@@ -785,7 +787,7 @@ export function AgentPanel() {
         <div className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1 border-b border-border/60">
           <TabsList
             data-pipper-id="thread-tabs"
-            className="p-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
+            className="px-1 py-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
           >
             {threads.map((thread) => {
               const project = projectsList.find((item) => item.id === thread.project_id);

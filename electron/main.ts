@@ -383,9 +383,12 @@ function registerIpc(): void {
     return listThreads();
   });
 
-  ipcMain.handle("threads:create", (_event, projectId: string, title: string) => {
-    return requireAgentManager().createThread(projectId, title);
-  });
+  ipcMain.handle(
+    "threads:create",
+    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
+      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+    },
+  );
 
   ipcMain.handle("threads:rename", (_event, id: string, title: string) => {
     return requireAgentManager().renameThread(id, title);
@@ -415,8 +418,8 @@ function registerIpc(): void {
   ipcMain.handle("agent:switchThread", (_event, threadId: string) =>
     requireAgentManager().switchThread(threadId),
   );
-  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string) =>
-    requireAgentManager().createThread(projectId, title),
+  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string, afterThreadId?: string | null) =>
+    requireAgentManager().createThread(projectId, title, afterThreadId ?? null),
   );
   ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
     requireAgentManager().cycleModel(direction),

@@ -22,7 +22,11 @@ interface AgentState {
   sendPrompt: (input: AgentPromptInput) => Promise<void>;
   abort: () => Promise<void>;
   switchThread: (threadId: string) => Promise<void>;
-  createThread: (projectId: string, title: string) => Promise<Thread>;
+  createThread: (
+    projectId: string,
+    title: string,
+    afterThreadId?: string | null,
+  ) => Promise<Thread>;
   cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
   setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
   cycleThinkingLevel: () => Promise<string | null>;
@@ -227,8 +231,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     await threadSwitchQueue;
   },
-  createThread: async (projectId, title) => {
-    const thread = await window.omni.agent.createThread(projectId, title);
+  createThread: async (projectId, title, afterThreadId) => {
+    const thread = await window.omni.agent.createThread(projectId, title, afterThreadId ?? null);
     await get().refresh();
     return thread;
   },
