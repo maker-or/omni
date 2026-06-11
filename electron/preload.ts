@@ -40,6 +40,17 @@ const api = {
       };
     },
   },
+  onboarding: {
+    verifyGit: (): Promise<boolean> => ipcRenderer.invoke("onboarding:verifyGit"),
+    startSetup: (): Promise<void> => ipcRenderer.invoke("onboarding:startSetup"),
+    onProgress: (callback: (payload: any) => void) => {
+      const listener = (_event: any, payload: any) => callback(payload);
+      ipcRenderer.on("onboarding:progress", listener);
+      return () => {
+        ipcRenderer.removeListener("onboarding:progress", listener);
+      };
+    },
+  },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
     create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
@@ -152,6 +163,8 @@ const api = {
       ipcRenderer.invoke("pipper:setProcessing", processingId),
     addComment: (pipperId: string, text: string): Promise<void> =>
       ipcRenderer.invoke("pipper:addComment", pipperId, text),
+    acceptChanges: (): Promise<void> => ipcRenderer.invoke("pipper:acceptChanges"),
+    rejectChanges: (): Promise<void> => ipcRenderer.invoke("pipper:rejectChanges"),
     onStateChanged: (
       callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
     ) => {

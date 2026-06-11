@@ -41,6 +41,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 
+import { getActivePath } from "./workspace-manager.ts";
+
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type SetWindowTitle = (title: string) => void;
 type SendToFlyout = (channel: string, payload: unknown) => void;
@@ -129,6 +131,7 @@ export class AgentManager {
   private readonly sendToRenderer: SendToRenderer;
   private readonly setWindowTitle: SetWindowTitle;
   private readonly sendToFlyout: SendToFlyout;
+  private readonly reloadMainWindow?: () => void;
   private readonly projectRuntimes = new Map<string, ProjectRuntimeRecord>();
   private readonly projectLocks = new Map<string, Promise<void>>();
   private readonly pendingUi = new Map<
@@ -150,10 +153,12 @@ export class AgentManager {
     sendToRenderer: SendToRenderer;
     setWindowTitle: SetWindowTitle;
     sendToFlyout?: SendToFlyout;
+    reloadMainWindow?: () => void;
   }) {
     this.sendToRenderer = options.sendToRenderer;
     this.setWindowTitle = options.setWindowTitle;
     this.sendToFlyout = options.sendToFlyout ?? (() => {});
+    this.reloadMainWindow = options.reloadMainWindow;
   }
 
   private emit(payload: AgentBridgeEvent): void {
@@ -491,6 +496,9 @@ export class AgentManager {
   async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
+    
+    // Always use the active library workspace path as the working directory for the agent
+    project.path = getActivePath();
 
     const existingRecord = this.getRecord(projectId);
     if (existingRecord) {
@@ -1070,8 +1078,8 @@ export class AgentManager {
   async activateEditor(): Promise<void> {
     if (this.editorRecord) return; // already active
 
-    // Create a synthetic project pointing at the app's own source
-    const omniPath = process.env["OMNI_CWD"] ?? process.cwd();
+    // Create a synthetic project pointing at the active library workspace path
+    const omniPath = getActivePath();
     const fakeProject: Project = {
       id: "__omni_editor__",
       name: "Omni Editor",
@@ -1104,6 +1112,9 @@ export class AgentManager {
           steering: [...event.steering],
           followUp: [...event.followUp],
         };
+      }
+      if (event.type === "agent_end") {
+        this.reloadMainWindow?.();
       }
       this.emitEditor({ type: "event", event });
       // push a lightweight snapshot

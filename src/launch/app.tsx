@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderIcon, ArrowArcLeftIcon } from "@phosphor-icons/react";
+import {
+  FolderIcon,
+  ArrowArcLeftIcon,
+  Warning,
+  CheckCircle,
+  CircleNotch,
+  ArrowClockwise,
+} from "@phosphor-icons/react";
 import type { Project } from "../../contracts/projects.ts";
 import { Button } from "@/components/ui/button";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { cn } from "@/lib/utils";
 import { AddProjectForm } from "./add-project-form";
 
-type LaunchStage = "list" | "add";
+type LaunchStage = "list" | "add" | "onboarding";
 
 export function LaunchApp() {
   const [stage, setStage] = useState<LaunchStage>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("stage") === "add") return "add";
+      const s = params.get("stage");
+      if (s === "add") return "add";
+      if (s === "onboarding") return "onboarding";
     }
     return "list";
   });
@@ -21,6 +30,65 @@ export function LaunchApp() {
   const [isOpening, setIsOpening] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Onboarding states
+  const [gitInstalled, setGitInstalled] = useState(true);
+  const [onboardingStep, setOnboardingStep] = useState("Checking toolchain...");
+  const [onboardingStatus, setOnboardingStatus] = useState<
+    "pending" | "running" | "complete" | "failed"
+  >("running");
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [isVerifyingGit, setIsVerifyingGit] = useState(false);
+
+  useEffect(() => {
+    if (stage !== "onboarding") return;
+
+    if (!window.omni?.onboarding) {
+      setOnboardingStatus("failed");
+      setOnboardingError("Onboarding API is unavailable.");
+      return;
+    }
+
+    const unsub = window.omni.onboarding.onProgress((data) => {
+      setOnboardingStep(data.step);
+      setOnboardingStatus(data.status);
+      if (data.error) setOnboardingError(data.error);
+      if (data.gitInstalled !== undefined) setGitInstalled(data.gitInstalled);
+
+      if (data.status === "complete") {
+        setTimeout(() => {
+          setStage("list");
+        }, 1000);
+      }
+    });
+
+    window.omni.onboarding.startSetup().catch((err) => {
+      setOnboardingStatus("failed");
+      setOnboardingError(err instanceof Error ? err.message : String(err));
+    });
+
+    return unsub;
+  }, [stage]);
+
+  const handleVerifyGit = async () => {
+    if (!window.omni?.onboarding?.verifyGit) return;
+    setIsVerifyingGit(true);
+    setOnboardingError(null);
+    try {
+      const success = await window.omni.onboarding.verifyGit();
+      if (success) {
+        setGitInstalled(true);
+        setOnboardingStatus("running");
+        await window.omni.onboarding.startSetup();
+      } else {
+        setOnboardingError("Git was not detected. Please make sure it's installed.");
+      }
+    } catch (err) {
+      setOnboardingError("Failed to verify Git installation.");
+    } finally {
+      setIsVerifyingGit(false);
+    }
+  };
 
   const loadProjects = useCallback(async () => {
     if (!window.omni?.projects?.list) {
@@ -66,6 +134,107 @@ export function LaunchApp() {
     },
     [handleOpen],
   );
+
+  if (stage === "onboarding") {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-surface-1 p-8">
+        <div className="w-full max-w-md rounded-xl border border-border bg-surface-3 p-8 shadow-surface-6 flex flex-col gap-6">
+          <header className="flex flex-col gap-1">
+            <h1 className="text-xl font-bold text-foreground tracking-tight">Setting up Pipper</h1>
+            <p className="text-xs text-muted-foreground">
+              Preparing your local environment and workspace files
+            </p>
+          </header>
+
+          <div className="h-px bg-border" />
+
+          {!gitInstalled ? (
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10 text-destructive text-sm leading-relaxed">
+                <Warning size={20} className="shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold block">Git Required</span>
+                  Pipper needs Git for tracking versions and rolling back changes.
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground pl-1">
+                  Install via Homebrew:
+                </span>
+                <pre className="rounded bg-black/95 p-3 font-mono text-[11px] text-zinc-100 select-all border border-zinc-800">
+                  brew install git
+                </pre>
+              </div>
+
+              {onboardingError && (
+                <p className="text-xs text-red-500 font-medium pl-1">{onboardingError}</p>
+              )}
+
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={handleVerifyGit}
+                disabled={isVerifyingGit}
+                className="w-full mt-2"
+                leadingIcon={isVerifyingGit ? CircleNotch : ArrowClockwise}
+              >
+                {isVerifyingGit ? "Verifying..." : "Verify Installation"}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 py-2">
+              <div className="flex items-center gap-3">
+                {onboardingStatus === "running" && (
+                  <CircleNotch size={18} className="text-primary animate-spin shrink-0" />
+                )}
+                {onboardingStatus === "complete" && (
+                  <CheckCircle size={18} className="text-green-500 shrink-0" />
+                )}
+                {onboardingStatus === "failed" && (
+                  <Warning size={18} className="text-red-500 shrink-0" />
+                )}
+                <span className="text-sm font-medium text-foreground">{onboardingStep}</span>
+              </div>
+
+              {onboardingStatus === "failed" && onboardingError && (
+                <div className="mt-2 flex flex-col gap-3">
+                  <p className="text-xs text-red-500 font-medium whitespace-pre-wrap">
+                    Error: {onboardingError}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setOnboardingStatus("running");
+                      setOnboardingError(null);
+                      window.omni.onboarding.startSetup().catch((err: unknown) => {
+                        setOnboardingStatus("failed");
+                        setOnboardingError(err instanceof Error ? err.message : String(err));
+                      });
+                    }}
+                  >
+                    Retry Setup
+                  </Button>
+                </div>
+              )}
+
+              {onboardingStatus === "running" && (
+                <div className="h-1.5 w-full bg-surface-2 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full animate-pulse"
+                    style={{ width: "60%" }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen flex items-center justify-center bg-surface-1 p-8">

@@ -410,10 +410,16 @@ function UiRequestDialog({
           <div className="text-sm font-medium text-foreground">{request.title}</div>
           <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" className={buttonBorderClass} onClick={() => onClose(false)}>
+            <Button
+              variant="secondary"
+              className={buttonBorderClass}
+              onClick={() => onClose(false)}
+            >
               No
             </Button>
-            <Button className={buttonBorderClass} onClick={() => onClose(true)}>Yes</Button>
+            <Button className={buttonBorderClass} onClick={() => onClose(true)}>
+              Yes
+            </Button>
           </div>
         </div>
       </div>
@@ -432,10 +438,16 @@ function UiRequestDialog({
           className="mt-3 min-h-28 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
         />
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" className={buttonBorderClass} onClick={() => onClose(undefined)}>
+          <Button
+            variant="secondary"
+            className={buttonBorderClass}
+            onClick={() => onClose(undefined)}
+          >
             Cancel
           </Button>
-          <Button className={buttonBorderClass} onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
+          <Button className={buttonBorderClass} onClick={() => onClose(text.trim() || undefined)}>
+            Submit
+          </Button>
         </div>
       </div>
     </div>
