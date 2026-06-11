@@ -894,18 +894,7 @@ export function AgentPanel() {
 
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
           <div className="relative flex-1 overflow-y-auto min-h-0" aria-busy={isSwitchingThread}>
-            {isSwitchingThread && (
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden bg-border/40">
-                <div className="h-full w-1/3 animate-pulse bg-foreground/35" />
-              </div>
-            )}
-            <div
-              className={
-                isSwitchingThread
-                  ? "min-h-full opacity-[0.82] transition-opacity duration-150 ease-out"
-                  : "min-h-full opacity-100 transition-opacity duration-150 ease-out"
-              }
-            >
+            <div className="min-h-full">
               {allMessages.length === 0 ? (
                 <div
                   data-pipper-id="empty-state"

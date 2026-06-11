@@ -21,7 +21,6 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
-import { surfaceClasses } from "@/lib/surface-classes";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { X } from "@phosphor-icons/react";
 
@@ -256,7 +255,11 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           {/* Active segment indicator */}
           {selectedRect && (
             <motion.div
-              className={cn("absolute pointer-events-none", surfaceClasses(3, 2), shape.bg)}
+              className={cn(
+                "absolute pointer-events-none z-0 border border-border/60 bg-surface-4",
+                "shadow-surface-3",
+                shape.bg,
+              )}
               initial={false}
               animate={{
                 left: selectedRect.left,
@@ -375,9 +378,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
     return (
       <TabsPrimitive.Tab
         onClick={() => {
-          if (!isControlled) {
-            setOptimisticIdx(_index);
-          }
+          setOptimisticIdx(_index);
         }}
         ref={(node) => {
           (internalRef as React.MutableRefObject<HTMLElement | null>).current =
