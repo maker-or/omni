@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
 
-// Prepend standard macOS search paths to process.env.PATH on module import.
+// Prepend standard macOS search paths to process.env.PATH.
 // This ensures that GUI Electron apps can resolve binaries like git, node, bun, and mise.
 const homeDir = os.homedir();
 const standardPaths = [
@@ -18,13 +18,15 @@ const standardPaths = [
   join(homeDir, ".local/share/mise/bin"),
 ];
 
-const currentPaths = process.env.PATH ? process.env.PATH.split(":") : [];
-for (const p of standardPaths) {
-  if (!currentPaths.includes(p)) {
-    currentPaths.unshift(p); // Prepend so standard paths take precedence
+export function prependStandardPaths(): void {
+  const currentPaths = process.env.PATH ? process.env.PATH.split(":") : [];
+  for (const p of standardPaths) {
+    if (!currentPaths.includes(p)) {
+      currentPaths.unshift(p); // Prepend so standard paths take precedence
+    }
   }
+  process.env.PATH = currentPaths.join(":");
 }
-process.env.PATH = currentPaths.join(":");
 
 export interface DependencyStatus {
   gitInstalled: boolean;

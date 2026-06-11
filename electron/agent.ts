@@ -498,7 +498,7 @@ export class AgentManager {
     if (!project) throw new Error(`Project not found: ${projectId}`);
     
     // Always use the active library workspace path as the working directory for the agent
-    project.path = getActivePath();
+    const effectiveProject = { ...project, path: getActivePath() };
 
     const existingRecord = this.getRecord(projectId);
     if (existingRecord) {
@@ -511,7 +511,7 @@ export class AgentManager {
           thread.session_file !== existingRecord.runtime.session.sessionFile
         ) {
           await existingRecord.runtime.switchSession(thread.session_file, {
-            cwdOverride: project.path,
+            cwdOverride: effectiveProject.path,
           });
         }
         this.activeThreadId = preferredThreadId;
@@ -532,7 +532,7 @@ export class AgentManager {
         const thread = getThread(requestedThreadId);
         if (thread?.session_file && existsSync(thread.session_file)) {
           try {
-            sessionManager = SessionManager.open(thread.session_file, undefined, project.path);
+            sessionManager = SessionManager.open(thread.session_file, undefined, effectiveProject.path);
           } catch (error: any) {
             const isMissingFile =
               error?.code === "ENOENT" ||
@@ -541,28 +541,28 @@ export class AgentManager {
                   error.message.toLowerCase().includes("not found") ||
                   error.message.toLowerCase().includes("no such file")));
             if (isMissingFile) {
-              sessionManager = SessionManager.continueRecent(project.path);
+              sessionManager = SessionManager.continueRecent(effectiveProject.path);
             } else {
               throw error;
             }
           }
         } else {
-          sessionManager = SessionManager.continueRecent(project.path);
+          sessionManager = SessionManager.continueRecent(effectiveProject.path);
         }
       } else {
-        sessionManager = SessionManager.continueRecent(project.path);
+        sessionManager = SessionManager.continueRecent(effectiveProject.path);
       }
 
-      const runtime = await createProjectRuntime(project, sessionManager);
+      const runtime = await createProjectRuntime(effectiveProject, sessionManager);
       const record: ProjectRuntimeRecord = {
-        project,
+        project: effectiveProject,
         runtime,
         queue: { steering: [], followUp: [] },
         status: {},
         workingMessage: null,
         workingVisible: false,
         hiddenThinkingLabel: null,
-        title: runtime.session.sessionName ?? project.name,
+        title: runtime.session.sessionName ?? effectiveProject.name,
         editorText: "",
         toolsExpanded: false,
       };
@@ -577,7 +577,7 @@ export class AgentManager {
       });
 
       await this.bindSession(projectId, runtime.session);
-      await this.syncThreadsFromSessions(project);
+      await this.syncThreadsFromSessions(effectiveProject);
 
       const activeThread =
         requestedThreadId != null

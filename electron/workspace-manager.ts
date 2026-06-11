@@ -1,14 +1,27 @@
-import { cpSync, rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync } from "node:fs";
+import { join, dirname } from "node:path";
 import os from "node:os";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { app } from "electron";
 import { getMisePath } from "./dependency-installer";
 
 const execAsync = promisify(exec);
 
 export function getPipperLibraryPath(): string {
-  return join(os.homedir(), "Library/pipper");
+  try {
+    const appData = app.getPath("appData");
+    return join(appData, "pipper");
+  } catch (err) {
+    const home = os.homedir();
+    if (process.platform === "win32") {
+      return join(process.env.APPDATA || join(home, "AppData/Roaming"), "pipper");
+    } else if (process.platform === "darwin") {
+      return join(home, "Library/pipper");
+    } else {
+      return join(process.env.XDG_CONFIG_HOME || join(home, ".config"), "pipper");
+    }
+  }
 }
 
 export function getActivePath(): string {
@@ -111,18 +124,35 @@ export async function initializeWorkspaces(
 
   // 5. Establish symlinks inside active/backup if missing
   const activeNodeModules = join(activeDir, "node_modules");
-  if (!existsSync(activeNodeModules)) {
-    console.log("[WorkspaceManager] Linking shared node_modules to active workspace...");
-    symlinkSync(sharedNodeModules, activeNodeModules, "dir");
-  }
+  console.log("[WorkspaceManager] Linking shared node_modules to active workspace...");
+  ensureNodeModulesSymlink(activeNodeModules, sharedNodeModules);
 
   const backupNodeModules = join(backupDir, "node_modules");
-  if (!existsSync(backupNodeModules)) {
-    console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
-    symlinkSync(sharedNodeModules, backupNodeModules, "dir");
-  }
+  console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
+  ensureNodeModulesSymlink(backupNodeModules, sharedNodeModules);
 
   console.log("[WorkspaceManager] Workspace initialization complete.");
+}
+
+function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void {
+  let needsSymlink = true;
+  try {
+    const stat = lstatSync(symlinkPath);
+    if (stat.isSymbolicLink()) {
+      needsSymlink = false;
+    } else {
+      console.log(`[WorkspaceManager] Removing existing non-symlink node_modules at ${symlinkPath}...`);
+      rmSync(symlinkPath, { recursive: true, force: true });
+    }
+  } catch (err: any) {
+    if (err.code !== "ENOENT") {
+      console.error(`[WorkspaceManager] Failed to lstat ${symlinkPath}:`, err);
+    }
+  }
+
+  if (needsSymlink) {
+    symlinkSync(targetPath, symlinkPath, "dir");
+  }
 }
 
 export async function backupActiveWorkspace(): Promise<void> {
@@ -148,8 +178,39 @@ export async function restoreFromBackup(): Promise<void> {
   const activeDir = getActivePath();
   console.log("[WorkspaceManager] Triggering hard reset inside active workspace...");
 
-  // Run Git hard reset inside active directory to revert all uncommitted changes
-  // This is extremely safe and retains the local .git folder.
+  // 1. Capture untracked files to avoid data loss
+  const untrackedFiles: string[] = [];
+  try {
+    const { stdout } = await execAsync("git ls-files --others --exclude-standard", { cwd: activeDir });
+    const trimmed = stdout.trim();
+    if (trimmed) {
+      untrackedFiles.push(...trimmed.split("\n"));
+    }
+  } catch (err) {
+    console.warn("[WorkspaceManager] Failed to list untracked files:", err);
+  }
+
+  // 2. Programmatically back up untracked files if any exist
+  if (untrackedFiles.length > 0) {
+    const backupDir = join(getPipperLibraryPath(), "untracked_backup", Date.now().toString());
+    console.log(`[WorkspaceManager] Backing up ${untrackedFiles.length} untracked files to: ${backupDir}`);
+    try {
+      mkdirSync(backupDir, { recursive: true });
+      for (const file of untrackedFiles) {
+        const src = join(activeDir, file);
+        const dest = join(backupDir, file);
+        if (existsSync(src)) {
+          mkdirSync(dirname(dest), { recursive: true });
+          cpSync(src, dest, { recursive: true });
+        }
+      }
+    } catch (err) {
+      console.error("[WorkspaceManager] Failed to create backup of untracked files:", err);
+    }
+  }
+
+  // 3. Run Git reset and clean
+  // This is safe because we have backed up any untracked files first.
   const cmd = "git reset --hard HEAD && git clean -fd";
   try {
     await execAsync(cmd, { cwd: activeDir });

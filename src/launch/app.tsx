@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { cn } from "@/lib/utils";
 import { AddProjectForm } from "./add-project-form";
+import { Elevated } from "@/lib/elevated";
 
 type LaunchStage = "list" | "add" | "onboarding";
 
@@ -138,7 +139,10 @@ export function LaunchApp() {
   if (stage === "onboarding") {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-surface-1 p-8">
-        <div className="w-full max-w-md rounded-xl border border-border bg-surface-3 p-8 shadow-surface-6 flex flex-col gap-6">
+        <Elevated
+          offset={2}
+          className="w-full max-w-md rounded-xl border border-border p-8 shadow-surface-6 flex flex-col gap-6"
+        >
           <header className="flex flex-col gap-1">
             <h1 className="text-xl font-bold text-foreground tracking-tight">Setting up Pipper</h1>
             <p className="text-xs text-muted-foreground">
@@ -231,7 +235,7 @@ export function LaunchApp() {
               )}
             </div>
           )}
-        </div>
+        </Elevated>
       </div>
     );
   }

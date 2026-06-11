@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 omni.sqlite
+*.env
 
 # Editor directories and files
 .vscode/*

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
+import net from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
@@ -22,7 +23,12 @@ import {
   installMise,
   installNodeAndBunWithMise,
   getMisePath,
+  prependStandardPaths,
 } from "./dependency-installer";
+
+// Initialize PATH prepend early for child process resolutions
+prependStandardPaths();
+
 import {
   initializeWorkspaces,
   backupActiveWorkspace,
@@ -143,13 +149,45 @@ function startViteServer(): Promise<string> {
       viteProcess = null;
     });
 
-    // Fallback if stdout parsing misses it
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        resolve("http://localhost:1953");
+    // Polling loop to check if port 1953 is ready
+    const pollInterval = 200;
+    const maxTimeout = 10000;
+    const startTime = Date.now();
+
+    const checkInterval = setInterval(() => {
+      if (resolved) {
+        clearInterval(checkInterval);
+        return;
       }
-    }, 4000);
+
+      const socket = net.connect({ port: 1953, host: "127.0.0.1" }, () => {
+        socket.end();
+        if (!resolved) {
+          resolved = true;
+          clearInterval(checkInterval);
+          console.log("[Main] Vite server detected online via port polling.");
+          resolve("http://localhost:1953");
+        }
+      });
+
+      socket.on("error", () => {
+        // Socket connection failed, port is not ready yet
+      });
+
+      socket.setTimeout(150);
+      socket.on("timeout", () => {
+        socket.destroy();
+      });
+
+      if (Date.now() - startTime > maxTimeout) {
+        clearInterval(checkInterval);
+        if (!resolved) {
+          resolved = true;
+          console.warn("[Main] Vite server port check timed out, resolving fallback url");
+          resolve("http://localhost:1953");
+        }
+      }
+    }, pollInterval);
   });
 }
 
@@ -718,7 +756,7 @@ function registerIpc(): void {
     const activePath = getActivePath();
     const execPromise = promisify(exec);
     try {
-      await execPromise('git add . && git commit -m "Pipper Visual Edit Accept"', {
+      await execPromise('git add -u && git commit -m "Pipper Visual Edit Accept"', {
         cwd: activePath,
       });
     } catch (err) {
