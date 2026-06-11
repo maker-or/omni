@@ -444,7 +444,7 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, loadThreads, deleteThread, renameThread } = useThreadStore();
+  const { threads, loadThreads, renameThread } = useThreadStore();
   const {
     snapshot,
     error,
@@ -470,6 +470,7 @@ export function AgentPanel() {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
+  const [openThreadIds, setOpenThreadIds] = useState<string[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
   const threadPaneRef = useRef<HTMLDivElement>(null);
@@ -483,6 +484,7 @@ export function AgentPanel() {
   const CheckIcon = useIcon("check");
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
+  const hasInitializedOpenThreadTabs = useRef(false);
 
   function CopyButton({ msgId, bodyText }: { msgId: string; bodyText: string }) {
     const isCopied = copiedMessageId === msgId;
@@ -653,6 +655,21 @@ export function AgentPanel() {
   }, [editingThreadId, threads]);
 
   useEffect(() => {
+    const threadIds = new Set(threads.map((thread) => thread.id));
+    setOpenThreadIds((current) => {
+      const filtered = current.filter((id) => threadIds.has(id));
+      return filtered.length === current.length ? current : filtered;
+    });
+  }, [threads]);
+
+  useEffect(() => {
+    if (hasInitializedOpenThreadTabs.current) return;
+    if (threads.length === 0) return;
+    hasInitializedOpenThreadTabs.current = true;
+    setOpenThreadIds(threads.map((thread) => thread.id));
+  }, [threads]);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
       if (
@@ -712,7 +729,42 @@ export function AgentPanel() {
     return entries;
   }, [activeMessages, streamingMessage]);
 
+  const visibleThreads = useMemo(
+    () => threads.filter((thread) => openThreadIds.includes(thread.id)),
+    [openThreadIds, threads],
+  );
+
+  const openThreadTab = (threadId: string) => {
+    setOpenThreadIds((current) => (current.includes(threadId) ? current : [...current, threadId]));
+  };
+
+  const closeThreadTab = (threadId: string) => {
+    const currentVisibleThreads = visibleThreads;
+    const currentIndex = currentVisibleThreads.findIndex((thread) => thread.id === threadId);
+    const currentOpenIds = openThreadIds;
+    const nextOpenIds = currentOpenIds.filter((id) => id !== threadId);
+
+    setOpenThreadIds(nextOpenIds);
+
+    if (currentIndex === -1) return;
+
+    if (threadId === snapshot?.threadId) {
+      const nextVisibleThreads = threads.filter((thread) => nextOpenIds.includes(thread.id));
+      const fallbackThread =
+        nextVisibleThreads[currentIndex] ??
+        nextVisibleThreads[currentIndex - 1] ??
+        nextVisibleThreads[nextVisibleThreads.length - 1] ??
+        null;
+
+      if (fallbackThread && fallbackThread.id !== snapshot?.threadId) {
+        setRequestedThreadId(fallbackThread.id);
+        void switchThread(fallbackThread.id);
+      }
+    }
+  };
+
   const handleSelectThread = (id: string) => {
+    openThreadTab(id);
     if (id === threadId && !isSwitchingThread) return;
     setRequestedThreadId(id);
     void switchThread(id);
@@ -741,6 +793,7 @@ export function AgentPanel() {
       project?.name ?? "Thread",
       snapshot?.threadId ?? null,
     );
+    openThreadTab(thread.id);
     setRequestedThreadId(thread.id);
     await loadThreads();
   };
@@ -791,7 +844,7 @@ export function AgentPanel() {
             data-pipper-id="thread-tabs"
             className="px-1 py-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
           >
-            {threads.map((thread) => {
+            {visibleThreads.map((thread) => {
               const project = projectsList.find((item) => item.id === thread.project_id);
               const Icon = project
                 ? (((props: { className?: string }) => (
@@ -805,7 +858,7 @@ export function AgentPanel() {
                   value={thread.id}
                   label={thread.title}
                   icon={Icon}
-                  onClose={() => deleteThread(thread.id)}
+                  onClose={() => closeThreadTab(thread.id)}
                   editing={isEditing}
                   editValue={isEditing ? editingThreadTitle : thread.title}
                   onEditValueChange={setEditingThreadTitle}
