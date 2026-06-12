@@ -10,6 +10,9 @@ const execAsync = promisify(exec);
 
 export function getPipperLibraryPath(): string {
   try {
+    if (process.platform === "darwin") {
+      return join(os.homedir(), "Library/pipper");
+    }
     const appData = app.getPath("appData");
     return join(appData, "pipper");
   } catch (err) {
@@ -60,78 +63,108 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
   }
 }
 
+let initPromise: Promise<void> | null = null;
+
 export async function initializeWorkspaces(
   appResourcesPath: string,
   isDev: boolean,
 ): Promise<void> {
-  const libRoot = getPipperLibraryPath();
-  const activeDir = getActivePath();
-  const backupDir = getBackupPath();
-  const sharedDir = getSharedPath();
-
-  mkdirSync(libRoot, { recursive: true });
-  mkdirSync(sharedDir, { recursive: true });
-
-  // Resolve template source path
-  const templatePath = isDev ? process.cwd() : join(appResourcesPath, "app-template");
-
-  console.log(`[WorkspaceManager] Initializing workspaces from: ${templatePath}`);
-
-  // 1. Copy source files to active if not present
-  if (!existsSync(activeDir) || readdirSync(activeDir).length === 0) {
-    console.log("[WorkspaceManager] Copying files to active workspace...");
-    copyTemplateFiles(templatePath, activeDir);
+  if (initPromise) {
+    console.log("[WorkspaceManager] Initialization already in progress, awaiting existing run...");
+    return initPromise;
   }
 
-  // 2. Copy source files to backup if not present
-  if (!existsSync(backupDir) || readdirSync(backupDir).length === 0) {
-    console.log("[WorkspaceManager] Copying files to backup workspace...");
-    copyTemplateFiles(templatePath, backupDir);
-  }
+  initPromise = (async () => {
+    const libRoot = getPipperLibraryPath();
+    const activeDir = getActivePath();
+    const backupDir = getBackupPath();
+    const sharedDir = getSharedPath();
 
-  // 3. Initialize package.json inside shared directory for dependency installation
-  const activePkgJson = join(activeDir, "package.json");
-  const sharedPkgJson = join(sharedDir, "package.json");
-  if (existsSync(activePkgJson) && !existsSync(sharedPkgJson)) {
-    try {
-      const pkg = JSON.parse(readFileSync(activePkgJson, "utf8"));
-      if (pkg.scripts) {
-        delete pkg.scripts.postinstall;
+    mkdirSync(libRoot, { recursive: true });
+    mkdirSync(sharedDir, { recursive: true });
+
+    // Resolve template source path
+    const templatePath = isDev ? process.cwd() : join(appResourcesPath, "app-template");
+
+    console.log(`[WorkspaceManager] Initializing workspaces from: ${templatePath}`);
+
+    // 1. Copy source files to active if not present or incomplete
+    if (!existsSync(activeDir) || readdirSync(activeDir).length === 0 || !existsSync(join(activeDir, "package.json"))) {
+      console.log("[WorkspaceManager] Copying files to active workspace...");
+      copyTemplateFiles(templatePath, activeDir);
+    }
+
+    // Initialize Git in active workspace if not present
+    const activeGitDir = join(activeDir, ".git");
+    if (!existsSync(activeGitDir)) {
+      console.log("[WorkspaceManager] Initializing git repository in active workspace...");
+      try {
+        await execAsync("git init", { cwd: activeDir });
+        await execAsync("git config user.name 'Pipper'", { cwd: activeDir });
+        await execAsync("git config user.email 'pipper@internal'", { cwd: activeDir });
+        await execAsync("git add .", { cwd: activeDir });
+        await execAsync("git commit -m 'Initial commit'", { cwd: activeDir });
+      } catch (err) {
+        console.warn("[WorkspaceManager] Failed to initialize git in active workspace:", err);
       }
-      writeFileSync(sharedPkgJson, JSON.stringify(pkg, null, 2), "utf8");
-      console.log("[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).");
-    } catch (err) {
-      console.error("[WorkspaceManager] Failed to create cleaned package.json in shared folder:", err);
-      cpSync(activePkgJson, sharedPkgJson);
     }
-  }
 
-  // 4. Run dependency setup inside shared directory
-  const sharedNodeModules = join(sharedDir, "node_modules");
-  if (!existsSync(sharedNodeModules)) {
-    console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
-    const mise = getMisePath();
-    // Run bun install using local Mise environment
-    try {
-      await execAsync(`"${mise}" exec -- bun install`, { cwd: sharedDir });
-    } catch (err: any) {
-      console.error("[WorkspaceManager] dependency installation command failed!");
-      if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
-      if (err.stderr) console.error("[WorkspaceManager] stderr:\n", err.stderr);
-      throw err;
+    // 2. Copy source files to backup if not present or incomplete
+    if (!existsSync(backupDir) || readdirSync(backupDir).length === 0 || !existsSync(join(backupDir, "package.json"))) {
+      console.log("[WorkspaceManager] Copying files to backup workspace...");
+      copyTemplateFiles(templatePath, backupDir);
     }
+
+    // 3. Initialize package.json inside shared directory for dependency installation
+    const activePkgJson = join(activeDir, "package.json");
+    const sharedPkgJson = join(sharedDir, "package.json");
+    if (existsSync(activePkgJson) && !existsSync(sharedPkgJson)) {
+      try {
+        const pkg = JSON.parse(readFileSync(activePkgJson, "utf8"));
+        if (pkg.scripts) {
+          delete pkg.scripts.postinstall;
+        }
+        writeFileSync(sharedPkgJson, JSON.stringify(pkg, null, 2), "utf8");
+        console.log("[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).");
+      } catch (err) {
+        console.error("[WorkspaceManager] Failed to create cleaned package.json in shared folder:", err);
+        cpSync(activePkgJson, sharedPkgJson);
+      }
+    }
+
+    // 4. Run dependency setup inside shared directory
+    const sharedNodeModules = join(sharedDir, "node_modules");
+    if (!existsSync(sharedNodeModules)) {
+      console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
+      const mise = getMisePath();
+      // Run bun install using local Mise environment
+      try {
+        await execAsync(`"${mise}" exec -- bun install`, { cwd: sharedDir });
+      } catch (err: any) {
+        console.error("[WorkspaceManager] dependency installation command failed!");
+        if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
+        if (err.stderr) console.error("[WorkspaceManager] stderr:\n", err.stderr);
+        throw err;
+      }
+    }
+
+    // 5. Establish symlinks inside active/backup if missing
+    const activeNodeModules = join(activeDir, "node_modules");
+    console.log("[WorkspaceManager] Linking shared node_modules to active workspace...");
+    ensureNodeModulesSymlink(activeNodeModules, sharedNodeModules);
+
+    const backupNodeModules = join(backupDir, "node_modules");
+    console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
+    ensureNodeModulesSymlink(backupNodeModules, sharedNodeModules);
+
+    console.log("[WorkspaceManager] Workspace initialization complete.");
+  })();
+
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
   }
-
-  // 5. Establish symlinks inside active/backup if missing
-  const activeNodeModules = join(activeDir, "node_modules");
-  console.log("[WorkspaceManager] Linking shared node_modules to active workspace...");
-  ensureNodeModulesSymlink(activeNodeModules, sharedNodeModules);
-
-  const backupNodeModules = join(backupDir, "node_modules");
-  console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
-  ensureNodeModulesSymlink(backupNodeModules, sharedNodeModules);
-
-  console.log("[WorkspaceManager] Workspace initialization complete.");
 }
 
 function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void {

@@ -28,6 +28,11 @@ export default defineConfig({
       },
     ],
   },
+  server: {
+    fs: {
+      allow: [".."],
+    },
+  },
   plugins: [
     tailwindcss(),
     react(),
