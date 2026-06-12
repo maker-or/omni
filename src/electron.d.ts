@@ -1,5 +1,5 @@
 import type { Project } from "../../contracts/projects.ts";
-import type { Thread } from "../../contracts/threads.ts";
+import type { Thread, ThreadPage } from "../../contracts/threads.ts";
 import type { Message } from "../../contracts/messages.ts";
 import type {
   AgentBridgeEvent,
@@ -51,6 +51,7 @@ declare global {
       };
       threads: {
         list: () => Promise<Thread[]>;
+        listProject: (input: { projectId: string; limit?: number; offset?: number }) => Promise<ThreadPage>;
         create: (projectId: string, title: string, afterThreadId?: string | null) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;

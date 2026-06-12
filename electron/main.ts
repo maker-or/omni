@@ -13,7 +13,7 @@ import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { getDb } from "./db";
-import { listThreads, getMessages, createMessage } from "./threads";
+import { listThreads, listProjectThreads, getMessages, createMessage } from "./threads";
 import { AgentManager } from "./agent";
 import {
   checkAllDependencies,
@@ -233,9 +233,6 @@ async function createMainWindow(): Promise<void> {
 
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
-    if (isDev) {
-      mainWindow?.webContents.openDevTools();
-    }
   });
 
   mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
@@ -511,6 +508,13 @@ function registerIpc(): void {
   ipcMain.handle("threads:list", () => {
     return listThreads();
   });
+
+  ipcMain.handle(
+    "threads:listProject",
+    (_event, input: { projectId: string; limit?: number; offset?: number }) => {
+      return listProjectThreads(input.projectId, input.limit, input.offset);
+    },
+  );
 
   ipcMain.handle(
     "threads:create",
