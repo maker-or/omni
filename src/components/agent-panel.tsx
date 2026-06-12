@@ -87,6 +87,177 @@ function getMessageKey(message: MessageLike, index: number): string {
   return `${message.role ?? "message"}-${index}`;
 }
 
+function compactText(value: string, maxLength = 96): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1).trim()}…`;
+}
+
+function getCommandSummary(command: string): { label: string; description: string } {
+  const normalized = command.trim();
+  const lower = normalized.toLowerCase();
+
+  if (!normalized) {
+    return {
+      label: "Prepared an action",
+      description: "Set up the next background step.",
+    };
+  }
+
+  if (lower.startsWith("rg ") || lower.includes(" rg ") || lower.startsWith("grep ")) {
+    return {
+      label: "Searched the codebase",
+      description: `Looked for matching code paths: ${compactText(normalized, 72)}`,
+    };
+  }
+
+  if (
+    lower.startsWith("sed ") ||
+    lower.startsWith("nl ") ||
+    lower.startsWith("cat ") ||
+    lower.startsWith("head ") ||
+    lower.startsWith("tail ")
+  ) {
+    return {
+      label: "Read relevant files",
+      description: `Opened source context to understand the current implementation.`,
+    };
+  }
+
+  if (lower.startsWith("find ") || lower.startsWith("ls ") || lower.includes(" --files")) {
+    return {
+      label: "Inspected project structure",
+      description: "Checked available files and folders before making changes.",
+    };
+  }
+
+  if (lower.startsWith("npm run build") || lower.startsWith("bunx") || lower.includes(" build")) {
+    return {
+      label: "Validated the build",
+      description: "Ran the project build to catch TypeScript or bundling issues.",
+    };
+  }
+
+  if (lower.startsWith("cp ")) {
+    return {
+      label: "Synced the running app",
+      description: "Copied the updated renderer file into the active Electron workspace.",
+    };
+  }
+
+  if (lower.startsWith("git diff") || lower.startsWith("git status")) {
+    return {
+      label: "Reviewed local changes",
+      description: "Checked the working tree to confirm the update.",
+    };
+  }
+
+  return {
+    label: "Ran a shell command",
+    description: compactText(normalized, 96),
+  };
+}
+
+function getToolActionCopy(
+  toolName: string,
+  args: Record<string, unknown>,
+  resultText: string,
+  isError?: boolean,
+): { label: string; description: string; resultSummary?: string } {
+  const name = toolName.toLowerCase();
+  const command = typeof args.command === "string" ? args.command : "";
+
+  let copy =
+    name === "bash"
+      ? getCommandSummary(command)
+      : {
+          label: toolName ? `Used ${toolName}` : "Ran an agent action",
+          description: Object.keys(args).length
+            ? compactText(
+                Object.entries(args)
+                  .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+                  .join(", "),
+              )
+            : "Completed a background step.",
+        };
+
+  if (name.includes("read") || name.includes("grep") || name.includes("search")) {
+    copy = {
+      label: "Gathered context",
+      description: copy.description,
+    };
+  } else if (name.includes("write") || name.includes("replace") || name.includes("edit")) {
+    copy = {
+      label: "Updated files",
+      description: "Applied the requested code changes.",
+    };
+  }
+
+  if (!resultText) return copy;
+
+  if (isError) {
+    return {
+      ...copy,
+      resultSummary: "This action returned an error, so the agent used the output to adjust course.",
+    };
+  }
+
+  if (resultText.includes("Success. Updated")) {
+    return { ...copy, resultSummary: "Updated the target file successfully." };
+  }
+
+  if (resultText.includes("✓ built") || resultText.includes("built in")) {
+    return { ...copy, resultSummary: "Build completed successfully." };
+  }
+
+  const outputLines = resultText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (outputLines.length > 0) {
+    return {
+      ...copy,
+      resultSummary: `Returned ${outputLines.length} line${outputLines.length === 1 ? "" : "s"} of output for the agent to inspect.`,
+    };
+  }
+
+  return { ...copy, resultSummary: "Completed successfully." };
+}
+
+function getTraceSummary(traceParts: any[], activeMessages: MessageLike[], isStreaming: boolean) {
+  const labels: string[] = [];
+
+  for (const part of traceParts) {
+    if (part?.type === "thinking") {
+      labels.push("Reasoning through the task");
+      continue;
+    }
+
+    if (part?.type !== "toolCall") continue;
+
+    const toolCallId = part.id;
+    const resultMsg = activeMessages.find(
+      (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
+    );
+    const actionCopy = getToolActionCopy(
+      part.name || "",
+      part.arguments ?? part.args ?? {},
+      resultMsg ? stringifyMessageContent(resultMsg) : "",
+      resultMsg?.isError,
+    );
+    labels.push(actionCopy.label);
+  }
+
+  const uniqueLabels = Array.from(new Set(labels)).slice(0, 3);
+  if (!uniqueLabels.length) {
+    return isStreaming ? "Working in the background" : "Completed background work";
+  }
+
+  const suffix = labels.length > uniqueLabels.length ? ` +${labels.length - uniqueLabels.length} more` : "";
+  return `${uniqueLabels.join(", ")}${suffix}`;
+}
+
 function AssistantTraceDeck({
   traceParts,
   isStreaming,
@@ -101,6 +272,8 @@ function AssistantTraceDeck({
   useEffect(() => {
     setOpen(isStreaming);
   }, [isStreaming]);
+
+  const traceSummary = getTraceSummary(traceParts, activeMessages, isStreaming);
 
   const getToolIcon = (toolName: string): IconName => {
     const name = toolName.toLowerCase();
@@ -140,7 +313,14 @@ function AssistantTraceDeck({
 
   return (
     <ThinkingSteps open={open} onOpenChange={setOpen}>
-      <ThinkingStepsHeader>Research Agent</ThinkingStepsHeader>
+      <ThinkingStepsHeader>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span>Research Agent</span>
+          <span className="max-w-72 truncate text-[11px] font-normal leading-tight text-muted-foreground">
+            {traceSummary}
+          </span>
+        </span>
+      </ThinkingStepsHeader>
       <ThinkingStepsContent>
         {traceParts.map((part, index) => {
           const isLast = index === traceParts.length - 1;
@@ -199,9 +379,11 @@ function AssistantTraceDeck({
             let detailsSummary = "";
             let detailsLinesArray: string[] = [];
             let resultText = "";
+            let isError = false;
 
             if (resultMsg) {
               resultText = stringifyMessageContent(resultMsg);
+              isError = Boolean(resultMsg.isError);
 
               if (
                 toolName.includes("search") ||
@@ -247,13 +429,18 @@ function AssistantTraceDeck({
               }
             }
 
+            const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
+            const actionDescription = [actionCopy.description, actionCopy.resultSummary]
+              .filter(Boolean)
+              .join(" ");
+
             return (
               <ThinkingStep
                 key={`tool-${toolCallId || index}`}
                 index={index}
                 icon={iconName}
-                label={stepLabel}
-                description={stepDescription}
+                label={actionCopy.label || stepLabel}
+                description={actionDescription || stepDescription}
                 status={status}
                 isLast={isLast}
               >
