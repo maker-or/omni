@@ -1,11 +1,21 @@
 import { create } from "zustand";
 import type { Thread } from "../../contracts/threads.ts";
 
+const THREAD_PAGE_SIZE = 10;
+
+interface ProjectThreadPageState {
+  nextOffset: number;
+  hasMore: boolean;
+  isLoading: boolean;
+}
+
 interface ThreadState {
   threads: Thread[];
+  pagesByProject: Record<string, ProjectThreadPageState>;
   isLoading: boolean;
   error: string | null;
   loadThreads: () => Promise<void>;
+  loadProjectThreads: (projectId: string, options?: { reset?: boolean }) => Promise<void>;
   createThread: (projectId: string, title: string) => Promise<Thread | null>;
   renameThread: (id: string, title: string) => Promise<Thread | null>;
   deleteThread: (id: string) => Promise<void>;
@@ -13,6 +23,7 @@ interface ThreadState {
 
 export const useThreadStore = create<ThreadState>((set) => ({
   threads: [],
+  pagesByProject: {},
   isLoading: false,
   error: null,
   loadThreads: async () => {
@@ -27,11 +38,86 @@ export const useThreadStore = create<ThreadState>((set) => ({
       });
     }
   },
+  loadProjectThreads: async (projectId, options) => {
+    const reset = options?.reset ?? false;
+    let offset = 0;
+    let shouldLoad = true;
+
+    set((state) => {
+      const current = state.pagesByProject[projectId];
+      offset = reset ? 0 : (current?.nextOffset ?? 0);
+      shouldLoad = reset || current == null || current.hasMore;
+
+      if (!shouldLoad || current?.isLoading) {
+        shouldLoad = false;
+        return {};
+      }
+
+      return {
+        error: null,
+        pagesByProject: {
+          ...state.pagesByProject,
+          [projectId]: {
+            nextOffset: offset,
+            hasMore: current?.hasMore ?? true,
+            isLoading: true,
+          },
+        },
+      };
+    });
+
+    if (!shouldLoad) return;
+
+    try {
+      const page = await window.omni.threads.listProject({
+        projectId,
+        limit: THREAD_PAGE_SIZE,
+        offset,
+      });
+
+      set((state) => {
+        const remainingThreads = reset
+          ? state.threads.filter((thread) => thread.project_id !== projectId)
+          : state.threads.filter((thread) => !page.threads.some((item) => item.id === thread.id));
+        return {
+          threads: [...remainingThreads, ...page.threads],
+          pagesByProject: {
+            ...state.pagesByProject,
+            [projectId]: {
+              nextOffset: page.nextOffset,
+              hasMore: page.hasMore,
+              isLoading: false,
+            },
+          },
+        };
+      });
+    } catch (err) {
+      set((state) => ({
+        error: err instanceof Error ? err.message : "Failed to load threads",
+        pagesByProject: {
+          ...state.pagesByProject,
+          [projectId]: {
+            nextOffset: offset,
+            hasMore: true,
+            isLoading: false,
+          },
+        },
+      }));
+    }
+  },
   createThread: async (projectId, title) => {
     try {
       const thread = await window.omni.threads.create(projectId, title);
       set((state) => ({
-        threads: [...state.threads, thread],
+        threads: [thread, ...state.threads.filter((item) => item.id !== thread.id)],
+        pagesByProject: {
+          ...state.pagesByProject,
+          [projectId]: {
+            nextOffset: (state.pagesByProject[projectId]?.nextOffset ?? 0) + 1,
+            hasMore: state.pagesByProject[projectId]?.hasMore ?? false,
+            isLoading: false,
+          },
+        },
       }));
       return thread;
     } catch (err) {

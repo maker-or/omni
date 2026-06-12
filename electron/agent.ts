@@ -21,6 +21,7 @@ import {
   createThread,
   updateThreadSessionFile,
   updateThreadTitle,
+  touchThread,
   getMaxThreadSortOrder,
   getThreadSortOrder,
   deleteThread as removeThreadRow,
@@ -375,10 +376,10 @@ export class AgentManager {
 
     const emptyThreads = threads.filter((thread) => getMessages(thread.id).length === 0);
     if (emptyThreads.length > 0) {
-      return emptyThreads[emptyThreads.length - 1] ?? null;
+      return emptyThreads[0] ?? null;
     }
 
-    return threads[threads.length - 1] ?? null;
+    return threads[0] ?? null;
   }
 
   private resolveSnapshot(projectId: string): AgentRuntimeSnapshot {
@@ -600,6 +601,7 @@ export class AgentManager {
 
       if (resolvedThread) {
         this.activeThreadId = resolvedThread.id;
+        touchThread(resolvedThread.id);
         await updateLaunchSelection({ projectId, threadId: resolvedThread.id });
       } else {
         this.activeThreadId = null;
@@ -635,6 +637,7 @@ export class AgentManager {
 
     this.activeThreadId = threadId;
     this.activeProjectId = project.id;
+    touchThread(threadId);
     setActiveProjectId(project.id);
     await updateLaunchSelection({ projectId: project.id, threadId });
     this.pushSnapshot(project.id);
@@ -690,6 +693,7 @@ export class AgentManager {
 
     this.activeThreadId = thread.id;
     this.activeProjectId = project.id;
+    touchThread(thread.id);
     setActiveProjectId(project.id);
     await updateLaunchSelection({ projectId: project.id, threadId: thread.id });
     this.pushSnapshot(project.id);
@@ -780,6 +784,8 @@ export class AgentManager {
       const thread = await this.createThread(projectId, record.project.name);
       this.activeThreadId = thread.id;
     }
+
+    touchThread(this.activeThreadId);
 
     void record.runtime.session
       .prompt(input.message, {

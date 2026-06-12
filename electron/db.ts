@@ -51,6 +51,8 @@ export function getDb(): DatabaseSync {
           title TEXT NOT NULL,
           sort_order INTEGER,
           session_file TEXT,
+          created_at INTEGER,
+          last_used_at INTEGER,
           FOREIGN KEY (project_id) REFERENCES
   projects(id) ON DELETE CASCADE
         );
@@ -60,6 +62,8 @@ export function getDb(): DatabaseSync {
 
   ensureColumn("threads", "sort_order", "ALTER TABLE threads ADD COLUMN sort_order INTEGER;");
   ensureColumn("threads", "session_file", "ALTER TABLE threads ADD COLUMN session_file TEXT;");
+  ensureColumn("threads", "created_at", "ALTER TABLE threads ADD COLUMN created_at INTEGER;");
+  ensureColumn("threads", "last_used_at", "ALTER TABLE threads ADD COLUMN last_used_at INTEGER;");
   db.exec("UPDATE threads SET sort_order = rowid WHERE sort_order IS NULL;");
 
   db.exec(`
@@ -77,6 +81,23 @@ export function getDb(): DatabaseSync {
         CREATE INDEX IF NOT EXISTS
   idx_messages_thread_created ON messages(thread_id,
   created_at);
+      `);
+
+  db.exec(`
+        UPDATE threads
+        SET created_at = COALESCE(
+          created_at,
+          (SELECT MIN(messages.created_at) FROM messages WHERE messages.thread_id = threads.id),
+          CAST(strftime('%s', 'now') AS INTEGER) * 1000
+        ),
+        last_used_at = COALESCE(
+          last_used_at,
+          (SELECT MAX(messages.created_at) FROM messages WHERE messages.thread_id = threads.id),
+          created_at,
+          CAST(strftime('%s', 'now') AS INTEGER) * 1000
+        );
+        CREATE INDEX IF NOT EXISTS idx_threads_project_last_used
+  ON threads(project_id, last_used_at DESC, created_at DESC);
       `);
 
   return db;

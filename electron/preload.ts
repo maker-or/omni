@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
-import type { Thread } from "../contracts/threads.ts";
+import type { Thread, ThreadPage } from "../contracts/threads.ts";
 import type { Message } from "../contracts/messages.ts";
 import type {
   AgentBridgeEvent,
@@ -53,6 +53,8 @@ const api = {
   },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
+    listProject: (input: { projectId: string; limit?: number; offset?: number }): Promise<ThreadPage> =>
+      ipcRenderer.invoke("threads:listProject", input),
     create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
       ipcRenderer.invoke("threads:create", projectId, title, afterThreadId),
     rename: (id: string, title: string): Promise<Thread> =>

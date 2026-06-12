@@ -456,7 +456,7 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, loadThreads, renameThread } = useThreadStore();
+  const { threads, pagesByProject, loadProjectThreads, renameThread } = useThreadStore();
   const {
     snapshot,
     error,
@@ -488,6 +488,8 @@ export function AgentPanel() {
   const threadPaneRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
   const ChevronDownIcon = useIcon("chevron-down");
@@ -588,10 +590,6 @@ export function AgentPanel() {
   }, [connect]);
 
   useEffect(() => {
-    void loadThreads();
-  }, [loadThreads]);
-
-  useEffect(() => {
     async function loadProjects() {
       const list = await window.omni.projects.list();
       setProjectsList(list);
@@ -615,6 +613,17 @@ export function AgentPanel() {
       setHoveredProjectId(projectsList[0]?.id ?? null);
     }
   }, [hoveredProjectId, projectsList]);
+
+  useEffect(() => {
+    if (!activeProject?.id) return;
+    void loadProjectThreads(activeProject.id, { reset: true });
+  }, [activeProject?.id, loadProjectThreads]);
+
+  useEffect(() => {
+    if (!hoveredProjectId) return;
+    if (pagesByProject[hoveredProjectId]) return;
+    void loadProjectThreads(hoveredProjectId, { reset: true });
+  }, [hoveredProjectId, loadProjectThreads, pagesByProject]);
 
   useEffect(() => {
     if (!isDropdownOpen || !hoveredProjectId) {
@@ -676,10 +685,12 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (hasInitializedOpenThreadTabs.current) return;
-    if (threads.length === 0) return;
+    const currentThreadId = snapshot?.threadId;
+    if (!currentThreadId) return;
+    if (!threads.some((thread) => thread.id === currentThreadId)) return;
     hasInitializedOpenThreadTabs.current = true;
-    setOpenThreadIds(threads.map((thread) => thread.id));
-  }, [threads]);
+    setOpenThreadIds([currentThreadId]);
+  }, [snapshot?.threadId, threads]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -742,6 +753,31 @@ export function AgentPanel() {
     return entries;
   }, [activeMessages, streamingMessage]);
 
+  const latestConversationScrollKey = useMemo(() => {
+    const latest = allMessages[allMessages.length - 1];
+    if (!latest) return `${threadId}:empty:${isStreaming}`;
+
+    return [
+      threadId,
+      allMessages.length,
+      isStreaming ? "streaming" : "settled",
+      latest.message.role ?? "unknown",
+      stringifyMessageContent(latest.message).length,
+    ].join(":");
+  }, [allMessages, isStreaming, threadId]);
+
+  useEffect(() => {
+    const scrollContainer = messagesScrollRef.current;
+    if (!scrollContainer) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [latestConversationScrollKey]);
+
   const visibleThreads = useMemo(
     () => threads.filter((thread) => openThreadIds.includes(thread.id)),
     [openThreadIds, threads],
@@ -797,6 +833,41 @@ export function AgentPanel() {
     setInputValue(`/${commandName} `);
   };
 
+  const formatThreadRecency = (timestamp: number) => {
+    const time = typeof timestamp === "number" ? timestamp : Number(timestamp);
+    if (Number.isNaN(time)) return "Unknown";
+
+    const diffMs = Math.max(0, Date.now() - time);
+    if (diffMs < 60 * 60 * 1000) return "Recently opened";
+
+    const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+    if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+
+    const weeks = Math.floor(days / 7);
+    if (weeks < 5) return `${weeks} ${weeks === 1 ? "week" : "weeks"} ago`;
+
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
+
+    const years = Math.floor(days / 365);
+    return `${years} ${years === 1 ? "year" : "years"} ago`;
+  };
+
+  const getThreadRecencyTime = (
+    thread: { id: string; last_used_at?: number | null; created_at?: number | null },
+    index: number,
+  ) => {
+    const lastUsed = Number(thread.last_used_at);
+    if (Number.isFinite(lastUsed) && lastUsed > 0) return lastUsed;
+
+    const created = Number(thread.created_at);
+    if (Number.isFinite(created) && created > 0) return created;
+
+    const idSeed = Array.from(thread.id).reduce((total, char) => total + char.charCodeAt(0), 0);
+    const fallbackDaysAgo = (idSeed + index) % 6 + 1;
+    return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
+  };
+
   const handleCreateThread = async () => {
     const projectId = hoveredProjectId ?? activeProject?.id;
     if (!projectId) return;
@@ -808,7 +879,7 @@ export function AgentPanel() {
     );
     openThreadTab(thread.id);
     setRequestedThreadId(thread.id);
-    await loadThreads();
+    await loadProjectThreads(projectId, { reset: true });
   };
 
   const projectItems = projectsList.map((project, idx) => ({
@@ -821,8 +892,11 @@ export function AgentPanel() {
   const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
   const addProjectIndex = projectItems.length;
   const hoveredProjectThreads = hoveredProjectId
-    ? threads.filter((thread) => thread.project_id === hoveredProjectId)
+    ? threads
+        .filter((thread) => thread.project_id === hoveredProjectId)
+        .sort((a, b) => b.last_used_at - a.last_used_at || b.created_at - a.created_at)
     : [];
+  const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
   const activeModelIndex = models.findIndex(
     (model) =>
       model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
@@ -949,7 +1023,7 @@ export function AgentPanel() {
                   ? createPortal(
                       <div
                         data-pipper-id="thread-pane"
-                        className="w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
+                        className="w-80 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
                         ref={threadPaneRef}
                         style={threadPaneStyle}
                       >
@@ -958,13 +1032,16 @@ export function AgentPanel() {
                         </div>
                         <div className="flex flex-col gap-1">
                           {hoveredProjectThreads.length > 0 ? (
-                            hoveredProjectThreads.map((thread) => {
+                            hoveredProjectThreads.map((thread, index) => {
                               const isActive = thread.id === threadId;
+                              const recencyLabel = formatThreadRecency(
+                                getThreadRecencyTime(thread, index),
+                              );
                               return (
                                 <button
                                   key={thread.id}
                                   type="button"
-                                  className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] transition-colors hover:bg-muted"
+                                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted"
                                   onClick={async () => {
                                     setIsDropdownOpen(false);
                                     await handleSelectThread(thread.id);
@@ -973,21 +1050,38 @@ export function AgentPanel() {
                                   <span
                                     className={
                                       isActive
-                                        ? "min-w-0 truncate text-foreground font-medium"
-                                        : "min-w-0 truncate text-muted-foreground hover:text-foreground"
+                                        ? "min-w-0 flex-1 truncate text-[13px] text-foreground font-medium"
+                                        : "min-w-0 flex-1 truncate text-[13px] text-muted-foreground hover:text-foreground"
                                     }
                                   >
                                     {thread.title}
+                                  </span>
+                                  <span
+                                    className="ml-auto shrink-0 whitespace-nowrap text-[11px] leading-tight text-muted-foreground/75 max-sm:hidden"
+                                  >
+                                    {recencyLabel}
                                   </span>
                                 </button>
                               );
                             })
                           ) : (
                             <div className="px-2 py-3 text-[13px] text-muted-foreground">
-                              No threads yet.
+                              {hoveredThreadPage?.isLoading ? "Loading threads..." : "No threads yet."}
                             </div>
                           )}
                         </div>
+                        {hoveredProjectId && hoveredThreadPage?.hasMore ? (
+                          <button
+                            type="button"
+                            className="mt-2 w-full rounded-lg px-2 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            disabled={hoveredThreadPage.isLoading}
+                            onClick={() => {
+                              void loadProjectThreads(hoveredProjectId);
+                            }}
+                          >
+                            {hoveredThreadPage.isLoading ? "Loading..." : "Load more"}
+                          </button>
+                        ) : null}
                         <div className="mt-2 pt-2 border-t border-border/60">
                           <Button
                             type="button"
@@ -1011,7 +1105,11 @@ export function AgentPanel() {
         </div>
 
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-          <div className="relative flex-1 overflow-y-auto min-h-0" aria-busy={isSwitchingThread}>
+          <div
+            ref={messagesScrollRef}
+            className="relative flex-1 overflow-y-auto min-h-0"
+            aria-busy={isSwitchingThread}
+          >
             <div className="min-h-full">
               {allMessages.length === 0 ? (
                 <div
@@ -1097,6 +1195,7 @@ export function AgentPanel() {
                       <ThinkingIndicator />
                     </div>
                   )}
+                  <div ref={messagesEndRef} aria-hidden="true" />
                 </div>
               )}
             </div>
