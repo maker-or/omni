@@ -127,8 +127,8 @@ export function CompanionView() {
   const activeMessages = (snapshot?.messages ?? []).filter(
     (m) => (m as MessageLike).role === "user" || (m as MessageLike).role === "assistant",
   );
-  const streamingMessage = snapshot?.streamingMessage ?? null;
   const isStreaming = snapshot?.isStreaming ?? false;
+  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();

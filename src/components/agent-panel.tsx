@@ -713,7 +713,8 @@ export function AgentPanel() {
   const threadId = snapshotThreadId;
   const isSwitchingThread = Boolean(requestedThreadId && requestedThreadId !== snapshotThreadId);
   const activeMessages = snapshot?.messages ?? [];
-  const streamingMessage = snapshot?.streamingMessage ?? null;
+  const isStreaming = snapshot?.isStreaming ?? false;
+  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
   const queueCount =
     (snapshot?.queue.steering.length ?? 0) + (snapshot?.queue.followUp.length ?? 0);
   const slashMatches = useMemo(() => {
@@ -1088,7 +1089,7 @@ export function AgentPanel() {
                     );
                   })}
 
-                  {snapshot?.isStreaming && !streamingMessage && (
+                  {isStreaming && !streamingMessage && (
                     <div
                       className="flex justify-start px-4 py-2"
                       data-pipper-id="Thinking-indicator"

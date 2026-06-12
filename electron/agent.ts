@@ -328,6 +328,9 @@ export class AgentManager {
       }
       this.emit({ type: "event", event });
       this.pushSnapshot(projectId);
+      if (event.type === "agent_end") {
+        this.pushSettledSnapshot(projectId);
+      }
     });
     await session.bindExtensions({
       uiContext: this.buildUiContext(projectId),
@@ -427,7 +430,7 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
-      streamingMessage: session.state.streamingMessage ?? null,
+      streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: session.extensionRunner.getRegisteredCommands().map((command) => ({
         name: command.name,
@@ -448,6 +451,12 @@ export class AgentManager {
 
   private pushSnapshot(projectId: string): void {
     this.emit({ type: "snapshot", snapshot: this.resolveSnapshot(projectId) });
+  }
+
+  private pushSettledSnapshot(projectId: string): void {
+    setTimeout(() => {
+      this.pushSnapshot(projectId);
+    }, 0);
   }
 
   private async requestUi(
@@ -1119,6 +1128,9 @@ export class AgentManager {
       this.emitEditor({ type: "event", event });
       // push a lightweight snapshot
       this.pushEditorSnapshot();
+      if (event.type === "agent_end") {
+        this.pushSettledEditorSnapshot();
+      }
     });
 
     await runtime.session.bindExtensions({
@@ -1185,7 +1197,7 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
-      streamingMessage: session.state.streamingMessage ?? null,
+      streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: [],
       models: modelsToSummary(session.modelRegistry.getAvailable()),
@@ -1201,6 +1213,12 @@ export class AgentManager {
 
   private pushEditorSnapshot(): void {
     this.emitEditor({ type: "snapshot", snapshot: this.resolveEditorSnapshot() });
+  }
+
+  private pushSettledEditorSnapshot(): void {
+    setTimeout(() => {
+      this.pushEditorSnapshot();
+    }, 0);
   }
 
   getEditorState(): AgentRuntimeSnapshot {
