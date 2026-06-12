@@ -138,7 +138,10 @@ export function PipperOverlay() {
       if (!found) return;
       const rect = found.el.getBoundingClientRect();
       const popupTop = Math.min(rect.bottom + 10, window.innerHeight - 200);
-      const popupLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 320));
+      const popupLeft = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - 320),
+      );
       // Explicitly lock the highlight to the clicked element
       // so it stays visible while the popup is open
       setHighlight({
@@ -198,7 +201,7 @@ export function PipperOverlay() {
             }}
           />
           {/* Label chip — sits on the surface level above the page */}
-          <div
+          {/*<div
             className={cn(
               "absolute buttom-1 left-0 flex items-center gap-1 rounded-md px-2 py-1",
               "text-[11px] font-semibold text-foreground whitespace-nowrap",
@@ -206,7 +209,7 @@ export function PipperOverlay() {
             )}
           >
             @ {highlight.label}
-          </div>
+          </div>*/}
         </div>
       )}
 
@@ -222,7 +225,11 @@ export function PipperOverlay() {
           }}
         >
           {/* Same BorderBeam settings as the InputMessage popup */}
-          <BorderBeam size="pulse-inner" colorVariant="mono" className="w-full h-full">
+          <BorderBeam
+            size="pulse-inner"
+            colorVariant="mono"
+            className="w-full h-full"
+          >
             <div className="absolute inset-0 rounded-sm" />
           </BorderBeam>
         </div>
@@ -279,7 +286,10 @@ export function PipperOverlay() {
                     /* noop */
                   }
                   try {
-                    await window.omni?.pipper?.addComment(pipperId, text.trim());
+                    await window.omni?.pipper?.addComment(
+                      pipperId,
+                      text.trim(),
+                    );
                   } catch (err) {
                     console.error("[PipperOverlay] addComment failed:", err);
                   }
