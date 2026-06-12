@@ -1,4 +1,4 @@
-import { cpSync, rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync } from "node:fs";
+import { rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync } from "node:fs";
 import { join, dirname } from "node:path";
 import os from "node:os";
 import { exec } from "node:child_process";
@@ -39,6 +39,20 @@ export function getSharedPath(): string {
   return join(getPipperLibraryPath(), "shared");
 }
 
+function copyRecursive(src: string, dest: string): void {
+  const stat = lstatSync(src);
+  if (stat.isDirectory()) {
+    mkdirSync(dest, { recursive: true });
+    const entries = readdirSync(src);
+    for (const entry of entries) {
+      copyRecursive(join(src, entry), join(dest, entry));
+    }
+  } else {
+    const data = readFileSync(src);
+    writeFileSync(dest, data);
+  }
+}
+
 function copyTemplateFiles(srcDir: string, destDir: string): void {
   mkdirSync(destDir, { recursive: true });
   const entries = readdirSync(srcDir, { withFileTypes: true });
@@ -52,6 +66,8 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
       name === "out" ||
       name === ".git" ||
       name === "dist" ||
+      name === "release" ||
+      name === "app-template" ||
       name === ".env"
     ) {
       continue;
@@ -59,7 +75,7 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
     const srcPath = join(srcDir, name);
     const destPath = join(destDir, name);
 
-    cpSync(srcPath, destPath, { recursive: true });
+    copyRecursive(srcPath, destPath);
   }
 }
 
@@ -128,7 +144,7 @@ export async function initializeWorkspaces(
         console.log("[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).");
       } catch (err) {
         console.error("[WorkspaceManager] Failed to create cleaned package.json in shared folder:", err);
-        cpSync(activePkgJson, sharedPkgJson);
+        copyRecursive(activePkgJson, sharedPkgJson);
       }
     }
 
@@ -234,7 +250,7 @@ export async function restoreFromBackup(): Promise<void> {
         const dest = join(backupDir, file);
         if (existsSync(src)) {
           mkdirSync(dirname(dest), { recursive: true });
-          cpSync(src, dest, { recursive: true });
+          copyRecursive(src, dest);
         }
       }
     } catch (err) {

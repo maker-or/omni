@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "bunx --bun electron-vite dev",
     "postinstall": "install-electron",
-    "build": "bunx --bun electron-vite build",
+    "build": "bunx --bun electron-vite build && node scripts/copy-template.js",
+    "dist": "electron-builder --mac --arm64",
     "preview": "bunx --bun electron-vite preview",
     "start": "electron .",
     "lint": "oxlint",
@@ -68,6 +69,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
     "electron-vite": "^5.0.0",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
