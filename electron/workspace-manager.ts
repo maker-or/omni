@@ -1,4 +1,4 @@
-import { rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync } from "node:fs";
+import { rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync, watch } from "node:fs";
 import { join, dirname } from "node:path";
 import os from "node:os";
 import { exec } from "node:child_process";
@@ -268,5 +268,56 @@ export async function restoreFromBackup(): Promise<void> {
     if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
     if (err.stderr) console.error("[WorkspaceManager] stderr:\n", err.stderr);
     throw err;
+  }
+}
+
+export function startDevFileWatcher(): void {
+  const srcDir = process.cwd();
+  const activeDir = getActivePath();
+
+  console.log(`[WorkspaceManager] Starting development file watcher on: ${srcDir}`);
+
+  try {
+    watch(srcDir, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+
+      const normalized = filename.replace(/\\/g, "/");
+      const firstSegment = normalized.split("/")[0];
+      if (
+        firstSegment === "node_modules" ||
+        firstSegment === "electron" ||
+        firstSegment === "out" ||
+        firstSegment === ".git" ||
+        firstSegment === "release" ||
+        firstSegment === "app-template" ||
+        firstSegment.startsWith(".")
+      ) {
+        return;
+      }
+
+      const srcPath = join(srcDir, normalized);
+      const destPath = join(activeDir, normalized);
+
+      try {
+        if (existsSync(srcPath)) {
+          const stat = lstatSync(srcPath);
+          if (stat.isFile()) {
+            mkdirSync(dirname(destPath), { recursive: true });
+            const data = readFileSync(srcPath);
+            writeFileSync(destPath, data);
+            console.log(`[Watcher] Synced file: ${normalized}`);
+          }
+        } else {
+          if (existsSync(destPath)) {
+            rmSync(destPath, { recursive: true, force: true });
+            console.log(`[Watcher] Removed file: ${normalized}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[Watcher] Failed to sync ${normalized}:`, err);
+      }
+    });
+  } catch (err) {
+    console.error("[Watcher] Failed to start file watcher:", err);
   }
 }

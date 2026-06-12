@@ -507,8 +507,7 @@ export class AgentManager {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
     
-    // Always use the active library workspace path as the working directory for the agent
-    const effectiveProject = { ...project, path: getActivePath() };
+    const effectiveProject = project;
 
     const existingRecord = this.getRecord(projectId);
     if (existingRecord) {
@@ -540,7 +539,7 @@ export class AgentManager {
 
       if (requestedThreadId) {
         const thread = getThread(requestedThreadId);
-        if (thread?.session_file && existsSync(thread.session_file)) {
+        if (thread?.session_file) {
           try {
             sessionManager = SessionManager.open(thread.session_file, undefined, effectiveProject.path);
           } catch (error: any) {
@@ -632,7 +631,8 @@ export class AgentManager {
       });
     } else if (!thread.session_file) {
       await record.runtime.newSession();
-      updateThreadSessionFile(threadId, record.runtime.session.sessionFile ?? null);
+      const sessionFile = record.runtime.session.sessionFile ?? null;
+      updateThreadSessionFile(threadId, sessionFile);
     }
 
     this.activeThreadId = threadId;
@@ -793,6 +793,7 @@ export class AgentManager {
         streamingBehavior: input.streamingBehavior,
       })
       .catch(async (error: unknown) => {
+        console.error("[AgentManager] Agent prompt failed:", error);
         const message = error instanceof Error ? error.message : "Failed to send prompt.";
         this.emit({ type: "notification", message, level: "error" });
         try {

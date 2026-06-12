@@ -1,7 +1,13 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
@@ -27,12 +33,13 @@ import {
   ThinkingStepImage,
 } from "@/components/ui/thinking-steps";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
+import { AmbientPixelField } from "@/components/ambient-pixel-field";
+import { cn } from "@/lib/utils";
 import type { AgentUiRequest } from "../../contracts/agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 type MessageLike = AgentMessage & { role?: string };
 
-const buttonBorderClass = "border border-border/60";
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -44,8 +51,10 @@ function stringifyMessageContent(message: MessageLike): string {
     .map((part) => {
       if (!part || typeof part !== "object") return "";
       const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
+      if (typed.type === "text" && typeof typed.text === "string")
+        return typed.text;
+      if (typed.type === "thinking" && typeof typed.thinking === "string")
+        return typed.thinking;
       return "";
     })
     .filter(Boolean)
@@ -64,7 +73,9 @@ function getToolSummary(message: MessageLike): string | null {
         ? (part as { name?: string }).name
         : null,
     )
-    .filter((value): value is string => typeof value === "string" && value.length > 0);
+    .filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
   if (!toolNames.length) return null;
   return toolNames.join(", ");
 }
@@ -93,7 +104,10 @@ function compactText(value: string, maxLength = 96): string {
   return `${normalized.slice(0, maxLength - 1).trim()}…`;
 }
 
-function getCommandSummary(command: string): { label: string; description: string } {
+function getCommandSummary(command: string): {
+  label: string;
+  description: string;
+} {
   const normalized = command.trim();
   const lower = normalized.toLowerCase();
 
@@ -104,7 +118,11 @@ function getCommandSummary(command: string): { label: string; description: strin
     };
   }
 
-  if (lower.startsWith("rg ") || lower.includes(" rg ") || lower.startsWith("grep ")) {
+  if (
+    lower.startsWith("rg ") ||
+    lower.includes(" rg ") ||
+    lower.startsWith("grep ")
+  ) {
     return {
       label: "Searched the codebase",
       description: `Looked for matching code paths: ${compactText(normalized, 72)}`,
@@ -124,24 +142,34 @@ function getCommandSummary(command: string): { label: string; description: strin
     };
   }
 
-  if (lower.startsWith("find ") || lower.startsWith("ls ") || lower.includes(" --files")) {
+  if (
+    lower.startsWith("find ") ||
+    lower.startsWith("ls ") ||
+    lower.includes(" --files")
+  ) {
     return {
       label: "Inspected project structure",
       description: "Checked available files and folders before making changes.",
     };
   }
 
-  if (lower.startsWith("npm run build") || lower.startsWith("bunx") || lower.includes(" build")) {
+  if (
+    lower.startsWith("npm run build") ||
+    lower.startsWith("bunx") ||
+    lower.includes(" build")
+  ) {
     return {
       label: "Validated the build",
-      description: "Ran the project build to catch TypeScript or bundling issues.",
+      description:
+        "Ran the project build to catch TypeScript or bundling issues.",
     };
   }
 
   if (lower.startsWith("cp ")) {
     return {
       label: "Synced the running app",
-      description: "Copied the updated renderer file into the active Electron workspace.",
+      description:
+        "Copied the updated renderer file into the active Electron workspace.",
     };
   }
 
@@ -181,12 +209,20 @@ function getToolActionCopy(
             : "Completed a background step.",
         };
 
-  if (name.includes("read") || name.includes("grep") || name.includes("search")) {
+  if (
+    name.includes("read") ||
+    name.includes("grep") ||
+    name.includes("search")
+  ) {
     copy = {
       label: "Gathered context",
       description: copy.description,
     };
-  } else if (name.includes("write") || name.includes("replace") || name.includes("edit")) {
+  } else if (
+    name.includes("write") ||
+    name.includes("replace") ||
+    name.includes("edit")
+  ) {
     copy = {
       label: "Updated files",
       description: "Applied the requested code changes.",
@@ -198,7 +234,8 @@ function getToolActionCopy(
   if (isError) {
     return {
       ...copy,
-      resultSummary: "This action returned an error, so the agent used the output to adjust course.",
+      resultSummary:
+        "This action returned an error, so the agent used the output to adjust course.",
     };
   }
 
@@ -225,7 +262,11 @@ function getToolActionCopy(
   return { ...copy, resultSummary: "Completed successfully." };
 }
 
-function getTraceSummary(traceParts: any[], activeMessages: MessageLike[], isStreaming: boolean) {
+function getTraceSummary(
+  traceParts: any[],
+  activeMessages: MessageLike[],
+  isStreaming: boolean,
+) {
   const labels: string[] = [];
 
   for (const part of traceParts) {
@@ -251,10 +292,15 @@ function getTraceSummary(traceParts: any[], activeMessages: MessageLike[], isStr
 
   const uniqueLabels = Array.from(new Set(labels)).slice(0, 3);
   if (!uniqueLabels.length) {
-    return isStreaming ? "Working in the background" : "Completed background work";
+    return isStreaming
+      ? "Working in the background"
+      : "Completed background work";
   }
 
-  const suffix = labels.length > uniqueLabels.length ? ` +${labels.length - uniqueLabels.length} more` : "";
+  const suffix =
+    labels.length > uniqueLabels.length
+      ? ` +${labels.length - uniqueLabels.length} more`
+      : "";
   return `${uniqueLabels.join(", ")}${suffix}`;
 }
 
@@ -277,7 +323,11 @@ function AssistantTraceDeck({
 
   const getToolIcon = (toolName: string): IconName => {
     const name = toolName.toLowerCase();
-    if (name.includes("search") || name.includes("web") || name.includes("globe")) {
+    if (
+      name.includes("search") ||
+      name.includes("web") ||
+      name.includes("globe")
+    ) {
       return "globe";
     }
     if (
@@ -367,7 +417,9 @@ function AssistantTraceDeck({
             } else {
               const keys = Object.keys(args);
               if (keys.length > 0) {
-                stepDescription = keys.map((k) => `${k}: ${JSON.stringify(args[k])}`).join(", ");
+                stepDescription = keys
+                  .map((k) => `${k}: ${JSON.stringify(args[k])}`)
+                  .join(", ");
               }
             }
 
@@ -398,7 +450,9 @@ function AssistantTraceDeck({
                 toolName.includes("image") ||
                 toolName.includes("layout")
               ) {
-                const imageMatch = resultText.match(/data:image\/[a-zA-Z]+;base64,[^\s]+/);
+                const imageMatch = resultText.match(
+                  /data:image\/[a-zA-Z]+;base64,[^\s]+/,
+                );
                 if (imageMatch) {
                   imageSrc = imageMatch[0];
                   imageCaption = "Screenshot output";
@@ -429,8 +483,16 @@ function AssistantTraceDeck({
               }
             }
 
-            const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
-            const actionDescription = [actionCopy.description, actionCopy.resultSummary]
+            const actionCopy = getToolActionCopy(
+              toolName,
+              args,
+              resultText,
+              isError,
+            );
+            const actionDescription = [
+              actionCopy.description,
+              actionCopy.resultSummary,
+            ]
               .filter(Boolean)
               .join(" ");
 
@@ -452,7 +514,9 @@ function AssistantTraceDeck({
                   </ThinkingStepSources>
                 )}
 
-                {imageSrc && <ThinkingStepImage src={imageSrc} caption={imageCaption} />}
+                {imageSrc && (
+                  <ThinkingStepImage src={imageSrc} caption={imageCaption} />
+                )}
 
                 {detailsLinesArray.length > 0 && (
                   <ThinkingStepDetails
@@ -503,7 +567,9 @@ function MessageBody({
         <div className="font-medium text-foreground/80">
           {(message as { toolName?: string }).toolName ?? "Tool result"}
         </div>
-        <div className="mt-1 whitespace-pre-wrap break-words">{body || "Completed"}</div>
+        <div className="mt-1 whitespace-pre-wrap break-words">
+          {body || "Completed"}
+        </div>
       </div>
     );
   }
@@ -514,7 +580,13 @@ function MessageBody({
     if (typeof content === "string") {
       return (
         <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-          {body ? <Streamdown mode={isStreaming ? "streaming" : "static"}>{body}</Streamdown> : " "}
+          {body ? (
+            <Streamdown mode={isStreaming ? "streaming" : "static"}>
+              {body}
+            </Streamdown>
+          ) : (
+            " "
+          )}
         </div>
       );
     }
@@ -522,7 +594,8 @@ function MessageBody({
     if (Array.isArray(content)) {
       const textParts = content.filter((part) => part && part.type === "text");
       const traceParts = content.filter(
-        (part) => part && (part.type === "thinking" || part.type === "toolCall"),
+        (part) =>
+          part && (part.type === "thinking" || part.type === "toolCall"),
       );
 
       const textBody = textParts
@@ -542,7 +615,9 @@ function MessageBody({
 
           {textBody.trim() && (
             <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-              <Streamdown mode={isStreaming ? "streaming" : "static"}>{textBody}</Streamdown>
+              <Streamdown mode={isStreaming ? "streaming" : "static"}>
+                {textBody}
+              </Streamdown>
             </div>
           )}
         </div>
@@ -550,7 +625,11 @@ function MessageBody({
     }
   }
 
-  return <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{body}</div>;
+  return (
+    <div className="whitespace-pre-wrap break-words text-[14px] leading-6">
+      {body}
+    </div>
+  );
 }
 
 function UiRequestDialog({
@@ -560,7 +639,9 @@ function UiRequestDialog({
   request: AgentUiRequest;
   onClose: (value: string | boolean | undefined) => void;
 }) {
-  const [text, setText] = useState(() => ("prefill" in request ? (request.prefill ?? "") : ""));
+  const [text, setText] = useState(() =>
+    "prefill" in request ? (request.prefill ?? "") : "",
+  );
   useEffect(() => {
     setText("prefill" in request ? (request.prefill ?? "") : "");
   }, [request]);
@@ -569,16 +650,20 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
+          <div className="text-sm font-medium text-foreground">
+            {request.title}
+          </div>
           {request.message && (
-            <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              {request.message}
+            </div>
           )}
           <div className="mt-4 flex flex-col gap-2">
             {request.options.map((option) => (
               <Button
                 key={option}
                 variant="secondary"
-                className={`justify-start ${buttonBorderClass}`}
+                className={`justify-start `}
                 onClick={() => onClose(option)}
               >
                 {option}
@@ -594,19 +679,17 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
-          <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
+          <div className="text-sm font-medium text-foreground">
+            {request.title}
+          </div>
+          <div className="mt-2 text-sm text-muted-foreground">
+            {request.message}
+          </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              className={buttonBorderClass}
-              onClick={() => onClose(false)}
-            >
+            <Button variant="secondary" onClick={() => onClose(false)}>
               No
             </Button>
-            <Button className={buttonBorderClass} onClick={() => onClose(true)}>
-              Yes
-            </Button>
+            <Button onClick={() => onClose(true)}>Yes</Button>
           </div>
         </div>
       </div>
@@ -616,7 +699,9 @@ function UiRequestDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-        <div className="text-sm font-medium text-foreground">{request.title}</div>
+        <div className="text-sm font-medium text-foreground">
+          {request.title}
+        </div>
         <textarea
           autoFocus
           value={text}
@@ -625,14 +710,10 @@ function UiRequestDialog({
           className="mt-3 min-h-28 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
         />
         <div className="mt-4 flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            className={buttonBorderClass}
-            onClick={() => onClose(undefined)}
-          >
+          <Button variant="secondary" onClick={() => onClose(undefined)}>
             Cancel
           </Button>
-          <Button className={buttonBorderClass} onClick={() => onClose(text.trim() || undefined)}>
+          <Button onClick={() => onClose(text.trim() || undefined)}>
             Submit
           </Button>
         </div>
@@ -643,7 +724,8 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, pagesByProject, loadProjectThreads, renameThread } = useThreadStore();
+  const { threads, pagesByProject, loadProjectThreads, renameThread } =
+    useThreadStore();
   const {
     snapshot,
     error,
@@ -665,10 +747,13 @@ export function AgentPanel() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
-  const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
+  const [requestedThreadId, setRequestedThreadId] = useState<string | null>(
+    null,
+  );
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
-  const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
+  const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] =
+    useState("");
   const [openThreadIds, setOpenThreadIds] = useState<string[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
@@ -678,7 +763,9 @@ export function AgentPanel() {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
+  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(
+    null,
+  );
   const ChevronDownIcon = useIcon("chevron-down");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const CopyIcon = useIcon("copy");
@@ -687,7 +774,13 @@ export function AgentPanel() {
   const RotateCcwIcon = useIcon("rotate-ccw");
   const hasInitializedOpenThreadTabs = useRef(false);
 
-  function CopyButton({ msgId, bodyText }: { msgId: string; bodyText: string }) {
+  function CopyButton({
+    msgId,
+    bodyText,
+  }: {
+    msgId: string;
+    bodyText: string;
+  }) {
     const isCopied = copiedMessageId === msgId;
     return (
       <button
@@ -703,7 +796,8 @@ export function AgentPanel() {
 
   const formatMessageTime = (message: MessageLike): string | undefined => {
     const meta = message as { timestamp?: number; created_at?: string };
-    const timeVal = meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
+    const timeVal =
+      meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
     if (!timeVal) return undefined;
     const date = new Date(timeVal);
     if (isNaN(date.getTime())) return undefined;
@@ -795,7 +889,9 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (!hoveredProjectId) return;
-    const exists = projectsList.some((project) => project.id === hoveredProjectId);
+    const exists = projectsList.some(
+      (project) => project.id === hoveredProjectId,
+    );
     if (!exists) {
       setHoveredProjectId(projectsList[0]?.id ?? null);
     }
@@ -909,17 +1005,24 @@ export function AgentPanel() {
   const models = snapshot?.models ?? [];
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = snapshotThreadId;
-  const isSwitchingThread = Boolean(requestedThreadId && requestedThreadId !== snapshotThreadId);
+  const isSwitchingThread = Boolean(
+    requestedThreadId && requestedThreadId !== snapshotThreadId,
+  );
   const activeMessages = snapshot?.messages ?? [];
   const isStreaming = snapshot?.isStreaming ?? false;
-  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
+  const streamingMessage = isStreaming
+    ? (snapshot?.streamingMessage ?? null)
+    : null;
   const queueCount =
-    (snapshot?.queue.steering.length ?? 0) + (snapshot?.queue.followUp.length ?? 0);
+    (snapshot?.queue.steering.length ?? 0) +
+    (snapshot?.queue.followUp.length ?? 0);
   const slashMatches = useMemo(() => {
     const trimmed = inputValue.trimStart();
     if (!trimmed.startsWith("/")) return [];
     const query = trimmed.slice(1).split(/\s+/, 1)[0].toLowerCase();
-    return commands.filter((command) => command.name.toLowerCase().includes(query));
+    return commands.filter((command) =>
+      command.name.toLowerCase().includes(query),
+    );
   }, [commands, inputValue]);
 
   const allMessages = useMemo(() => {
@@ -929,7 +1032,10 @@ export function AgentPanel() {
         originalIndex: index,
         isStreaming: false,
       }))
-      .filter(({ message }) => message.role === "user" || message.role === "assistant");
+      .filter(
+        ({ message }) =>
+          message.role === "user" || message.role === "assistant",
+      );
     if (streamingMessage) {
       entries.push({
         message: streamingMessage as MessageLike,
@@ -971,12 +1077,16 @@ export function AgentPanel() {
   );
 
   const openThreadTab = (threadId: string) => {
-    setOpenThreadIds((current) => (current.includes(threadId) ? current : [...current, threadId]));
+    setOpenThreadIds((current) =>
+      current.includes(threadId) ? current : [...current, threadId],
+    );
   };
 
   const closeThreadTab = (threadId: string) => {
     const currentVisibleThreads = visibleThreads;
-    const currentIndex = currentVisibleThreads.findIndex((thread) => thread.id === threadId);
+    const currentIndex = currentVisibleThreads.findIndex(
+      (thread) => thread.id === threadId,
+    );
     const currentOpenIds = openThreadIds;
     const nextOpenIds = currentOpenIds.filter((id) => id !== threadId);
 
@@ -985,7 +1095,9 @@ export function AgentPanel() {
     if (currentIndex === -1) return;
 
     if (threadId === snapshot?.threadId) {
-      const nextVisibleThreads = threads.filter((thread) => nextOpenIds.includes(thread.id));
+      const nextVisibleThreads = threads.filter((thread) =>
+        nextOpenIds.includes(thread.id),
+      );
       const fallbackThread =
         nextVisibleThreads[currentIndex] ??
         nextVisibleThreads[currentIndex - 1] ??
@@ -1034,14 +1146,19 @@ export function AgentPanel() {
     if (weeks < 5) return `${weeks} ${weeks === 1 ? "week" : "weeks"} ago`;
 
     const months = Math.floor(days / 30);
-    if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
+    if (months < 12)
+      return `${months} ${months === 1 ? "month" : "months"} ago`;
 
     const years = Math.floor(days / 365);
     return `${years} ${years === 1 ? "year" : "years"} ago`;
   };
 
   const getThreadRecencyTime = (
-    thread: { id: string; last_used_at?: number | null; created_at?: number | null },
+    thread: {
+      id: string;
+      last_used_at?: number | null;
+      created_at?: number | null;
+    },
     index: number,
   ) => {
     const lastUsed = Number(thread.last_used_at);
@@ -1050,8 +1167,11 @@ export function AgentPanel() {
     const created = Number(thread.created_at);
     if (Number.isFinite(created) && created > 0) return created;
 
-    const idSeed = Array.from(thread.id).reduce((total, char) => total + char.charCodeAt(0), 0);
-    const fallbackDaysAgo = (idSeed + index) % 6 + 1;
+    const idSeed = Array.from(thread.id).reduce(
+      (total, char) => total + char.charCodeAt(0),
+      0,
+    );
+    const fallbackDaysAgo = ((idSeed + index) % 6) + 1;
     return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
   };
 
@@ -1076,25 +1196,33 @@ export function AgentPanel() {
     index: idx,
   }));
 
-  const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
+  const checkedIndex = projectItems.findIndex(
+    (item) => item.id === activeProject?.id,
+  );
   const addProjectIndex = projectItems.length;
   const hoveredProjectThreads = hoveredProjectId
     ? threads
         .filter((thread) => thread.project_id === hoveredProjectId)
-        .sort((a, b) => b.last_used_at - a.last_used_at || b.created_at - a.created_at)
+        .sort(
+          (a, b) =>
+            b.last_used_at - a.last_used_at || b.created_at - a.created_at,
+        )
     : [];
-  const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
+  const hoveredThreadPage = hoveredProjectId
+    ? pagesByProject[hoveredProjectId]
+    : undefined;
   const activeModelIndex = models.findIndex(
     (model) =>
-      model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
+      model.provider === snapshot?.model?.provider &&
+      model.modelId === snapshot?.model?.modelId,
   );
   const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
-  const emptyStateSubject = activeThread?.title ?? activeProject?.name ?? "your project";
+  const emptyStateSubject = activeProject?.name ?? "your project";
 
   return (
     <section
       data-pipper-id="agent-panel"
-      className="relative z-20 h-full w-full flex flex-col bg-surface-1 overflow-visible"
+      className="relative z-20 h-full w-full flex flex-col bg-surface-1  overflow-visible"
     >
       {uiRequest && (
         <UiRequestDialog
@@ -1113,16 +1241,24 @@ export function AgentPanel() {
         onValueChange={handleSelectThread}
         className="flex-1 flex flex-col min-h-0"
       >
-        <div className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1 border-b border-border/60">
+        <div
+          className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1"
+          data-pipper-id="thread-tabs-container"
+        >
           <TabsList
             data-pipper-id="thread-tabs"
-            className="px-1 py-0 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
+            className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
           >
             {visibleThreads.map((thread) => {
-              const project = projectsList.find((item) => item.id === thread.project_id);
+              const project = projectsList.find(
+                (item) => item.id === thread.project_id,
+              );
               const Icon = project
                 ? (((props: { className?: string }) => (
-                    <ProjectIcon name={project.icon} className={props.className} />
+                    <ProjectIcon
+                      name={project.icon}
+                      className={props.className}
+                    />
                   )) as any)
                 : undefined;
               const isEditing = editingThreadId === thread.id;
@@ -1138,7 +1274,9 @@ export function AgentPanel() {
                   onEditValueChange={setEditingThreadTitle}
                   onEditCommit={commitRenameThread}
                   onEditCancel={cancelRenameThread}
-                  onDoubleClick={() => startRenameThread(thread.id, thread.title)}
+                  onDoubleClick={() =>
+                    startRenameThread(thread.id, thread.title)
+                  }
                 />
               );
             })}
@@ -1146,12 +1284,12 @@ export function AgentPanel() {
 
           <div className="relative">
             <Button
+              data-pipper-id="add-thread-button"
               pipperId="add-thread-button"
               ref={buttonRef}
               variant="ghost"
               size="icon-sm"
               active={isDropdownOpen}
-              className={buttonBorderClass}
               onClick={() =>
                 setIsDropdownOpen((prev) => {
                   const next = !prev;
@@ -1175,10 +1313,15 @@ export function AgentPanel() {
                 <div ref={projectListRef} className="relative">
                   <Dropdown checkedIndex={checkedIndex} className="w-72">
                     {projectItems.map((item) => {
-                      const project = projectsList.find((p) => p.id === item.id);
+                      const project = projectsList.find(
+                        (p) => p.id === item.id,
+                      );
                       const ProjectIconItem = project
                         ? (((props: { className?: string }) => (
-                            <ProjectIcon name={project.icon} className={props.className} />
+                            <ProjectIcon
+                              name={project.icon}
+                              className={props.className}
+                            />
                           )) as any)
                         : undefined;
                       return (
@@ -1206,7 +1349,9 @@ export function AgentPanel() {
                     />
                   </Dropdown>
                 </div>
-                {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
+                {hoveredProjectId &&
+                threadPaneStyle &&
+                typeof document !== "undefined"
                   ? createPortal(
                       <div
                         data-pipper-id="thread-pane"
@@ -1243,9 +1388,7 @@ export function AgentPanel() {
                                   >
                                     {thread.title}
                                   </span>
-                                  <span
-                                    className="ml-auto shrink-0 whitespace-nowrap text-[11px] leading-tight text-muted-foreground/75 max-sm:hidden"
-                                  >
+                                  <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] leading-tight text-muted-foreground/75 max-sm:hidden">
                                     {recencyLabel}
                                   </span>
                                 </button>
@@ -1253,7 +1396,9 @@ export function AgentPanel() {
                             })
                           ) : (
                             <div className="px-2 py-3 text-[13px] text-muted-foreground">
-                              {hoveredThreadPage?.isLoading ? "Loading threads..." : "No threads yet."}
+                              {hoveredThreadPage?.isLoading
+                                ? "Loading threads..."
+                                : "No threads yet."}
                             </div>
                           )}
                         </div>
@@ -1266,14 +1411,17 @@ export function AgentPanel() {
                               void loadProjectThreads(hoveredProjectId);
                             }}
                           >
-                            {hoveredThreadPage.isLoading ? "Loading..." : "Load more"}
+                            {hoveredThreadPage.isLoading
+                              ? "Loading..."
+                              : "Load more"}
                           </button>
                         ) : null}
                         <div className="mt-2 pt-2 border-t border-border/60">
                           <Button
                             type="button"
-                            variant="secondary"
-                            className={`w-full justify-start ${buttonBorderClass}`}
+                            variant="ghost"
+                            className="w-full justify-center"
+                            leadingIcon={PlusIcon}
                             onClick={async () => {
                               setIsDropdownOpen(false);
                               await handleCreateThread();
@@ -1291,88 +1439,109 @@ export function AgentPanel() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
+        <div className="relative flex-1 overflow-hidden min-h-0 flex flex-col">
+          {allMessages.length === 0 && (
+            <AmbientPixelField
+              pixelSize={6}
+              gap={4}
+              intensity={0.65}
+              fadeStart={0.5}
+              animated={true}
+              className="absolute inset-0 z-0 pointer-events-none"
+            />
+          )}
           <div
             ref={messagesScrollRef}
-            className="relative flex-1 overflow-y-auto min-h-0"
+            className="relative flex-1 overflow-y-auto min-h-0 z-10"
             aria-busy={isSwitchingThread}
           >
             <div className="min-h-full">
               {allMessages.length === 0 ? (
                 <div
                   data-pipper-id="empty-state"
-                  className="h-full min-h-[280px] flex items-center justify-center p-6"
+                  className="h-full min-h-[280px] flex items-center justify-center p-6 select-none"
                 >
-                  <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
+                  <h2 className="relative z-10 flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65 pointer-events-none">
                     <span className="text-2xl font-semibold tracking-tight text-foreground/55">
                       What should we cook in
                     </span>
                     <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
                       {emptyStateSubject}
                     </span>
-                    <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                      ?
-                    </span>
                   </h2>
                 </div>
               ) : (
-                <div data-pipper-id="messages-list" className="flex flex-col gap-3 p-4">
-                  {allMessages.map(({ message, originalIndex, isStreaming }) => {
-                    const msg = message as MessageLike;
-                    const from = msg.role === "user" ? "user" : "assistant";
-                    const msgId = isStreaming ? "streaming" : getMessageKey(msg, originalIndex);
-                    const bodyText = stringifyMessageContent(msg);
-                    const timeStr = isStreaming ? undefined : formatMessageTime(msg);
-                    const hasContent =
-                      bodyText.trim() !== "" ||
-                      (from === "assistant" && getToolSummary(msg) !== null);
+                <div
+                  data-pipper-id="messages-list"
+                  className="flex flex-col gap-3 p-4"
+                >
+                  {allMessages.map(
+                    ({ message, originalIndex, isStreaming }) => {
+                      const msg = message as MessageLike;
+                      const from = msg.role === "user" ? "user" : "assistant";
+                      const msgId = isStreaming
+                        ? "streaming"
+                        : getMessageKey(msg, originalIndex);
+                      const bodyText = stringifyMessageContent(msg);
+                      const timeStr = isStreaming
+                        ? undefined
+                        : formatMessageTime(msg);
+                      const hasContent =
+                        bodyText.trim() !== "" ||
+                        (from === "assistant" && getToolSummary(msg) !== null);
 
-                    const actions =
-                      from === "user" ? (
-                        <div data-pipper-id="user-actions-buttons">
-                          <CopyButton msgId={msgId} bodyText={bodyText} />
-                          <button
-                            type="button"
-                            aria-label="Edit message"
-                            className={iconButtonClass}
-                            onClick={() => {
-                              setInputValue(bodyText);
-                              if (composerTextareaRef.current) {
-                                composerTextareaRef.current.focus();
-                              }
-                            }}
-                          >
-                            <PencilIcon size={13} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div data-pipper-id="agent-actions-buttons">
-                          <CopyButton msgId={msgId} bodyText={bodyText} />
-                          {!isStreaming && (
+                      const actions =
+                        from === "user" ? (
+                          <div data-pipper-id="user-actions-buttons">
+                            <CopyButton msgId={msgId} bodyText={bodyText} />
                             <button
                               type="button"
-                              aria-label="Regenerate response"
+                              aria-label="Edit message"
                               className={iconButtonClass}
-                              onClick={() => handleRegenerate(originalIndex)}
+                              onClick={() => {
+                                setInputValue(bodyText);
+                                if (composerTextareaRef.current) {
+                                  composerTextareaRef.current.focus();
+                                }
+                              }}
                             >
-                              <RotateCcwIcon size={13} />
+                              <PencilIcon size={13} />
                             </button>
-                          )}
-                        </div>
-                      );
+                          </div>
+                        ) : (
+                          <div data-pipper-id="agent-actions-buttons">
+                            <CopyButton msgId={msgId} bodyText={bodyText} />
+                            {!isStreaming && (
+                              <button
+                                type="button"
+                                aria-label="Regenerate response"
+                                className={iconButtonClass}
+                                onClick={() => handleRegenerate(originalIndex)}
+                              >
+                                <RotateCcwIcon size={13} />
+                              </button>
+                            )}
+                          </div>
+                        );
 
-                    return (
-                      <ChatMessage key={msgId} from={from} time={timeStr} actions={actions}>
-                        {hasContent ? (
-                          <MessageBody
-                            message={msg}
-                            isStreaming={isStreaming}
-                            activeMessages={activeMessages}
-                          />
-                        ) : undefined}
-                      </ChatMessage>
-                    );
-                  })}
+                      return (
+                        <ChatMessage
+                          key={msgId}
+                          from={from}
+                          time={timeStr}
+                          actions={actions}
+                        >
+                          {hasContent ? (
+                            <MessageBody
+                              message={msg}
+                              isStreaming={isStreaming}
+                              activeMessages={activeMessages}
+                            />
+                          ) : undefined}
+                        </ChatMessage>
+                      );
+                    },
+                  )}
 
                   {isStreaming && !streamingMessage && (
                     <div
@@ -1388,7 +1557,13 @@ export function AgentPanel() {
             </div>
           </div>
 
-          <div data-pipper-id="input-area" className="bg-surface-1  p-3">
+          <div
+            data-pipper-id="input-area"
+            className={cn(
+              "relative z-10 p-3 transition-colors duration-300",
+              allMessages.length === 0 ? "bg-transparent" : "bg-surface-1"
+            )}
+          >
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
               {slashMatches.length > 0 && (
                 <div
@@ -1404,7 +1579,6 @@ export function AgentPanel() {
                         key={command.name}
                         variant="secondary"
                         size="sm"
-                        className={buttonBorderClass}
                         onClick={() => applyCommand(command.name)}
                       >
                         /{command.name}
@@ -1429,24 +1603,26 @@ export function AgentPanel() {
                   },
                 }}
                 rightSlot={
-                  <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
-                    {snapshot?.thinkingLevel !== undefined && snapshot?.thinkingLevel !== null && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={buttonBorderClass}
-                        onClick={async () => {
-                          await cycleThinkingLevel();
-                        }}
-                      >
-                        Reasoning: {snapshot.thinkingLevel}
-                      </Button>
-                    )}
+                  <div
+                    ref={modelDropdownRef}
+                    className="relative flex items-center gap-1.5"
+                  >
+                    {snapshot?.thinkingLevel !== undefined &&
+                      snapshot?.thinkingLevel !== null && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            await cycleThinkingLevel();
+                          }}
+                        >
+                          Reasoning: {snapshot.thinkingLevel}
+                        </Button>
+                      )}
                     <Button
                       pipperId="model-selector"
                       variant="ghost"
                       size="sm"
-                      className={buttonBorderClass}
                       trailingIcon={ChevronDownIcon}
                       active={isModelDropdownOpen}
                       disabled={models.length === 0}
@@ -1463,7 +1639,9 @@ export function AgentPanel() {
                         className="absolute right-0 bottom-full mb-1.5 z-[250]"
                       >
                         <Dropdown
-                          checkedIndex={activeModelIndex >= 0 ? activeModelIndex : undefined}
+                          checkedIndex={
+                            activeModelIndex >= 0 ? activeModelIndex : undefined
+                          }
                           className="w-72"
                         >
                           {models.map((model, index) => (
@@ -1503,7 +1681,9 @@ export function AgentPanel() {
                     <div className="flex items-center gap-2">
                       <span>{snapshot.stats.tokens.total} tks</span>
                       {snapshot.stats.cost > 0 && (
-                        <span className="opacity-70">(${snapshot.stats.cost.toFixed(4)})</span>
+                        <span className="opacity-70">
+                          (${snapshot.stats.cost.toFixed(4)})
+                        </span>
                       )}
                     </div>
                   )}

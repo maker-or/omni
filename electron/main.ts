@@ -36,6 +36,7 @@ import {
   getActivePath,
   getBackupPath,
   getSharedPath,
+  startDevFileWatcher,
 } from "./workspace-manager";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
@@ -542,42 +543,97 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("agent:getState", () => requireAgentManager().getState());
-  ipcMain.handle("agent:getCommands", () => requireAgentManager().getCommands());
-  ipcMain.handle("agent:getModels", () => requireAgentManager().getModels());
-  ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
-  ipcMain.handle("agent:sendPrompt", (_event, input) => requireAgentManager().sendPrompt(input));
-  ipcMain.handle("agent:abort", () => requireAgentManager().abort());
-  ipcMain.handle("agent:switchThread", (_event, threadId: string) =>
-    requireAgentManager().switchThread(threadId),
-  );
-  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string, afterThreadId?: string | null) =>
-    requireAgentManager().createThread(projectId, title, afterThreadId ?? null),
-  );
-  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
-    requireAgentManager().cycleModel(direction),
-  );
-  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) =>
-    requireAgentManager().setModel(model),
-  );
-  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) =>
-    requireAgentManager().setThinkingLevel(level),
-  );
-  ipcMain.handle("agent:cycleThinkingLevel", () => requireAgentManager().cycleThinkingLevel());
-  ipcMain.handle("agent:compact", (_event, customInstructions?: string) =>
-    requireAgentManager().compact(customInstructions),
-  );
-  ipcMain.handle("agent:respondToUiRequest", (_event, response) =>
-    requireAgentManager().respondToUiRequest(response),
-  );
-  ipcMain.handle("agent:setEditorText", (_event, text: string) =>
-    requireAgentManager().setEditorText(text),
-  );
-  ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
-  ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
-    requireAgentManager().pasteToEditor(text),
-  );
+  ipcMain.handle("agent:getState", () => {
+    try {
+      const state = requireAgentManager().getState();
+      console.log(`[IPC] agent:getState returned state for project: ${state.projectId}, thread: ${state.threadId}`);
+      return state;
+    } catch (e: any) {
+      console.error("[IPC] agent:getState error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle("agent:getCommands", () => {
+    console.log("[IPC] agent:getCommands called");
+    return requireAgentManager().getCommands();
+  });
+  ipcMain.handle("agent:getModels", () => {
+    console.log("[IPC] agent:getModels called");
+    return requireAgentManager().getModels();
+  });
+  ipcMain.handle("agent:getStats", () => {
+    console.log("[IPC] agent:getStats called");
+    return requireAgentManager().getStats();
+  });
+  ipcMain.handle("agent:sendPrompt", (_event, input) => {
+    console.log("[IPC] agent:sendPrompt called with:", JSON.stringify(input));
+    try {
+      return requireAgentManager().sendPrompt(input);
+    } catch (e: any) {
+      console.error("[IPC] agent:sendPrompt error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle("agent:abort", () => {
+    console.log("[IPC] agent:abort called");
+    return requireAgentManager().abort();
+  });
+  ipcMain.handle("agent:switchThread", (_event, threadId: string) => {
+    console.log("[IPC] agent:switchThread called with threadId:", threadId);
+    try {
+      return requireAgentManager().switchThread(threadId);
+    } catch (e: any) {
+      console.error("[IPC] agent:switchThread error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string, afterThreadId?: string | null) => {
+    console.log("[IPC] agent:createThread called with:", { projectId, title, afterThreadId });
+    try {
+      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+    } catch (e: any) {
+      console.error("[IPC] agent:createThread error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") => {
+    console.log("[IPC] agent:cycleModel called, direction:", direction);
+    return requireAgentManager().cycleModel(direction);
+  });
+  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) => {
+    console.log("[IPC] agent:setModel called with model:", model);
+    return requireAgentManager().setModel(model);
+  });
+  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) => {
+    console.log("[IPC] agent:setThinkingLevel called with level:", level);
+    return requireAgentManager().setThinkingLevel(level);
+  });
+  ipcMain.handle("agent:cycleThinkingLevel", () => {
+    console.log("[IPC] agent:cycleThinkingLevel called");
+    return requireAgentManager().cycleThinkingLevel();
+  });
+  ipcMain.handle("agent:compact", (_event, customInstructions?: string) => {
+    console.log("[IPC] agent:compact called with customInstructions:", customInstructions);
+    return requireAgentManager().compact(customInstructions);
+  });
+  ipcMain.handle("agent:respondToUiRequest", (_event, response) => {
+    console.log("[IPC] agent:respondToUiRequest called with response:", response);
+    return requireAgentManager().respondToUiRequest(response);
+  });
+  ipcMain.handle("agent:setEditorText", (_event, text: string) => {
+    console.log("[IPC] agent:setEditorText called");
+    return requireAgentManager().setEditorText(text);
+  });
+  ipcMain.handle("agent:getEditorText", () => {
+    console.log("[IPC] agent:getEditorText called");
+    return requireAgentManager().getEditorText();
+  });
+  ipcMain.handle("agent:pasteToEditor", (_event, text: string) => {
+    console.log("[IPC] agent:pasteToEditor called");
+    return requireAgentManager().pasteToEditor(text);
+  });
   ipcMain.on("agent:reportEditorText", (_event, text: string) => {
+    console.log("[IPC] agent:reportEditorText received");
     requireAgentManager().reportEditorText(text);
   });
 
@@ -807,6 +863,10 @@ app.whenReady().then(async () => {
     },
   });
   registerIpc();
+
+  if (isDev) {
+    startDevFileWatcher();
+  }
 
   // Check dependencies and workspace status on startup
   const deps = await checkAllDependencies();

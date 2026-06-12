@@ -5,7 +5,11 @@ import { InputMessage } from "@/components/ui/input-message";
 import { Streamdown } from "streamdown";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
-import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../../contracts/agent.ts";
+import { AmbientPixelField } from "@/components/ambient-pixel-field";
+import type {
+  AgentBridgeEvent,
+  AgentRuntimeSnapshot,
+} from "../../contracts/agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 type MessageLike = AgentMessage & { role?: string };
@@ -18,8 +22,10 @@ function stringifyMessageContent(message: MessageLike): string {
     .map((part) => {
       if (!part || typeof part !== "object") return "";
       const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
+      if (typed.type === "text" && typeof typed.text === "string")
+        return typed.text;
+      if (typed.type === "thinking" && typeof typed.thinking === "string")
+        return typed.thinking;
       return "";
     })
     .filter(Boolean)
@@ -44,16 +50,21 @@ function useEditorSession() {
     async function activate() {
       try {
         if (window.omni?.editor?.onEvent) {
-          unsubscribe = window.omni.editor.onEvent((payload: AgentBridgeEvent) => {
-            if (payload.type === "snapshot") setSnapshot(payload.snapshot);
-          });
+          unsubscribe = window.omni.editor.onEvent(
+            (payload: AgentBridgeEvent) => {
+              if (payload.type === "snapshot") setSnapshot(payload.snapshot);
+            },
+          );
         }
         await window.omni?.editor?.activate?.();
         const initial = await window.omni?.editor?.getState?.();
         if (initial) setSnapshot(initial);
         setIsActivated(true);
       } catch (err) {
-        console.error("[CompanionView] Failed to activate editor session:", err);
+        console.error(
+          "[CompanionView] Failed to activate editor session:",
+          err,
+        );
       }
     }
 
@@ -95,7 +106,9 @@ export function CompanionView() {
   // ── 2. Sync pipper state broadcasts from main window ────────────────────
   useEffect(() => {
     if (!window.omni?.pipper?.onStateChanged) return;
-    const unsub = window.omni.pipper.onStateChanged((payload) => syncFromBroadcast(payload));
+    const unsub = window.omni.pipper.onStateChanged((payload) =>
+      syncFromBroadcast(payload),
+    );
     return unsub;
   }, [syncFromBroadcast]);
 
@@ -125,10 +138,14 @@ export function CompanionView() {
   }, [snapshot?.messages, snapshot?.streamingMessage]);
 
   const activeMessages = (snapshot?.messages ?? []).filter(
-    (m) => (m as MessageLike).role === "user" || (m as MessageLike).role === "assistant",
+    (m) =>
+      (m as MessageLike).role === "user" ||
+      (m as MessageLike).role === "assistant",
   );
   const isStreaming = snapshot?.isStreaming ?? false;
-  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
+  const streamingMessage = isStreaming
+    ? (snapshot?.streamingMessage ?? null)
+    : null;
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
@@ -139,14 +156,27 @@ export function CompanionView() {
     await sendPrompt(trimmed);
   };
 
+  const isEmpty = activeMessages.length === 0 && !streamingMessage;
+
   return (
     // The companion window lives at surface-1 (page substrate)
     <div
       className={cn(
-        "h-screen w-screen flex flex-col overflow-hidden select-none",
+        "relative h-screen w-screen flex flex-col overflow-hidden select-none",
         "bg-surface-1 text-foreground",
       )}
     >
+      {isEmpty && (
+        <AmbientPixelField
+          pixelSize={6}
+          gap={4}
+          intensity={0.65}
+          fadeStart={0.5}
+          animated={true}
+          className="absolute inset-0 z-0 pointer-events-none"
+        />
+      )}
+
       {/* ── Title Bar ─────────────────────────────────────────────────── */}
       <header
         className={cn(
@@ -158,39 +188,14 @@ export function CompanionView() {
       ></header>
 
       {/* ── Message Area ──────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-3">
-        {activeMessages.length === 0 && !streamingMessage ? (
+      <div className="relative z-10 flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-3">
+        {isEmpty ? (
           /* Empty state */
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-8 text-center">
-            <div
-              className={cn(
-                "flex size-14 items-center justify-center rounded-2xl",
-                surfaceClasses(3, 2),
-              )}
-            >
-              <span className="text-2xl">✏️</span>
-            </div>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-8 text-center select-none pointer-events-none">
             <div className="flex flex-col gap-1">
-              <p className="text-sm font-semibold text-foreground">Visual Edit Mode active</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Hover an element in the main window, click it,
-                <br />
-                type your change, and press Enter.
-              </p>
-            </div>
-            {/* Targetable element hint chips */}
-            <div className="flex flex-wrap justify-center gap-1.5 mt-1">
-              {["header", "agent panel", "others panel", "workspace panel"].map((id) => (
-                <span
-                  key={id}
-                  className={cn(
-                    "rounded-full px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground",
-                    surfaceClasses(3, 2),
-                  )}
-                >
-                  {id}
-                </span>
-              ))}
+              <h2 className="text-2xl font-semibold text-foreground/55 tracking-tight">
+                Edit Mode
+              </h2>
             </div>
           </div>
         ) : (
@@ -203,14 +208,18 @@ export function CompanionView() {
               if (!bodyText.trim()) return null;
 
               // Structured annotation: [Component: X]\ncomment
-              const componentMatch = bodyText.match(/^\[Component:\s*(.+?)\]\n([\s\S]+)$/);
+              const componentMatch = bodyText.match(
+                /^\[Component:\s*(.+?)\]\n([\s\S]+)$/,
+              );
 
               return (
                 <div
                   key={msgId}
                   className={cn(
                     "flex flex-col gap-1 max-w-[92%]",
-                    from === "user" ? "self-end items-end" : "self-start items-start",
+                    from === "user"
+                      ? "self-end items-end"
+                      : "self-start items-start",
                   )}
                 >
                   {from === "user" && componentMatch ? (
@@ -283,7 +292,7 @@ export function CompanionView() {
       </div>
 
       {/* ── Input Area ────────────────────────────────────────────────── */}
-      <div className={cn("shrink-0 p-2")}>
+      <div className={cn("relative z-10 shrink-0 p-2")}>
         <InputMessage
           textareaRef={inputRef}
           value={inputValue}
