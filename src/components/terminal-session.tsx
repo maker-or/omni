@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Terminal, useTerminal } from "@wterm/react";
 import { GhosttyCore } from "@wterm/ghostty";
 import "@wterm/dom/css";
+import { useTerminalStore } from "@/store/terminal-store";
 
 interface TerminalSessionProps {
   sessionId: string;
@@ -63,6 +64,12 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const createdRef = useRef(false);
+  const writtenLengthRef = useRef(0);
+
+  const history = useTerminalStore((state) => {
+    const session = state.sessions.find((s) => s.id === sessionId);
+    return session ? session.history : "";
+  });
 
   // Load GhosttyCore asynchronously for this session
   useEffect(() => {
@@ -85,6 +92,16 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
     };
   }, []);
 
+  // Write new history text reactively as it updates in the store
+  useEffect(() => {
+    if (!isReady || !history) return;
+    const newText = history.slice(writtenLengthRef.current);
+    if (newText) {
+      write(newText);
+      writtenLengthRef.current = history.length;
+    }
+  }, [history, isReady, write]);
+
   // Initialize the backend PTY process and bind to its events only when both core and terminal are ready
   useEffect(() => {
     if (!core || !isReady) {
@@ -102,7 +119,7 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
       window.omni.terminal
         .create(sessionId, cwd)
         .then(() => {
-          console.log("[Terminal Session] Backend PTY created successfully.");
+          console.log("[Terminal Session] Backend PTY created/reused successfully.");
         })
         .catch((err) => {
           console.error("[Terminal Session] Failed to create backend PTY:", err);
@@ -113,14 +130,6 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
         });
     }
 
-    // Subscribe to stdout data stream
-    const unsubscribeData = window.omni.terminal.onData((payload) => {
-      if (payload.sessionId === sessionId) {
-        console.log(`[Terminal Session] stdout data received (${payload.data.length} bytes)`);
-        write(payload.data);
-      }
-    });
-
     // Subscribe to shell exit events
     const unsubscribeExit = window.omni.terminal.onExit((payload) => {
       if (payload.sessionId === sessionId) {
@@ -130,7 +139,6 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
     });
 
     return () => {
-      unsubscribeData();
       unsubscribeExit();
     };
   }, [core, isReady, sessionId, cwd, write]);

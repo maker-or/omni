@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "instrument-product-analytics": {
+      "source": "posthog/skills",
+      "sourceType": "github",
+      "skillPath": "skills/omnibus/instrument-product-analytics/SKILL.md",
+      "computedHash": "e374ad2584a6c7eb1c3be856e655838fabe697d86ab7ceff603ea70051f19253"
+    },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",

@@ -12,12 +12,22 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 
 export function OthersView() {
   const { activeProject } = useProjectStore();
-  const { sessions, activeSessionId, createSession, closeSession, setActiveSessionId } =
-    useTerminalStore();
+  const {
+    sessions,
+    activeSessionId,
+    createSession,
+    closeSession,
+    setActiveSessionId,
+    initializeGlobalListener,
+  } = useTerminalStore();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    initializeGlobalListener();
+  }, [initializeGlobalListener]);
 
   // Sync activeTabId when the active terminal session changes or when a terminal is closed
   useEffect(() => {
