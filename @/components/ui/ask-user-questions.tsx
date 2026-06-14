@@ -527,22 +527,6 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       if (hasAnswer) handleMultiNext();
     };
 
-    if (!question) {
-      return (
-        <div
-          ref={ref}
-          className={cn(
-            "w-full max-w-[520px] p-5 bg-card border border-border",
-            shape.container,
-            className,
-          )}
-          {...rest}
-        >
-          <p className="text-[13px] text-muted-foreground">No questions.</p>
-        </div>
-      );
-    }
-
     // ── Layout calculations for hover/focus indicators ───────────
     const activeRect = activeIndex !== null ? itemRects[activeIndex] : null;
     // The blue morphing focus ring is intentionally suppressed for the Other
@@ -619,6 +603,22 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     const showBack = total > 1 && safeIndex > 0;
     const showSkip = total > 1 && isSkippable;
     const showFooter = showBack || showSkip || isMulti;
+
+    if (!question) {
+      return (
+        <div
+          ref={ref}
+          className={cn(
+            "w-full max-w-[520px] p-5 bg-card border border-border",
+            shape.container,
+            className,
+          )}
+          {...rest}
+        >
+          <p className="text-[13px] text-muted-foreground">No questions.</p>
+        </div>
+      );
+    }
 
     return (
       <div

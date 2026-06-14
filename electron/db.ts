@@ -84,6 +84,21 @@ export function getDb(): DatabaseSync {
       `);
 
   db.exec(`
+        CREATE TABLE IF NOT EXISTS auth_users (
+          provider TEXT NOT NULL,
+          provider_user_id TEXT PRIMARY KEY,
+          email TEXT,
+          name TEXT,
+          avatar_url TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_users_last_seen
+  ON auth_users(last_seen_at DESC);
+      `);
+
+  db.exec(`
         UPDATE threads
         SET created_at = COALESCE(
           created_at,
@@ -101,4 +116,73 @@ export function getDb(): DatabaseSync {
       `);
 
   return db;
+}
+
+export interface AuthUserRecord {
+  provider: string;
+  provider_user_id: string;
+  email: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  created_at: number;
+  updated_at: number;
+  last_seen_at: number;
+}
+
+export function upsertAuthUser(input: {
+  provider: string;
+  providerUserId: string;
+  email?: string | null;
+  name?: string | null;
+  avatarUrl?: string | null;
+}): AuthUserRecord {
+  const database = getDb();
+  const now = Date.now();
+  const existing = database
+    .prepare("SELECT * FROM auth_users WHERE provider_user_id = ?")
+    .get(input.providerUserId) as AuthUserRecord | undefined;
+
+  const record: AuthUserRecord = {
+    provider: input.provider,
+    provider_user_id: input.providerUserId,
+    email: input.email ?? null,
+    name: input.name ?? null,
+    avatar_url: input.avatarUrl ?? null,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+    last_seen_at: now,
+  };
+
+  database
+    .prepare(
+      `INSERT INTO auth_users (
+        provider, provider_user_id, email, name, avatar_url, created_at, updated_at, last_seen_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(provider_user_id) DO UPDATE SET
+        provider = excluded.provider,
+        email = excluded.email,
+        name = excluded.name,
+        avatar_url = excluded.avatar_url,
+        updated_at = excluded.updated_at,
+        last_seen_at = excluded.last_seen_at`,
+    )
+    .run(
+      record.provider,
+      record.provider_user_id,
+      record.email,
+      record.name,
+      record.avatar_url,
+      record.created_at,
+      record.updated_at,
+      record.last_seen_at,
+    );
+
+  return record;
+}
+
+export function getAuthUser(providerUserId: string): AuthUserRecord | null {
+  const row = getDb()
+    .prepare("SELECT * FROM auth_users WHERE provider_user_id = ?")
+    .get(providerUserId) as AuthUserRecord | undefined;
+  return row ?? null;
 }

@@ -1,4 +1,4 @@
-export const spring = {
+export const springs = {
   fast: {
     type: "spring" as const,
     duration: 0.08,
@@ -18,3 +18,5 @@ export const spring = {
     exit: { duration: 0.16 },
   },
 } as const;
+
+export const spring = springs;

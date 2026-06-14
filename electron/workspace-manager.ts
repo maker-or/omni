@@ -78,6 +78,7 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
       name === "dist" ||
       name === "release" ||
       name === "app-template" ||
+      name === "marketing" ||
       name === ".env"
     ) {
       continue;

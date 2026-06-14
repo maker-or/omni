@@ -25,10 +25,10 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 These are non-negotiable rules that must be followed at all times:
 1 . Always follow the design system in place `design.md`
-2 . Always use the built-in UI components , if you want to create a new custom component , use the existing built-in components as a base to build on top of it
-3. Always run the following command and resolve the issues raised by them before considering a task as completed
-  - `bun run lint`
-  - `bun run test`
-  - `bun run build`
-  - `bun run doctor`
-  - `bun run fmt`
+2 . Always use the built-in UI components , if you want to create a new custom component , use the existing built-in components as a base to build on top of it 3. Always run the following command and resolve the issues raised by them before considering a task as completed
+
+- `bun run lint`
+- `bun run test`
+- `bun run build`
+- `bun run doctor`
+- `bun run fmt`

@@ -25,6 +25,26 @@ const api = {
       ipcRenderer.invoke("launch:complete", projectId),
     show: (stage?: "list" | "add" | "onboarding"): Promise<void> =>
       ipcRenderer.invoke("launch:show", stage),
+    onWorkspaceReady: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("launch:workspaceReady", listener);
+      return () => ipcRenderer.removeListener("launch:workspaceReady", listener);
+    },
+    onWorkspaceError: (callback: (message: string) => void) => {
+      const listener = (_event: any, payload: { message: string }) => callback(payload.message);
+      ipcRenderer.on("launch:workspaceError", listener);
+      return () => ipcRenderer.removeListener("launch:workspaceError", listener);
+    },
+    onAuthComplete: (callback: (user: { name: string | null; email: string | null }) => void) => {
+      const listener = (_event: any, user: { name: string | null; email: string | null }) =>
+        callback(user);
+      ipcRenderer.on("launch:authComplete", listener);
+      return () => ipcRenderer.removeListener("launch:authComplete", listener);
+    },
+    isReady: (): Promise<boolean> => ipcRenderer.invoke("launch:isWorkspaceReady"),
+  },
+  shell: {
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke("projects:list"),
