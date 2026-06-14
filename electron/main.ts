@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
 import net from "node:net";
+import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
@@ -12,8 +13,8 @@ import { markLaunchComplete, readLaunchState } from "./launch-state";
 import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
-import { getDb } from "./db";
-import { listThreads, getMessages, createMessage } from "./threads";
+import { getDb, upsertAuthUser } from "./db";
+import { listThreads, listProjectThreads, getMessages, createMessage } from "./threads";
 import { AgentManager } from "./agent";
 import {
   checkAllDependencies,
@@ -36,6 +37,7 @@ import {
   getActivePath,
   getBackupPath,
   getSharedPath,
+  startDevFileWatcher,
 } from "./workspace-manager";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
@@ -43,6 +45,11 @@ const mainDir = dirname(fileURLToPath(import.meta.url));
 const ptyProcesses = new Map<string, pty.IPty>();
 
 const isDev = !app.isPackaged;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 function generateRandomId(): string {
   const hex = randomBytes(4).toString("hex");
@@ -53,6 +60,9 @@ let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let authCallbackServer: http.Server | null = null;
+let authCallbackPort: number | null = null;
+let pendingAuthCallback: Promise<void> | null = null;
 
 function requireAgentManager(): AgentManager {
   if (!agentManager) {
@@ -93,6 +103,129 @@ function setMainWindowTitle(title: string): void {
   }
 }
 
+function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
+  const url =
+    kind === "clerkSignUp"
+      ? (process.env["PIPPER_CLERK_SIGN_UP_URL"] ?? process.env["VITE_CLERK_SIGN_UP_URL"])
+      : (process.env["PIPPER_CLERK_SIGN_IN_URL"] ?? process.env["VITE_CLERK_SIGN_IN_URL"]);
+
+  if (url) return url;
+  const frontendUrl = process.env["VITE_CLERK_FRONTEND_URL"];
+  if (frontendUrl) return frontendUrl;
+  return "https://clerk.com";
+}
+
+function parseAuthCallback(url: string): {
+  providerUserId: string | null;
+  email: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+} {
+  try {
+    const parsed = new URL(url);
+    return {
+      providerUserId: parsed.searchParams.get("userId"),
+      email: parsed.searchParams.get("email"),
+      name: parsed.searchParams.get("name"),
+      avatarUrl: parsed.searchParams.get("avatarUrl"),
+    };
+  } catch {
+    return { providerUserId: null, email: null, name: null, avatarUrl: null };
+  }
+}
+
+async function handleAuthCallback(url: string): Promise<void> {
+  const payload = parseAuthCallback(url);
+  if (!payload.providerUserId) {
+    console.warn("[Main] Auth callback missing provider user id");
+    return;
+  }
+
+  const record = upsertAuthUser({
+    provider: "clerk",
+    providerUserId: payload.providerUserId,
+    email: payload.email,
+    name: payload.name,
+    avatarUrl: payload.avatarUrl,
+  });
+
+  console.log("[Main] Authenticated user stored:", record.provider_user_id);
+
+  if (launchWindow && !launchWindow.isDestroyed()) {
+    launchWindow.webContents.send("launch:authComplete", record);
+    launchWindow.show();
+    launchWindow.focus();
+  }
+}
+
+async function ensureAuthCallbackServer(): Promise<number> {
+  if (authCallbackPort) return authCallbackPort;
+  if (pendingAuthCallback) {
+    await pendingAuthCallback;
+    if (!authCallbackPort) throw new Error("Auth callback server failed to start.");
+    return authCallbackPort;
+  }
+
+  pendingAuthCallback = new Promise<void>((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.writeHead(400);
+        res.end("Missing callback URL");
+        return;
+      }
+
+      const requestUrl = new URL(req.url, `http://127.0.0.1:${authCallbackPort ?? 0}`);
+      if (requestUrl.pathname !== "/auth/callback") {
+        res.writeHead(404);
+        res.end("Not found");
+        return;
+      }
+
+      const fullUrl = requestUrl.toString();
+      void handleAuthCallback(fullUrl)
+        .then(() => {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(
+            "<!doctype html><html><body><h1>Signed in</h1><p>You can return to the desktop app.</p></body></html>",
+          );
+        })
+        .catch((error) => {
+          console.error("[Main] Auth callback handling failed:", error);
+          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("Auth callback failed");
+        });
+    });
+
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("Unable to start auth callback server."));
+        return;
+      }
+      authCallbackServer = server;
+      authCallbackPort = address.port;
+      resolve();
+    });
+  });
+
+  try {
+    await pendingAuthCallback;
+  } finally {
+    pendingAuthCallback = null;
+  }
+
+  if (!authCallbackPort) throw new Error("Auth callback server failed to start.");
+  return authCallbackPort;
+}
+
+function getAuthCallbackUrl(): string {
+  if (!authCallbackPort) {
+    throw new Error("Auth callback server is not ready.");
+  }
+  return `http://127.0.0.1:${authCallbackPort}/auth/callback`;
+}
+
 function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
   console.log(`[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`);
   if (isDev) {
@@ -124,10 +257,14 @@ function startViteServer(): Promise<string> {
     console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise on port 1953`);
 
     // Use bun run vite directly for faster startup
-    viteProcess = spawn(cmd, ["exec", "--", "bun", "run", "vite", "--port", "1953", "--strictPort"], {
-      cwd: activePath,
-      env: { ...process.env, NODE_ENV: "development" },
-    });
+    viteProcess = spawn(
+      cmd,
+      ["exec", "--", "bun", "run", "vite", "--port", "1953", "--strictPort"],
+      {
+        cwd: activePath,
+        env: { ...process.env, NODE_ENV: "development" },
+      },
+    );
 
     let resolved = false;
 
@@ -221,7 +358,7 @@ async function createMainWindow(): Promise<void> {
     minHeight: 480,
     title: generateRandomId(),
     show: false,
-    backgroundColor: "#fafafa",
+    backgroundColor: "#171717",
     titleBarStyle: "hidden",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
@@ -233,9 +370,6 @@ async function createMainWindow(): Promise<void> {
 
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
-    if (isDev) {
-      mainWindow?.webContents.openDevTools();
-    }
   });
 
   mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
@@ -280,7 +414,7 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
     resizable: false,
     title: "Welcome to Pipper",
     show: false,
-    backgroundColor: "#fafafa",
+    backgroundColor: "#171717",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
       sandbox: false,
@@ -328,7 +462,7 @@ async function createCompanionWindow(): Promise<void> {
     alwaysOnTop: true,
     title: "Companion",
     show: false,
-    backgroundColor: "#fafafa",
+    backgroundColor: "#171717",
     titleBarStyle: "hidden",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
@@ -458,6 +592,24 @@ function registerIpc(): void {
     return result.filePaths[0] ?? null;
   });
 
+  ipcMain.handle("shell:openExternal", async (_event, url: string) => {
+    await ensureAuthCallbackServer();
+    const resolvedCallbackUrl = getAuthCallbackUrl();
+    const appendReturnTo = (inputUrl: string): string =>
+      `${inputUrl}${inputUrl.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(resolvedCallbackUrl)}`;
+    const resolvedUrl =
+      url === "clerk:sign-up"
+        ? appendReturnTo(resolveExternalUrl("clerkSignUp"))
+        : url === "clerk:sign-in"
+          ? appendReturnTo(resolveExternalUrl("clerkSignIn"))
+          : url;
+
+    if (typeof resolvedUrl !== "string" || resolvedUrl.trim().length === 0) {
+      throw new Error("Invalid URL.");
+    }
+    await shell.openExternal(resolvedUrl);
+  });
+
   ipcMain.handle("launch:complete", async (_event, projectId: string) => {
     const project = getProject(projectId);
     if (!project) {
@@ -484,6 +636,18 @@ function registerIpc(): void {
   ipcMain.handle("launch:show", (_event, stage?: "list" | "add" | "onboarding") => {
     console.log("[Main] IPC launch:show - received stage:", stage);
     createLaunchWindow(stage);
+  });
+
+  ipcMain.handle("launch:isWorkspaceReady", async () => {
+    const deps = await checkAllDependencies();
+    const activePath = getActivePath();
+    const backupPath = getBackupPath();
+    const sharedPath = getSharedPath();
+    const workspacesInitialized =
+      fs.existsSync(activePath) &&
+      fs.existsSync(backupPath) &&
+      fs.existsSync(join(sharedPath, "node_modules"));
+    return !!(deps.gitInstalled && deps.nodeMatch && deps.bunMatch && workspacesInitialized);
   });
 
   ipcMain.handle("projects:setActive", (_event, projectId: string) => {
@@ -513,6 +677,13 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(
+    "threads:listProject",
+    (_event, input: { projectId: string; limit?: number; offset?: number }) => {
+      return listProjectThreads(input.projectId, input.limit, input.offset);
+    },
+  );
+
+  ipcMain.handle(
     "threads:create",
     (_event, projectId: string, title: string, afterThreadId?: string | null) => {
       return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
@@ -538,42 +709,102 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("agent:getState", () => requireAgentManager().getState());
-  ipcMain.handle("agent:getCommands", () => requireAgentManager().getCommands());
-  ipcMain.handle("agent:getModels", () => requireAgentManager().getModels());
-  ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
-  ipcMain.handle("agent:sendPrompt", (_event, input) => requireAgentManager().sendPrompt(input));
-  ipcMain.handle("agent:abort", () => requireAgentManager().abort());
-  ipcMain.handle("agent:switchThread", (_event, threadId: string) =>
-    requireAgentManager().switchThread(threadId),
+  ipcMain.handle("agent:getState", () => {
+    try {
+      const state = requireAgentManager().getState();
+      console.log(
+        `[IPC] agent:getState returned state for project: ${state.projectId}, thread: ${state.threadId}`,
+      );
+      return state;
+    } catch (e: any) {
+      console.error("[IPC] agent:getState error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle("agent:getCommands", () => {
+    console.log("[IPC] agent:getCommands called");
+    return requireAgentManager().getCommands();
+  });
+  ipcMain.handle("agent:getModels", () => {
+    console.log("[IPC] agent:getModels called");
+    return requireAgentManager().getModels();
+  });
+  ipcMain.handle("agent:getStats", () => {
+    console.log("[IPC] agent:getStats called");
+    return requireAgentManager().getStats();
+  });
+  ipcMain.handle("agent:sendPrompt", (_event, input) => {
+    console.log("[IPC] agent:sendPrompt called with:", JSON.stringify(input));
+    try {
+      return requireAgentManager().sendPrompt(input);
+    } catch (e: any) {
+      console.error("[IPC] agent:sendPrompt error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle("agent:abort", () => {
+    console.log("[IPC] agent:abort called");
+    return requireAgentManager().abort();
+  });
+  ipcMain.handle("agent:switchThread", (_event, threadId: string) => {
+    console.log("[IPC] agent:switchThread called with threadId:", threadId);
+    try {
+      return requireAgentManager().switchThread(threadId);
+    } catch (e: any) {
+      console.error("[IPC] agent:switchThread error:", e);
+      throw e;
+    }
+  });
+  ipcMain.handle(
+    "agent:createThread",
+    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
+      console.log("[IPC] agent:createThread called with:", { projectId, title, afterThreadId });
+      try {
+        return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+      } catch (e: any) {
+        console.error("[IPC] agent:createThread error:", e);
+        throw e;
+      }
+    },
   );
-  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string, afterThreadId?: string | null) =>
-    requireAgentManager().createThread(projectId, title, afterThreadId ?? null),
-  );
-  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") =>
-    requireAgentManager().cycleModel(direction),
-  );
-  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) =>
-    requireAgentManager().setModel(model),
-  );
-  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) =>
-    requireAgentManager().setThinkingLevel(level),
-  );
-  ipcMain.handle("agent:cycleThinkingLevel", () => requireAgentManager().cycleThinkingLevel());
-  ipcMain.handle("agent:compact", (_event, customInstructions?: string) =>
-    requireAgentManager().compact(customInstructions),
-  );
-  ipcMain.handle("agent:respondToUiRequest", (_event, response) =>
-    requireAgentManager().respondToUiRequest(response),
-  );
-  ipcMain.handle("agent:setEditorText", (_event, text: string) =>
-    requireAgentManager().setEditorText(text),
-  );
-  ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
-  ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
-    requireAgentManager().pasteToEditor(text),
-  );
+  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") => {
+    console.log("[IPC] agent:cycleModel called, direction:", direction);
+    return requireAgentManager().cycleModel(direction);
+  });
+  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) => {
+    console.log("[IPC] agent:setModel called with model:", model);
+    return requireAgentManager().setModel(model);
+  });
+  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) => {
+    console.log("[IPC] agent:setThinkingLevel called with level:", level);
+    return requireAgentManager().setThinkingLevel(level);
+  });
+  ipcMain.handle("agent:cycleThinkingLevel", () => {
+    console.log("[IPC] agent:cycleThinkingLevel called");
+    return requireAgentManager().cycleThinkingLevel();
+  });
+  ipcMain.handle("agent:compact", (_event, customInstructions?: string) => {
+    console.log("[IPC] agent:compact called with customInstructions:", customInstructions);
+    return requireAgentManager().compact(customInstructions);
+  });
+  ipcMain.handle("agent:respondToUiRequest", (_event, response) => {
+    console.log("[IPC] agent:respondToUiRequest called with response:", response);
+    return requireAgentManager().respondToUiRequest(response);
+  });
+  ipcMain.handle("agent:setEditorText", (_event, text: string) => {
+    console.log("[IPC] agent:setEditorText called");
+    return requireAgentManager().setEditorText(text);
+  });
+  ipcMain.handle("agent:getEditorText", () => {
+    console.log("[IPC] agent:getEditorText called");
+    return requireAgentManager().getEditorText();
+  });
+  ipcMain.handle("agent:pasteToEditor", (_event, text: string) => {
+    console.log("[IPC] agent:pasteToEditor called");
+    return requireAgentManager().pasteToEditor(text);
+  });
   ipcMain.on("agent:reportEditorText", (_event, text: string) => {
+    console.log("[IPC] agent:reportEditorText received");
     requireAgentManager().reportEditorText(text);
   });
 
@@ -804,6 +1035,10 @@ app.whenReady().then(async () => {
   });
   registerIpc();
 
+  if (isDev) {
+    startDevFileWatcher();
+  }
+
   // Check dependencies and workspace status on startup
   const deps = await checkAllDependencies();
   const activePath = getActivePath();
@@ -815,8 +1050,25 @@ app.whenReady().then(async () => {
     fs.existsSync(join(sharedPath, "node_modules"));
 
   if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch || !workspacesInitialized) {
-    console.log("[Main] Launching onboarding wizard: requirements not met.");
-    createLaunchWindow("onboarding");
+    console.log("[Main] Launching launcher while workspace setup runs in background.");
+    createLaunchWindow("list");
+    void (async () => {
+      try {
+        if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch) {
+          console.log("[Main] Running dependency setup in background...");
+          await initializeWorkspaces(app.getAppPath(), isDev);
+        } else if (!workspacesInitialized) {
+          console.log("[Main] Initializing workspaces in background...");
+          await initializeWorkspaces(app.getAppPath(), isDev);
+        }
+        broadcastToWindows("launch:workspaceReady", {});
+      } catch (error) {
+        console.error("[Main] Background workspace initialization failed:", error);
+        broadcastToWindows("launch:workspaceError", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
   } else {
     const state = await readLaunchState();
     if (state.completed) {
@@ -846,7 +1098,15 @@ app.whenReady().then(async () => {
         !activeDeps.bunMatch ||
         !activeInit
       ) {
-        createLaunchWindow("onboarding");
+        createLaunchWindow("list");
+        void initializeWorkspaces(app.getAppPath(), isDev)
+          .then(() => broadcastToWindows("launch:workspaceReady", {}))
+          .catch((error) => {
+            console.error("[Main] Background workspace initialization failed:", error);
+            broadcastToWindows("launch:workspaceError", {
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
         return;
       }
 

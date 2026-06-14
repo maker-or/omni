@@ -21,6 +21,7 @@ import {
   createThread,
   updateThreadSessionFile,
   updateThreadTitle,
+  touchThread,
   getMaxThreadSortOrder,
   getThreadSortOrder,
   deleteThread as removeThreadRow,
@@ -328,6 +329,9 @@ export class AgentManager {
       }
       this.emit({ type: "event", event });
       this.pushSnapshot(projectId);
+      if (event.type === "agent_end") {
+        this.pushSettledSnapshot(projectId);
+      }
     });
     await session.bindExtensions({
       uiContext: this.buildUiContext(projectId),
@@ -372,10 +376,10 @@ export class AgentManager {
 
     const emptyThreads = threads.filter((thread) => getMessages(thread.id).length === 0);
     if (emptyThreads.length > 0) {
-      return emptyThreads[emptyThreads.length - 1] ?? null;
+      return emptyThreads[0] ?? null;
     }
 
-    return threads[threads.length - 1] ?? null;
+    return threads[0] ?? null;
   }
 
   private resolveSnapshot(projectId: string): AgentRuntimeSnapshot {
@@ -427,7 +431,7 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
-      streamingMessage: session.state.streamingMessage ?? null,
+      streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: session.extensionRunner.getRegisteredCommands().map((command) => ({
         name: command.name,
@@ -448,6 +452,12 @@ export class AgentManager {
 
   private pushSnapshot(projectId: string): void {
     this.emit({ type: "snapshot", snapshot: this.resolveSnapshot(projectId) });
+  }
+
+  private pushSettledSnapshot(projectId: string): void {
+    setTimeout(() => {
+      this.pushSnapshot(projectId);
+    }, 0);
   }
 
   private async requestUi(
@@ -496,9 +506,8 @@ export class AgentManager {
   async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
-    
-    // Always use the active library workspace path as the working directory for the agent
-    const effectiveProject = { ...project, path: getActivePath() };
+
+    const effectiveProject = project;
 
     const existingRecord = this.getRecord(projectId);
     if (existingRecord) {
@@ -530,9 +539,13 @@ export class AgentManager {
 
       if (requestedThreadId) {
         const thread = getThread(requestedThreadId);
-        if (thread?.session_file && existsSync(thread.session_file)) {
+        if (thread?.session_file) {
           try {
-            sessionManager = SessionManager.open(thread.session_file, undefined, effectiveProject.path);
+            sessionManager = SessionManager.open(
+              thread.session_file,
+              undefined,
+              effectiveProject.path,
+            );
           } catch (error: any) {
             const isMissingFile =
               error?.code === "ENOENT" ||
@@ -591,6 +604,7 @@ export class AgentManager {
 
       if (resolvedThread) {
         this.activeThreadId = resolvedThread.id;
+        touchThread(resolvedThread.id);
         await updateLaunchSelection({ projectId, threadId: resolvedThread.id });
       } else {
         this.activeThreadId = null;
@@ -621,11 +635,13 @@ export class AgentManager {
       });
     } else if (!thread.session_file) {
       await record.runtime.newSession();
-      updateThreadSessionFile(threadId, record.runtime.session.sessionFile ?? null);
+      const sessionFile = record.runtime.session.sessionFile ?? null;
+      updateThreadSessionFile(threadId, sessionFile);
     }
 
     this.activeThreadId = threadId;
     this.activeProjectId = project.id;
+    touchThread(threadId);
     setActiveProjectId(project.id);
     await updateLaunchSelection({ projectId: project.id, threadId });
     this.pushSnapshot(project.id);
@@ -643,20 +659,13 @@ export class AgentManager {
     const record = this.getRecord(projectId);
     if (!record) throw new Error("Agent runtime is unavailable.");
 
-    const referenceThread =
-      afterThreadId != null ? getThread(afterThreadId) : null;
+    const referenceThread = afterThreadId != null ? getThread(afterThreadId) : null;
     const effectiveReferenceThread =
       referenceThread?.project_id === projectId ? referenceThread : null;
-    const nextTitle = buildNextThreadTitle(
-      project,
-      effectiveReferenceThread?.title ?? title,
-    );
+    const nextTitle = buildNextThreadTitle(project, effectiveReferenceThread?.title ?? title);
     const insertAfterOrder =
-      effectiveReferenceThread != null
-        ? getThreadSortOrder(effectiveReferenceThread.id)
-        : null;
-    const sortOrder =
-      insertAfterOrder != null ? insertAfterOrder + 1 : getMaxThreadSortOrder() + 1;
+      effectiveReferenceThread != null ? getThreadSortOrder(effectiveReferenceThread.id) : null;
+    const sortOrder = insertAfterOrder != null ? insertAfterOrder + 1 : getMaxThreadSortOrder() + 1;
 
     await record.runtime.newSession();
     record.runtime.session.setSessionName(nextTitle);
@@ -681,6 +690,7 @@ export class AgentManager {
 
     this.activeThreadId = thread.id;
     this.activeProjectId = project.id;
+    touchThread(thread.id);
     setActiveProjectId(project.id);
     await updateLaunchSelection({ projectId: project.id, threadId: thread.id });
     this.pushSnapshot(project.id);
@@ -772,12 +782,15 @@ export class AgentManager {
       this.activeThreadId = thread.id;
     }
 
+    touchThread(this.activeThreadId);
+
     void record.runtime.session
       .prompt(input.message, {
         images: input.images,
         streamingBehavior: input.streamingBehavior,
       })
       .catch(async (error: unknown) => {
+        console.error("[AgentManager] Agent prompt failed:", error);
         const message = error instanceof Error ? error.message : "Failed to send prompt.";
         this.emit({ type: "notification", message, level: "error" });
         try {
@@ -1119,6 +1132,9 @@ export class AgentManager {
       this.emitEditor({ type: "event", event });
       // push a lightweight snapshot
       this.pushEditorSnapshot();
+      if (event.type === "agent_end") {
+        this.pushSettledEditorSnapshot();
+      }
     });
 
     await runtime.session.bindExtensions({
@@ -1185,7 +1201,7 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
-      streamingMessage: session.state.streamingMessage ?? null,
+      streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: [],
       models: modelsToSummary(session.modelRegistry.getAvailable()),
@@ -1201,6 +1217,12 @@ export class AgentManager {
 
   private pushEditorSnapshot(): void {
     this.emitEditor({ type: "snapshot", snapshot: this.resolveEditorSnapshot() });
+  }
+
+  private pushSettledEditorSnapshot(): void {
+    setTimeout(() => {
+      this.pushEditorSnapshot();
+    }, 0);
   }
 
   getEditorState(): AgentRuntimeSnapshot {

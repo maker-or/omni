@@ -8,6 +8,7 @@ import { useProjectStore } from "@/store/project-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { TerminalSession } from "@/components/terminal-session";
 import { BorderBeam } from "border-beam";
+import { AmbientPixelField } from "@/components/ambient-pixel-field";
 
 export function OthersView() {
   const { activeProject } = useProjectStore();
@@ -59,10 +60,13 @@ export function OthersView() {
       >
         {/* Tab Header bar - always shown */}
         <div
-          className="h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1"
+          className="h-11  flex items-center justify-between px-4  select-none shrink-0 "
           data-pipper-id="others-tab-panel"
         >
-          <TabsList className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]">
+          <TabsList
+            className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
+            data-pipper-id="others-tabs"
+          >
             {sessions.map((session) => (
               <TabItem
                 key={session.id}
@@ -73,7 +77,7 @@ export function OthersView() {
             ))}
           </TabsList>
 
-          <div className="relative">
+          <div className="relative" data-pipper-id="add-button">
             <Button
               ref={buttonRef}
               variant="ghost"
@@ -111,10 +115,18 @@ export function OthersView() {
         >
           {sessions.length === 0 ? (
             <div
-              className="h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none"
+              className="relative h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none overflow-hidden"
               data-pipper-id="others-emptyView-panel"
             >
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <AmbientPixelField
+                pixelSize={6}
+                gap={4}
+                intensity={0.65}
+                fadeStart={0.5}
+                animated={true}
+                className="absolute inset-0 z-0 pointer-events-none"
+              />
+              <div className="relative z-10 flex flex-col items-center gap-2 text-muted-foreground pointer-events-none">
                 <span className="text-[13px] font-medium tracking-tight">
                   Click the plus icon to add new views
                 </span>

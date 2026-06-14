@@ -26,3 +26,5 @@ omni.sqlite
 *.sw?
 # Build output
 out
+app-template
+release

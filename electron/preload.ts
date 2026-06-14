@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
-import type { Thread } from "../contracts/threads.ts";
+import type { Thread, ThreadPage } from "../contracts/threads.ts";
 import type { Message } from "../contracts/messages.ts";
 import type {
   AgentBridgeEvent,
@@ -23,7 +23,28 @@ const api = {
   launch: {
     complete: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("launch:complete", projectId),
-    show: (stage?: "list" | "add" | "onboarding"): Promise<void> => ipcRenderer.invoke("launch:show", stage),
+    show: (stage?: "list" | "add" | "onboarding"): Promise<void> =>
+      ipcRenderer.invoke("launch:show", stage),
+    onWorkspaceReady: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("launch:workspaceReady", listener);
+      return () => ipcRenderer.removeListener("launch:workspaceReady", listener);
+    },
+    onWorkspaceError: (callback: (message: string) => void) => {
+      const listener = (_event: any, payload: { message: string }) => callback(payload.message);
+      ipcRenderer.on("launch:workspaceError", listener);
+      return () => ipcRenderer.removeListener("launch:workspaceError", listener);
+    },
+    onAuthComplete: (callback: (user: { name: string | null; email: string | null }) => void) => {
+      const listener = (_event: any, user: { name: string | null; email: string | null }) =>
+        callback(user);
+      ipcRenderer.on("launch:authComplete", listener);
+      return () => ipcRenderer.removeListener("launch:authComplete", listener);
+    },
+    isReady: (): Promise<boolean> => ipcRenderer.invoke("launch:isWorkspaceReady"),
+  },
+  shell: {
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke("projects:list"),
@@ -53,6 +74,11 @@ const api = {
   },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
+    listProject: (input: {
+      projectId: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<ThreadPage> => ipcRenderer.invoke("threads:listProject", input),
     create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
       ipcRenderer.invoke("threads:create", projectId, title, afterThreadId),
     rename: (id: string, title: string): Promise<Thread> =>

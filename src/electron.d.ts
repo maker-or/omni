@@ -1,5 +1,5 @@
 import type { Project } from "../../contracts/projects.ts";
-import type { Thread } from "../../contracts/threads.ts";
+import type { Thread, ThreadPage } from "../../contracts/threads.ts";
 import type { Message } from "../../contracts/messages.ts";
 import type {
   AgentBridgeEvent,
@@ -26,6 +26,15 @@ declare global {
       launch: {
         complete: (projectId: string) => Promise<void>;
         show: (stage?: "list" | "add" | "onboarding") => Promise<void>;
+        onWorkspaceReady: (callback: () => void) => () => void;
+        onWorkspaceError: (callback: (message: string) => void) => () => void;
+        onAuthComplete: (
+          callback: (user: { name: string | null; email: string | null }) => void,
+        ) => () => void;
+        isReady: () => Promise<boolean>;
+      };
+      shell: {
+        openExternal: (url: string) => Promise<void>;
       };
       projects: {
         list: () => Promise<Project[]>;
@@ -51,7 +60,16 @@ declare global {
       };
       threads: {
         list: () => Promise<Thread[]>;
-        create: (projectId: string, title: string, afterThreadId?: string | null) => Promise<Thread>;
+        listProject: (input: {
+          projectId: string;
+          limit?: number;
+          offset?: number;
+        }) => Promise<ThreadPage>;
+        create: (
+          projectId: string,
+          title: string,
+          afterThreadId?: string | null,
+        ) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
       };

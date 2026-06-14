@@ -1,0 +1,22 @@
+appId: com.maker-or.omni
+productName: Pipper
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+  - app-template
+asar: true
+asarUnpack:
+  - "**/node_modules/node-pty/**/*"
+mac:
+  # Set to null to skip local macOS code signing, speeding up local DMG builds by 10x.
+  # Comment or remove this option when you are ready to distribute and sign with a Developer ID Certificate.
+  identity: null
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.developer-tools
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist

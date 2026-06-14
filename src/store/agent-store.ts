@@ -9,6 +9,9 @@ import type {
 } from "../../contracts/agent.ts";
 import type { Thread } from "../../contracts/threads.ts";
 import type { SlashCommandInfo, SessionStats } from "@earendil-works/pi-coding-agent";
+import { toast } from "../components/ui/toast";
+import { Warning, CheckCircle, Info } from "@phosphor-icons/react";
+import React from "react";
 
 interface AgentState {
   snapshot: AgentRuntimeSnapshot | null;
@@ -143,6 +146,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         unsubscribeBridge = null;
       }
       const rawCleanup = window.omni.agent.onEvent((payload) => {
+        if (payload.type === "notification") {
+          let icon = React.createElement(Info, { className: "size-5 text-blue-500" });
+          if (payload.level === "error") {
+            icon = React.createElement(Warning, { className: "size-5 text-red-500" });
+          } else if (payload.level === "warning") {
+            icon = React.createElement(Warning, { className: "size-5 text-yellow-500" });
+          }
+          toast({
+            icon,
+            title: payload.level.toUpperCase(),
+            description: payload.message,
+          });
+        }
         set((state) => applyBridgeEvent(state, payload));
       });
       unsubscribeBridge = () => {

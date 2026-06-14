@@ -198,7 +198,7 @@ export function PipperOverlay() {
             }}
           />
           {/* Label chip — sits on the surface level above the page */}
-          <div
+          {/*<div
             className={cn(
               "absolute buttom-1 left-0 flex items-center gap-1 rounded-md px-2 py-1",
               "text-[11px] font-semibold text-foreground whitespace-nowrap",
@@ -206,7 +206,7 @@ export function PipperOverlay() {
             )}
           >
             @ {highlight.label}
-          </div>
+          </div>*/}
         </div>
       )}
 

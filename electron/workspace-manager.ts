@@ -1,4 +1,14 @@
-import { cpSync, rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync } from "node:fs";
+import {
+  rmSync,
+  symlinkSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  lstatSync,
+  watch,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import os from "node:os";
 import { exec } from "node:child_process";
@@ -10,6 +20,9 @@ const execAsync = promisify(exec);
 
 export function getPipperLibraryPath(): string {
   try {
+    if (process.platform === "darwin") {
+      return join(os.homedir(), "Library/pipper");
+    }
     const appData = app.getPath("appData");
     return join(appData, "pipper");
   } catch (err) {
@@ -36,6 +49,20 @@ export function getSharedPath(): string {
   return join(getPipperLibraryPath(), "shared");
 }
 
+function copyRecursive(src: string, dest: string): void {
+  const stat = lstatSync(src);
+  if (stat.isDirectory()) {
+    mkdirSync(dest, { recursive: true });
+    const entries = readdirSync(src);
+    for (const entry of entries) {
+      copyRecursive(join(src, entry), join(dest, entry));
+    }
+  } else {
+    const data = readFileSync(src);
+    writeFileSync(dest, data);
+  }
+}
+
 function copyTemplateFiles(srcDir: string, destDir: string): void {
   mkdirSync(destDir, { recursive: true });
   const entries = readdirSync(srcDir, { withFileTypes: true });
@@ -49,6 +76,9 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
       name === "out" ||
       name === ".git" ||
       name === "dist" ||
+      name === "release" ||
+      name === "app-template" ||
+      name === "marketing" ||
       name === ".env"
     ) {
       continue;
@@ -56,82 +86,125 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
     const srcPath = join(srcDir, name);
     const destPath = join(destDir, name);
 
-    cpSync(srcPath, destPath, { recursive: true });
+    copyRecursive(srcPath, destPath);
   }
 }
+
+let initPromise: Promise<void> | null = null;
 
 export async function initializeWorkspaces(
   appResourcesPath: string,
   isDev: boolean,
 ): Promise<void> {
-  const libRoot = getPipperLibraryPath();
-  const activeDir = getActivePath();
-  const backupDir = getBackupPath();
-  const sharedDir = getSharedPath();
-
-  mkdirSync(libRoot, { recursive: true });
-  mkdirSync(sharedDir, { recursive: true });
-
-  // Resolve template source path
-  const templatePath = isDev ? process.cwd() : join(appResourcesPath, "app-template");
-
-  console.log(`[WorkspaceManager] Initializing workspaces from: ${templatePath}`);
-
-  // 1. Copy source files to active if not present
-  if (!existsSync(activeDir) || readdirSync(activeDir).length === 0) {
-    console.log("[WorkspaceManager] Copying files to active workspace...");
-    copyTemplateFiles(templatePath, activeDir);
+  if (initPromise) {
+    console.log("[WorkspaceManager] Initialization already in progress, awaiting existing run...");
+    return initPromise;
   }
 
-  // 2. Copy source files to backup if not present
-  if (!existsSync(backupDir) || readdirSync(backupDir).length === 0) {
-    console.log("[WorkspaceManager] Copying files to backup workspace...");
-    copyTemplateFiles(templatePath, backupDir);
-  }
+  initPromise = (async () => {
+    const libRoot = getPipperLibraryPath();
+    const activeDir = getActivePath();
+    const backupDir = getBackupPath();
+    const sharedDir = getSharedPath();
 
-  // 3. Initialize package.json inside shared directory for dependency installation
-  const activePkgJson = join(activeDir, "package.json");
-  const sharedPkgJson = join(sharedDir, "package.json");
-  if (existsSync(activePkgJson) && !existsSync(sharedPkgJson)) {
-    try {
-      const pkg = JSON.parse(readFileSync(activePkgJson, "utf8"));
-      if (pkg.scripts) {
-        delete pkg.scripts.postinstall;
+    mkdirSync(libRoot, { recursive: true });
+    mkdirSync(sharedDir, { recursive: true });
+
+    // Resolve template source path
+    const templatePath = isDev ? process.cwd() : join(appResourcesPath, "app-template");
+
+    console.log(`[WorkspaceManager] Initializing workspaces from: ${templatePath}`);
+
+    // 1. Copy source files to active if not present or incomplete
+    if (
+      !existsSync(activeDir) ||
+      readdirSync(activeDir).length === 0 ||
+      !existsSync(join(activeDir, "package.json"))
+    ) {
+      console.log("[WorkspaceManager] Copying files to active workspace...");
+      copyTemplateFiles(templatePath, activeDir);
+    }
+
+    // Initialize Git in active workspace if not present
+    const activeGitDir = join(activeDir, ".git");
+    if (!existsSync(activeGitDir)) {
+      console.log("[WorkspaceManager] Initializing git repository in active workspace...");
+      try {
+        await execAsync("git init", { cwd: activeDir });
+        await execAsync("git config user.name 'Pipper'", { cwd: activeDir });
+        await execAsync("git config user.email 'pipper@internal'", { cwd: activeDir });
+        await execAsync("git add .", { cwd: activeDir });
+        await execAsync("git commit -m 'Initial commit'", { cwd: activeDir });
+      } catch (err) {
+        console.warn("[WorkspaceManager] Failed to initialize git in active workspace:", err);
       }
-      writeFileSync(sharedPkgJson, JSON.stringify(pkg, null, 2), "utf8");
-      console.log("[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).");
-    } catch (err) {
-      console.error("[WorkspaceManager] Failed to create cleaned package.json in shared folder:", err);
-      cpSync(activePkgJson, sharedPkgJson);
     }
-  }
 
-  // 4. Run dependency setup inside shared directory
-  const sharedNodeModules = join(sharedDir, "node_modules");
-  if (!existsSync(sharedNodeModules)) {
-    console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
-    const mise = getMisePath();
-    // Run bun install using local Mise environment
-    try {
-      await execAsync(`"${mise}" exec -- bun install`, { cwd: sharedDir });
-    } catch (err: any) {
-      console.error("[WorkspaceManager] dependency installation command failed!");
-      if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
-      if (err.stderr) console.error("[WorkspaceManager] stderr:\n", err.stderr);
-      throw err;
+    // 2. Copy source files to backup if not present or incomplete
+    if (
+      !existsSync(backupDir) ||
+      readdirSync(backupDir).length === 0 ||
+      !existsSync(join(backupDir, "package.json"))
+    ) {
+      console.log("[WorkspaceManager] Copying files to backup workspace...");
+      copyTemplateFiles(templatePath, backupDir);
     }
+
+    // 3. Initialize package.json inside shared directory for dependency installation
+    const activePkgJson = join(activeDir, "package.json");
+    const sharedPkgJson = join(sharedDir, "package.json");
+    if (existsSync(activePkgJson) && !existsSync(sharedPkgJson)) {
+      try {
+        const pkg = JSON.parse(readFileSync(activePkgJson, "utf8"));
+        if (pkg.scripts) {
+          delete pkg.scripts.postinstall;
+        }
+        writeFileSync(sharedPkgJson, JSON.stringify(pkg, null, 2), "utf8");
+        console.log(
+          "[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).",
+        );
+      } catch (err) {
+        console.error(
+          "[WorkspaceManager] Failed to create cleaned package.json in shared folder:",
+          err,
+        );
+        copyRecursive(activePkgJson, sharedPkgJson);
+      }
+    }
+
+    // 4. Run dependency setup inside shared directory
+    const sharedNodeModules = join(sharedDir, "node_modules");
+    if (!existsSync(sharedNodeModules)) {
+      console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
+      const mise = getMisePath();
+      // Run bun install using local Mise environment
+      try {
+        await execAsync(`"${mise}" exec -- bun install`, { cwd: sharedDir });
+      } catch (err: any) {
+        console.error("[WorkspaceManager] dependency installation command failed!");
+        if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
+        if (err.stderr) console.error("[WorkspaceManager] stderr:\n", err.stderr);
+        throw err;
+      }
+    }
+
+    // 5. Establish symlinks inside active/backup if missing
+    const activeNodeModules = join(activeDir, "node_modules");
+    console.log("[WorkspaceManager] Linking shared node_modules to active workspace...");
+    ensureNodeModulesSymlink(activeNodeModules, sharedNodeModules);
+
+    const backupNodeModules = join(backupDir, "node_modules");
+    console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
+    ensureNodeModulesSymlink(backupNodeModules, sharedNodeModules);
+
+    console.log("[WorkspaceManager] Workspace initialization complete.");
+  })();
+
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
   }
-
-  // 5. Establish symlinks inside active/backup if missing
-  const activeNodeModules = join(activeDir, "node_modules");
-  console.log("[WorkspaceManager] Linking shared node_modules to active workspace...");
-  ensureNodeModulesSymlink(activeNodeModules, sharedNodeModules);
-
-  const backupNodeModules = join(backupDir, "node_modules");
-  console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
-  ensureNodeModulesSymlink(backupNodeModules, sharedNodeModules);
-
-  console.log("[WorkspaceManager] Workspace initialization complete.");
 }
 
 function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void {
@@ -141,7 +214,9 @@ function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void
     if (stat.isSymbolicLink()) {
       needsSymlink = false;
     } else {
-      console.log(`[WorkspaceManager] Removing existing non-symlink node_modules at ${symlinkPath}...`);
+      console.log(
+        `[WorkspaceManager] Removing existing non-symlink node_modules at ${symlinkPath}...`,
+      );
       rmSync(symlinkPath, { recursive: true, force: true });
     }
   } catch (err: any) {
@@ -181,7 +256,9 @@ export async function restoreFromBackup(): Promise<void> {
   // 1. Capture untracked files to avoid data loss
   const untrackedFiles: string[] = [];
   try {
-    const { stdout } = await execAsync("git ls-files --others --exclude-standard", { cwd: activeDir });
+    const { stdout } = await execAsync("git ls-files --others --exclude-standard", {
+      cwd: activeDir,
+    });
     const trimmed = stdout.trim();
     if (trimmed) {
       untrackedFiles.push(...trimmed.split("\n"));
@@ -193,7 +270,9 @@ export async function restoreFromBackup(): Promise<void> {
   // 2. Programmatically back up untracked files if any exist
   if (untrackedFiles.length > 0) {
     const backupDir = join(getPipperLibraryPath(), "untracked_backup", Date.now().toString());
-    console.log(`[WorkspaceManager] Backing up ${untrackedFiles.length} untracked files to: ${backupDir}`);
+    console.log(
+      `[WorkspaceManager] Backing up ${untrackedFiles.length} untracked files to: ${backupDir}`,
+    );
     try {
       mkdirSync(backupDir, { recursive: true });
       for (const file of untrackedFiles) {
@@ -201,7 +280,7 @@ export async function restoreFromBackup(): Promise<void> {
         const dest = join(backupDir, file);
         if (existsSync(src)) {
           mkdirSync(dirname(dest), { recursive: true });
-          cpSync(src, dest, { recursive: true });
+          copyRecursive(src, dest);
         }
       }
     } catch (err) {
@@ -219,5 +298,56 @@ export async function restoreFromBackup(): Promise<void> {
     if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
     if (err.stderr) console.error("[WorkspaceManager] stderr:\n", err.stderr);
     throw err;
+  }
+}
+
+export function startDevFileWatcher(): void {
+  const srcDir = process.cwd();
+  const activeDir = getActivePath();
+
+  console.log(`[WorkspaceManager] Starting development file watcher on: ${srcDir}`);
+
+  try {
+    watch(srcDir, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+
+      const normalized = filename.replace(/\\/g, "/");
+      const firstSegment = normalized.split("/")[0];
+      if (
+        firstSegment === "node_modules" ||
+        firstSegment === "electron" ||
+        firstSegment === "out" ||
+        firstSegment === ".git" ||
+        firstSegment === "release" ||
+        firstSegment === "app-template" ||
+        firstSegment.startsWith(".")
+      ) {
+        return;
+      }
+
+      const srcPath = join(srcDir, normalized);
+      const destPath = join(activeDir, normalized);
+
+      try {
+        if (existsSync(srcPath)) {
+          const stat = lstatSync(srcPath);
+          if (stat.isFile()) {
+            mkdirSync(dirname(destPath), { recursive: true });
+            const data = readFileSync(srcPath);
+            writeFileSync(destPath, data);
+            console.log(`[Watcher] Synced file: ${normalized}`);
+          }
+        } else {
+          if (existsSync(destPath)) {
+            rmSync(destPath, { recursive: true, force: true });
+            console.log(`[Watcher] Removed file: ${normalized}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[Watcher] Failed to sync ${normalized}:`, err);
+      }
+    });
+  } catch (err) {
+    console.error("[Watcher] Failed to start file watcher:", err);
   }
 }

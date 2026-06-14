@@ -5,6 +5,7 @@ import { LaunchApp } from "@/launch/app";
 import { ShapeProvider } from "@/lib/shape-context";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { ThemeProvider } from "@/lib/theme";
+import { Toaster } from "@/components/ui/toaster";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -12,6 +13,7 @@ createRoot(document.getElementById("root")!).render(
       <SurfaceProvider value={1}>
         <ShapeProvider defaultShape="rounded">
           <LaunchApp />
+          <Toaster />
         </ShapeProvider>
       </SurfaceProvider>
     </ThemeProvider>

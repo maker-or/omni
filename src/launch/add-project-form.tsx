@@ -25,7 +25,14 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
     setError(null);
     try {
       const selected = await window.omni.dialog.pickDirectory();
-      if (selected) setPath(selected);
+      if (selected) {
+        setPath(selected);
+        const parts = selected.split(/[/\\]/);
+        const folderName = parts.pop() || parts.pop() || "";
+        if (folderName) {
+          setName(folderName);
+        }
+      }
     } catch (err) {
       console.error("Failed to pick directory:", err);
       setError("Could not open folder picker.");
@@ -97,15 +104,6 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
       </div>
 
       <InputGroup className="w-full">
-        <InputField
-          label="Name"
-          value={name}
-          onChange={setName}
-          placeholder="My project"
-          disabled={isSubmitting}
-          index={0}
-        />
-
         <div className="flex items-end gap-2">
           <InputField
             label="Folder"
@@ -115,7 +113,7 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
             disabled={isSubmitting || isBrowsing}
             readOnly
             onClick={handleBrowse}
-            index={1}
+            index={0}
             icon={FolderOpen}
             className="flex-1 cursor-pointer"
           />
@@ -130,6 +128,15 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
             Browse
           </Button>
         </div>
+
+        <InputField
+          label="Name"
+          value={name}
+          onChange={setName}
+          placeholder="My project"
+          disabled={isSubmitting}
+          index={1}
+        />
       </InputGroup>
 
       {error != null && (

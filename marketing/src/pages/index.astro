@@ -1,0 +1,58 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Pipper - Developer Agent Launcher">
+    <main class="shell">
+        <section>
+            <h1>Pipper</h1>
+        </section>
+    </main>
+</Layout>
+
+<style>
+    .card {
+        width: min(560px, 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(23, 23, 23, 0.6);
+        backdrop-filter: blur(16px);
+        border-radius: 24px;
+        padding: 40px;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+    }
+
+    h1 {
+        font-size: 32px;
+        font-weight: 700;
+        margin: 0;
+        background: linear-gradient(135deg, #ffffff 0%, #a3a3a3 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: -0.02em;
+    }
+
+    p {
+        font-size: 16px;
+        color: rgba(255, 255, 255, 0.7);
+        margin: 0;
+        line-height: 1.5;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.4);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 99px;
+        margin-top: 8px;
+    }
+</style>
