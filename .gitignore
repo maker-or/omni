@@ -28,3 +28,8 @@ omni.sqlite
 out
 app-template
 release
+
+# Agent skills
+.agents/skills/
+.agent/skills/
+
