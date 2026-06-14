@@ -21,7 +21,7 @@ const filesToCopy = [
   "tsconfig.electron.json",
   "src",
   "@",
-  "public"
+  "public",
 ];
 
 console.log("[Build] Copying guest template files to app-template...");

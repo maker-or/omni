@@ -2,7 +2,11 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 export function createCustomResolver(resolveCache: Map<string, string | null>, baseDir: string) {
-  return function customResolver(source: string, _importer?: string, _options?: any): string | null {
+  return function customResolver(
+    source: string,
+    _importer?: string,
+    _options?: any,
+  ): string | null {
     const cacheKey = source;
     if (resolveCache.has(cacheKey)) {
       return resolveCache.get(cacheKey) || null;

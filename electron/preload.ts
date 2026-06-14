@@ -23,7 +23,8 @@ const api = {
   launch: {
     complete: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("launch:complete", projectId),
-    show: (stage?: "list" | "add" | "onboarding"): Promise<void> => ipcRenderer.invoke("launch:show", stage),
+    show: (stage?: "list" | "add" | "onboarding"): Promise<void> =>
+      ipcRenderer.invoke("launch:show", stage),
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke("projects:list"),
@@ -53,8 +54,11 @@ const api = {
   },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
-    listProject: (input: { projectId: string; limit?: number; offset?: number }): Promise<ThreadPage> =>
-      ipcRenderer.invoke("threads:listProject", input),
+    listProject: (input: {
+      projectId: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<ThreadPage> => ipcRenderer.invoke("threads:listProject", input),
     create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
       ipcRenderer.invoke("threads:create", projectId, title, afterThreadId),
     rename: (id: string, title: string): Promise<Thread> =>

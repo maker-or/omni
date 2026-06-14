@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { shapeMap } from "@/lib/shape-context";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Elevated } from "@/lib/elevated";
 
 // Dropdown opts out of the global pill/rounded shape context — popover surfaces
@@ -44,7 +45,8 @@ interface DropdownProps extends HTMLAttributes<HTMLDivElement> {
 
 const Dropdown = forwardRef<HTMLDivElement, DropdownProps>(
   ({ children, checkedIndex, className, ...props }, ref) => {
-    const containerRef = useRef<HTMLDivElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const viewportRef = useRef<HTMLDivElement>(null);
     const {
       activeIndex,
       setActiveIndex,
@@ -53,7 +55,7 @@ const Dropdown = forwardRef<HTMLDivElement, DropdownProps>(
       handlers,
       registerItem,
       measureItems,
-    } = useProximityHover(containerRef);
+    } = useProximityHover(viewportRef);
 
     useEffect(() => {
       measureItems();
@@ -66,13 +68,18 @@ const Dropdown = forwardRef<HTMLDivElement, DropdownProps>(
     const focusRect = focusedIndex !== null ? itemRects[focusedIndex] : null;
     const isHoveringOther = activeIndex !== null && activeIndex !== checkedIndex;
 
+    const cleanedClassName = className
+      ?.replace(/\boverflow-y-auto\b/g, "")
+      ?.replace(/\boverflow-auto\b/g, "")
+      ?.trim();
+
     return (
       <DropdownContext.Provider value={{ registerItem, activeIndex, checkedIndex }}>
         <Elevated
           offset={2}
           shadowLevel={3}
           ref={(node) => {
-            (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+            (dropdownRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
             if (typeof ref === "function") ref(node);
             else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
           }}
@@ -90,13 +97,13 @@ const Dropdown = forwardRef<HTMLDivElement, DropdownProps>(
             }
           }}
           onBlur={(e) => {
-            if (containerRef.current?.contains(e.relatedTarget as Node)) return;
+            if (dropdownRef.current?.contains(e.relatedTarget as Node)) return;
             setFocusedIndex(null);
             setActiveIndex(null);
           }}
           onKeyDown={(e) => {
             const items = Array.from(
-              containerRef.current?.querySelectorAll('[role="menuitemradio"]') ?? [],
+              dropdownRef.current?.querySelectorAll('[role="menuitemradio"]') ?? [],
             ) as HTMLElement[];
             const currentIdx = items.indexOf(e.target as HTMLElement);
             if (currentIdx === -1) return;
@@ -117,84 +124,90 @@ const Dropdown = forwardRef<HTMLDivElement, DropdownProps>(
           }}
           role="menu"
           className={cn(
-            `relative flex flex-col gap-0.5 w-72 max-w-full ${shape.container} p-1 select-none`,
-            className,
+            `relative flex flex-col w-72 max-w-full ${shape.container} p-0.5 select-none`,
+            cleanedClassName,
           )}
           {...props}
         >
-          {/* Selected background */}
-          <AnimatePresence>
-            {checkedRect && (
-              <motion.div
-                className={`absolute ${shape.bg} bg-active pointer-events-none`}
-                initial={false}
-                animate={{
-                  top: checkedRect.top,
-                  left: checkedRect.left,
-                  width: checkedRect.width,
-                  height: checkedRect.height,
-                  opacity: isHoveringOther ? 0.8 : 1,
-                }}
-                exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                transition={{
-                  ...springs.moderate,
-                  opacity: { duration: 0.08 },
-                }}
-              />
-            )}
-          </AnimatePresence>
+          <ScrollArea
+            viewportRef={viewportRef}
+            className="w-full max-h-[inherit] min-h-0 rounded-[inherit]"
+            viewportClassName="max-h-[inherit] p-0.5 flex flex-col gap-0.5 relative"
+          >
+            {/* Selected background */}
+            <AnimatePresence>
+              {checkedRect && (
+                <motion.div
+                  className={`absolute ${shape.bg} bg-active pointer-events-none`}
+                  initial={false}
+                  animate={{
+                    top: checkedRect.top,
+                    left: checkedRect.left,
+                    width: checkedRect.width,
+                    height: checkedRect.height,
+                    opacity: isHoveringOther ? 0.8 : 1,
+                  }}
+                  exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                  transition={{
+                    ...springs.moderate,
+                    opacity: { duration: 0.08 },
+                  }}
+                />
+              )}
+            </AnimatePresence>
 
-          {/* Hover background */}
-          <AnimatePresence>
-            {activeRect && (
-              <motion.div
-                key={sessionRef.current}
-                className={`absolute ${shape.bg} bg-hover pointer-events-none`}
-                initial={{
-                  opacity: 0,
-                  top: checkedRect?.top ?? activeRect.top,
-                  left: checkedRect?.left ?? activeRect.left,
-                  width: checkedRect?.width ?? activeRect.width,
-                  height: checkedRect?.height ?? activeRect.height,
-                }}
-                animate={{
-                  opacity: 1,
-                  top: activeRect.top,
-                  left: activeRect.left,
-                  width: activeRect.width,
-                  height: activeRect.height,
-                }}
-                exit={{ opacity: 0, transition: { duration: 0.06 } }}
-                transition={{
-                  ...springs.fast,
-                  opacity: { duration: 0.08 },
-                }}
-              />
-            )}
-          </AnimatePresence>
+            {/* Hover background */}
+            <AnimatePresence>
+              {activeRect && (
+                <motion.div
+                  key={sessionRef.current}
+                  className={`absolute ${shape.bg} bg-hover pointer-events-none`}
+                  initial={{
+                    opacity: 0,
+                    top: checkedRect?.top ?? activeRect.top,
+                    left: checkedRect?.left ?? activeRect.left,
+                    width: checkedRect?.width ?? activeRect.width,
+                    height: checkedRect?.height ?? activeRect.height,
+                  }}
+                  animate={{
+                    opacity: 1,
+                    top: activeRect.top,
+                    left: activeRect.left,
+                    width: activeRect.width,
+                    height: activeRect.height,
+                  }}
+                  exit={{ opacity: 0, transition: { duration: 0.06 } }}
+                  transition={{
+                    ...springs.fast,
+                    opacity: { duration: 0.08 },
+                  }}
+                />
+              )}
+            </AnimatePresence>
 
-          {/* Focus ring */}
-          <AnimatePresence>
-            {focusRect && (
-              <motion.div
-                className={`absolute ${shape.focusRing} pointer-events-none z-20 border border-[#6B97FF]`}
-                initial={false}
-                animate={{
-                  left: focusRect.left - 2,
-                  top: focusRect.top - 2,
-                  width: focusRect.width + 4,
-                  height: focusRect.height + 4,
-                }}
-                exit={{ opacity: 0, transition: { duration: 0.06 } }}
-                transition={{
-                  ...springs.fast,
-                  opacity: { duration: 0.08 },
-                }}
-              />
-            )}
-          </AnimatePresence>
+            {/* Focus ring */}
+            <AnimatePresence>
+              {focusRect && (
+                <motion.div
+                  className={`absolute ${shape.focusRing} pointer-events-none z-20 border border-[#6B97FF]`}
+                  initial={false}
+                  animate={{
+                    left: focusRect.left - 2,
+                    top: focusRect.top - 2,
+                    width: focusRect.width + 4,
+                    height: focusRect.height + 4,
+                  }}
+                  exit={{ opacity: 0, transition: { duration: 0.06 } }}
+                  transition={{
+                    ...springs.fast,
+                    opacity: { duration: 0.08 },
+                  }}
+                />
+              )}
+            </AnimatePresence>
 
-          {children}
+            {children}
+          </ScrollArea>
         </Elevated>
       </DropdownContext.Provider>
     );

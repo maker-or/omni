@@ -5,7 +5,9 @@ import { getDb } from "./db.ts";
 
 export function listThreads(): Thread[] {
   const db = getDb();
-  const query = db.prepare("SELECT * FROM threads ORDER BY last_used_at DESC, created_at DESC, rowid DESC");
+  const query = db.prepare(
+    "SELECT * FROM threads ORDER BY last_used_at DESC, created_at DESC, rowid DESC",
+  );
   return query.all() as unknown as Thread[];
 }
 
@@ -58,7 +60,9 @@ export function createThread(
   const db = getDb();
   const nextSortOrder = sortOrder ?? getMaxThreadSortOrder() + 1;
   if (sortOrder != null) {
-    const shift = db.prepare("UPDATE threads SET sort_order = sort_order + 1 WHERE sort_order >= ?");
+    const shift = db.prepare(
+      "UPDATE threads SET sort_order = sort_order + 1 WHERE sort_order >= ?",
+    );
     shift.run(sortOrder);
   }
   const now = Date.now();
@@ -73,7 +77,15 @@ export function createThread(
   const stmt = db.prepare(
     "INSERT INTO threads (id, project_id, title, sort_order, session_file, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
-  stmt.run(row.id, row.project_id, row.title, nextSortOrder, row.session_file, row.created_at, row.last_used_at);
+  stmt.run(
+    row.id,
+    row.project_id,
+    row.title,
+    nextSortOrder,
+    row.session_file,
+    row.created_at,
+    row.last_used_at,
+  );
   return row;
 }
 
@@ -82,9 +94,10 @@ export function deleteThread(id: string): void {
   const thread = getThread(id);
   const stmt = db.prepare("DELETE FROM threads WHERE id = ?");
   stmt.run(id);
-  const sortOrder = thread && typeof (thread as Thread & { sort_order?: number | null }).sort_order === "number"
-    ? (thread as Thread & { sort_order?: number | null }).sort_order
-    : null;
+  const sortOrder =
+    thread && typeof (thread as Thread & { sort_order?: number | null }).sort_order === "number"
+      ? (thread as Thread & { sort_order?: number | null }).sort_order
+      : null;
   if (sortOrder != null) {
     const shift = db.prepare("UPDATE threads SET sort_order = sort_order - 1 WHERE sort_order > ?");
     shift.run(sortOrder);

@@ -51,8 +51,16 @@ declare global {
       };
       threads: {
         list: () => Promise<Thread[]>;
-        listProject: (input: { projectId: string; limit?: number; offset?: number }) => Promise<ThreadPage>;
-        create: (projectId: string, title: string, afterThreadId?: string | null) => Promise<Thread>;
+        listProject: (input: {
+          projectId: string;
+          limit?: number;
+          offset?: number;
+        }) => Promise<ThreadPage>;
+        create: (
+          projectId: string,
+          title: string,
+          afterThreadId?: string | null,
+        ) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
       };

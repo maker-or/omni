@@ -132,10 +132,7 @@ export default function App() {
               onClick={handleToggleDropdown}
               className="flex items-center gap-1.5 px-2 py-0.5 -mx-2 rounded-md hover:bg-accent hover:text-foreground text-muted-foreground transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer select-none"
             >
-              <ProjectIcon
-                name={activeProject.icon}
-                className="size-4 text-muted-foreground/80"
-              />
+              <ProjectIcon name={activeProject.icon} className="size-4 text-muted-foreground/80" />
               <span className="text-[13px] font-medium tracking-tight text-foreground">
                 {activeProject.name}
               </span>
@@ -149,17 +146,11 @@ export default function App() {
           )}
 
           {isDropdownOpen && (
-            <div
-              ref={dropdownRef}
-              className="absolute left-0 top-full mt-1 z-[200]"
-            >
-              <Dropdown checkedIndex={checkedIndex} className="w-64 max-h-[300px] overflow-y-auto">
+            <div ref={dropdownRef} className="absolute left-0 top-full mt-1 z-[200]">
+              <Dropdown checkedIndex={checkedIndex} className="w-64 max-h-[300px]">
                 {projectsList.map((project, idx) => {
                   const ProjectIconItem = ((props: { className?: string }) => (
-                    <ProjectIcon
-                      name={project.icon}
-                      className={props.className}
-                    />
+                    <ProjectIcon name={project.icon} className={props.className} />
                   )) as any;
                   return (
                     <MenuItem

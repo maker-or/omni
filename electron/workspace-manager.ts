@@ -1,4 +1,14 @@
-import { rmSync, symlinkSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync, watch } from "node:fs";
+import {
+  rmSync,
+  symlinkSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  lstatSync,
+  watch,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import os from "node:os";
 import { exec } from "node:child_process";
@@ -105,7 +115,11 @@ export async function initializeWorkspaces(
     console.log(`[WorkspaceManager] Initializing workspaces from: ${templatePath}`);
 
     // 1. Copy source files to active if not present or incomplete
-    if (!existsSync(activeDir) || readdirSync(activeDir).length === 0 || !existsSync(join(activeDir, "package.json"))) {
+    if (
+      !existsSync(activeDir) ||
+      readdirSync(activeDir).length === 0 ||
+      !existsSync(join(activeDir, "package.json"))
+    ) {
       console.log("[WorkspaceManager] Copying files to active workspace...");
       copyTemplateFiles(templatePath, activeDir);
     }
@@ -126,7 +140,11 @@ export async function initializeWorkspaces(
     }
 
     // 2. Copy source files to backup if not present or incomplete
-    if (!existsSync(backupDir) || readdirSync(backupDir).length === 0 || !existsSync(join(backupDir, "package.json"))) {
+    if (
+      !existsSync(backupDir) ||
+      readdirSync(backupDir).length === 0 ||
+      !existsSync(join(backupDir, "package.json"))
+    ) {
       console.log("[WorkspaceManager] Copying files to backup workspace...");
       copyTemplateFiles(templatePath, backupDir);
     }
@@ -141,9 +159,14 @@ export async function initializeWorkspaces(
           delete pkg.scripts.postinstall;
         }
         writeFileSync(sharedPkgJson, JSON.stringify(pkg, null, 2), "utf8");
-        console.log("[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).");
+        console.log(
+          "[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).",
+        );
       } catch (err) {
-        console.error("[WorkspaceManager] Failed to create cleaned package.json in shared folder:", err);
+        console.error(
+          "[WorkspaceManager] Failed to create cleaned package.json in shared folder:",
+          err,
+        );
         copyRecursive(activePkgJson, sharedPkgJson);
       }
     }
@@ -190,7 +213,9 @@ function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void
     if (stat.isSymbolicLink()) {
       needsSymlink = false;
     } else {
-      console.log(`[WorkspaceManager] Removing existing non-symlink node_modules at ${symlinkPath}...`);
+      console.log(
+        `[WorkspaceManager] Removing existing non-symlink node_modules at ${symlinkPath}...`,
+      );
       rmSync(symlinkPath, { recursive: true, force: true });
     }
   } catch (err: any) {
@@ -230,7 +255,9 @@ export async function restoreFromBackup(): Promise<void> {
   // 1. Capture untracked files to avoid data loss
   const untrackedFiles: string[] = [];
   try {
-    const { stdout } = await execAsync("git ls-files --others --exclude-standard", { cwd: activeDir });
+    const { stdout } = await execAsync("git ls-files --others --exclude-standard", {
+      cwd: activeDir,
+    });
     const trimmed = stdout.trim();
     if (trimmed) {
       untrackedFiles.push(...trimmed.split("\n"));
@@ -242,7 +269,9 @@ export async function restoreFromBackup(): Promise<void> {
   // 2. Programmatically back up untracked files if any exist
   if (untrackedFiles.length > 0) {
     const backupDir = join(getPipperLibraryPath(), "untracked_backup", Date.now().toString());
-    console.log(`[WorkspaceManager] Backing up ${untrackedFiles.length} untracked files to: ${backupDir}`);
+    console.log(
+      `[WorkspaceManager] Backing up ${untrackedFiles.length} untracked files to: ${backupDir}`,
+    );
     try {
       mkdirSync(backupDir, { recursive: true });
       for (const file of untrackedFiles) {

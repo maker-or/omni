@@ -14,7 +14,8 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "fmt:check": "oxfmt --check",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

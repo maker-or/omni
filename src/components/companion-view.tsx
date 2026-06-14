@@ -6,10 +6,7 @@ import { Streamdown } from "streamdown";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
-import type {
-  AgentBridgeEvent,
-  AgentRuntimeSnapshot,
-} from "../../contracts/agent.ts";
+import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../../contracts/agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 type MessageLike = AgentMessage & { role?: string };
@@ -22,10 +19,8 @@ function stringifyMessageContent(message: MessageLike): string {
     .map((part) => {
       if (!part || typeof part !== "object") return "";
       const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string")
-        return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string")
-        return typed.thinking;
+      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
+      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
       return "";
     })
     .filter(Boolean)
@@ -50,21 +45,16 @@ function useEditorSession() {
     async function activate() {
       try {
         if (window.omni?.editor?.onEvent) {
-          unsubscribe = window.omni.editor.onEvent(
-            (payload: AgentBridgeEvent) => {
-              if (payload.type === "snapshot") setSnapshot(payload.snapshot);
-            },
-          );
+          unsubscribe = window.omni.editor.onEvent((payload: AgentBridgeEvent) => {
+            if (payload.type === "snapshot") setSnapshot(payload.snapshot);
+          });
         }
         await window.omni?.editor?.activate?.();
         const initial = await window.omni?.editor?.getState?.();
         if (initial) setSnapshot(initial);
         setIsActivated(true);
       } catch (err) {
-        console.error(
-          "[CompanionView] Failed to activate editor session:",
-          err,
-        );
+        console.error("[CompanionView] Failed to activate editor session:", err);
       }
     }
 
@@ -106,9 +96,7 @@ export function CompanionView() {
   // ── 2. Sync pipper state broadcasts from main window ────────────────────
   useEffect(() => {
     if (!window.omni?.pipper?.onStateChanged) return;
-    const unsub = window.omni.pipper.onStateChanged((payload) =>
-      syncFromBroadcast(payload),
-    );
+    const unsub = window.omni.pipper.onStateChanged((payload) => syncFromBroadcast(payload));
     return unsub;
   }, [syncFromBroadcast]);
 
@@ -138,14 +126,10 @@ export function CompanionView() {
   }, [snapshot?.messages, snapshot?.streamingMessage]);
 
   const activeMessages = (snapshot?.messages ?? []).filter(
-    (m) =>
-      (m as MessageLike).role === "user" ||
-      (m as MessageLike).role === "assistant",
+    (m) => (m as MessageLike).role === "user" || (m as MessageLike).role === "assistant",
   );
   const isStreaming = snapshot?.isStreaming ?? false;
-  const streamingMessage = isStreaming
-    ? (snapshot?.streamingMessage ?? null)
-    : null;
+  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
@@ -208,18 +192,14 @@ export function CompanionView() {
               if (!bodyText.trim()) return null;
 
               // Structured annotation: [Component: X]\ncomment
-              const componentMatch = bodyText.match(
-                /^\[Component:\s*(.+?)\]\n([\s\S]+)$/,
-              );
+              const componentMatch = bodyText.match(/^\[Component:\s*(.+?)\]\n([\s\S]+)$/);
 
               return (
                 <div
                   key={msgId}
                   className={cn(
                     "flex flex-col gap-1 max-w-[92%]",
-                    from === "user"
-                      ? "self-end items-end"
-                      : "self-start items-start",
+                    from === "user" ? "self-end items-end" : "self-start items-start",
                   )}
                 >
                   {from === "user" && componentMatch ? (

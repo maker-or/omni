@@ -138,10 +138,7 @@ export function PipperOverlay() {
       if (!found) return;
       const rect = found.el.getBoundingClientRect();
       const popupTop = Math.min(rect.bottom + 10, window.innerHeight - 200);
-      const popupLeft = Math.max(
-        8,
-        Math.min(rect.left, window.innerWidth - 320),
-      );
+      const popupLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 320));
       // Explicitly lock the highlight to the clicked element
       // so it stays visible while the popup is open
       setHighlight({
@@ -225,11 +222,7 @@ export function PipperOverlay() {
           }}
         >
           {/* Same BorderBeam settings as the InputMessage popup */}
-          <BorderBeam
-            size="pulse-inner"
-            colorVariant="mono"
-            className="w-full h-full"
-          >
+          <BorderBeam size="pulse-inner" colorVariant="mono" className="w-full h-full">
             <div className="absolute inset-0 rounded-sm" />
           </BorderBeam>
         </div>
@@ -286,10 +279,7 @@ export function PipperOverlay() {
                     /* noop */
                   }
                   try {
-                    await window.omni?.pipper?.addComment(
-                      pipperId,
-                      text.trim(),
-                    );
+                    await window.omni?.pipper?.addComment(pipperId, text.trim());
                   } catch (err) {
                     console.error("[PipperOverlay] addComment failed:", err);
                   }

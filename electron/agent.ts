@@ -506,7 +506,7 @@ export class AgentManager {
   async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
-    
+
     const effectiveProject = project;
 
     const existingRecord = this.getRecord(projectId);
@@ -541,7 +541,11 @@ export class AgentManager {
         const thread = getThread(requestedThreadId);
         if (thread?.session_file) {
           try {
-            sessionManager = SessionManager.open(thread.session_file, undefined, effectiveProject.path);
+            sessionManager = SessionManager.open(
+              thread.session_file,
+              undefined,
+              effectiveProject.path,
+            );
           } catch (error: any) {
             const isMissingFile =
               error?.code === "ENOENT" ||
@@ -655,20 +659,13 @@ export class AgentManager {
     const record = this.getRecord(projectId);
     if (!record) throw new Error("Agent runtime is unavailable.");
 
-    const referenceThread =
-      afterThreadId != null ? getThread(afterThreadId) : null;
+    const referenceThread = afterThreadId != null ? getThread(afterThreadId) : null;
     const effectiveReferenceThread =
       referenceThread?.project_id === projectId ? referenceThread : null;
-    const nextTitle = buildNextThreadTitle(
-      project,
-      effectiveReferenceThread?.title ?? title,
-    );
+    const nextTitle = buildNextThreadTitle(project, effectiveReferenceThread?.title ?? title);
     const insertAfterOrder =
-      effectiveReferenceThread != null
-        ? getThreadSortOrder(effectiveReferenceThread.id)
-        : null;
-    const sortOrder =
-      insertAfterOrder != null ? insertAfterOrder + 1 : getMaxThreadSortOrder() + 1;
+      effectiveReferenceThread != null ? getThreadSortOrder(effectiveReferenceThread.id) : null;
+    const sortOrder = insertAfterOrder != null ? insertAfterOrder + 1 : getMaxThreadSortOrder() + 1;
 
     await record.runtime.newSession();
     record.runtime.session.setSessionName(nextTitle);

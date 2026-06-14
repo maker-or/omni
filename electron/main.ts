@@ -125,10 +125,14 @@ function startViteServer(): Promise<string> {
     console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise on port 1953`);
 
     // Use bun run vite directly for faster startup
-    viteProcess = spawn(cmd, ["exec", "--", "bun", "run", "vite", "--port", "1953", "--strictPort"], {
-      cwd: activePath,
-      env: { ...process.env, NODE_ENV: "development" },
-    });
+    viteProcess = spawn(
+      cmd,
+      ["exec", "--", "bun", "run", "vite", "--port", "1953", "--strictPort"],
+      {
+        cwd: activePath,
+        env: { ...process.env, NODE_ENV: "development" },
+      },
+    );
 
     let resolved = false;
 
@@ -546,7 +550,9 @@ function registerIpc(): void {
   ipcMain.handle("agent:getState", () => {
     try {
       const state = requireAgentManager().getState();
-      console.log(`[IPC] agent:getState returned state for project: ${state.projectId}, thread: ${state.threadId}`);
+      console.log(
+        `[IPC] agent:getState returned state for project: ${state.projectId}, thread: ${state.threadId}`,
+      );
       return state;
     } catch (e: any) {
       console.error("[IPC] agent:getState error:", e);
@@ -587,15 +593,18 @@ function registerIpc(): void {
       throw e;
     }
   });
-  ipcMain.handle("agent:createThread", (_event, projectId: string, title: string, afterThreadId?: string | null) => {
-    console.log("[IPC] agent:createThread called with:", { projectId, title, afterThreadId });
-    try {
-      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
-    } catch (e: any) {
-      console.error("[IPC] agent:createThread error:", e);
-      throw e;
-    }
-  });
+  ipcMain.handle(
+    "agent:createThread",
+    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
+      console.log("[IPC] agent:createThread called with:", { projectId, title, afterThreadId });
+      try {
+        return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+      } catch (e: any) {
+        console.error("[IPC] agent:createThread error:", e);
+        throw e;
+      }
+    },
+  );
   ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") => {
     console.log("[IPC] agent:cycleModel called, direction:", direction);
     return requireAgentManager().cycleModel(direction);

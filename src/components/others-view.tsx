@@ -12,13 +12,8 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 
 export function OthersView() {
   const { activeProject } = useProjectStore();
-  const {
-    sessions,
-    activeSessionId,
-    createSession,
-    closeSession,
-    setActiveSessionId,
-  } = useTerminalStore();
+  const { sessions, activeSessionId, createSession, closeSession, setActiveSessionId } =
+    useTerminalStore();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -57,10 +52,7 @@ export function OthersView() {
   }, [isDropdownOpen]);
 
   return (
-    <section
-      className="h-full w-full flex flex-col bg-surface-1"
-      data-pipper-id="others-panel"
-    >
+    <section className="h-full w-full flex flex-col bg-surface-1" data-pipper-id="others-panel">
       <Tabs
         value={activeTabId || ""}
         onValueChange={handleTabChange}
@@ -68,7 +60,7 @@ export function OthersView() {
       >
         {/* Tab Header bar - always shown */}
         <div
-          className="h-11  flex items-center justify-between px-4  select-none shrink-0 bg-surface-1"
+          className="h-11  flex items-center justify-between px-4  select-none shrink-0 "
           data-pipper-id="others-tab-panel"
         >
           <TabsList

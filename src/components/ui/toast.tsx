@@ -17,13 +17,9 @@ function ToastContent({ icon, title, description }: ToastOptions) {
     <div className={cn("flex items-start gap-3 p-3 ", surfaceClasses(3))}>
       <div className="shrink-0 mt-0.5">{icon}</div>
       <div className="flex flex-col gap-0.5 min-w-0">
-        <p className="text-[14px] text-foreground font-medium leading-tight">
-          {title}
-        </p>
+        <p className="text-[14px] text-foreground font-medium leading-tight">{title}</p>
         {description && (
-          <p className="text-[13px] text-muted-foreground leading-snug">
-            {description}
-          </p>
+          <p className="text-[13px] text-muted-foreground leading-snug">{description}</p>
         )}
       </div>
     </div>
