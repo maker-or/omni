@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../../contracts/agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { Button } from "@/components/ui/button";
 
 type MessageLike = AgentMessage & { role?: string };
 
@@ -84,6 +85,8 @@ export function CompanionView() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { syncFromBroadcast } = usePipperStore();
 
+  const [isProcessingAccept, setIsProcessingAccept] = useState(false);
+
   const activePipperIdRef = useRef<string | null>(null);
   const prevStreamingRef = useRef(false);
 
@@ -116,28 +119,64 @@ export function CompanionView() {
     if (prevStreamingRef.current && !isStreaming) {
       void window.omni?.pipper?.setProcessing?.(null);
       activePipperIdRef.current = null;
+
+      if (isProcessingAccept) {
+        (async () => {
+          try {
+            await window.omni?.pipper?.acceptChanges?.();
+          } catch (err) {
+            console.error("[CompanionView] acceptChanges failed:", err);
+          }
+          setIsProcessingAccept(false);
+        })();
+      }
     }
     prevStreamingRef.current = isStreaming;
-  }, [snapshot?.isStreaming]);
+  }, [snapshot?.isStreaming, isProcessingAccept]);
 
   // ── 5. Scroll to bottom on new messages ─────────────────────────────────
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [snapshot?.messages, snapshot?.streamingMessage]);
 
-  const activeMessages = (snapshot?.messages ?? []).filter(
+  const commitMsgIndex = (snapshot?.messages ?? []).findIndex((m) => {
+    const content = stringifyMessageContent(m as MessageLike);
+    return content.includes("Commit all completed changes to Git with a clear, descriptive commit message");
+  });
+  const visibleMessages = commitMsgIndex !== -1
+    ? (snapshot?.messages ?? []).slice(0, commitMsgIndex)
+    : (snapshot?.messages ?? []);
+
+  const activeMessages = visibleMessages.filter(
     (m) => (m as MessageLike).role === "user" || (m as MessageLike).role === "assistant",
   );
   const isStreaming = snapshot?.isStreaming ?? false;
-  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
+  const streamingMessage = isStreaming && !isProcessingAccept ? (snapshot?.streamingMessage ?? null) : null;
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
+    if (!trimmed || isStreaming || isProcessingAccept) return;
     setInputValue("");
     activePipperIdRef.current = null;
     await window.omni?.pipper?.setProcessing?.(null);
     await sendPrompt(trimmed);
+  };
+
+  const handleAccept = async () => {
+    setIsProcessingAccept(true);
+    await sendPrompt(
+      "Commit all completed changes to Git with a clear, descriptive commit message that accurately summarizes the implementation. Do **not** perform a `git push`; only create a local commit.\n\nAfter the commit is created, retrieve the generated commit hash and update the project's `patch.md` file.\n\nAt the very top of `patch.md`, prepend a new JSON object in the following format:\n\n```json\n{\n  \"files_changed\": [],\n  \"commit_hash\": \"\",\n  \"intent\": \"\"\n}\n```\n\nRequirements:\n\n* `files_changed` must contain the list of files included in the commit.\n* `commit_hash` must contain the newly created Git commit hash.\n* `intent` must contain a concise summary of the purpose of the change.\n* Insert the new JSON object at the beginning of the file.\n* Do not modify, reformat, reorder, or remove any existing content already present in `patch.md`.\n* Do not update or overwrite any existing JSON entries in the file.\n* Preserve the remainder of the file exactly as it currently exists.\n* If `patch.md` does not exist, create it and add the JSON entry as the first record.\n\nThe operation is complete only after both the Git commit and the `patch.md` update have succeeded."
+    );
+  };
+
+  const handleReject = async () => {
+    try {
+      await window.omni?.pipper?.rejectChanges?.();
+    } catch (err) {
+      console.error("[CompanionView] rejectChanges failed:", err);
+    }
+    await window.omni?.pipper?.exitEditMode?.();
+    window.omni?.companion?.close?.();
   };
 
   const isEmpty = activeMessages.length === 0 && !streamingMessage;
@@ -260,7 +299,7 @@ export function CompanionView() {
               </div>
             )}
 
-            {isStreaming && !streamingMessage && (
+            {isStreaming && !streamingMessage && !isProcessingAccept && (
               <div className="flex justify-start">
                 <ThinkingIndicator />
               </div>
@@ -271,6 +310,35 @@ export function CompanionView() {
         )}
       </div>
 
+      {/* ── Actions Area ── */}
+      {activeMessages.length > 0 && !isStreaming && !isProcessingAccept && (
+        <div className="flex items-center justify-between gap-2 px-3 py-2 border-t border-border/40 bg-surface-2/40 backdrop-blur-md shrink-0">
+          <Button
+            variant="tertiary"
+            size="sm"
+            className="flex-1 text-red-500 hover:text-red-400 hover:bg-red-500/10 border-red-500/20"
+            onClick={handleReject}
+          >
+            Reject
+          </Button>
+          <Button
+            variant="tertiary"
+            size="sm"
+            className="flex-1 text-green-500 hover:text-green-400 hover:bg-green-500/10 border-green-500/20"
+            onClick={handleAccept}
+          >
+            Accept
+          </Button>
+        </div>
+      )}
+
+      {isProcessingAccept && (
+        <div className="flex items-center justify-center gap-2 px-3 py-2 text-xs text-muted-foreground animate-pulse shrink-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-ping" />
+          Committing changes & updating patch.md...
+        </div>
+      )}
+
       {/* ── Input Area ────────────────────────────────────────────────── */}
       <div className={cn("relative z-10 shrink-0 p-2")}>
         <InputMessage
@@ -278,7 +346,8 @@ export function CompanionView() {
           value={inputValue}
           onValueChange={setInputValue}
           onSend={handleSend}
-          placeholder="start here"
+          placeholder={isProcessingAccept ? "Committing..." : "start here"}
+          disabled={isProcessingAccept}
         />
       </div>
     </div>
