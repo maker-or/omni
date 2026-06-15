@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
-import { useIcon } from "@/lib/icon-context";
+import { useIcon, Icon } from "@/lib/icon-context";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 import { useMergeSplitBlocks, SelectionBackgrounds } from "@/hooks/use-merge-split";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,14 @@ function optionKey(o: AskUserOption, i: number) {
   return o.id ?? `o-${i}`;
 }
 
+function ArrowLeftKey(p: { size?: number; strokeWidth?: number; className?: string }) {
+  return <Icon name="arrow-left" {...p} className={cn(p.className, "hidden sm:block")} />;
+}
+
+function ArrowRightKey(p: { size?: number; strokeWidth?: number; className?: string }) {
+  return <Icon name="arrow-right" {...p} className={cn(p.className, "hidden sm:block")} />;
+}
+
 const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
   function AskUserQuestions(
     {
@@ -135,27 +143,6 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     );
 
     const shape = useShape();
-    const ArrowLeft = useIcon("arrow-left");
-    const ArrowRight = useIcon("arrow-right");
-
-    // The footer ← / → icons hint at the ArrowLeft/ArrowRight keys, which
-    // mobile has no equivalent for, so render them desktop-only. (The inline
-    // submit arrows on option rows stay — those are tap affordances, not
-    // keyboard hints.)
-    const ArrowLeftKey = useMemo(
-      () =>
-        function ArrowLeftKey(p: { size?: number; strokeWidth?: number; className?: string }) {
-          return <ArrowLeft {...p} className={cn(p.className, "hidden sm:block")} />;
-        },
-      [ArrowLeft],
-    );
-    const ArrowRightKey = useMemo(
-      () =>
-        function ArrowRightKey(p: { size?: number; strokeWidth?: number; className?: string }) {
-          return <ArrowRight {...p} className={cn(p.className, "hidden sm:block")} />;
-        },
-      [ArrowRight],
-    );
 
     // Detect the platform so the Continue shortcut hint shows the right
     // modifier: ⌘ on macOS, ⌃ (Control) elsewhere. Resolved after mount to
@@ -198,7 +185,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       activeIndex,
       setActiveIndex,
       itemRects,
-      sessionRef,
+      session,
       handlers,
       registerItem,
       measureItems,
@@ -729,7 +716,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                 <AnimatePresence>
                   {activeRect && (
                     <motion.div
-                      key={`hover-${sessionRef.current}`}
+                      key={`hover-${session}`}
                       aria-hidden
                       className={cn("absolute pointer-events-none bg-hover", shape.bg)}
                       initial={{
@@ -839,7 +826,14 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                       // pair a title with a description that often wraps).
                       topAlign={question.layout === "stacked"}
                       chipPosition={question.chipPosition ?? "right"}
-                      arrowIcon={<ArrowRight size={14} strokeWidth={2} className="h-3.5 w-3.5" />}
+                      arrowIcon={
+                        <Icon
+                          name="arrow-right"
+                          size={14}
+                          strokeWidth={2}
+                          className="h-3.5 w-3.5"
+                        />
+                      }
                     >
                       {question.layout === "stacked" ? (
                         <>
@@ -927,7 +921,9 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                       (focusedIndex === otherIndex || activeIndex === otherIndex) &&
                       otherText.trim().length > 0
                     }
-                    arrowIcon={<ArrowRight size={14} strokeWidth={2} className="h-3.5 w-3.5" />}
+                    arrowIcon={
+                      <Icon name="arrow-right" size={14} strokeWidth={2} className="h-3.5 w-3.5" />
+                    }
                     onArrowClick={
                       !isMulti && otherText.trim().length > 0 ? handleOtherSubmit : undefined
                     }

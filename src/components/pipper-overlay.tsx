@@ -74,7 +74,11 @@ export function PipperOverlay() {
 
   // Focus popup textarea when it opens
   useEffect(() => {
-    if (popup) setTimeout(() => inputRef.current?.focus(), 50);
+    if (popup) {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
   }, [popup]);
 
   // Global Escape handler — double-Esc exits edit mode AND closes the companion

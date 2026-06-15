@@ -95,4 +95,13 @@ function IconProvider({
   );
 }
 
+export interface IconProps extends React.ComponentProps<any> {
+  name: IconName;
+}
+
+export function Icon({ name, ...props }: IconProps) {
+  const IconComponent = useIcon(name);
+  return React.createElement(IconComponent, props);
+}
+
 export { IconProvider, useIcon, useIcons, useIconLibrary };

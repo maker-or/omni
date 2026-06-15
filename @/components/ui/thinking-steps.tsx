@@ -3,7 +3,7 @@
 import { useRef, forwardRef, type ReactNode, type HTMLAttributes } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { useIcon } from "@/lib/icon-context";
+import { Icon } from "@/lib/icon-context";
 import type { IconName } from "@/lib/icon-context";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
@@ -126,7 +126,6 @@ function ThinkingStep({
   children,
   className,
 }: ThinkingStepProps) {
-  const Icon = useIcon(icon);
   const shape = useShape();
 
   if (status === "pending") return null;
@@ -153,7 +152,7 @@ function ThinkingStep({
           <div className="flex flex-col items-center shrink-0 w-[14px]">
             <div className="pt-0.5">
               {showIcon ? (
-                <Icon size={14} strokeWidth={1.5} className="text-muted-foreground" />
+                <Icon name={icon} size={14} strokeWidth={1.5} className="text-muted-foreground" />
               ) : (
                 <div className="w-[14px] h-[14px] flex items-center justify-center">
                   <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60" />

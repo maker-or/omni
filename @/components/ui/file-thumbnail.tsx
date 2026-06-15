@@ -51,6 +51,7 @@ interface FileThumbnailProps {
 }
 
 function FileThumbnail({ file, size, className }: FileThumbnailProps) {
+  "use no memo";
   const shape = useShape();
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";

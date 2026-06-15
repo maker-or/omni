@@ -30,6 +30,8 @@ export interface AmbientPixelFieldProps extends ComponentPropsWithoutRef<"div"> 
   ref?: React.Ref<HTMLDivElement>;
 }
 
+const getRandomSeed = () => Math.random() * 1000;
+
 const AmbientPixelField = ({
   pixelSize = 6,
   gap = 4,
@@ -49,7 +51,7 @@ const AmbientPixelField = ({
   const observerRef = useRef<ResizeObserver | null>(null);
 
   // Generate a single random seed once when the grid component is created
-  const seed = useMemo(() => Math.random() * 1000, []);
+  const [seed] = useState(getRandomSeed);
 
   // Deterministic pseudo-random float generator based on coordinate hashing.
   // This ensures that when the window resizes, the opacity of a pixel at

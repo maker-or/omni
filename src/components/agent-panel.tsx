@@ -636,6 +636,7 @@ function UiRequestDialog({
 }
 
 export function AgentPanel() {
+  "use no memo";
   const { activeProject, loadActiveProject } = useProjectStore();
   const { threads, pagesByProject, loadProjectThreads, renameThread } = useThreadStore();
   const {
@@ -658,6 +659,7 @@ export function AgentPanel() {
   const [inputValue, setInputValue] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [mountTime] = useState(() => Date.now());
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -1018,7 +1020,7 @@ export function AgentPanel() {
     const time = typeof timestamp === "number" ? timestamp : Number(timestamp);
     if (Number.isNaN(time)) return "Unknown";
 
-    const diffMs = Math.max(0, Date.now() - time);
+    const diffMs = Math.max(0, mountTime - time);
     if (diffMs < 60 * 60 * 1000) return "Recently opened";
 
     const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
@@ -1050,7 +1052,7 @@ export function AgentPanel() {
 
     const idSeed = Array.from(thread.id).reduce((total, char) => total + char.charCodeAt(0), 0);
     const fallbackDaysAgo = ((idSeed + index) % 6) + 1;
-    return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
+    return mountTime - fallbackDaysAgo * 24 * 60 * 60 * 1000;
   };
 
   const handleCreateThread = async () => {

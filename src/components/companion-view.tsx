@@ -93,7 +93,8 @@ export function CompanionView() {
   // ── 1. Enter edit mode immediately on mount ─────────────────────────────
   useEffect(() => {
     void window.omni?.pipper?.enterEditMode?.();
-    setTimeout(() => inputRef.current?.focus(), 120);
+    const timer = setTimeout(() => inputRef.current?.focus(), 120);
+    return () => clearTimeout(timer);
   }, []);
 
   // ── 2. Sync pipper state broadcasts from main window ────────────────────
