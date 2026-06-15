@@ -10,8 +10,7 @@
 
 import {
   createContext,
-  forwardRef,
-  useContext,
+  use,
   useRef,
   type ComponentPropsWithoutRef,
   type ComponentRef,
@@ -43,138 +42,139 @@ interface ScrollAreaProps extends ComponentPropsWithoutRef<"div"> {
   chevron?: boolean;
   /** Which axes get scrollbars and edge cues. Defaults to `"vertical"`. */
   orientation?: Orientation;
+  ref?: React.Ref<ComponentRef<typeof ScrollAreaPrimitive.Root>>;
 }
 
-const ScrollArea = forwardRef<ComponentRef<typeof ScrollAreaPrimitive.Root>, ScrollAreaProps>(
-  (
-    {
-      className,
-      children,
-      viewportClassName,
-      viewportRef,
-      scrollFade = true,
-      cueSize = "comfortable",
-      chevron = true,
-      orientation = "vertical",
-      ...props
-    },
-    ref,
-  ) => {
-    const defaultViewportRef = useRef<HTMLDivElement>(null);
-    const activeViewportRef = viewportRef ?? defaultViewportRef;
-    const isTouch = useTouchPrimary();
-    const edges = useScrollEdges(activeViewportRef, {
-      enabled: scrollFade,
-      axis: orientation,
-    });
+const ScrollArea = ({
+  className,
+  children,
+  viewportClassName,
+  viewportRef,
+  scrollFade = true,
+  cueSize = "comfortable",
+  chevron = true,
+  orientation = "vertical",
+  ref,
+  ...props
+}: ScrollAreaProps) => {
+  const defaultViewportRef = useRef<HTMLDivElement>(null);
+  const activeViewportRef = viewportRef ?? defaultViewportRef;
+  const isTouch = useTouchPrimary();
+  const edges = useScrollEdges(activeViewportRef, {
+    enabled: scrollFade,
+    axis: orientation,
+  });
 
-    // Cues read the substrate surface from context — ScrollArea doesn't
-    // elevate, so the gradient matches whatever background it sits on.
-    const cues = scrollFade && (
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]"
-      >
-        {orientation !== "horizontal" && (
-          <>
-            <ScrollEdgeCue
-              mode="absolute"
-              edge="top"
-              visible={edges.top}
-              size={cueSize}
-              chevron={chevron}
-            />
-            <ScrollEdgeCue
-              mode="absolute"
-              edge="bottom"
-              visible={edges.bottom}
-              size={cueSize}
-              chevron={chevron}
-            />
-          </>
-        )}
-        {orientation !== "vertical" && (
-          <>
-            <ScrollEdgeCue
-              mode="absolute"
-              edge="left"
-              visible={edges.left}
-              size={cueSize}
-              chevron={chevron}
-            />
-            <ScrollEdgeCue
-              mode="absolute"
-              edge="right"
-              visible={edges.right}
-              size={cueSize}
-              chevron={chevron}
-            />
-          </>
-        )}
-      </div>
-    );
+  // Cues read the substrate surface from context — ScrollArea doesn't
+  // elevate, so the gradient matches whatever background it sits on.
+  const cues = scrollFade && (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]"
+    >
+      {orientation !== "horizontal" && (
+        <>
+          <ScrollEdgeCue
+            mode="absolute"
+            edge="top"
+            visible={edges.top}
+            size={cueSize}
+            chevron={chevron}
+          />
+          <ScrollEdgeCue
+            mode="absolute"
+            edge="bottom"
+            visible={edges.bottom}
+            size={cueSize}
+            chevron={chevron}
+          />
+        </>
+      )}
+      {orientation !== "vertical" && (
+        <>
+          <ScrollEdgeCue
+            mode="absolute"
+            edge="left"
+            visible={edges.left}
+            size={cueSize}
+            chevron={chevron}
+          />
+          <ScrollEdgeCue
+            mode="absolute"
+            edge="right"
+            visible={edges.right}
+            size={cueSize}
+            chevron={chevron}
+          />
+        </>
+      )}
+    </div>
+  );
 
-    return (
-      <ScrollAreaContext.Provider value={isTouch}>
-        {isTouch ? (
+  return (
+    <ScrollAreaContext.Provider value={isTouch}>
+      {isTouch ? (
+        <div
+          ref={ref}
+          role="group"
+          data-slot="scroll-area"
+          aria-roledescription="scroll area"
+          className={cn("relative overflow-hidden", className)}
+          {...props}
+        >
           <div
-            ref={ref}
-            role="group"
-            data-slot="scroll-area"
-            aria-roledescription="scroll area"
-            className={cn("relative overflow-hidden", className)}
-            {...props}
+            ref={activeViewportRef}
+            data-slot="scroll-area-viewport"
+            className={cn(
+              "size-full rounded-[inherit]",
+              orientation === "vertical" && "overflow-y-auto",
+              orientation === "horizontal" && "overflow-x-auto",
+              orientation === "both" && "overflow-auto",
+              viewportClassName,
+            )}
+            tabIndex={0}
           >
-            <div
-              ref={activeViewportRef}
-              data-slot="scroll-area-viewport"
-              className={cn(
-                "size-full rounded-[inherit]",
-                orientation === "vertical" && "overflow-y-auto",
-                orientation === "horizontal" && "overflow-x-auto",
-                orientation === "both" && "overflow-auto",
-                viewportClassName,
-              )}
-              tabIndex={0}
-            >
-              {children}
-            </div>
-            {cues}
+            {children}
           </div>
-        ) : (
-          <ScrollAreaPrimitive.Root
-            ref={ref}
-            data-slot="scroll-area"
-            className={cn("relative overflow-hidden", className)}
-            {...props}
+          {cues}
+        </div>
+      ) : (
+        <ScrollAreaPrimitive.Root
+          ref={ref}
+          data-slot="scroll-area"
+          className={cn("relative overflow-hidden", className)}
+          {...props}
+        >
+          <ScrollAreaPrimitive.Viewport
+            ref={activeViewportRef}
+            data-slot="scroll-area-viewport"
+            className={cn("size-full rounded-[inherit]", viewportClassName)}
           >
-            <ScrollAreaPrimitive.Viewport
-              ref={activeViewportRef}
-              data-slot="scroll-area-viewport"
-              className={cn("size-full rounded-[inherit]", viewportClassName)}
-            >
-              {/* Content gives Base UI an intrinsic size to measure
+            {/* Content gives Base UI an intrinsic size to measure
                   horizontal overflow against. */}
-              <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
-            </ScrollAreaPrimitive.Viewport>
-            {cues}
-            {orientation !== "horizontal" && <ScrollBar orientation="vertical" />}
-            {orientation !== "vertical" && <ScrollBar orientation="horizontal" />}
-            {orientation === "both" && <ScrollAreaPrimitive.Corner />}
-          </ScrollAreaPrimitive.Root>
-        )}
-      </ScrollAreaContext.Provider>
-    );
-  },
-);
+            <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
+          </ScrollAreaPrimitive.Viewport>
+          {cues}
+          {orientation !== "horizontal" && <ScrollBar orientation="vertical" />}
+          {orientation !== "vertical" && <ScrollBar orientation="horizontal" />}
+          {orientation === "both" && <ScrollAreaPrimitive.Corner />}
+        </ScrollAreaPrimitive.Root>
+      )}
+    </ScrollAreaContext.Provider>
+  );
+};
 
 ScrollArea.displayName = "ScrollArea";
 
-const ScrollBar = forwardRef<
-  ComponentRef<typeof ScrollAreaPrimitive.Scrollbar>,
-  ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Scrollbar>
->(({ className, orientation = "vertical", ...props }, ref) => {
-  const isTouch = useContext(ScrollAreaContext);
+const ScrollBar = ({
+  className,
+  orientation = "vertical",
+  ref,
+  ...props
+}: ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Scrollbar> & {
+  ref?: React.Ref<ComponentRef<typeof ScrollAreaPrimitive.Scrollbar>>;
+}) => {
+  const isTouch = use(ScrollAreaContext);
   const shape = useShape();
 
   if (isTouch) return null;
@@ -221,7 +221,7 @@ const ScrollBar = forwardRef<
       />
     </ScrollAreaPrimitive.Scrollbar>
   );
-});
+};
 
 ScrollBar.displayName = "ScrollBar";
 

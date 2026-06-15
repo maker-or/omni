@@ -14,7 +14,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { cn } from "@/lib/utils";
-import { useIcon } from "@/lib/icon-context";
+import { useIcon, Icon } from "@/lib/icon-context";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
@@ -91,15 +91,8 @@ const AccordionGroup = forwardRef<HTMLDivElement, AccordionGroupProps>((props, r
   const fullItemElementsRef = useRef<Map<number, HTMLElement>>(new Map());
   const [openItemRects, setOpenItemRects] = useState<Map<number, ItemRect>>(new Map());
 
-  const {
-    activeIndex,
-    setActiveIndex,
-    itemRects,
-    sessionRef,
-    handlers,
-    registerItem,
-    measureItems,
-  } = useProximityHover(containerRef);
+  const { activeIndex, setActiveIndex, itemRects, session, handlers, registerItem, measureItems } =
+    useProximityHover(containerRef);
 
   const registerFullItem = useCallback((index: number, element: HTMLElement | null) => {
     if (element) {
@@ -338,7 +331,7 @@ const AccordionGroup = forwardRef<HTMLDivElement, AccordionGroupProps>((props, r
         <AnimatePresence>
           {activeRect && (
             <motion.div
-              key={sessionRef.current}
+              key={session}
               className={`absolute ${shape.bg} bg-hover pointer-events-none`}
               initial={{
                 opacity: 0,
@@ -603,7 +596,6 @@ interface AccordionTriggerProps extends HTMLAttributes<HTMLButtonElement> {
 
 const AccordionTrigger = forwardRef<HTMLButtonElement, AccordionTriggerProps>(
   ({ children, className, ...props }, ref) => {
-    const ChevronRight = useIcon("chevron-right");
     const groupCtx = useAccordionGroup();
     const { index, isOpen, triggerRef } = useAccordionItemContext();
     const shape = useShape();
@@ -651,7 +643,8 @@ const AccordionTrigger = forwardRef<HTMLButtonElement, AccordionTriggerProps>(
             animate={{ rotate: isOpen ? 90 : 0 }}
             transition={springs.fast}
           >
-            <ChevronRight
+            <Icon
+              name="chevron-right"
               size={16}
               strokeWidth={isOpen || isActive ? 2 : 1.5}
               className={cn(

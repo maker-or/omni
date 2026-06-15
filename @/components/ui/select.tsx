@@ -12,7 +12,29 @@ import {
   type ReactNode,
   type HTMLAttributes,
   type CSSProperties,
+  useMemo,
 } from "react";
+
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
+  if (typeof ref === "function") {
+    ref(value);
+  } else if (ref && typeof ref === "object") {
+    (ref as React.MutableRefObject<T | null>).current = value;
+  }
+}
+
+function useMergeRefs<T>(
+  ref1: React.Ref<T> | undefined,
+  ref2: React.Ref<T> | undefined,
+): React.RefCallback<T> {
+  "use no memo";
+  return useMemo(() => {
+    return (value) => {
+      assignRef(ref1, value);
+      assignRef(ref2, value);
+    };
+  }, [ref1, ref2]);
+}
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -156,15 +178,12 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
     const { value, open, setOpen, disabled, triggerRef, labelMap, listboxId } = useSelectContext();
     const shape = useShape();
     const label = value ? (labelMap.current.get(value) ?? value) : undefined;
+    const mergedRef = useMergeRefs(triggerRef, ref);
 
     return (
       <div className="flex flex-col gap-1">
         <button
-          ref={(node) => {
-            (triggerRef as React.MutableRefObject<HTMLButtonElement | null>).current = node;
-            if (typeof ref === "function") ref(node);
-            else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = node;
-          }}
+          ref={mergedRef}
           type="button"
           role="combobox"
           aria-expanded={open}
@@ -336,7 +355,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
       activeIndex,
       setActiveIndex,
       itemRects,
-      sessionRef,
+      session,
       handlers,
       registerItem,
       measureItems,
@@ -517,11 +536,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
             <Elevated
               offset={2}
               shadowLevel={3}
-              ref={(node) => {
-                (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-                if (typeof ref === "function") ref(node);
-                else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
-              }}
+              ref={mergedRef}
               role="listbox"
               id={listboxId}
               tabIndex={-1}
@@ -578,7 +593,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
               <AnimatePresence>
                 {activeRect && (
                   <motion.div
-                    key={sessionRef.current}
+                    key={session}
                     className={`absolute ${shape.bg} bg-hover pointer-events-none`}
                     initial={{
                       opacity: 0,
@@ -661,10 +676,10 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     const contentCtx = useContext(SelectContentContext);
     const internalRef = useRef<HTMLDivElement>(null);
     const shape = useShape();
-    const hasMounted = useRef(false);
+    const [hasMounted, setHasMounted] = useState(false);
 
     useEffect(() => {
-      hasMounted.current = true;
+      setHasMounted(true);
     }, []);
 
     // Register label with root context
@@ -682,15 +697,13 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
 
     const isActive = contentCtx?.activeIndex === index;
     const isChecked = selectCtx.value === value;
-    const skipAnimation = !hasMounted.current;
+    const skipAnimation = !hasMounted;
+
+    const mergedRef = useMergeRefs(internalRef, ref);
 
     return (
       <div
-        ref={(node) => {
-          (internalRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-          if (typeof ref === "function") ref(node);
-          else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
-        }}
+        ref={mergedRef}
         data-proximity-index={index}
         data-value={value}
         data-disabled={disabled || undefined}

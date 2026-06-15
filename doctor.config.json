@@ -1,0 +1,17 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "files": [
+      "**/node_modules/**",
+      "out/**",
+      "app-template/**",
+      "dist/**",
+      "release/**"
+    ],
+    "rules": ["react-compiler/react-compiler"]
+  },
+  "lint": false,
+  "supplyChain": {
+    "minScore": 30
+  }
+}

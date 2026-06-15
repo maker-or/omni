@@ -106,11 +106,11 @@ function setMainWindowTitle(title: string): void {
 function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
   const url =
     kind === "clerkSignUp"
-      ? (process.env["PIPPER_CLERK_SIGN_UP_URL"] ?? process.env["VITE_CLERK_SIGN_UP_URL"])
-      : (process.env["PIPPER_CLERK_SIGN_IN_URL"] ?? process.env["VITE_CLERK_SIGN_IN_URL"]);
+      ? (process.env["PIPPER_CLERK_SIGN_UP_URL"] ?? import.meta.env.VITE_CLERK_SIGN_UP_URL)
+      : (process.env["PIPPER_CLERK_SIGN_IN_URL"] ?? import.meta.env.VITE_CLERK_SIGN_IN_URL);
 
   if (url) return url;
-  const frontendUrl = process.env["VITE_CLERK_FRONTEND_URL"];
+  const frontendUrl = import.meta.env.VITE_CLERK_FRONTEND_URL;
   if (frontendUrl) return frontendUrl;
   return "https://clerk.com";
 }
@@ -810,10 +810,8 @@ function registerIpc(): void {
 
   ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
     if (ptyProcesses.has(sessionId)) {
-      try {
-        ptyProcesses.get(sessionId)?.kill();
-      } catch (e) {}
-      ptyProcesses.delete(sessionId);
+      console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
+      return;
     }
 
     const defaultShell =

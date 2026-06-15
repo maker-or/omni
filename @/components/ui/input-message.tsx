@@ -20,13 +20,34 @@ import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { springs } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
-import { useIcon } from "@/lib/icon-context";
+import { Icon } from "@/lib/icon-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PipperBeam } from "@/components/ui/pipper-beam";
+
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
+  if (typeof ref === "function") {
+    ref(value);
+  } else if (ref && typeof ref === "object") {
+    (ref as React.MutableRefObject<T | null>).current = value;
+  }
+}
+
+function useMergeRefs<T>(
+  ref1: React.Ref<T> | undefined,
+  ref2: React.Ref<T> | undefined,
+): React.RefCallback<T> {
+  "use no memo";
+  return useMemo(() => {
+    return (value) => {
+      assignRef(ref1, value);
+      assignRef(ref2, value);
+    };
+  }, [ref1, ref2]);
+}
 
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
@@ -101,8 +122,6 @@ interface FilePreviewTileProps {
 }
 
 function FilePreviewTile({ file, onRemove, size }: FilePreviewTileProps) {
-  const XIcon = useIcon("x");
-
   return (
     <motion.div
       // `layout` animates sibling tiles into the gap when one is removed.
@@ -133,7 +152,7 @@ function FilePreviewTile({ file, onRemove, size }: FilePreviewTileProps) {
           // instead of flipping with the surrounding surface.
           className="absolute top-1 right-1 w-5 h-5 rounded-full bg-neutral-900 text-white opacity-0 group-hover/tile:opacity-100 transition-opacity duration-80 flex items-center justify-center cursor-pointer outline-none focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[#6B97FF]"
         >
-          <XIcon size={12} strokeWidth={2.5} />
+          <Icon name="x" size={12} strokeWidth={2.5} />
         </button>
       </Tooltip>
     </motion.div>
@@ -170,25 +189,12 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     },
     ref,
   ) => {
+    "use no memo";
     const shape = useShape();
-    const ArrowUpIcon = useIcon("arrow-up");
-
     const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleRef = useCallback(
-      (node: HTMLTextAreaElement | null) => {
-        (internalTextareaRef as any).current = node;
-        if (textareaRef) {
-          if (typeof textareaRef === "function") {
-            textareaRef(node);
-          } else {
-            (textareaRef as any).current = node;
-          }
-        }
-      },
-      [textareaRef],
-    );
+    const mergedTextareaRef = useMergeRefs(internalTextareaRef, textareaRef);
     const [focusVisible, setFocusVisible] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [hovered, setHovered] = useState(false);
@@ -454,7 +460,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
             </AnimatePresence>
 
             <textarea
-              ref={handleRef}
+              ref={mergedTextareaRef}
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -488,7 +494,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                   disabled={!canSend}
                   aria-label={sendLabel}
                 >
-                  <ArrowUpIcon />
+                  <Icon name="arrow-up" />
                 </Button>
               </div>
             </div>
