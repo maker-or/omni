@@ -650,8 +650,13 @@ function registerIpc(): void {
     return !!(deps.gitInstalled && deps.nodeMatch && deps.bunMatch && workspacesInitialized);
   });
 
-  ipcMain.handle("projects:setActive", (_event, projectId: string) => {
+  ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
     setActiveProjectId(projectId);
+    try {
+      await requireAgentManager().activateProject(projectId);
+    } catch (err) {
+      console.error(`[Main] Failed to activate project ${projectId} in agent manager:`, err);
+    }
     broadcastToWindows("projects:activeChanged", projectId);
   });
 
@@ -1019,6 +1024,9 @@ app.whenReady().then(async () => {
     sendToRenderer: sendToMainWindow,
     setWindowTitle: setMainWindowTitle,
     sendToFlyout: sendToCompanionWindow,
+    broadcastActiveProject: (projectId: string) => {
+      broadcastToWindows("projects:activeChanged", projectId);
+    },
     reloadMainWindow: async () => {
       console.log("[Main] agent_end triggered. Restarting dev server and reloading main window...");
       try {

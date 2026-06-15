@@ -7,7 +7,6 @@ import { Tabs, TabsList, TabItem, TabPanel } from "@/components/ui/tabs";
 import { useProjectStore } from "@/store/project-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { TerminalSession } from "@/components/terminal-session";
-import { BorderBeam } from "border-beam";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 
 export function OthersView() {

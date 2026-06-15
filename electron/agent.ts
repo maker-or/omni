@@ -132,6 +132,7 @@ export class AgentManager {
   private readonly sendToRenderer: SendToRenderer;
   private readonly setWindowTitle: SetWindowTitle;
   private readonly sendToFlyout: SendToFlyout;
+  private readonly broadcastActiveProject?: (projectId: string) => void;
   private readonly reloadMainWindow?: () => void;
   private readonly projectRuntimes = new Map<string, ProjectRuntimeRecord>();
   private readonly projectLocks = new Map<string, Promise<void>>();
@@ -155,11 +156,13 @@ export class AgentManager {
     setWindowTitle: SetWindowTitle;
     sendToFlyout?: SendToFlyout;
     reloadMainWindow?: () => void;
+    broadcastActiveProject?: (projectId: string) => void;
   }) {
     this.sendToRenderer = options.sendToRenderer;
     this.setWindowTitle = options.setWindowTitle;
     this.sendToFlyout = options.sendToFlyout ?? (() => {});
     this.reloadMainWindow = options.reloadMainWindow;
+    this.broadcastActiveProject = options.broadcastActiveProject;
   }
 
   private emit(payload: AgentBridgeEvent): void {
@@ -526,6 +529,7 @@ export class AgentManager {
         this.activeThreadId = preferredThreadId;
         await updateLaunchSelection({ projectId, threadId: preferredThreadId });
       }
+      this.broadcastActiveProject?.(projectId);
       this.pushSnapshot(projectId);
       return;
     }
@@ -613,6 +617,7 @@ export class AgentManager {
 
       this.activeProjectId = projectId;
       setActiveProjectId(projectId);
+      this.broadcastActiveProject?.(projectId);
       this.pushSnapshot(projectId);
     });
   }
@@ -643,6 +648,7 @@ export class AgentManager {
     this.activeProjectId = project.id;
     touchThread(threadId);
     setActiveProjectId(project.id);
+    this.broadcastActiveProject?.(project.id);
     await updateLaunchSelection({ projectId: project.id, threadId });
     this.pushSnapshot(project.id);
   }

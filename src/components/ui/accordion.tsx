@@ -14,7 +14,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { cn } from "@/lib/utils";
-import { useIcon, Icon } from "@/lib/icon-context";
+import { Icon } from "@/lib/icon-context";
 import { springs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
@@ -732,7 +732,4 @@ const AccordionContent = forwardRef<HTMLDivElement, AccordionContentProps>(
 
 AccordionContent.displayName = "AccordionContent";
 
-// ─── Exports ─────────────────────────────────────────────────────────────────
-
 export { Accordion, AccordionGroup, AccordionItem, AccordionTrigger, AccordionContent };
-export default Accordion;

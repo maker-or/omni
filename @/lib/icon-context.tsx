@@ -20,7 +20,7 @@ import {
 
 // Re-export types for consumers
 export type { IconComponent, IconName, IconLibrary } from "@/lib/icon-map";
-export { iconLibraryOrder, iconLibraryLabels } from "@/lib/icon-map";
+export { iconLibraryOrder } from "@/lib/icon-map";
 
 interface IconContextValue {
   iconLibrary: IconLibrary;
@@ -101,7 +101,7 @@ export interface IconProps extends React.ComponentProps<any> {
 
 export function Icon({ name, ...props }: IconProps) {
   const IconComponent = useIcon(name);
-  return React.createElement(IconComponent, props);
+  return <IconComponent {...props} />;
 }
 
 export { IconProvider, useIcon, useIcons, useIconLibrary };

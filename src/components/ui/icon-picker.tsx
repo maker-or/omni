@@ -134,8 +134,6 @@ export const IconPicker = forwardRef<HTMLButtonElement, IconPickerProps>(
 
 IconPicker.displayName = "IconPicker";
 
-export { ICONS as PROJECT_ICON_OPTIONS };
-
 export function ProjectIcon({ name, className }: { name: string | null; className?: string }) {
   const item = ICONS.find((i) => i.name === name);
   const Icon = item?.icon ?? GhostIcon;

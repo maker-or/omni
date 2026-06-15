@@ -250,4 +250,3 @@ const DropdownSeparator = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEleme
 DropdownSeparator.displayName = "DropdownSeparator";
 
 export { Dropdown, DropdownLabel, DropdownSeparator };
-export default Dropdown;

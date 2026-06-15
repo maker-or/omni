@@ -18,5 +18,3 @@ export const springs = {
     exit: { duration: 0.16 },
   },
 } as const;
-
-export const spring = springs;

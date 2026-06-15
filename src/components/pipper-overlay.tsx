@@ -323,5 +323,3 @@ export function PipperOverlay() {
     </>
   );
 }
-
-export default PipperOverlay;

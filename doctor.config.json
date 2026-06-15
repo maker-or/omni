@@ -6,7 +6,11 @@
       "out/**",
       "app-template/**",
       "dist/**",
-      "release/**"
+      "release/**",
+      "electron/**",
+      "contracts/**",
+      "marketing/**",
+      "scripts/**"
     ],
     "rules": ["react-compiler/react-compiler"]
   },

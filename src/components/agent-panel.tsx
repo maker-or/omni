@@ -637,7 +637,7 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   "use no memo";
-  const { activeProject, loadActiveProject } = useProjectStore();
+  const { activeProject } = useProjectStore();
   const { threads, pagesByProject, loadProjectThreads, renameThread } = useThreadStore();
   const {
     snapshot,
@@ -651,7 +651,6 @@ export function AgentPanel() {
     respondToUiRequest,
     setModel,
     cycleThinkingLevel,
-    setThinkingLevel,
   } = useAgentStore();
   const [projectsList, setProjectsList] = useState<
     Array<{ id: string; name: string; icon: string }>
@@ -909,8 +908,6 @@ export function AgentPanel() {
   const activeMessages = snapshot?.messages ?? [];
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
-  const queueCount =
-    (snapshot?.queue.steering.length ?? 0) + (snapshot?.queue.followUp.length ?? 0);
   const slashMatches = useMemo(() => {
     const trimmed = inputValue.trimStart();
     if (!trimmed.startsWith("/")) return [];
@@ -1088,8 +1085,8 @@ export function AgentPanel() {
     (model) =>
       model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
   );
-  const activeThread = threads.find((thread) => thread.id === threadId) ?? null;
-  const emptyStateSubject = activeProject?.name ?? "your project";
+  const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
+  const emptyStateSubject = currentProject?.name ?? "your project";
 
   return (
     <section

@@ -41,5 +41,3 @@ export function PipperBeam({ pipperId, children, className }: PipperBeamProps) {
     </div>
   );
 }
-
-export default PipperBeam;

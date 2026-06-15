@@ -10,7 +10,7 @@ import type {
 import type { Thread } from "../../contracts/threads.ts";
 import type { SlashCommandInfo, SessionStats } from "@earendil-works/pi-coding-agent";
 import { toast } from "../components/ui/toast";
-import { Warning, CheckCircle, Info } from "@phosphor-icons/react";
+import { Warning, Info } from "@phosphor-icons/react";
 import React from "react";
 
 interface AgentState {
