@@ -1,5 +1,5 @@
 appId: com.maker-or.omni
-productName: Pipper
+productName: Pipper Code (Alpha)
 directories:
   output: release
 files:
@@ -13,6 +13,7 @@ mac:
   # Set to null to skip local macOS code signing, speeding up local DMG builds by 10x.
   # Comment or remove this option when you are ready to distribute and sign with a Developer ID Certificate.
   identity: null
+  icon: build/icon.png
   target:
     - target: dmg
       arch:
@@ -20,3 +21,6 @@ mac:
   category: public.app-category.developer-tools
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+
+win:
+  icon: build/icon.png

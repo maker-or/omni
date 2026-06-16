@@ -1,5 +1,5 @@
 {
-  "name": "pipper",
+  "name": "pipper-code-alpha",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,6 +9,7 @@
     "postinstall": "install-electron",
     "build": "bunx --bun electron-vite build && node scripts/copy-template.js",
     "dist": "electron-builder --mac --arm64",
+    "upload-release": "bun scripts/upload-desktop-blob.ts",
     "preview": "bunx --bun electron-vite preview",
     "start": "electron .",
     "lint": "oxlint",
@@ -62,6 +63,7 @@
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vercel/blob": "^2.4.0",
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^42.3.3",

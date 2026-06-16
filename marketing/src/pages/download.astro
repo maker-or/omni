@@ -1,8 +1,25 @@
 ---
 import Layout from "../layouts/Layout.astro";
+
+const arm64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL;
+const x64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_X64_DMG_URL;
+const hasAnyDownload = Boolean(arm64DmgUrl || x64DmgUrl);
+
+const downloads = [
+    {
+        title: "macOS (Apple Silicon)",
+        subtitle: "M-series Macs",
+        href: arm64DmgUrl,
+    },
+    {
+        title: "macOS (Intel)",
+        subtitle: "Intel-based Macs",
+        href: x64DmgUrl,
+    },
+];
 ---
 
-<Layout title="Download Pipper - Developer Agent Launcher">
+<Layout title="Download Pipper Code (Alpha) - Developer Agent Launcher">
     <main class="shell">
         <div
             class="w-[min(480px,100%)] py-12 px-10 text-center flex flex-col items-center"
@@ -10,44 +27,72 @@ import Layout from "../layouts/Layout.astro";
             <h1
                 class="text-[40px] font-bold mt-0 mx-0 mb-3 bg-gradient-to-br from-white to-[#a3a3a3] bg-clip-text text-transparent tracking-[-0.02em] leading-[1.2]"
             >
-                Download Pipper
+                Download Pipper Code (Alpha)
             </h1>
-            <p
-                class="text-base text-white/50 mt-0 mx-0 mb-8 leading-relaxed max-w-[320px]"
-            >
-                Get the desktop agent launcher for your local development
-                environment.
-            </p>
 
             <div class="w-full mb-8">
-                <button
-                    class="font-inherit py-4 px-6 rounded-[14px] border border-white/8 bg-white/2 text-white/40 cursor-not-allowed flex items-center justify-between w-full box-border text-left"
-                    disabled
-                >
-                    <div class="flex flex-col gap-0.5">
-                        <span class="text-base font-semibold text-white/40"
-                            >Download for macOS</span
+                {
+                    hasAnyDownload ? (
+                        <div class="flex w-full flex-col gap-3">
+                            {downloads.map((download) =>
+                                download.href ? (
+                                    <a
+                                        class="font-inherit py-4 px-6 text-white flex items-center justify-between w-full box-border text-left border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/20 transition-colors"
+                                        href={download.href}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-base font-semibold text-white">
+                                                {download.title}
+                                            </span>
+                                            <span class="text-xs text-white/55">
+                                                {download.subtitle}
+                                            </span>
+                                        </div>
+                                        <span class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/10 border border-white/15 text-white uppercase tracking-wider">
+                                            Download
+                                        </span>
+                                    </a>
+                                ) : (
+                                    <button
+                                        class="font-inherit py-4 px-6 text-white/40 cursor-not-allowed flex items-center justify-between w-full box-border text-left"
+                                        disabled
+                                    >
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-base font-semibold text-white/40">
+                                                {download.title}
+                                            </span>
+                                            <span class="text-xs text-white/25">
+                                                {download.subtitle}
+                                            </span>
+                                        </div>
+                                        <span class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/4 border border-white/8 text-white/40 uppercase tracking-wider">
+                                            Coming Soon
+                                        </span>
+                                    </button>
+                                ),
+                            )}
+                        </div>
+                    ) : (
+                        <button
+                            class="font-inherit py-4 px-6 text-white/40 cursor-not-allowed flex items-center justify-between w-full box-border text-left"
+                            disabled
                         >
-                        <span class="text-xs text-white/25"
-                            >Apple Silicon & Intel</span
-                        >
-                    </div>
-                    <span
-                        class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/4 border border-white/8 text-white/40 uppercase tracking-wider"
-                        >Coming Soon</span
-                    >
-                </button>
-            </div>
-
-            <div class="flex flex-wrap justify-center gap-2">
-                <span
-                    class="text-xs text-white/40 bg-white/3 border border-white/5 py-1 px-2.5 rounded-full"
-                    >Windows</span
-                >
-                <span
-                    class="text-xs text-white/40 bg-white/3 border border-white/5 py-1 px-2.5 rounded-full"
-                    >Linux</span
-                >
+                            <div class="flex flex-col gap-0.5">
+                                <span class="text-base font-semibold text-white/40">
+                                    Download for macOS
+                                </span>
+                                <span class="text-xs text-white/25">
+                                    Apple Silicon & Intel
+                                </span>
+                            </div>
+                            <span class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/4 border border-white/8 text-white/40 uppercase tracking-wider">
+                                Coming Soon
+                            </span>
+                        </button>
+                    )
+                }
             </div>
         </div>
     </main>

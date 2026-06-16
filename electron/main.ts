@@ -102,6 +102,13 @@ function resolveRendererFile(page: "main" | "launch"): string {
   return join(mainDir, "../renderer", page === "launch" ? "launch.html" : "index.html");
 }
 
+function getIconPath(): string | undefined {
+  const path = isDev
+    ? join(app.getAppPath(), "public/icon.png")
+    : join(mainDir, "../renderer/icon.png");
+  return fs.existsSync(path) ? path : undefined;
+}
+
 function sendToMainWindow(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
@@ -372,6 +379,7 @@ async function createMainWindow(): Promise<void> {
     minHeight: 480,
     title: generateRandomId(),
     show: false,
+    icon: getIconPath(),
     backgroundColor: "#171717",
     titleBarStyle: "hidden",
     webPreferences: {
@@ -426,8 +434,9 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
     minWidth: 560,
     minHeight: 520,
     resizable: false,
-    title: "Welcome to Pipper",
+    title: "Welcome to Pipper Code (Alpha)",
     show: false,
+    icon: getIconPath(),
     backgroundColor: "#171717",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
@@ -476,6 +485,7 @@ async function createCompanionWindow(): Promise<void> {
     alwaysOnTop: true,
     title: "Companion",
     show: false,
+    icon: getIconPath(),
     backgroundColor: "#171717",
     titleBarStyle: "hidden",
     webPreferences: {
@@ -1146,6 +1156,16 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === "darwin") {
+    const iconPath = getIconPath();
+    if (iconPath) {
+      try {
+        app.dock.setIcon(iconPath);
+      } catch (err) {
+        console.error("[Main] Failed to set macOS dock icon:", err);
+      }
+    }
+  }
   buildAppMenu();
   getDb();
   const authUser = getMostRecentAuthUser();

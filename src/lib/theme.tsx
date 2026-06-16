@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-const STORAGE_KEY = "omni:theme";
+const STORAGE_KEY = "pipper:theme";
 
 interface ThemeContextValue {
   /** User's selected preference (light/dark/system). */

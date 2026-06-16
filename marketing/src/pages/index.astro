@@ -3,20 +3,46 @@ import Layout from "../layouts/Layout.astro";
 import { Waitlist as WaitlistAstro } from "@clerk/astro/components";
 ---
 
-<Layout title="Pipper - Developer Agent Launcher">
-    <a href="/download" class="absolute top-8 right-8 z-50 flex items-center justify-center p-2 rounded-full bg-white/4 border border-white/8 shadow-[0_4px_20px_rgba(0,0,0,0.2)] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-white/12 hover:border-white/20 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(255,255,255,0.05)] active:translate-y-0 text-white/65 hover:text-white" aria-label="Download Pipper">
-        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm37.66-85.66a8,8,0,0,1,0,11.32l-32,32a8,8,0,0,1-11.32,0l-32-32a8,8,0,0,1,11.32-11.32L120,148.69V88a8,8,0,0,1,16,0v60.69l18.34-18.35A8,8,0,0,1,165.66,130.34Z"></path></svg>
+<Layout title="Pipper Code (Alpha) - Developer Agent Launcher">
+    <a
+        href="/download"
+        class="absolute top-8 right-8 z-50 flex items-center justify-center p-2 rounded-full bg-white/4 border border-white/8 shadow-[0_4px_20px_rgba(0,0,0,0.2)] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-white/12 hover:border-white/20 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(255,255,255,0.05)] active:translate-y-0 text-white/65 hover:text-white"
+        aria-label="Download Pipper Code (Alpha)"
+    >
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="32"
+            height="32"
+            fill="currentColor"
+            viewBox="0 0 256 256"
+            ><path
+                d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm37.66-85.66a8,8,0,0,1,0,11.32l-32,32a8,8,0,0,1-11.32,0l-32-32a8,8,0,0,1,11.32-11.32L120,148.69V88a8,8,0,0,1,16,0v60.69l18.34-18.35A8,8,0,0,1,165.66,130.34Z"
+            ></path></svg
+        >
     </a>
 
     <main class="shell">
         <section class="flex flex-col items-center text-center">
-            <h1 class="text-[96px] font-bold m-0 bg-gradient-to-br from-white to-[#a3a3a3] bg-clip-text text-transparent tracking-[-0.02em] leading-[1.1]">Pipper</h1>
-            <h3 class="text-[48px] font-normal mt-4 mx-0 mb-0 text-white/45 leading-[1.25] tracking-[-0.02em]">Building self improving IDE</h3>
+            <h1
+                class="text-[64px] sm:text-[80px] md:text-[96px] font-bold m-0 bg-gradient-to-br from-white to-[#a3a3a3] bg-clip-text text-transparent tracking-[-0.02em] leading-[1.1]"
+            >
+                Pipper
+            </h1>
+            <h3
+                class="text-[48px] font-normal mt-4 mx-0 mb-0 text-white/45 leading-[1.25] tracking-[-0.02em]"
+            >
+                Building self improving IDE
+            </h3>
         </section>
     </main>
 
-    <dialog id="waitlist-dialog" class="border-none bg-transparent p-0 m-auto overflow-visible backdrop:bg-black/70 backdrop:backdrop-blur-[8px]">
-        <div class="relative bg-[#171717] border border-white/8 rounded-[24px] pt-10 px-6 pb-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] w-[min(480px,90vw)] flex flex-col items-center box-border">
+    <dialog
+        id="waitlist-dialog"
+        class="border-none bg-transparent p-0 m-auto overflow-visible backdrop:bg-black/70 backdrop:backdrop-blur-[8px]"
+    >
+        <div
+            class="relative bg-[#171717] border border-white/8 rounded-[24px] pt-10 px-6 pb-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] w-[min(480px,90vw)] flex flex-col items-center box-border"
+        >
             <button
                 id="waitlist-close"
                 class="absolute top-4 right-4 bg-transparent border-none text-white/40 text-[28px] cursor-pointer leading-none p-1 transition-colors duration-150 ease-in-out hover:text-white"
