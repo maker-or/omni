@@ -6,11 +6,11 @@ export const OPEN_TABS_QUERY_KEY = ["open-tabs"] as const;
 const PROJECT_THREAD_PAGE_SIZE = 10;
 const RECENT_THREAD_PREFETCH_COUNT = 5;
 
-export function projectThreadsQueryKey(projectId: string, limit = PROJECT_THREAD_PAGE_SIZE) {
+function projectThreadsQueryKey(projectId: string, limit = PROJECT_THREAD_PAGE_SIZE) {
   return ["project-threads", projectId, limit] as const;
 }
 
-export function recentProjectsQueryKey(threadSwitchHistory: string[], openThreads: Thread[]) {
+function recentProjectsQueryKey(threadSwitchHistory: string[], openThreads: Thread[]) {
   return [
     "recent-projects",
     threadSwitchHistory.join("|"),

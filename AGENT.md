@@ -7,6 +7,7 @@ Pipper is a self-improving agent harness. The codebase is early-stage, so prefer
 ## Task completion checklist
 
 Before marking any task complete, run and fix issues from:
+
 - `bun run doctor`
 - `bun run lint`
 - `bun run build`

@@ -11,8 +11,8 @@ if (returnTo) {
 
 <Layout title="Pipper auth">
     <main class="shell">
-        <section class="hero">
-            <div class="actions">
+        <section class="flex justify-center items-center">
+            <div class="flex gap-4 [&_button]:py-3 [&_button]:px-6 [&_button]:text-[15px] [&_button]:font-semibold [&_button]:rounded-xl [&_button]:border [&_button]:border-white/8 [&_button]:bg-white/6 [&_button]:text-white [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button]:hover:bg-white/12 [&_button]:hover:border-white/16 [&_button]:hover:-translate-y-0.5">
                 <SignInButton
                     mode="redirect"
                     forceRedirectUrl={callbackUrl.toString()}
@@ -28,35 +28,3 @@ if (returnTo) {
         </section>
     </main>
 </Layout>
-
-<style>
-  .hero {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
-
-  .actions {
-    display: flex;
-    gap: 16px;
-  }
-
-  /* Style Clerk buttons to look clean and premium */
-  .actions :global(button) {
-    padding: 12px 24px;
-    font-size: 15px;
-    font-weight: 600;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.06);
-    color: #ffffff;
-    cursor: pointer;
-    transition: all 200ms ease;
-  }
-
-  .actions :global(button:hover) {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.16);
-    transform: translateY(-1px);
-  }
-</style>

@@ -33,3 +33,6 @@ release
 .agents/skills/
 .agent/skills/
 
+# Vercel
+.vercel/
+

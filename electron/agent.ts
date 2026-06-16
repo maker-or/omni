@@ -43,6 +43,8 @@ import {
 import type { Model } from "@earendil-works/pi-ai";
 
 import { getActivePath } from "./workspace-manager.ts";
+import { categorizeIntent, sanitizeErrorType, sanitizeIdentifier } from "./analytics-sanitize.ts";
+import type { AnalyticsProperties, AnalyticsSource } from "./analytics-schema.ts";
 
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type SetWindowTitle = (title: string) => void;
@@ -60,6 +62,11 @@ interface ProjectRuntimeRecord {
   title: string | null;
   editorText: string;
   toolsExpanded: boolean;
+}
+
+interface PendingMutation {
+  startedAt: number;
+  properties: AnalyticsProperties;
 }
 
 function modelToSummary(model: Model<any> | undefined): AgentModelSummary | null {
@@ -134,8 +141,14 @@ export class AgentManager {
   private readonly sendToFlyout: SendToFlyout;
   private readonly broadcastActiveProject?: (projectId: string) => void;
   private readonly reloadMainWindow?: () => void;
+  private readonly captureAnalytics?: (
+    name: "mutation_started" | "mutation_completed" | "thread_created",
+    properties: AnalyticsProperties,
+  ) => void;
   private readonly projectRuntimes = new Map<string, ProjectRuntimeRecord>();
   private readonly projectLocks = new Map<string, Promise<void>>();
+  private readonly pendingMutations = new Map<string, PendingMutation>();
+  private editorPendingMutation: PendingMutation | null = null;
   private readonly pendingUi = new Map<
     string,
     {
@@ -157,12 +170,17 @@ export class AgentManager {
     sendToFlyout?: SendToFlyout;
     reloadMainWindow?: () => void;
     broadcastActiveProject?: (projectId: string) => void;
+    captureAnalytics?: (
+      name: "mutation_started" | "mutation_completed" | "thread_created",
+      properties: AnalyticsProperties,
+    ) => void;
   }) {
     this.sendToRenderer = options.sendToRenderer;
     this.setWindowTitle = options.setWindowTitle;
     this.sendToFlyout = options.sendToFlyout ?? (() => {});
     this.reloadMainWindow = options.reloadMainWindow;
     this.broadcastActiveProject = options.broadcastActiveProject;
+    this.captureAnalytics = options.captureAnalytics;
   }
 
   private emit(payload: AgentBridgeEvent): void {
@@ -333,6 +351,7 @@ export class AgentManager {
       this.emit({ type: "event", event });
       this.pushSnapshot(projectId);
       if (event.type === "agent_end") {
+        this.completeMutation(projectId, "success");
         this.pushSettledSnapshot(projectId);
       }
     });
@@ -700,6 +719,11 @@ export class AgentManager {
     setActiveProjectId(project.id);
     await updateLaunchSelection({ projectId: project.id, threadId: thread.id });
     this.pushSnapshot(project.id);
+    this.captureAnalytics?.("thread_created", {
+      project_id: project.id,
+      thread_id: thread.id,
+      source: "agent_runtime",
+    });
     return thread;
   }
 
@@ -789,6 +813,13 @@ export class AgentManager {
     }
 
     touchThread(this.activeThreadId);
+    const mutationProperties = this.buildMutationProperties(input.message, {
+      projectId,
+      threadId: this.activeThreadId,
+      source: "chat_prompt",
+      model: modelToSummary(record.runtime.session.model),
+    });
+    this.startMutation(projectId, mutationProperties);
 
     void record.runtime.session
       .prompt(input.message, {
@@ -796,6 +827,7 @@ export class AgentManager {
         streamingBehavior: input.streamingBehavior,
       })
       .catch(async (error: unknown) => {
+        this.completeMutation(projectId, "error", error);
         console.error("[AgentManager] Agent prompt failed:", error);
         const message = error instanceof Error ? error.message : "Failed to send prompt.";
         this.emit({ type: "notification", message, level: "error" });
@@ -821,6 +853,8 @@ export class AgentManager {
     const record = this.getCurrentRecord();
     if (!record) return;
     await record.runtime.session.abort();
+    const projectId = this.currentProjectId();
+    if (projectId) this.completeMutation(projectId, "cancelled");
     this.pushSnapshot(record.project.id);
   }
 
@@ -1133,6 +1167,7 @@ export class AgentManager {
         };
       }
       if (event.type === "agent_end") {
+        this.completeEditorMutation("success");
         this.reloadMainWindow?.();
       }
       this.emitEditor({ type: "event", event });
@@ -1241,13 +1276,82 @@ export class AgentManager {
     }
     const record = this.editorRecord;
     if (!record) throw new Error("Editor runtime is unavailable.");
+    const activeProjectId = getActiveProjectId();
+    this.editorPendingMutation = {
+      startedAt: Date.now(),
+      properties: this.buildMutationProperties(input.message, {
+        projectId: activeProjectId ?? undefined,
+        source: input.message.startsWith("[Component:") ? "overlay_comment" : "companion_prompt",
+        model: modelToSummary(record.runtime.session.model),
+      }),
+    };
+    this.captureAnalytics?.("mutation_started", this.editorPendingMutation.properties);
 
     void record.runtime.session.prompt(input.message).catch((error: unknown) => {
+      this.completeEditorMutation("error", error);
       const message = error instanceof Error ? error.message : "Editor prompt failed.";
       this.emitEditor({ type: "notification", message, level: "error" });
     });
 
     this.pushEditorSnapshot();
+  }
+
+  private startMutation(key: string, properties: AnalyticsProperties): void {
+    const pending = { startedAt: Date.now(), properties };
+    this.pendingMutations.set(key, pending);
+    this.captureAnalytics?.("mutation_started", properties);
+  }
+
+  private completeMutation(
+    key: string,
+    outcome: "success" | "error" | "cancelled",
+    error?: unknown,
+  ): void {
+    const pending = this.pendingMutations.get(key);
+    if (!pending) return;
+    this.pendingMutations.delete(key);
+    this.captureAnalytics?.("mutation_completed", {
+      ...pending.properties,
+      outcome,
+      execution_duration_ms: Date.now() - pending.startedAt,
+      error_type: outcome === "error" ? sanitizeErrorType(error) : undefined,
+    });
+  }
+
+  private completeEditorMutation(
+    outcome: "success" | "error" | "cancelled",
+    error?: unknown,
+  ): void {
+    const pending = this.editorPendingMutation;
+    if (!pending) return;
+    this.editorPendingMutation = null;
+    this.captureAnalytics?.("mutation_completed", {
+      ...pending.properties,
+      outcome,
+      execution_duration_ms: Date.now() - pending.startedAt,
+      error_type: outcome === "error" ? sanitizeErrorType(error) : undefined,
+    });
+  }
+
+  private buildMutationProperties(
+    message: string,
+    input: {
+      projectId?: string | null;
+      threadId?: string | null;
+      source: AnalyticsSource;
+      model: AgentModelSummary | null;
+    },
+  ): AnalyticsProperties {
+    const componentMatch = message.match(/^\[Component:\s*([^\]\n]+)\]/);
+    return {
+      project_id: input.projectId ?? undefined,
+      thread_id: input.threadId ?? undefined,
+      source: input.source,
+      component_id: sanitizeIdentifier(componentMatch?.[1]),
+      intent_category: categorizeIntent(message),
+      model_id: input.model?.modelId,
+      model_provider: input.model?.provider,
+    };
   }
 
   async disposeEditor(): Promise<void> {

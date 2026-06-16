@@ -198,6 +198,12 @@ const api = {
       return () => ipcRenderer.removeListener("editor:event", listener);
     },
   },
+  analytics: {
+    componentMutationRequested: (input: {
+      componentId?: string | null;
+      source?: "overlay" | "companion";
+    }): Promise<void> => ipcRenderer.invoke("analytics:componentMutationRequested", input),
+  },
   pipper: {
     enterEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:enterEditMode"),
     exitEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:exitEditMode"),

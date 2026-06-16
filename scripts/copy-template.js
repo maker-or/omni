@@ -29,7 +29,10 @@ for (const file of filesToCopy) {
   const srcPath = join(srcDir, file);
   const destPath = join(destDir, file);
   if (existsSync(srcPath)) {
-    cpSync(srcPath, destPath, { recursive: true });
+    cpSync(srcPath, destPath, {
+      recursive: true,
+      filter: (src) => !src.toLowerCase().endsWith(".md"),
+    });
     console.log(` - Copied ${file}`);
   } else {
     console.warn(` - Warning: ${file} not found!`);

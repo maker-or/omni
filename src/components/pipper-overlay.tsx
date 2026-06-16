@@ -160,6 +160,10 @@ export function PipperOverlay() {
         label: found.pipperId,
         elementRect: rect,
       });
+      void window.omni?.analytics?.componentMutationRequested?.({
+        componentId: found.pipperId,
+        source: "overlay",
+      });
       setCommentText("");
     },
     [popup, isBeaming, findPipperElement],

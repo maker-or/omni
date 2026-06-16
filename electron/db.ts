@@ -186,3 +186,10 @@ export function getAuthUser(providerUserId: string): AuthUserRecord | null {
     .get(providerUserId) as AuthUserRecord | undefined;
   return row ?? null;
 }
+
+export function getMostRecentAuthUser(): AuthUserRecord | null {
+  const row = getDb()
+    .prepare("SELECT * FROM auth_users ORDER BY last_seen_at DESC LIMIT 1")
+    .get() as AuthUserRecord | undefined;
+  return row ?? null;
+}

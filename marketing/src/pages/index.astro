@@ -4,177 +4,50 @@ import { Waitlist as WaitlistAstro } from "@clerk/astro/components";
 ---
 
 <Layout title="Pipper - Developer Agent Launcher">
+    <a href="/download" class="absolute top-8 right-8 z-50 flex items-center justify-center p-2 rounded-full bg-white/4 border border-white/8 shadow-[0_4px_20px_rgba(0,0,0,0.2)] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-white/12 hover:border-white/20 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(255,255,255,0.05)] active:translate-y-0 text-white/65 hover:text-white" aria-label="Download Pipper">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm37.66-85.66a8,8,0,0,1,0,11.32l-32,32a8,8,0,0,1-11.32,0l-32-32a8,8,0,0,1,11.32-11.32L120,148.69V88a8,8,0,0,1,16,0v60.69l18.34-18.35A8,8,0,0,1,165.66,130.34Z"></path></svg>
+    </a>
+
     <main class="shell">
-        <section>
-            <h1>Pipper</h1>
-            <h3>Building self<br />improving IDE</h3>
-            <button id="waitlist-trigger" class="waitlist-btn">Join Waitlist</button>
+        <section class="flex flex-col items-center text-center">
+            <h1 class="text-[96px] font-bold m-0 bg-gradient-to-br from-white to-[#a3a3a3] bg-clip-text text-transparent tracking-[-0.02em] leading-[1.1]">Pipper</h1>
+            <h3 class="text-[48px] font-normal mt-4 mx-0 mb-0 text-white/45 leading-[1.25] tracking-[-0.02em]">Building self improving IDE</h3>
         </section>
     </main>
 
-    <dialog id="waitlist-dialog" class="waitlist-dialog">
-        <div class="dialog-content">
-            <button id="waitlist-close" class="close-btn" aria-label="Close modal">&times;</button>
+    <dialog id="waitlist-dialog" class="border-none bg-transparent p-0 m-auto overflow-visible backdrop:bg-black/70 backdrop:backdrop-blur-[8px]">
+        <div class="relative bg-[#171717] border border-white/8 rounded-[24px] pt-10 px-6 pb-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] w-[min(480px,90vw)] flex flex-col items-center box-border">
+            <button
+                id="waitlist-close"
+                class="absolute top-4 right-4 bg-transparent border-none text-white/40 text-[28px] cursor-pointer leading-none p-1 transition-colors duration-150 ease-in-out hover:text-white"
+                aria-label="Close modal">&times;</button
+            >
             <WaitlistAstro />
         </div>
     </dialog>
 </Layout>
 
 <script>
-    const trigger = document.getElementById('waitlist-trigger');
-    const dialog = document.getElementById('waitlist-dialog') as HTMLDialogElement | null;
-    const closeBtn = document.getElementById('waitlist-close');
+    const trigger = document.getElementById("waitlist-trigger");
+    const dialog = document.getElementById(
+        "waitlist-dialog",
+    ) as HTMLDialogElement | null;
+    const closeBtn = document.getElementById("waitlist-close");
 
     if (trigger && dialog && closeBtn) {
-        trigger.addEventListener('click', () => {
+        trigger.addEventListener("click", () => {
             dialog.showModal();
         });
 
-        closeBtn.addEventListener('click', () => {
+        closeBtn.addEventListener("click", () => {
             dialog.close();
         });
 
         // Close on clicking backdrop
-        dialog.addEventListener('click', (e) => {
+        dialog.addEventListener("click", (e) => {
             if (e.target === dialog) {
                 dialog.close();
             }
         });
     }
 </script>
-
-<style>
-    section {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-    }
-
-    .card {
-        width: min(560px, 100%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(23, 23, 23, 0.6);
-        backdrop-filter: blur(16px);
-        border-radius: 24px;
-        padding: 40px;
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 16px;
-    }
-
-    h1 {
-        font-size: 96px;
-        font-weight: 700;
-        margin: 0;
-        background: linear-gradient(135deg, #ffffff 0%, #a3a3a3 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        letter-spacing: -0.02em;
-        line-height: 1.1;
-    }
-
-    h3 {
-        font-size: 48px;
-        font-weight: 400;
-        margin: 16px 0 0 0;
-        color: rgba(255, 255, 255, 0.45);
-        line-height: 1.25;
-        letter-spacing: -0.02em;
-    }
-
-    .waitlist-btn {
-        font-family: inherit;
-        font-size: 18px;
-        font-weight: 600;
-        padding: 14px 28px;
-        border-radius: 99px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.08);
-        color: #ffffff;
-        cursor: pointer;
-        backdrop-filter: blur(12px);
-        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        margin-top: 32px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-    }
-
-    .waitlist-btn:hover {
-        background: rgba(255, 255, 255, 0.15);
-        border-color: rgba(255, 255, 255, 0.25);
-        transform: translateY(-2px);
-        box-shadow: 0 8px 30px rgba(255, 255, 255, 0.05);
-    }
-
-    .waitlist-btn:active {
-        transform: translateY(0);
-    }
-
-    .waitlist-dialog {
-        border: none;
-        background: transparent;
-        padding: 0;
-        margin: auto;
-        overflow: visible;
-    }
-
-    .waitlist-dialog::backdrop {
-        background: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(8px);
-    }
-
-    .dialog-content {
-        position: relative;
-        background: #171717;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 24px;
-        padding: 40px 24px 24px 24px;
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
-        width: min(480px, 90vw);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        box-sizing: border-box;
-    }
-
-    .close-btn {
-        position: absolute;
-        top: 16px;
-        right: 16px;
-        background: transparent;
-        border: none;
-        color: rgba(255, 255, 255, 0.4);
-        font-size: 28px;
-        cursor: pointer;
-        line-height: 1;
-        padding: 4px;
-        transition: color 0.15s ease;
-    }
-
-    .close-btn:hover {
-        color: #ffffff;
-    }
-
-    p {
-        font-size: 16px;
-        color: rgba(255, 255, 255, 0.7);
-        margin: 0;
-        line-height: 1.5;
-    }
-
-    .badge {
-        display: inline-block;
-        padding: 6px 12px;
-        font-size: 12px;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.4);
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 99px;
-        margin-top: 8px;
-    }
-</style>

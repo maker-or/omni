@@ -50,6 +50,9 @@ export function getSharedPath(): string {
 }
 
 function copyRecursive(src: string, dest: string): void {
+  if (src.toLowerCase().endsWith(".md")) {
+    return;
+  }
   const stat = lstatSync(src);
   if (stat.isDirectory()) {
     mkdirSync(dest, { recursive: true });
@@ -69,7 +72,7 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
 
   for (const entry of entries) {
     const name = entry.name;
-    // Exclude launcher binary code, caches, and node_modules from the clone
+    // Exclude launcher binary code, caches, node_modules, and markdown files from the clone
     if (
       name === "node_modules" ||
       name === "electron" ||
@@ -79,7 +82,8 @@ function copyTemplateFiles(srcDir: string, destDir: string): void {
       name === "release" ||
       name === "app-template" ||
       name === "marketing" ||
-      name === ".env"
+      name === ".env" ||
+      name.toLowerCase().endsWith(".md")
     ) {
       continue;
     }

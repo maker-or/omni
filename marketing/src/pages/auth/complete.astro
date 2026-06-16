@@ -22,12 +22,12 @@ const payload = user
 
 <Layout title="Completing sign in">
   <main class="shell">
-    <section >
+    <section>
       {
         payload ? (
-          <p>Returning you to the Pipper.</p>
+          <p class="text-white/72 m-0">Returning you to the Pipper.</p>
         ) : (
-          <p>Unable to read the Clerk session.</p>
+          <p class="text-white/72 m-0">Unable to read the Clerk session.</p>
         )
       }
     </section>
@@ -47,34 +47,3 @@ const payload = user
     ) : null
   }
 </Layout>
-
-<style>
-  .shell {
-    position: relative;
-    z-index: 10;
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 32px;
-    box-sizing: border-box;
-  }
-
-  .card {
-    width: min(560px, 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(8, 13, 26, 0.72);
-    backdrop-filter: blur(16px);
-    border-radius: 24px;
-    padding: 32px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
-  }
-
-  h1 {
-    margin: 0 0 12px;
-  }
-
-  p {
-    color: rgba(229, 231, 235, 0.72);
-    margin: 0;
-  }
-</style>

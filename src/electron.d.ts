@@ -136,6 +136,12 @@ declare global {
         dispose: () => Promise<void>;
         onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
       };
+      analytics: {
+        componentMutationRequested: (input: {
+          componentId?: string | null;
+          source?: "overlay" | "companion";
+        }) => Promise<void>;
+      };
       pipper: {
         enterEditMode: () => Promise<void>;
         exitEditMode: () => Promise<void>;
