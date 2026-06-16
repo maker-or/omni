@@ -1,5 +1,6 @@
 import { put } from "@vercel/blob";
-import { readdir, readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 
 type Architecture = "arm64" | "x64";
@@ -122,12 +123,13 @@ async function main() {
   for (const artifact of artifacts) {
     console.log(`Uploading ${artifact.fileName} to ${artifact.pathname}`);
 
-    const body = await readFile(artifact.filePath);
+    const body = createReadStream(artifact.filePath);
     const blob = await put(artifact.pathname, body, {
       access: "public",
       token,
       allowOverwrite: true,
       addRandomSuffix: false,
+      multipart: true,
     });
 
     envLines.push(`${artifact.envKey}=${blob.downloadUrl}`);
