@@ -344,6 +344,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
     const { open, setOpen, value, triggerRef, listboxId } = useSelectContext();
     const shape = useShape();
     const containerRef = useRef<HTMLDivElement>(null);
+    const mergedRef = useMergeRefs(containerRef, ref);
     const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
 
     // Surface level the dropdown renders at (Elevated offset of 2), so the

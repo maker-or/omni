@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Warning } from "@phosphor-icons/react";
+import { Warning, CircleNotch } from "@phosphor-icons/react";
 import type { Project } from "../../contracts/projects.ts";
 import { toast } from "@/components/ui/toast";
 import { UnauthenticatedStage } from "./unauthenticated-stage";
 import { AuthenticatedStage } from "./authenticated-stage";
+
+const LOCAL_AUTH_USER = { name: "Developer", email: "developer@local" };
 
 export function LaunchApp() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -16,6 +18,7 @@ export function LaunchApp() {
   const [authUser, setAuthUser] = useState<{ name: string | null; email: string | null } | null>(
     null,
   );
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const loadProjects = useCallback(async () => {
     if (!window.omni?.projects?.list) {
@@ -35,6 +38,25 @@ export function LaunchApp() {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        if (window.omni?.launch?.getUser) {
+          const user = await window.omni.launch.getUser();
+          setAuthUser(user ?? LOCAL_AUTH_USER);
+          return;
+        }
+        setAuthUser(LOCAL_AUTH_USER);
+      } catch (err) {
+        console.error("Failed to check auth user:", err);
+        setAuthUser(LOCAL_AUTH_USER);
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    }
+    void checkAuth();
   }, []);
 
   useEffect(() => {
@@ -105,6 +127,15 @@ export function LaunchApp() {
       setIsLaunchingAuth(false);
     }
   }, []);
+
+  if (isCheckingAuth) {
+    return (
+      <div className="h-screen w-screen bg-[#171717] flex flex-col items-center justify-center text-muted-foreground gap-3">
+        <CircleNotch className="animate-spin text-primary" size={32} />
+        <span className="text-sm font-medium tracking-tight">Checking authorization…</span>
+      </div>
+    );
+  }
 
   if (!authUser) {
     return (

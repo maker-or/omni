@@ -682,6 +682,12 @@ function registerIpc(): void {
     return !!(deps.gitInstalled && deps.nodeMatch && deps.bunMatch && workspacesInitialized);
   });
 
+  ipcMain.handle("launch:getUser", () => {
+    const user = getMostRecentAuthUser();
+    if (user) return user;
+    return { name: "Developer", email: "developer@local" };
+  });
+
   ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
     setActiveProjectId(projectId);
     try {

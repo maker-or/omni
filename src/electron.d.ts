@@ -32,6 +32,7 @@ declare global {
           callback: (user: { name: string | null; email: string | null }) => void,
         ) => () => void;
         isReady: () => Promise<boolean>;
+        getUser: () => Promise<{ name: string | null; email: string | null } | null>;
       };
       shell: {
         openExternal: (url: string) => Promise<void>;

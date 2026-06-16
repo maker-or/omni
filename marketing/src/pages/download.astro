@@ -1,99 +1,262 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
-const arm64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL;
-const x64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_X64_DMG_URL;
-const hasAnyDownload = Boolean(arm64DmgUrl || x64DmgUrl);
-
-const downloads = [
-    {
-        title: "macOS (Apple Silicon)",
-        subtitle: "M-series Macs",
-        href: arm64DmgUrl,
-    },
-    {
-        title: "macOS (Intel)",
-        subtitle: "Intel-based Macs",
-        href: x64DmgUrl,
-    },
-];
+const fallbackArm64DmgUrl =
+    "https://3cd02vgzs0uqkfoo.public.blob.vercel-storage.com/desktop/latest/pipper-mac-arm64.dmg?download=1";
+const arm64DmgUrl =
+    import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL ?? fallbackArm64DmgUrl;
 ---
 
-<Layout title="Download Pipper Code (Alpha) - Developer Agent Launcher">
-    <main class="shell">
-        <div
-            class="w-[min(480px,100%)] py-12 px-10 text-center flex flex-col items-center"
-        >
-            <h1
-                class="text-[40px] font-bold mt-0 mx-0 mb-3 bg-gradient-to-br from-white to-[#a3a3a3] bg-clip-text text-transparent tracking-[-0.02em] leading-[1.2]"
+<Layout
+    title="Download — polarish"
+    description="Download polarish for macOS."
+    pageClass="download-page"
+>
+    <div class="download-content">
+        <h1 class="heading">Download polarish</h1>
+        <p class="subheading">
+            <span id="version-label" aria-live="polite"></span>
+            <a
+                id="changelog-link"
+                class="changelog-link"
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                style="display:none"
+                >View changelog<span aria-hidden="true"> &#8599;</span></a
             >
-                Download Pipper Code (Alpha)
-            </h1>
+        </p>
 
-            <div class="w-full mb-8">
-                {
-                    hasAnyDownload ? (
-                        <div class="flex w-full flex-col gap-3">
-                            {downloads.map((download) =>
-                                download.href ? (
-                                    <a
-                                        class="font-inherit py-4 px-6 text-white flex items-center justify-between w-full box-border text-left border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/20 transition-colors"
-                                        href={download.href}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                    >
-                                        <div class="flex flex-col gap-0.5">
-                                            <span class="text-base font-semibold text-white">
-                                                {download.title}
-                                            </span>
-                                            <span class="text-xs text-white/55">
-                                                {download.subtitle}
-                                            </span>
-                                        </div>
-                                        <span class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/10 border border-white/15 text-white uppercase tracking-wider">
-                                            Download
-                                        </span>
-                                    </a>
-                                ) : (
-                                    <button
-                                        class="font-inherit py-4 px-6 text-white/40 cursor-not-allowed flex items-center justify-between w-full box-border text-left"
-                                        disabled
-                                    >
-                                        <div class="flex flex-col gap-0.5">
-                                            <span class="text-base font-semibold text-white/40">
-                                                {download.title}
-                                            </span>
-                                            <span class="text-xs text-white/25">
-                                                {download.subtitle}
-                                            </span>
-                                        </div>
-                                        <span class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/4 border border-white/8 text-white/40 uppercase tracking-wider">
-                                            Coming Soon
-                                        </span>
-                                    </button>
-                                ),
-                            )}
-                        </div>
-                    ) : (
-                        <button
-                            class="font-inherit py-4 px-6 text-white/40 cursor-not-allowed flex items-center justify-between w-full box-border text-left"
-                            disabled
-                        >
-                            <div class="flex flex-col gap-0.5">
-                                <span class="text-base font-semibold text-white/40">
-                                    Download for macOS
-                                </span>
-                                <span class="text-xs text-white/25">
-                                    Apple Silicon & Intel
-                                </span>
-                            </div>
-                            <span class="text-[11px] font-semibold py-1 px-2 rounded-md bg-white/4 border border-white/8 text-white/40 uppercase tracking-wider">
-                                Coming Soon
-                            </span>
-                        </button>
-                    )
-                }
-            </div>
+        <aside class="launch-note" aria-label="Unsigned launch build notice">
+            <strong>Launch build note:</strong> currently macOS is unsigned, so run
+            this command:
+            <code class="launch-command"
+                >xattr -cr "/Applications/polarish (Alpha).app"</code
+            >
+        </aside>
+
+        <div class="platforms" id="platforms">
+            <section class="platform-section">
+                <div class="platform-header">
+                    <svg
+                        class="platform-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 814 1000"
+                        aria-hidden="true"
+                        ><path
+                            fill="currentColor"
+                            d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"
+                        ></path></svg
+                    >
+                    <h2 class="platform-name">macOS</h2>
+                </div>
+                <div class="download-cards">
+                    <a
+                        class="download-card"
+                        data-asset="arm64.dmg"
+                        href={arm64DmgUrl}
+                        download
+                        rel="noopener noreferrer"
+                    >
+                        <span class="card-arch">Apple Silicon (arm64)</span>
+                        <span class="card-format">.dmg</span>
+                    </a>
+                </div>
+            </section>
         </div>
-    </main>
+    </div>
 </Layout>
+
+<style>
+    @import url("https://fonts.googleapis.com/css2?family=Geist:ital,wght@0,100..900;1,100..900&display=swap");
+
+    .download-content {
+        font-family: "Geist", sans-serif;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .download-content * {
+        font-family: inherit;
+    }
+
+    .main {
+        padding: 8vh 1.5rem 4rem;
+    }
+
+    /* ── Heading ── */
+
+    .heading {
+        font-weight: 500;
+        font-size: clamp(1.75rem, 4vw, 2.75rem);
+        letter-spacing: -0.035em;
+        line-height: 1.15;
+        text-align: center;
+        margin-bottom: 0.5rem;
+        opacity: 0;
+        animation: fade-in 1s ease-out forwards;
+    }
+
+    .subheading {
+        font-size: 0.9rem;
+        color: var(--fg-dim);
+        margin-bottom: 3.5rem;
+        opacity: 0;
+        animation: fade-in 1s ease-out 0.1s forwards;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .changelog-link {
+        color: var(--fg-muted);
+        font-size: 0.8rem;
+        text-decoration: underline;
+        text-decoration-color: rgba(161, 161, 170, 0.4);
+        text-underline-offset: 3px;
+        transition:
+            color 0.3s ease,
+            text-decoration-color 0.3s ease;
+    }
+
+    .changelog-link:hover {
+        color: var(--fg);
+        text-decoration-color: var(--fg);
+    }
+
+    .launch-note {
+        width: min(720px, 100%);
+        margin: -1.5rem 0 3rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid rgba(161, 161, 170, 0.22);
+        border-radius: 1rem;
+        background: rgba(250, 250, 250, 0.04);
+        color: var(--fg-dim);
+        font-size: 0.86rem;
+        line-height: 1.5;
+        opacity: 0;
+        animation: fade-in 1s ease-out 0.15s forwards;
+    }
+
+    .launch-note strong {
+        color: var(--fg);
+        font-weight: 500;
+    }
+
+    .launch-note code {
+        font-family: "Geist", sans-serif;
+        font-size: 0.84rem;
+        color: var(--fg);
+        word-break: break-word;
+    }
+
+    .launch-command {
+        display: block;
+        margin-top: 0.6rem;
+        padding: 0.75rem 0.9rem;
+        border: 1px solid var(--border);
+        border-radius: 0.85rem;
+        background: rgba(12, 58, 143, 0.04);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    /* ── Platforms ── */
+
+    .platforms {
+        width: 100%;
+        max-width: 720px;
+        display: flex;
+        flex-direction: column;
+        gap: 2.5rem;
+        opacity: 0;
+        animation: fade-in 1s ease-out 0.2s forwards;
+    }
+
+    .platform-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .platform-header {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .platform-icon {
+        width: 1.15em;
+        height: 1.15em;
+        color: var(--fg-muted);
+        flex-shrink: 0;
+    }
+
+    .platform-name {
+        font-weight: 500;
+        font-size: 1.1rem;
+        letter-spacing: -0.01em;
+    }
+
+    /* ── Download cards ── */
+
+    .download-cards {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+
+    .download-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        padding: 0.85rem 1rem;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.02);
+        transition:
+            background 0.2s ease,
+            border-color 0.2s ease,
+            transform 0.2s ease;
+    }
+
+    .download-card:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.15);
+        transform: translateY(-1px);
+    }
+
+    .download-card:active {
+        transform: translateY(0);
+    }
+
+    .card-arch {
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+
+    .card-format {
+        font-size: 0.8rem;
+        color: var(--fg-dim);
+    }
+
+    /* ── Mobile ── */
+
+    @media (max-width: 640px) {
+        .main {
+            padding: 5vh 1.25rem 4rem;
+        }
+
+        .platforms {
+            padding: 0 0.25rem;
+        }
+
+        .download-cards {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>

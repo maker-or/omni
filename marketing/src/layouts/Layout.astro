@@ -1,26 +1,136 @@
 ---
-import AmbientPixelField from "../components/AmbientPixelField.astro";
-import "../styles/global.css";
-const { title = "Pipper Code (Alpha) auth" } = Astro.props;
 import Analytics from "@vercel/analytics/astro";
+import "../styles/global.css";
+const {
+    title = "pipper",
+    description = "pipper — self-improving agent interface",
+    pageClass,
+} = Astro.props;
+const pagePath = Astro.url.pathname;
+const pageName =
+    pagePath === "/"
+        ? "home"
+        : pagePath.replace(/^\/+|\/+$/g, "").replace(/\//g, ".") || "home";
+const showDownloadNavLink = pageClass !== "download-page";
 ---
 
-<!doctype html>
 <html lang="en">
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="generator" content={Astro.generator} />
-    <Analytics />
-    <title>{title}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-        href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap"
-        rel="stylesheet"
-    />
-
-    <body>
-        <AmbientPixelField intensity={0.4} fadeStart={0.8} />
-        <slot />
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content={description} />
+        <Analytics />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="icon" href="/favicon.ico" sizes="48x48" />
+        <title>{title}</title>
+    </head>
+    <body class={pageClass} data-page={pageName}>
+        <div class="page">
+            <header
+                class="w-full max-w-7xl mx-auto px-8 pt-6 md:pt-10 flex justify-between items-center flex-shrink-0"
+            >
+                <a
+                    href="/"
+                    class="font-['Averia_Serif_Libre'] italic text-3xl md:text-4xl tracking-tight text-[#5474AF] hover:opacity-80 transition-opacity"
+                >
+                    pipper
+                </a>
+                <nav
+                    class="flex items-center gap-8 md:gap-12 font-['Averia_Serif_Libre'] text-xl md:text-2xl text-[#5474AF]"
+                >
+                    <a
+                        href="https://discord.gg/S928NjYv"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="hover:text-[#0C3A8F] transition-colors"
+                        >Discord</a
+                    >
+                    {
+                        showDownloadNavLink ? (
+                            <a
+                                href="/download"
+                                class="hover:text-[#0C3A8F] transition-colors"
+                            >
+                                Download
+                            </a>
+                        ) : null
+                    }
+                </nav>
+            </header>
+            <main class="main flex-1 flex flex-col items-center w-full min-h-0">
+                <slot />
+            </main>
+        </div>
     </body>
 </html>
+
+<style is:global>
+    @import url("https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap");
+
+    :root {
+        --bg: #fffdf4;
+        --fg: #0c3a8f;
+        --fg-muted: #5474af;
+        --fg-dim: rgba(84, 116, 175, 0.72);
+        --border: rgba(12, 58, 143, 0.15);
+        --surface: rgba(12, 58, 143, 0.04);
+        --surface-strong: rgba(12, 58, 143, 0.08);
+    }
+
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    html {
+        color-scheme: light;
+        height: 100svh;
+        overflow: hidden;
+    }
+
+    body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "Averia Serif Libre", serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        height: 100svh;
+        overflow: hidden;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    img {
+        display: block;
+        max-width: 100%;
+    }
+
+    @keyframes fade-in {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+</style>
+
+<style>
+    .page {
+        height: 100svh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+</style>

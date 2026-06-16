@@ -42,6 +42,8 @@ const api = {
       return () => ipcRenderer.removeListener("launch:authComplete", listener);
     },
     isReady: (): Promise<boolean> => ipcRenderer.invoke("launch:isWorkspaceReady"),
+    getUser: (): Promise<{ name: string | null; email: string | null } | null> =>
+      ipcRenderer.invoke("launch:getUser"),
   },
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),

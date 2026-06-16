@@ -32,7 +32,16 @@ export function AuthenticatedStage({
   handleOpen,
   handleProjectCreated,
 }: AuthenticatedStageProps) {
-  const [stage, setStage] = useState<LaunchStage>("list");
+  const [stage, setStage] = useState<LaunchStage>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const stageParam = params.get("stage");
+      if (stageParam === "add") {
+        return "add";
+      }
+    }
+    return "list";
+  });
 
   return (
     <div className="h-screen w-screen relative overflow-hidden bg-[#171717] text-foreground flex items-center justify-center p-6">
