@@ -14,3 +14,9 @@ export interface ThreadPage {
   hasMore: boolean;
   nextOffset: number;
 }
+
+export interface OpenTabsState {
+  openThreadIds: string[];
+  activeThreadId: string | null;
+  threadSwitchHistory: string[];
+}

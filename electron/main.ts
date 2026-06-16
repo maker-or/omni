@@ -14,8 +14,22 @@ import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { getDb, upsertAuthUser } from "./db";
-import { listThreads, listProjectThreads, getMessages, createMessage } from "./threads";
+import {
+  listThreads,
+  listThreadsByIds,
+  listProjectThreads,
+  getMessages,
+  createMessage,
+} from "./threads";
 import { AgentManager } from "./agent";
+import {
+  broadcastOpenTabsChanged,
+  closeThreadTab,
+  openThreadTab,
+  readOpenTabsState,
+  recordThreadSwitch,
+  setActiveThreadTab,
+} from "./open-tabs";
 import {
   checkAllDependencies,
   checkGit,
@@ -82,7 +96,11 @@ function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
 }
 
 function resolveRendererFile(page: "main" | "launch"): string {
-  return join(mainDir, "../renderer", page === "launch" ? "launch.html" : "index.html");
+  return join(
+    mainDir,
+    "../renderer",
+    page === "launch" ? "launch.html" : "index.html",
+  );
 }
 
 function sendToMainWindow(channel: string, payload: unknown): void {
@@ -106,8 +124,10 @@ function setMainWindowTitle(title: string): void {
 function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
   const url =
     kind === "clerkSignUp"
-      ? (process.env["PIPPER_CLERK_SIGN_UP_URL"] ?? import.meta.env.VITE_CLERK_SIGN_UP_URL)
-      : (process.env["PIPPER_CLERK_SIGN_IN_URL"] ?? import.meta.env.VITE_CLERK_SIGN_IN_URL);
+      ? (process.env["PIPPER_CLERK_SIGN_UP_URL"] ??
+        import.meta.env.VITE_CLERK_SIGN_UP_URL)
+      : (process.env["PIPPER_CLERK_SIGN_IN_URL"] ??
+        import.meta.env.VITE_CLERK_SIGN_IN_URL);
 
   if (url) return url;
   const frontendUrl = import.meta.env.VITE_CLERK_FRONTEND_URL;
@@ -162,7 +182,8 @@ async function ensureAuthCallbackServer(): Promise<number> {
   if (authCallbackPort) return authCallbackPort;
   if (pendingAuthCallback) {
     await pendingAuthCallback;
-    if (!authCallbackPort) throw new Error("Auth callback server failed to start.");
+    if (!authCallbackPort)
+      throw new Error("Auth callback server failed to start.");
     return authCallbackPort;
   }
 
@@ -174,7 +195,10 @@ async function ensureAuthCallbackServer(): Promise<number> {
         return;
       }
 
-      const requestUrl = new URL(req.url, `http://127.0.0.1:${authCallbackPort ?? 0}`);
+      const requestUrl = new URL(
+        req.url,
+        `http://127.0.0.1:${authCallbackPort ?? 0}`,
+      );
       if (requestUrl.pathname !== "/auth/callback") {
         res.writeHead(404);
         res.end("Not found");
@@ -215,7 +239,8 @@ async function ensureAuthCallbackServer(): Promise<number> {
     pendingAuthCallback = null;
   }
 
-  if (!authCallbackPort) throw new Error("Auth callback server failed to start.");
+  if (!authCallbackPort)
+    throw new Error("Auth callback server failed to start.");
   return authCallbackPort;
 }
 
@@ -226,8 +251,14 @@ function getAuthCallbackUrl(): string {
   return `http://127.0.0.1:${authCallbackPort}/auth/callback`;
 }
 
-function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
-  console.log(`[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`);
+function loadInto(
+  win: BrowserWindow,
+  page: "main" | "launch",
+  stage?: string,
+): Promise<void> {
+  console.log(
+    `[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`,
+  );
   if (isDev) {
     const url = resolveRendererUrl(page, stage);
     console.log(`[Main] loadInto (dev) - loading url: ${url}`);
@@ -254,12 +285,14 @@ function startViteServer(): Promise<string> {
 
     const activePath = getActivePath();
     const cmd = getMisePath();
-    console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise on port 1953`);
+    console.log(
+      `[Main] Spawning Vite Dev Server in ${activePath} using Mise on port 1953`,
+    );
 
     // Use bun run vite directly for faster startup
     viteProcess = spawn(
       cmd,
-      ["exec", "--", "bun", "run", "vite", "--port", "1953", "--strictPort"],
+      ["exec", "--", "bun", "run", "vite", "--port", "1953"],
       {
         cwd: activePath,
         env: { ...process.env, NODE_ENV: "development" },
@@ -320,7 +353,9 @@ function startViteServer(): Promise<string> {
         clearInterval(checkInterval);
         if (!resolved) {
           resolved = true;
-          console.warn("[Main] Vite server port check timed out, resolving fallback url");
+          console.warn(
+            "[Main] Vite server port check timed out, resolving fallback url",
+          );
           resolve("http://localhost:1953");
         }
       }
@@ -372,9 +407,14 @@ async function createMainWindow(): Promise<void> {
     mainWindow?.show();
   });
 
-  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
-  });
+  mainWindow.webContents.on(
+    "console-message",
+    (_event, level, message, line, sourceId) => {
+      console.log(
+        `[Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`,
+      );
+    },
+  );
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -395,10 +435,15 @@ async function createMainWindow(): Promise<void> {
   }
 }
 
-function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void {
+function createLaunchWindow(
+  stage: "list" | "add" | "onboarding" = "list",
+): void {
   console.log(`[Main] createLaunchWindow - stage: ${stage}`);
   if (launchWindow && !launchWindow.isDestroyed()) {
-    console.log("[Main] launchWindow already exists, reusing and loading stage:", stage);
+    console.log(
+      "[Main] launchWindow already exists, reusing and loading stage:",
+      stage,
+    );
     void loadInto(launchWindow, "launch", stage);
     launchWindow.show();
     launchWindow.focus();
@@ -428,9 +473,14 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
     launchWindow?.show();
   });
 
-  launchWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[Launch Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
-  });
+  launchWindow.webContents.on(
+    "console-message",
+    (_event, level, message, line, sourceId) => {
+      console.log(
+        `[Launch Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`,
+      );
+    },
+  );
 
   launchWindow.on("closed", () => {
     console.log("[Main] launchWindow closed");
@@ -477,9 +527,14 @@ async function createCompanionWindow(): Promise<void> {
     companionWindow?.show();
   });
 
-  companionWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[Companion Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
-  });
+  companionWindow.webContents.on(
+    "console-message",
+    (_event, level, message, line, sourceId) => {
+      console.log(
+        `[Companion Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`,
+      );
+    },
+  );
 
   const saveBounds = () => {
     if (companionWindow && !companionWindow.isDestroyed()) {
@@ -513,7 +568,9 @@ function broadcastToWindows(channel: string, ...args: any[]) {
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? ([{ role: "appMenu" }] as Electron.MenuItemConstructorOptions[]) : []),
+    ...(isMac
+      ? ([{ role: "appMenu" }] as Electron.MenuItemConstructorOptions[])
+      : []),
     {
       label: "File",
       submenu: [isMac ? { role: "close" } : { role: "quit" }],
@@ -554,7 +611,10 @@ function buildAppMenu(): void {
       submenu: [
         { role: "minimize" },
         ...(isMac
-          ? ([{ type: "separator" }, { role: "front" }] as Electron.MenuItemConstructorOptions[])
+          ? ([
+              { type: "separator" },
+              { role: "front" },
+            ] as Electron.MenuItemConstructorOptions[])
           : ([{ role: "close" }] as Electron.MenuItemConstructorOptions[])),
       ],
     },
@@ -633,10 +693,13 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle("launch:show", (_event, stage?: "list" | "add" | "onboarding") => {
-    console.log("[Main] IPC launch:show - received stage:", stage);
-    createLaunchWindow(stage);
-  });
+  ipcMain.handle(
+    "launch:show",
+    (_event, stage?: "list" | "add" | "onboarding") => {
+      console.log("[Main] IPC launch:show - received stage:", stage);
+      createLaunchWindow(stage);
+    },
+  );
 
   ipcMain.handle("launch:isWorkspaceReady", async () => {
     const deps = await checkAllDependencies();
@@ -647,7 +710,12 @@ function registerIpc(): void {
       fs.existsSync(activePath) &&
       fs.existsSync(backupPath) &&
       fs.existsSync(join(sharedPath, "node_modules"));
-    return !!(deps.gitInstalled && deps.nodeMatch && deps.bunMatch && workspacesInitialized);
+    return !!(
+      deps.gitInstalled &&
+      deps.nodeMatch &&
+      deps.bunMatch &&
+      workspacesInitialized
+    );
   });
 
   ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
@@ -655,7 +723,10 @@ function registerIpc(): void {
     try {
       await requireAgentManager().activateProject(projectId);
     } catch (err) {
-      console.error(`[Main] Failed to activate project ${projectId} in agent manager:`, err);
+      console.error(
+        `[Main] Failed to activate project ${projectId} in agent manager:`,
+        err,
+      );
     }
     broadcastToWindows("projects:activeChanged", projectId);
   });
@@ -681,6 +752,10 @@ function registerIpc(): void {
     return listThreads();
   });
 
+  ipcMain.handle("threads:listByIds", (_event, ids: string[]) => {
+    return listThreadsByIds(ids);
+  });
+
   ipcMain.handle(
     "threads:listProject",
     (_event, input: { projectId: string; limit?: number; offset?: number }) => {
@@ -690,8 +765,17 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "threads:create",
-    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
-      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+    (
+      _event,
+      projectId: string,
+      title: string,
+      afterThreadId?: string | null,
+    ) => {
+      return requireAgentManager().createThread(
+        projectId,
+        title,
+        afterThreadId ?? null,
+      );
     },
   );
 
@@ -699,8 +783,34 @@ function registerIpc(): void {
     return requireAgentManager().renameThread(id, title);
   });
 
-  ipcMain.handle("threads:delete", (_event, id: string) => {
-    return requireAgentManager().deleteThread(id);
+  ipcMain.handle("threads:delete", async (_event, id: string) => {
+    await requireAgentManager().deleteThread(id);
+    const next = await closeThreadTab(id);
+    broadcastOpenTabsChanged(mainWindow, next);
+  });
+
+  ipcMain.handle("tabs:listOpen", () => readOpenTabsState());
+
+  ipcMain.handle("tabs:open", async (_event, threadId: string) => {
+    const next = await openThreadTab(threadId);
+    broadcastOpenTabsChanged(mainWindow, next);
+    return next;
+  });
+
+  ipcMain.handle("tabs:close", async (_event, threadId: string) => {
+    const next = await closeThreadTab(threadId);
+    broadcastOpenTabsChanged(mainWindow, next);
+    return next;
+  });
+
+  ipcMain.handle("tabs:setActive", async (_event, threadId: string | null) => {
+    const next = await setActiveThreadTab(threadId);
+    broadcastOpenTabsChanged(mainWindow, next);
+    return next;
+  });
+
+  ipcMain.handle("tabs:getActive", async () => {
+    return (await readOpenTabsState()).activeThreadId;
   });
 
   ipcMain.handle("messages:list", (_event, threadId: string) => {
@@ -751,10 +861,12 @@ function registerIpc(): void {
     console.log("[IPC] agent:abort called");
     return requireAgentManager().abort();
   });
-  ipcMain.handle("agent:switchThread", (_event, threadId: string) => {
+  ipcMain.handle("agent:switchThread", async (_event, threadId: string) => {
     console.log("[IPC] agent:switchThread called with threadId:", threadId);
     try {
-      return requireAgentManager().switchThread(threadId);
+      await requireAgentManager().switchThread(threadId);
+      const next = await recordThreadSwitch(threadId);
+      broadcastOpenTabsChanged(mainWindow, next);
     } catch (e: any) {
       console.error("[IPC] agent:switchThread error:", e);
       throw e;
@@ -762,24 +874,43 @@ function registerIpc(): void {
   });
   ipcMain.handle(
     "agent:createThread",
-    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
-      console.log("[IPC] agent:createThread called with:", { projectId, title, afterThreadId });
+    (
+      _event,
+      projectId: string,
+      title: string,
+      afterThreadId?: string | null,
+    ) => {
+      console.log("[IPC] agent:createThread called with:", {
+        projectId,
+        title,
+        afterThreadId,
+      });
       try {
-        return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+        return requireAgentManager().createThread(
+          projectId,
+          title,
+          afterThreadId ?? null,
+        );
       } catch (e: any) {
         console.error("[IPC] agent:createThread error:", e);
         throw e;
       }
     },
   );
-  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") => {
-    console.log("[IPC] agent:cycleModel called, direction:", direction);
-    return requireAgentManager().cycleModel(direction);
-  });
-  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) => {
-    console.log("[IPC] agent:setModel called with model:", model);
-    return requireAgentManager().setModel(model);
-  });
+  ipcMain.handle(
+    "agent:cycleModel",
+    (_event, direction?: "forward" | "backward") => {
+      console.log("[IPC] agent:cycleModel called, direction:", direction);
+      return requireAgentManager().cycleModel(direction);
+    },
+  );
+  ipcMain.handle(
+    "agent:setModel",
+    (_event, model: { provider: string; modelId: string }) => {
+      console.log("[IPC] agent:setModel called with model:", model);
+      return requireAgentManager().setModel(model);
+    },
+  );
   ipcMain.handle("agent:setThinkingLevel", (_event, level: any) => {
     console.log("[IPC] agent:setThinkingLevel called with level:", level);
     return requireAgentManager().setThinkingLevel(level);
@@ -789,11 +920,17 @@ function registerIpc(): void {
     return requireAgentManager().cycleThinkingLevel();
   });
   ipcMain.handle("agent:compact", (_event, customInstructions?: string) => {
-    console.log("[IPC] agent:compact called with customInstructions:", customInstructions);
+    console.log(
+      "[IPC] agent:compact called with customInstructions:",
+      customInstructions,
+    );
     return requireAgentManager().compact(customInstructions);
   });
   ipcMain.handle("agent:respondToUiRequest", (_event, response) => {
-    console.log("[IPC] agent:respondToUiRequest called with response:", response);
+    console.log(
+      "[IPC] agent:respondToUiRequest called with response:",
+      response,
+    );
     return requireAgentManager().respondToUiRequest(response);
   });
   ipcMain.handle("agent:setEditorText", (_event, text: string) => {
@@ -813,69 +950,80 @@ function registerIpc(): void {
     requireAgentManager().reportEditorText(text);
   });
 
-  ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
-    if (ptyProcesses.has(sessionId)) {
-      console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
-      return;
-    }
+  ipcMain.handle(
+    "terminal:create",
+    (_event, sessionId: string, cwd?: string) => {
+      if (ptyProcesses.has(sessionId)) {
+        console.log(
+          `[Main] PTY session ${sessionId} is already active. Reusing it.`,
+        );
+        return;
+      }
 
-    const defaultShell =
-      process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
-    const shellArgs: string[] = [];
-    if (
-      process.platform !== "win32" &&
-      (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))
-    ) {
-      shellArgs.push("-l");
-    }
+      const defaultShell =
+        process.env["SHELL"] ||
+        (process.platform === "win32" ? "powershell.exe" : "bash");
+      const shellArgs: string[] = [];
+      if (
+        process.platform !== "win32" &&
+        (defaultShell.endsWith("zsh") ||
+          defaultShell.endsWith("bash") ||
+          defaultShell.endsWith("sh"))
+      ) {
+        shellArgs.push("-l");
+      }
 
-    let spawnCwd = cwd || os.homedir();
-    if (spawnCwd && !fs.existsSync(spawnCwd)) {
-      console.warn(
-        `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
-      );
-      spawnCwd = os.homedir();
-    }
+      let spawnCwd = cwd || os.homedir();
+      if (spawnCwd && !fs.existsSync(spawnCwd)) {
+        console.warn(
+          `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
+        );
+        spawnCwd = os.homedir();
+      }
 
-    let ptyProcess: pty.IPty;
-    try {
-      console.log(
-        `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
-      );
-      ptyProcess = pty.spawn(defaultShell, shellArgs, {
-        name: "xterm-256color",
-        cols: 80,
-        rows: 24,
-        cwd: spawnCwd,
-        env: {
-          ...process.env,
-          TERM: "xterm-256color",
-        } as Record<string, string>,
+      let ptyProcess: pty.IPty;
+      try {
+        console.log(
+          `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
+        );
+        ptyProcess = pty.spawn(defaultShell, shellArgs, {
+          name: "xterm-256color",
+          cols: 80,
+          rows: 24,
+          cwd: spawnCwd,
+          env: {
+            ...process.env,
+            TERM: "xterm-256color",
+          } as Record<string, string>,
+        });
+
+        ptyProcesses.set(sessionId, ptyProcess);
+      } catch (err) {
+        console.error(
+          `[Main] Error spawning PTY process for session ${sessionId}:`,
+          err,
+        );
+        throw err;
+      }
+
+      ptyProcess.onData((data) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("terminal:data", { sessionId, data });
+        }
       });
 
-      ptyProcesses.set(sessionId, ptyProcess);
-    } catch (err) {
-      console.error(`[Main] Error spawning PTY process for session ${sessionId}:`, err);
-      throw err;
-    }
-
-    ptyProcess.onData((data) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("terminal:data", { sessionId, data });
-      }
-    });
-
-    ptyProcess.onExit(({ exitCode, signal }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("terminal:exit", {
-          sessionId,
-          exitCode,
-          signal,
-        });
-      }
-      ptyProcesses.delete(sessionId);
-    });
-  });
+      ptyProcess.onExit(({ exitCode, signal }) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("terminal:exit", {
+            sessionId,
+            exitCode,
+            signal,
+          });
+        }
+        ptyProcesses.delete(sessionId);
+      });
+    },
+  );
 
   ipcMain.on(
     "terminal:write",
@@ -889,7 +1037,14 @@ function registerIpc(): void {
 
   ipcMain.on(
     "terminal:resize",
-    (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+    (
+      _event,
+      {
+        sessionId,
+        cols,
+        rows,
+      }: { sessionId: string; cols: number; rows: number },
+    ) => {
       const ptyProcess = ptyProcesses.get(sessionId);
       if (ptyProcess) {
         try {
@@ -918,27 +1073,37 @@ function registerIpc(): void {
   });
 
   // ─── Editor IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle("editor:activate", () => requireAgentManager().activateEditor());
-  ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
+  ipcMain.handle("editor:activate", () =>
+    requireAgentManager().activateEditor(),
+  );
+  ipcMain.handle("editor:getState", () =>
+    requireAgentManager().getEditorState(),
+  );
   ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
     requireAgentManager().sendEditorPrompt(input),
   );
   ipcMain.handle("editor:dispose", () => requireAgentManager().disposeEditor());
 
   // ─── Pipper IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle("pipper:setProcessing", (_event, processingId: string | null) => {
-    broadcastToWindows("pipper:stateChanged", { processingId });
-  });
+  ipcMain.handle(
+    "pipper:setProcessing",
+    (_event, processingId: string | null) => {
+      broadcastToWindows("pipper:stateChanged", { processingId });
+    },
+  );
   ipcMain.handle("pipper:enterEditMode", () => {
     broadcastToWindows("pipper:stateChanged", { editMode: true });
   });
   ipcMain.handle("pipper:exitEditMode", () => {
     broadcastToWindows("pipper:stateChanged", { editMode: false });
   });
-  ipcMain.handle("pipper:addComment", (_event, pipperId: string, text: string) => {
-    // broadcast to companion window so it can auto-fill the InputMessage
-    broadcastToWindows("pipper:commentAdded", { pipperId, text });
-  });
+  ipcMain.handle(
+    "pipper:addComment",
+    (_event, pipperId: string, text: string) => {
+      // broadcast to companion window so it can auto-fill the InputMessage
+      broadcastToWindows("pipper:commentAdded", { pipperId, text });
+    },
+  );
 
   // ─── Onboarding IPC ─────────────────────────────────────────────────────────────
   ipcMain.handle("onboarding:verifyGit", async () => {
@@ -946,27 +1111,57 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("onboarding:startSetup", async (event) => {
-    const sendProgress = (step: string, status: string, error?: string, gitInstalled?: boolean) => {
-      event.sender.send("onboarding:progress", { step, status, error, gitInstalled });
+    const sendProgress = (
+      step: string,
+      status: string,
+      error?: string,
+      gitInstalled?: boolean,
+    ) => {
+      event.sender.send("onboarding:progress", {
+        step,
+        status,
+        error,
+        gitInstalled,
+      });
     };
 
     try {
       sendProgress("Checking Git installation...", "running");
       const gitOk = await checkGit();
       if (!gitOk) {
-        sendProgress("Git is required. Please install Git.", "failed", undefined, false);
+        sendProgress(
+          "Git is required. Please install Git.",
+          "failed",
+          undefined,
+          false,
+        );
         return;
       }
 
-      sendProgress("Checking Node and Bun versions...", "running", undefined, true);
+      sendProgress(
+        "Checking Node and Bun versions...",
+        "running",
+        undefined,
+        true,
+      );
       const nodeOk = await checkNode();
       const bunOk = await checkBun();
 
       if (!nodeOk || !bunOk) {
-        sendProgress("Installing Mise version manager...", "running", undefined, true);
+        sendProgress(
+          "Installing Mise version manager...",
+          "running",
+          undefined,
+          true,
+        );
         await installMise();
 
-        sendProgress("Setting up Node and Bun versions locally...", "running", undefined, true);
+        sendProgress(
+          "Setting up Node and Bun versions locally...",
+          "running",
+          undefined,
+          true,
+        );
         await installNodeAndBunWithMise();
       }
 
@@ -990,16 +1185,25 @@ function registerIpc(): void {
     const activePath = getActivePath();
     const execPromise = promisify(exec);
     try {
-      await execPromise('git add -u && git commit -m "Pipper Visual Edit Accept"', {
-        cwd: activePath,
-      });
+      await execPromise(
+        'git add -u && git commit -m "Pipper Visual Edit Accept"',
+        {
+          cwd: activePath,
+        },
+      );
     } catch (err) {
-      console.warn("[Accept] git commit warning (probably no changes to commit):", err);
+      console.warn(
+        "[Accept] git commit warning (probably no changes to commit):",
+        err,
+      );
     }
     try {
       await backupActiveWorkspace();
     } catch (err: any) {
-      console.error("[Accept] Failed to back up active workspace:", err.message || err);
+      console.error(
+        "[Accept] Failed to back up active workspace:",
+        err.message || err,
+      );
       throw err;
     }
   });
@@ -1011,7 +1215,10 @@ function registerIpc(): void {
         mainWindow.webContents.reload();
       }
     } catch (err: any) {
-      console.error("[Reject] Failed to restore workspace from backup:", err.message || err);
+      console.error(
+        "[Reject] Failed to restore workspace from backup:",
+        err.message || err,
+      );
       throw err;
     }
   });
@@ -1028,11 +1235,16 @@ app.whenReady().then(async () => {
       broadcastToWindows("projects:activeChanged", projectId);
     },
     reloadMainWindow: async () => {
-      console.log("[Main] agent_end triggered. Restarting dev server and reloading main window...");
+      console.log(
+        "[Main] agent_end triggered. Restarting dev server and reloading main window...",
+      );
       try {
         await restartViteServer();
       } catch (err) {
-        console.error("[Main] Failed to restart Vite server on agent_end:", err);
+        console.error(
+          "[Main] Failed to restart Vite server on agent_end:",
+          err,
+        );
       }
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.reload();
@@ -1055,8 +1267,15 @@ app.whenReady().then(async () => {
     fs.existsSync(backupPath) &&
     fs.existsSync(join(sharedPath, "node_modules"));
 
-  if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch || !workspacesInitialized) {
-    console.log("[Main] Launching launcher while workspace setup runs in background.");
+  if (
+    !deps.gitInstalled ||
+    !deps.nodeMatch ||
+    !deps.bunMatch ||
+    !workspacesInitialized
+  ) {
+    console.log(
+      "[Main] Launching launcher while workspace setup runs in background.",
+    );
     createLaunchWindow("list");
     void (async () => {
       try {
@@ -1069,7 +1288,10 @@ app.whenReady().then(async () => {
         }
         broadcastToWindows("launch:workspaceReady", {});
       } catch (error) {
-        console.error("[Main] Background workspace initialization failed:", error);
+        console.error(
+          "[Main] Background workspace initialization failed:",
+          error,
+        );
         broadcastToWindows("launch:workspaceError", {
           message: error instanceof Error ? error.message : String(error),
         });
@@ -1108,7 +1330,10 @@ app.whenReady().then(async () => {
         void initializeWorkspaces(app.getAppPath(), isDev)
           .then(() => broadcastToWindows("launch:workspaceReady", {}))
           .catch((error) => {
-            console.error("[Main] Background workspace initialization failed:", error);
+            console.error(
+              "[Main] Background workspace initialization failed:",
+              error,
+            );
             broadcastToWindows("launch:workspaceError", {
               message: error instanceof Error ? error.message : String(error),
             });

@@ -17,82 +17,105 @@ const circleB =
 
 const words = ["Thinking", "Moonwalking", "Planning", "Refining"];
 
-const ThinkingIndicator = forwardRef<
-  HTMLDivElement,
-  HTMLAttributes<HTMLDivElement> & { pipperId?: string }
->(({ className, pipperId, ...props }, ref) => {
-  const [index, setIndex] = useState(0);
+interface ThinkingIndicatorProps extends HTMLAttributes<HTMLDivElement> {
+  pipperId?: string;
+  isStreaming?: boolean;
+  label?: string;
+}
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIndex((i) => (i + 1) % words.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
+  ({ className, pipperId, isStreaming = true, label, ...props }, ref) => {
+    const [index, setIndex] = useState(0);
 
-  return (
-    <PipperBeam pipperId={pipperId}>
-      <div
-        ref={ref}
-        role="status"
-        data-pipper-id={pipperId}
-        className={cn("flex items-center gap-2 px-3 py-2", className)}
-        {...props}
-      >
-        <motion.svg
-          aria-hidden
-          width={20}
-          height={20}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-muted-foreground shrink-0"
+    useEffect(() => {
+      if (!isStreaming) return;
+      const interval = setInterval(() => {
+        setIndex((i) => (i + 1) % words.length);
+      }, 4000);
+      return () => clearInterval(interval);
+    }, [isStreaming]);
+
+    const displayedText = label ?? (isStreaming ? words[index] : "Thought process");
+
+    return (
+      <PipperBeam pipperId={pipperId}>
+        <div
+          ref={ref}
+          role="status"
+          data-pipper-id={pipperId}
+          className={cn("flex items-center gap-2 px-3 py-2", className)}
+          {...props}
         >
-          <motion.path
-            animate={{
-              d: [circleA, infinity, circleB, infinity, circleA],
-            }}
-            transition={{
-              d: {
-                duration: 6,
-                ease: "easeInOut",
-                repeat: Infinity,
-                times: [0, 0.25, 0.5, 0.75, 1.0],
-              },
-            }}
-          />
-        </motion.svg>
-        <span
-          className="inline-grid text-[13px] overflow-hidden"
-          style={{ fontVariationSettings: fontWeights.medium }}
-        >
-          <span className="col-start-1 row-start-1 invisible shimmer-text" aria-hidden="true">
-            {words.reduce((a, b) => (a.length >= b.length ? a : b))}
+          <motion.svg
+            aria-hidden
+            width={20}
+            height={20}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-muted-foreground shrink-0"
+          >
+            {isStreaming ? (
+              <motion.path
+                animate={{
+                  d: [circleA, infinity, circleB, infinity, circleA],
+                }}
+                transition={{
+                  d: {
+                    duration: 6,
+                    ease: "easeInOut",
+                    repeat: Infinity,
+                    times: [0, 0.25, 0.5, 0.75, 1.0],
+                  },
+                }}
+              />
+            ) : (
+              <path d={infinity} />
+            )}
+          </motion.svg>
+          <span
+            className="inline-grid text-[13px] overflow-hidden"
+            style={{ fontVariationSettings: fontWeights.medium }}
+          >
+            {isStreaming ? (
+              <>
+                <span className="col-start-1 row-start-1 invisible shimmer-text" aria-hidden="true">
+                  {words.reduce((a, b) => (a.length >= b.length ? a : b))}
+                </span>
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={displayedText}
+                    className="col-start-1 row-start-1 shimmer-text"
+                    initial={{ y: "80%", opacity: 0 }}
+                    animate={{
+                      y: 0,
+                      opacity: 1,
+                      transition: { duration: 0.24, ease: [0.4, 0, 0.2, 1] },
+                    }}
+                    exit={{
+                      y: "-80%",
+                      opacity: 0,
+                      transition: { duration: 0.16, ease: [0.4, 0, 0.2, 1] },
+                    }}
+                  >
+                    {displayedText}
+                  </motion.span>
+                </AnimatePresence>
+              </>
+            ) : (
+              <span className="text-muted-foreground">{displayedText}</span>
+            )}
           </span>
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
-              key={words[index]}
-              className="col-start-1 row-start-1 shimmer-text"
-              initial={{ y: "80%", opacity: 0 }}
-              animate={{ y: 0, opacity: 1, transition: { duration: 0.24, ease: [0.4, 0, 0.2, 1] } }}
-              exit={{
-                y: "-80%",
-                opacity: 0,
-                transition: { duration: 0.16, ease: [0.4, 0, 0.2, 1] },
-              }}
-            >
-              {words[index]}
-            </motion.span>
-          </AnimatePresence>
-        </span>
-      </div>
-    </PipperBeam>
-  );
-});
+        </div>
+      </PipperBeam>
+    );
+  },
+);
 
 ThinkingIndicator.displayName = "ThinkingIndicator";
 
 export { ThinkingIndicator };
+export type { ThinkingIndicatorProps };

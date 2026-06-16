@@ -101,7 +101,7 @@ export default function App() {
     return <CompanionView />;
   }
 
-  if (isLoading) {
+  if (isLoading && !activeProject) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-surface-1 text-muted-foreground text-sm font-mono">
         Loading project context…

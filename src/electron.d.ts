@@ -1,5 +1,5 @@
 import type { Project } from "../../contracts/projects.ts";
-import type { Thread, ThreadPage } from "../../contracts/threads.ts";
+import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type { Message } from "../../contracts/messages.ts";
 import type {
   AgentBridgeEvent,
@@ -60,6 +60,7 @@ declare global {
       };
       threads: {
         list: () => Promise<Thread[]>;
+        listByIds: (ids: string[]) => Promise<Thread[]>;
         listProject: (input: {
           projectId: string;
           limit?: number;
@@ -72,6 +73,14 @@ declare global {
         ) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
+      };
+      tabs: {
+        listOpen: () => Promise<OpenTabsState>;
+        open: (threadId: string) => Promise<OpenTabsState>;
+        close: (threadId: string) => Promise<OpenTabsState>;
+        setActive: (threadId: string | null) => Promise<OpenTabsState>;
+        getActive: () => Promise<string | null>;
+        onChanged: (callback: (state: OpenTabsState) => void) => () => void;
       };
       messages: {
         list: (threadId: string) => Promise<Message[]>;

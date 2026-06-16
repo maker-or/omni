@@ -2,6 +2,8 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
@@ -11,47 +13,27 @@ import { ProjectIcon } from "@/components/ui/icon-picker";
 import { InputMessage } from "@/components/ui/input-message";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { useIcon } from "@/lib/icon-context";
-import type { IconName } from "@/lib/icon-context";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { Streamdown } from "streamdown";
-import {
-  ThinkingSteps,
-  ThinkingStepsHeader,
-  ThinkingStepsContent,
-  ThinkingStep,
-  ThinkingStepDetails,
-  ThinkingStepSources,
-  ThinkingStepSource,
-  ThinkingStepImage,
-} from "@/components/ui/thinking-steps";
+import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { cn } from "@/lib/utils";
 import type { AgentUiRequest } from "../../contracts/agent.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-
-type MessageLike = AgentMessage & { role?: string };
-
+import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
+import {
+  OPEN_TABS_QUERY_KEY,
+  useMergedProjectThreads,
+  useOpenTabsQuery,
+  usePrefetchRecentProjects,
+  useProjectThreadsQuery,
+  useRecentProjectsQuery,
+} from "@/lib/thread-queries";
+import type { Thread } from "../../contracts/threads.ts";
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
-
-function stringifyMessageContent(message: MessageLike): string {
-  const content = (message as unknown as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (!part || typeof part !== "object") return "";
-      const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
 
 function getToolSummary(message: MessageLike): string | null {
   const content = (message as unknown as { content?: unknown }).content;
@@ -70,444 +52,26 @@ function getToolSummary(message: MessageLike): string | null {
   return toolNames.join(", ");
 }
 
-function getMessageKey(message: MessageLike, index: number): string {
-  const meta = message as {
-    id?: string;
-    toolCallId?: string;
-    timestamp?: number;
-    created_at?: string;
-  };
-  const uniqueId = meta.id ?? meta.toolCallId;
-  if (uniqueId) {
-    return `${message.role ?? "message"}-${uniqueId}`;
-  }
-  const timePart = meta.timestamp ?? meta.created_at;
-  if (timePart !== undefined) {
-    return `${message.role ?? "message"}-${timePart}-${index}`;
-  }
-  return `${message.role ?? "message"}-${index}`;
-}
-
-function compactText(value: string, maxLength = 96): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength - 1).trim()}…`;
-}
-
-function getCommandSummary(command: string): {
-  label: string;
-  description: string;
-} {
-  const normalized = command.trim();
-  const lower = normalized.toLowerCase();
-
-  if (!normalized) {
-    return {
-      label: "Prepared an action",
-      description: "Set up the next background step.",
-    };
-  }
-
-  if (lower.startsWith("rg ") || lower.includes(" rg ") || lower.startsWith("grep ")) {
-    return {
-      label: "Searched the codebase",
-      description: `Looked for matching code paths: ${compactText(normalized, 72)}`,
-    };
-  }
-
-  if (
-    lower.startsWith("sed ") ||
-    lower.startsWith("nl ") ||
-    lower.startsWith("cat ") ||
-    lower.startsWith("head ") ||
-    lower.startsWith("tail ")
-  ) {
-    return {
-      label: "Read relevant files",
-      description: `Opened source context to understand the current implementation.`,
-    };
-  }
-
-  if (lower.startsWith("find ") || lower.startsWith("ls ") || lower.includes(" --files")) {
-    return {
-      label: "Inspected project structure",
-      description: "Checked available files and folders before making changes.",
-    };
-  }
-
-  if (lower.startsWith("npm run build") || lower.startsWith("bunx") || lower.includes(" build")) {
-    return {
-      label: "Validated the build",
-      description: "Ran the project build to catch TypeScript or bundling issues.",
-    };
-  }
-
-  if (lower.startsWith("cp ")) {
-    return {
-      label: "Synced the running app",
-      description: "Copied the updated renderer file into the active Electron workspace.",
-    };
-  }
-
-  if (lower.startsWith("git diff") || lower.startsWith("git status")) {
-    return {
-      label: "Reviewed local changes",
-      description: "Checked the working tree to confirm the update.",
-    };
-  }
-
-  return {
-    label: "Ran a shell command",
-    description: compactText(normalized, 96),
-  };
-}
-
-function getToolActionCopy(
-  toolName: string,
-  args: Record<string, unknown>,
-  resultText: string,
-  isError?: boolean,
-): { label: string; description: string; resultSummary?: string } {
-  const name = toolName.toLowerCase();
-  const command = typeof args.command === "string" ? args.command : "";
-
-  let copy =
-    name === "bash"
-      ? getCommandSummary(command)
-      : {
-          label: toolName ? `Used ${toolName}` : "Ran an agent action",
-          description: Object.keys(args).length
-            ? compactText(
-                Object.entries(args)
-                  .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-                  .join(", "),
-              )
-            : "Completed a background step.",
-        };
-
-  if (name.includes("read") || name.includes("grep") || name.includes("search")) {
-    copy = {
-      label: "Gathered context",
-      description: copy.description,
-    };
-  } else if (name.includes("write") || name.includes("replace") || name.includes("edit")) {
-    copy = {
-      label: "Updated files",
-      description: "Applied the requested code changes.",
-    };
-  }
-
-  if (!resultText) return copy;
-
-  if (isError) {
-    return {
-      ...copy,
-      resultSummary:
-        "This action returned an error, so the agent used the output to adjust course.",
-    };
-  }
-
-  if (resultText.includes("Success. Updated")) {
-    return { ...copy, resultSummary: "Updated the target file successfully." };
-  }
-
-  if (resultText.includes("✓ built") || resultText.includes("built in")) {
-    return { ...copy, resultSummary: "Build completed successfully." };
-  }
-
-  const outputLines = resultText
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (outputLines.length > 0) {
-    return {
-      ...copy,
-      resultSummary: `Returned ${outputLines.length} line${outputLines.length === 1 ? "" : "s"} of output for the agent to inspect.`,
-    };
-  }
-
-  return { ...copy, resultSummary: "Completed successfully." };
-}
-
-function getTraceSummary(traceParts: any[], activeMessages: MessageLike[], isStreaming: boolean) {
-  const labels: string[] = [];
-
-  for (const part of traceParts) {
-    if (part?.type === "thinking") {
-      labels.push("Reasoning through the task");
-      continue;
-    }
-
-    if (part?.type !== "toolCall") continue;
-
-    const toolCallId = part.id;
-    const resultMsg = activeMessages.find(
-      (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
-    );
-    const actionCopy = getToolActionCopy(
-      part.name || "",
-      part.arguments ?? part.args ?? {},
-      resultMsg ? stringifyMessageContent(resultMsg) : "",
-      resultMsg?.isError,
-    );
-    labels.push(actionCopy.label);
-  }
-
-  const uniqueLabels = Array.from(new Set(labels)).slice(0, 3);
-  if (!uniqueLabels.length) {
-    return isStreaming ? "Working in the background" : "Completed background work";
-  }
-
-  const suffix =
-    labels.length > uniqueLabels.length ? ` +${labels.length - uniqueLabels.length} more` : "";
-  return `${uniqueLabels.join(", ")}${suffix}`;
-}
-
-function AssistantTraceDeck({
-  traceParts,
-  isStreaming,
-  activeMessages,
-}: {
-  traceParts: any[];
-  isStreaming: boolean;
-  activeMessages: MessageLike[];
-}) {
-  const [open, setOpen] = useState(isStreaming);
-
-  useEffect(() => {
-    setOpen(isStreaming);
-  }, [isStreaming]);
-
-  const traceSummary = getTraceSummary(traceParts, activeMessages, isStreaming);
-
-  const getToolIcon = (toolName: string): IconName => {
-    const name = toolName.toLowerCase();
-    if (name.includes("search") || name.includes("web") || name.includes("globe")) {
-      return "globe";
-    }
-    if (
-      name.includes("file") ||
-      name.includes("replace") ||
-      name.includes("write") ||
-      name.includes("read") ||
-      name.includes("grep")
-    ) {
-      return "brain";
-    }
-    if (name.includes("check") || name.includes("complete")) {
-      return "check";
-    }
-    return "dot";
-  };
-
-  const extractSources = (text: string): string[] => {
-    const domains: string[] = [];
-    const regex = /https?:\/\/([a-zA-Z0-9.-]+)/g;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      let domain = match[1];
-      if (domain.startsWith("www.")) {
-        domain = domain.slice(4);
-      }
-      if (domains.length < 5 && !domains.includes(domain)) {
-        domains.push(domain);
-      }
-    }
-    return domains;
-  };
-
-  return (
-    <ThinkingSteps open={open} onOpenChange={setOpen}>
-      <ThinkingStepsHeader>
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span>Research Agent</span>
-          <span className="max-w-72 truncate text-[11px] font-normal leading-tight text-muted-foreground">
-            {traceSummary}
-          </span>
-        </span>
-      </ThinkingStepsHeader>
-      <ThinkingStepsContent>
-        {traceParts.map((part, index) => {
-          const isLast = index === traceParts.length - 1;
-
-          if (part.type === "thinking") {
-            const isPartStreaming = isStreaming && isLast;
-            return (
-              <ThinkingStep
-                key={`thinking-${index}`}
-                index={index}
-                icon="brain"
-                label="Thinking"
-                description={part.thinking}
-                status={isPartStreaming ? "active" : "complete"}
-                isLast={isLast}
-              >
-                {isPartStreaming && <ThinkingIndicator className="mt-1" />}
-              </ThinkingStep>
-            );
-          }
-
-          if (part.type === "toolCall") {
-            const toolCallId = part.id;
-            const toolName = part.name || "";
-            const args = part.arguments ?? part.args ?? {};
-
-            const resultMsg = activeMessages.find(
-              (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
-            );
-
-            const isPartStreaming = isStreaming && isLast && !resultMsg;
-
-            let status: "active" | "complete" | "pending" = "complete";
-            if (isPartStreaming) {
-              status = "active";
-            } else if (!resultMsg && !isStreaming) {
-              status = "complete";
-            }
-
-            const stepLabel = toolName;
-            let stepDescription = "";
-            if (toolName === "bash") {
-              stepDescription = args.command || "";
-            } else {
-              const keys = Object.keys(args);
-              if (keys.length > 0) {
-                stepDescription = keys.map((k) => `${k}: ${JSON.stringify(args[k])}`).join(", ");
-              }
-            }
-
-            const iconName = getToolIcon(toolName);
-
-            let sources: string[] = [];
-            let imageSrc = "";
-            let imageCaption = "";
-            let detailsSummary = "";
-            let detailsLinesArray: string[] = [];
-            let resultText = "";
-            let isError = false;
-
-            if (resultMsg) {
-              resultText = stringifyMessageContent(resultMsg);
-              isError = Boolean(resultMsg.isError);
-
-              if (
-                toolName.includes("search") ||
-                toolName.includes("web") ||
-                toolName.includes("globe")
-              ) {
-                sources = extractSources(resultText);
-              }
-
-              if (
-                toolName.includes("screenshot") ||
-                toolName.includes("image") ||
-                toolName.includes("layout")
-              ) {
-                const imageMatch = resultText.match(/data:image\/[a-zA-Z]+;base64,[^\s]+/);
-                if (imageMatch) {
-                  imageSrc = imageMatch[0];
-                  imageCaption = "Screenshot output";
-                } else {
-                  const pathMatch = resultText.match(
-                    /(?:[a-zA-Z]:)?[\w/.-]+\.(?:png|jpg|jpeg|gif)/,
-                  );
-                  if (pathMatch) {
-                    imageSrc = pathMatch[0];
-                    imageCaption = "Preview Image";
-                  }
-                }
-              }
-
-              if (
-                toolName.includes("file") ||
-                toolName.includes("replace") ||
-                toolName.includes("write") ||
-                toolName.includes("read") ||
-                toolName.includes("grep")
-              ) {
-                detailsSummary = `${toolName} execution details`;
-                detailsLinesArray = resultText
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .filter(Boolean)
-                  .slice(0, 10);
-              }
-            }
-
-            const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
-            const actionDescription = [actionCopy.description, actionCopy.resultSummary]
-              .filter(Boolean)
-              .join(" ");
-
-            return (
-              <ThinkingStep
-                key={`tool-${toolCallId || index}`}
-                index={index}
-                icon={iconName}
-                label={actionCopy.label || stepLabel}
-                description={actionDescription || stepDescription}
-                status={status}
-                isLast={isLast}
-              >
-                {sources.length > 0 && (
-                  <ThinkingStepSources>
-                    {sources.map((src, sIdx) => (
-                      <ThinkingStepSource key={sIdx}>{src}</ThinkingStepSource>
-                    ))}
-                  </ThinkingStepSources>
-                )}
-
-                {imageSrc && <ThinkingStepImage src={imageSrc} caption={imageCaption} />}
-
-                {detailsLinesArray.length > 0 && (
-                  <ThinkingStepDetails
-                    summary={detailsSummary || "Details"}
-                    details={detailsLinesArray}
-                  />
-                )}
-
-                {resultMsg && toolName === "bash" && (
-                  <div className="mt-1.5 rounded bg-black/95 p-2 font-mono text-[11px] text-zinc-100 max-h-48 overflow-y-auto whitespace-pre-wrap">
-                    {resultText}
-                  </div>
-                )}
-
-                {resultMsg?.isError && (
-                  <div className="mt-1.5 text-red-500 text-[12px] font-medium leading-snug">
-                    Error: {resultText}
-                  </div>
-                )}
-
-                {isPartStreaming && <ThinkingIndicator className="mt-1" />}
-              </ThinkingStep>
-            );
-          }
-
-          return null;
-        })}
-      </ThinkingStepsContent>
-    </ThinkingSteps>
-  );
-}
-
 function MessageBody({
-  message,
+  messages,
   isStreaming = false,
   activeMessages = [],
 }: {
-  message: MessageLike;
+  messages: MessageLike[];
   isStreaming?: boolean;
   activeMessages?: MessageLike[];
 }) {
-  const role = message.role;
-  const body = stringifyMessageContent(message);
+  const role = messages[0]?.role;
 
   if (role === "toolResult") {
+    const body = messages
+      .map((m) => stringifyMessageContent(m))
+      .filter(Boolean)
+      .join("\n\n");
     return (
       <div className="rounded-md border border-border/70 bg-surface-2 px-3 py-2 text-[13px] text-muted-foreground">
         <div className="font-medium text-foreground/80">
-          {(message as { toolName?: string }).toolName ?? "Tool result"}
+          {(messages[0] as { toolName?: string }).toolName ?? "Tool result"}
         </div>
         <div className="mt-1 whitespace-pre-wrap break-words">{body || "Completed"}</div>
       </div>
@@ -515,48 +79,61 @@ function MessageBody({
   }
 
   if (role === "assistant") {
-    const content = (message as unknown as { content?: unknown }).content;
+    const allTraceParts: any[] = [];
+    const allTextParts: string[] = [];
 
-    if (typeof content === "string") {
-      return (
-        <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-          {body ? <Streamdown mode={isStreaming ? "streaming" : "static"}>{body}</Streamdown> : " "}
-        </div>
-      );
+    for (const msg of messages) {
+      const content = (msg as unknown as { content?: unknown }).content;
+      if (typeof content === "string") {
+        const body = stringifyMessageContent(msg);
+        if (body.trim()) {
+          allTextParts.push(body);
+        }
+      } else if (Array.isArray(content)) {
+        const textParts = content.filter((part) => part && part.type === "text");
+        const traceParts = content.filter(
+          (part) => part && (part.type === "thinking" || part.type === "toolCall"),
+        );
+
+        allTraceParts.push(...traceParts);
+        const textBody = textParts
+          .map((part) => part.text)
+          .filter(Boolean)
+          .join("\n");
+        if (textBody.trim()) {
+          allTextParts.push(textBody);
+        }
+      }
     }
 
-    if (Array.isArray(content)) {
-      const textParts = content.filter((part) => part && part.type === "text");
-      const traceParts = content.filter(
-        (part) => part && (part.type === "thinking" || part.type === "toolCall"),
-      );
+    const textBodyCombined = allTextParts.join("\n\n");
 
-      const textBody = textParts
-        .map((part) => part.text)
-        .filter(Boolean)
-        .join("\n");
+    return (
+      <div className="space-y-3">
+        {allTraceParts.length > 0 && (
+          <AssistantTraceDeck
+            traceParts={allTraceParts}
+            isStreaming={isStreaming}
+            activeMessages={activeMessages}
+          />
+        )}
 
-      return (
-        <div className="space-y-3">
-          {traceParts.length > 0 && (
-            <AssistantTraceDeck
-              traceParts={traceParts}
-              isStreaming={isStreaming}
-              activeMessages={activeMessages}
-            />
-          )}
-
-          {textBody.trim() && (
-            <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-              <Streamdown mode={isStreaming ? "streaming" : "static"}>{textBody}</Streamdown>
-            </div>
-          )}
-        </div>
-      );
-    }
+        {textBodyCombined.trim() && (
+          <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
+            <Streamdown mode={isStreaming ? "streaming" : "static"}>{textBodyCombined}</Streamdown>
+          </div>
+        )}
+      </div>
+    );
   }
 
-  return <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{body}</div>;
+  const combinedBody = messages
+    .map((m) => stringifyMessageContent(m))
+    .filter(Boolean)
+    .join("\n\n");
+  return (
+    <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{combinedBody}</div>
+  );
 }
 
 function UiRequestDialog({
@@ -637,8 +214,9 @@ function UiRequestDialog({
 
 export function AgentPanel() {
   "use no memo";
-  const { activeProject } = useProjectStore();
-  const { threads, pagesByProject, loadProjectThreads, renameThread } = useThreadStore();
+  const queryClient = useQueryClient();
+  const { activeProject, loadActiveProject } = useProjectStore();
+  const { threads, pagesByProject, loadProjectThreads, renameThread, addThread } = useThreadStore();
   const {
     snapshot,
     error,
@@ -664,13 +242,14 @@ export function AgentPanel() {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
-  const [openThreadIds, setOpenThreadIds] = useState<string[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
   const threadPaneRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const scrollRafRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
@@ -680,7 +259,18 @@ export function AgentPanel() {
   const CheckIcon = useIcon("check");
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
-  const hasInitializedOpenThreadTabs = useRef(false);
+  const openTabsQuery = useOpenTabsQuery();
+  const openTabsState = openTabsQuery.data;
+  const openThreads = openTabsState?.openThreads ?? [];
+  const activeThreadId = openTabsState?.activeThreadId ?? null;
+  const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
+  const hoveredProjectThreadsQuery = useProjectThreadsQuery(hoveredProjectId);
+  const recentProjectsQuery = useRecentProjectsQuery(
+    activeProject?.id,
+    threadSwitchHistory,
+    openThreads,
+  );
+  usePrefetchRecentProjects(recentProjectsQuery.data ?? []);
 
   function CopyButton({ msgId, bodyText }: { msgId: string; bodyText: string }) {
     const isCopied = copiedMessageId === msgId;
@@ -763,6 +353,21 @@ export function AgentPanel() {
       return false;
     }
 
+    queryClient.setQueryData<
+      | {
+          openThreads: Thread[];
+        }
+      | undefined
+    >(OPEN_TABS_QUERY_KEY, (current) =>
+      current
+        ? {
+            ...current,
+            openThreads: current.openThreads.map((thread) =>
+              thread.id === renamedThread.id ? renamedThread : thread,
+            ),
+          }
+        : current,
+    );
     cancelRenameThread();
     return true;
   };
@@ -797,15 +402,18 @@ export function AgentPanel() {
   }, [hoveredProjectId, projectsList]);
 
   useEffect(() => {
-    if (!activeProject?.id) return;
-    void loadProjectThreads(activeProject.id, { reset: true });
-  }, [activeProject?.id, loadProjectThreads]);
-
-  useEffect(() => {
     if (!hoveredProjectId) return;
     if (pagesByProject[hoveredProjectId]) return;
     void loadProjectThreads(hoveredProjectId, { reset: true });
   }, [hoveredProjectId, loadProjectThreads, pagesByProject]);
+
+  useEffect(() => {
+    for (const projectId of recentProjectsQuery.data ?? []) {
+      if (!pagesByProject[projectId]) {
+        void loadProjectThreads(projectId, { reset: true });
+      }
+    }
+  }, [loadProjectThreads, pagesByProject, recentProjectsQuery.data]);
 
   useEffect(() => {
     if (!isDropdownOpen || !hoveredProjectId) {
@@ -840,6 +448,27 @@ export function AgentPanel() {
   }, [activeProject?.id, refresh]);
 
   useEffect(() => {
+    const currentThreadId = snapshot?.threadId;
+    if (currentThreadId) {
+      setActiveTabId(currentThreadId);
+      void window.omni.tabs.open(currentThreadId).then(() => {
+        void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+      });
+    } else if (activeThreadId) {
+      setActiveTabId(activeThreadId);
+    } else {
+      setActiveTabId(null);
+    }
+  }, [activeThreadId, queryClient, snapshot?.threadId]);
+
+  // Revert activeTabId if thread switching fails
+  useEffect(() => {
+    if (error && snapshot?.threadId) {
+      setActiveTabId(snapshot.threadId);
+    }
+  }, [error, snapshot?.threadId]);
+
+  useEffect(() => {
     if (requestedThreadId && snapshot?.threadId === requestedThreadId) {
       setRequestedThreadId(null);
     }
@@ -853,26 +482,9 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (!editingThreadId) return;
-    if (threads.some((thread) => thread.id === editingThreadId)) return;
+    if (openThreads.some((thread) => thread.id === editingThreadId)) return;
     cancelRenameThread();
-  }, [editingThreadId, threads]);
-
-  useEffect(() => {
-    const threadIds = new Set(threads.map((thread) => thread.id));
-    setOpenThreadIds((current) => {
-      const filtered = current.filter((id) => threadIds.has(id));
-      return filtered.length === current.length ? current : filtered;
-    });
-  }, [threads]);
-
-  useEffect(() => {
-    if (hasInitializedOpenThreadTabs.current) return;
-    const currentThreadId = snapshot?.threadId;
-    if (!currentThreadId) return;
-    if (!threads.some((thread) => thread.id === currentThreadId)) return;
-    hasInitializedOpenThreadTabs.current = true;
-    setOpenThreadIds([currentThreadId]);
-  }, [snapshot?.threadId, threads]);
+  }, [editingThreadId, openThreads]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -903,8 +515,8 @@ export function AgentPanel() {
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
   const snapshotThreadId = snapshot?.threadId ?? "";
-  const threadId = snapshotThreadId;
-  const isSwitchingThread = Boolean(requestedThreadId && requestedThreadId !== snapshotThreadId);
+  const threadId = activeTabId || snapshotThreadId;
+  const isSwitchingThread = Boolean(activeTabId && activeTabId !== snapshotThreadId);
   const activeMessages = snapshot?.messages ?? [];
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
@@ -915,34 +527,75 @@ export function AgentPanel() {
     return commands.filter((command) => command.name.toLowerCase().includes(query));
   }, [commands, inputValue]);
 
+  interface GroupedMessageEntry {
+    key: string;
+    role: "user" | "assistant";
+    messages: MessageLike[];
+    originalIndex: number;
+    isStreaming: boolean;
+  }
+
   const allMessages = useMemo(() => {
-    const entries = activeMessages
+    const rawEntries = activeMessages
       .map((message, index) => ({
         message: message as MessageLike,
         originalIndex: index,
         isStreaming: false,
       }))
       .filter(({ message }) => message.role === "user" || message.role === "assistant");
+
     if (streamingMessage) {
-      entries.push({
+      rawEntries.push({
         message: streamingMessage as MessageLike,
         originalIndex: activeMessages.length,
         isStreaming: true,
       });
     }
-    return entries;
+
+    const grouped: GroupedMessageEntry[] = [];
+
+    for (const entry of rawEntries) {
+      const lastGroup = grouped[grouped.length - 1];
+      const role = entry.message.role === "user" ? "user" : "assistant";
+
+      if (lastGroup && lastGroup.role === role) {
+        lastGroup.messages.push(entry.message);
+        if (entry.isStreaming) {
+          lastGroup.isStreaming = true;
+        }
+      } else {
+        grouped.push({
+          key: entry.isStreaming ? "streaming" : `${role}-${entry.originalIndex}`,
+          role,
+          messages: [entry.message],
+          originalIndex: entry.originalIndex,
+          isStreaming: entry.isStreaming,
+        });
+      }
+    }
+
+    return grouped;
   }, [activeMessages, streamingMessage]);
+
+  const conversationVirtualizer = useVirtualizer({
+    count: allMessages.length,
+    getScrollElement: () => messagesScrollRef.current,
+    estimateSize: (index) => (allMessages[index]?.role === "user" ? 96 : 180),
+    getItemKey: (index) => allMessages[index]?.key ?? index,
+    overscan: 6,
+  });
 
   const latestConversationScrollKey = useMemo(() => {
     const latest = allMessages[allMessages.length - 1];
     if (!latest) return `${threadId}:empty:${isStreaming}`;
 
+    const lastMessage = latest.messages[latest.messages.length - 1];
     return [
       threadId,
       allMessages.length,
       isStreaming ? "streaming" : "settled",
-      latest.message.role ?? "unknown",
-      stringifyMessageContent(latest.message).length,
+      latest.role ?? "unknown",
+      stringifyMessageContent(lastMessage).length,
     ].join(":");
   }, [allMessages, isStreaming, threadId]);
 
@@ -950,53 +603,90 @@ export function AgentPanel() {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
 
-    const frame = window.requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ block: "end" });
+    const threshold = 120;
+    const isNearBottom =
+      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight <=
+      threshold;
+
+    const shouldScroll = !isStreaming || isNearBottom || allMessages.length === 0;
+    if (!shouldScroll) return;
+
+    // Cancel any in-flight animation
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+
+    if (!isStreaming) {
+      // Instant jump when not streaming (e.g. switching threads)
       scrollContainer.scrollTop = scrollContainer.scrollHeight;
-    });
+      return;
+    }
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [latestConversationScrollKey]);
+    // Spring-based smooth scroll to bottom
+    const target = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+    let current = scrollContainer.scrollTop;
+    const stiffness = 0.12; // spring strength — higher = snappier
 
-  const visibleThreads = useMemo(
-    () => threads.filter((thread) => openThreadIds.includes(thread.id)),
-    [openThreadIds, threads],
-  );
-
-  const openThreadTab = (threadId: string) => {
-    setOpenThreadIds((current) => (current.includes(threadId) ? current : [...current, threadId]));
-  };
-
-  const closeThreadTab = (threadId: string) => {
-    const currentVisibleThreads = visibleThreads;
-    const currentIndex = currentVisibleThreads.findIndex((thread) => thread.id === threadId);
-    const currentOpenIds = openThreadIds;
-    const nextOpenIds = currentOpenIds.filter((id) => id !== threadId);
-
-    setOpenThreadIds(nextOpenIds);
-
-    if (currentIndex === -1) return;
-
-    if (threadId === snapshot?.threadId) {
-      const nextVisibleThreads = threads.filter((thread) => nextOpenIds.includes(thread.id));
-      const fallbackThread =
-        nextVisibleThreads[currentIndex] ??
-        nextVisibleThreads[currentIndex - 1] ??
-        nextVisibleThreads[nextVisibleThreads.length - 1] ??
-        null;
-
-      if (fallbackThread && fallbackThread.id !== snapshot?.threadId) {
-        setRequestedThreadId(fallbackThread.id);
-        void switchThread(fallbackThread.id);
+    function tick() {
+      const el = messagesScrollRef.current;
+      if (!el) return;
+      const dest = el.scrollHeight - el.clientHeight;
+      current += (dest - current) * stiffness;
+      el.scrollTop = current;
+      if (Math.abs(dest - current) > 0.5) {
+        scrollRafRef.current = requestAnimationFrame(tick);
+      } else {
+        el.scrollTop = dest;
+        scrollRafRef.current = null;
       }
     }
+
+    // Suppress unused-variable warning from initial target calc
+    void target;
+    scrollRafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
+  }, [latestConversationScrollKey, isStreaming, allMessages.length]);
+
+  const handleSelectThread = async (id: string) => {
+    setActiveTabId(id);
+    await window.omni.tabs.open(id);
+    await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+    if (id === snapshot?.threadId) return;
+    setRequestedThreadId(id);
+    await switchThread(id);
+    await loadActiveProject();
   };
 
-  const handleSelectThread = (id: string) => {
-    openThreadTab(id);
-    if (id === threadId && !isSwitchingThread) return;
-    setRequestedThreadId(id);
-    void switchThread(id);
+  const handleCloseThreadTab = async (id: string) => {
+    const sortedThreads = [...openThreads].sort((a, b) => a.created_at - b.created_at);
+    const currentIndex = sortedThreads.findIndex((t) => t.id === id);
+    const nextState = await window.omni.tabs.close(id);
+    await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+
+    if (id === activeTabId) {
+      const remainingThreads = sortedThreads.filter((t) => t.id !== id);
+      const fallbackThread =
+        remainingThreads.find((thread) => thread.id === nextState.activeThreadId) ??
+        remainingThreads[currentIndex] ??
+        remainingThreads[currentIndex - 1] ??
+        remainingThreads[remainingThreads.length - 1] ??
+        null;
+
+      if (fallbackThread) {
+        await handleSelectThread(fallbackThread.id);
+      } else {
+        setActiveTabId(null);
+        await window.omni.tabs.setActive(null);
+        await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+      }
+    }
   };
 
   const handleSend = async (text: string) => {
@@ -1056,14 +746,11 @@ export function AgentPanel() {
     const projectId = hoveredProjectId ?? activeProject?.id;
     if (!projectId) return;
     const project = projectsList.find((item) => item.id === projectId);
-    const thread = await createThread(
-      projectId,
-      project?.name ?? "Thread",
-      snapshot?.threadId ?? null,
-    );
-    openThreadTab(thread.id);
-    setRequestedThreadId(thread.id);
-    await loadProjectThreads(projectId, { reset: true });
+    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
+    const title = `${project?.name ?? "Thread"} #${nextCount}`;
+    const thread = await createThread(projectId, title, snapshot?.threadId ?? null);
+    addThread(thread);
+    await handleSelectThread(thread.id);
   };
 
   const projectItems = projectsList.map((project, idx) => ({
@@ -1075,12 +762,16 @@ export function AgentPanel() {
 
   const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
   const addProjectIndex = projectItems.length;
-  const hoveredProjectThreads = hoveredProjectId
-    ? threads
-        .filter((thread) => thread.project_id === hoveredProjectId)
-        .sort((a, b) => b.last_used_at - a.last_used_at || b.created_at - a.created_at)
-    : [];
+  const hoveredProjectThreads = useMergedProjectThreads(
+    hoveredProjectId,
+    hoveredProjectThreadsQuery.data?.threads ?? [],
+    threads,
+  );
   const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
+  const isHoveredThreadsLoading =
+    hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
+  const hoveredThreadsHasMore =
+    hoveredProjectThreadsQuery.data?.hasMore || Boolean(hoveredThreadPage?.hasMore);
   const activeModelIndex = models.findIndex(
     (model) =>
       model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
@@ -1118,30 +809,32 @@ export function AgentPanel() {
             data-pipper-id="thread-tabs"
             className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
           >
-            {visibleThreads.map((thread) => {
-              const project = projectsList.find((item) => item.id === thread.project_id);
-              const Icon = project
-                ? (((props: { className?: string }) => (
-                    <ProjectIcon name={project.icon} className={props.className} />
-                  )) as any)
-                : undefined;
-              const isEditing = editingThreadId === thread.id;
-              return (
-                <TabItem
-                  key={thread.id}
-                  value={thread.id}
-                  label={thread.title}
-                  icon={Icon}
-                  onClose={() => closeThreadTab(thread.id)}
-                  editing={isEditing}
-                  editValue={isEditing ? editingThreadTitle : thread.title}
-                  onEditValueChange={setEditingThreadTitle}
-                  onEditCommit={commitRenameThread}
-                  onEditCancel={cancelRenameThread}
-                  onDoubleClick={() => startRenameThread(thread.id, thread.title)}
-                />
-              );
-            })}
+            {[...openThreads]
+              .sort((a, b) => a.created_at - b.created_at)
+              .map((thread) => {
+                const project = projectsList.find((item) => item.id === thread.project_id);
+                const Icon = project
+                  ? (((props: { className?: string }) => (
+                      <ProjectIcon name={project.icon} className={props.className} />
+                    )) as any)
+                  : undefined;
+                const isEditing = editingThreadId === thread.id;
+                return (
+                  <TabItem
+                    key={thread.id}
+                    value={thread.id}
+                    label={thread.title}
+                    icon={Icon}
+                    onClose={() => handleCloseThreadTab(thread.id)}
+                    editing={isEditing}
+                    editValue={isEditing ? editingThreadTitle : thread.title}
+                    onEditValueChange={setEditingThreadTitle}
+                    onEditCommit={commitRenameThread}
+                    onEditCancel={cancelRenameThread}
+                    onDoubleClick={() => startRenameThread(thread.id, thread.title)}
+                  />
+                );
+              })}
           </TabsList>
 
           <div className="relative">
@@ -1155,7 +848,7 @@ export function AgentPanel() {
                 setIsDropdownOpen((prev) => {
                   const next = !prev;
                   if (next) {
-                    setHoveredProjectId(null);
+                    setHoveredProjectId(activeProject?.id ?? projectItems[0]?.id ?? null);
                     setIsModelDropdownOpen(false);
                   }
                   return next;
@@ -1250,22 +943,20 @@ export function AgentPanel() {
                             })
                           ) : (
                             <div className="px-2 py-3 text-[13px] text-muted-foreground">
-                              {hoveredThreadPage?.isLoading
-                                ? "Loading threads..."
-                                : "No threads yet."}
+                              {isHoveredThreadsLoading ? "Loading threads..." : "No threads yet."}
                             </div>
                           )}
                         </div>
-                        {hoveredProjectId && hoveredThreadPage?.hasMore ? (
+                        {hoveredProjectId && hoveredThreadsHasMore ? (
                           <button
                             type="button"
                             className="mt-2 w-full rounded-lg px-2 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            disabled={hoveredThreadPage.isLoading}
+                            disabled={isHoveredThreadsLoading}
                             onClick={() => {
                               void loadProjectThreads(hoveredProjectId);
                             }}
                           >
-                            {hoveredThreadPage.isLoading ? "Loading..." : "Load more"}
+                            {isHoveredThreadsLoading ? "Loading..." : "Load more"}
                           </button>
                         ) : null}
                         <div className="mt-2 pt-2 border-t border-border/60">
@@ -1323,16 +1014,27 @@ export function AgentPanel() {
                   </h2>
                 </div>
               ) : (
-                <div data-pipper-id="messages-list" className="flex flex-col gap-3 p-4">
-                  {allMessages.map(({ message, originalIndex, isStreaming }) => {
-                    const msg = message as MessageLike;
-                    const from = msg.role === "user" ? "user" : "assistant";
-                    const msgId = isStreaming ? "streaming" : getMessageKey(msg, originalIndex);
-                    const bodyText = stringifyMessageContent(msg);
-                    const timeStr = isStreaming ? undefined : formatMessageTime(msg);
+                <div
+                  data-pipper-id="messages-list"
+                  className="relative p-4"
+                  style={{ height: `${conversationVirtualizer.getTotalSize()}px` }}
+                >
+                  {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const entry = allMessages[virtualRow.index];
+                    if (!entry) return null;
+                    const { key, role, messages, originalIndex, isStreaming } = entry;
+                    const from = role;
+                    const msgId = key;
+                    const bodyText = messages
+                      .map((m) => stringifyMessageContent(m))
+                      .filter(Boolean)
+                      .join("\n\n");
+                    const timeStr = isStreaming
+                      ? undefined
+                      : formatMessageTime(messages[messages.length - 1]);
                     const hasContent =
                       bodyText.trim() !== "" ||
-                      (from === "assistant" && getToolSummary(msg) !== null);
+                      (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
 
                     const actions =
                       from === "user" ? (
@@ -1369,21 +1071,34 @@ export function AgentPanel() {
                       );
 
                     return (
-                      <ChatMessage key={msgId} from={from} time={timeStr} actions={actions}>
-                        {hasContent ? (
-                          <MessageBody
-                            message={msg}
-                            isStreaming={isStreaming}
-                            activeMessages={activeMessages}
-                          />
-                        ) : undefined}
-                      </ChatMessage>
+                      <div
+                        key={virtualRow.key}
+                        ref={conversationVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        className="absolute left-0 top-0 w-full px-4 pb-3"
+                        style={{
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <ChatMessage from={from} time={timeStr} actions={actions}>
+                          {hasContent ? (
+                            <MessageBody
+                              messages={messages}
+                              isStreaming={isStreaming}
+                              activeMessages={activeMessages}
+                            />
+                          ) : undefined}
+                        </ChatMessage>
+                      </div>
                     );
                   })}
 
                   {isStreaming && !streamingMessage && (
                     <div
-                      className="flex justify-start px-4 py-2"
+                      className="absolute left-0 flex justify-start px-8 py-2"
+                      style={{
+                        top: `${conversationVirtualizer.getTotalSize()}px`,
+                      }}
                       data-pipper-id="Thinking-indicator"
                     >
                       <ThinkingIndicator />

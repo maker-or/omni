@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
-import type { Thread, ThreadPage } from "../contracts/threads.ts";
+import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
 import type { Message } from "../contracts/messages.ts";
 import type {
   AgentBridgeEvent,
@@ -74,6 +74,7 @@ const api = {
   },
   threads: {
     list: (): Promise<Thread[]> => ipcRenderer.invoke("threads:list"),
+    listByIds: (ids: string[]): Promise<Thread[]> => ipcRenderer.invoke("threads:listByIds", ids),
     listProject: (input: {
       projectId: string;
       limit?: number;
@@ -84,6 +85,21 @@ const api = {
     rename: (id: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
+  },
+  tabs: {
+    listOpen: (): Promise<OpenTabsState> => ipcRenderer.invoke("tabs:listOpen"),
+    open: (threadId: string): Promise<OpenTabsState> => ipcRenderer.invoke("tabs:open", threadId),
+    close: (threadId: string): Promise<OpenTabsState> => ipcRenderer.invoke("tabs:close", threadId),
+    setActive: (threadId: string | null): Promise<OpenTabsState> =>
+      ipcRenderer.invoke("tabs:setActive", threadId),
+    getActive: (): Promise<string | null> => ipcRenderer.invoke("tabs:getActive"),
+    onChanged: (callback: (state: OpenTabsState) => void) => {
+      const listener = (_event: any, state: OpenTabsState) => callback(state);
+      ipcRenderer.on("tabs:changed", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:changed", listener);
+      };
+    },
   },
   messages: {
     list: (threadId: string): Promise<Message[]> => ipcRenderer.invoke("messages:list", threadId),

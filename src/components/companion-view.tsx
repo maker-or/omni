@@ -7,26 +7,8 @@ import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../../contracts/agent.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import { Button } from "@/components/ui/button";
-
-type MessageLike = AgentMessage & { role?: string };
-
-function stringifyMessageContent(message: MessageLike): string {
-  const content = (message as unknown as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (!part || typeof part !== "object") return "";
-      const typed = part as { type?: string; text?: string; thinking?: string };
-      if (typed.type === "text" && typeof typed.text === "string") return typed.text;
-      if (typed.type === "thinking" && typeof typed.thinking === "string") return typed.thinking;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
 
 function getMessageKey(message: MessageLike, index: number): string {
   const meta = message as { id?: string; toolCallId?: string };

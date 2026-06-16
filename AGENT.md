@@ -1,33 +1,46 @@
-# AGENTS.md
+# Pipper Agent Guide
 
-## Task Completion Requirements
+## What this repo is
 
-- All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
+Pipper is a self-improving agent harness. The codebase is early-stage, so prefer changes that improve long-term structure, reliability, and maintainability.
 
-## Project Snapshot
+## Task completion checklist
 
-pipper is a self improving agent harness
-This repository is a VERY EARLY WIP. Proposing sweeping changes that improve long-term maintainability is encouraged.
+Before marking any task complete, run and fix issues from:
+- `bun run doctor`
+- `bun run lint`
+- `bun run build`
+- `bun run fmt`
 
-## Core Priorities
+## Core priorities
 
-1. Performance first.
-2. Design first.
-3. Reliability first.
-4. Keep behavior predictable under load and during failures (session restarts, reconnects, partial streams).
+1. Performance first
+2. Design first
+3. Reliability first
+4. Predictable behavior under load and during failures
 
-If a tradeoff is required, choose correctness and robustness over short-term convenience.
+When there is a tradeoff, choose correctness and robustness over short-term convenience.
 
-## Maintainability
+## Maintainability rules
 
-- Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
+- Prefer shared logic over duplicated logic.
+- If new behavior can be extracted into a reusable module, do that.
+- Don’t solve a problem with ad hoc local code if a shared abstraction makes sense.
+- Large refactors are acceptable when they improve the codebase long term.
 
-- Always use the the built in UI components that we have in the repo. Imports starting with `@/` resolve to `src/` first and fallback to the root `/@/` directory to reuse shared components without duplication.
+## UI / design rules
 
-- Use <Elevated offset={N}> as the outermost wrapper of any floating container (card, popover, dropdown, dialog, tooltip, sheet) — never hardcode bg-surface-N on these, because the offset adapts to nesting context automatically (a popover inside a dialog self-elevates correctly).
+- Always follow `DESIGN.md`.
+- Always use the built-in UI components in the repo.
+- Use `@/` imports first; they resolve to `src/` first, then shared `/@/` components.
+- Use `<Elevated offset={N}>` as the outer wrapper for floating surfaces like cards, popovers, dropdowns, dialogs, tooltips, and sheets.
+- Do not hardcode surface background classes for floating UI.
+- Compound items must receive consecutive `index` props for correct hover/proximity behavior.
+- Keep TSX files under 1000 lines when possible.
+- Use only icons from `@phosphor-icons/react`.
 
-- Compound items (e.g., `InputField` in `InputGroup`, `SelectItem` in `Select`) must receive consecutive `index` props so that mouse proximity-hover cursor tracking and morphing background animations calculate correctly.
+## Implementation expectations
 
-- Make sure that we don't have more that 1000 lines of code in a single tsx file.
-
-- Use only Icons from @phosphor-icons/react.
+- Preserve predictable behavior during reconnects, session restarts, and partial streams.
+- Prefer small, composable components.
+- Reuse existing patterns before introducing new ones.

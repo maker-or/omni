@@ -37,6 +37,18 @@ export function getThread(id: string): Thread | null {
   return (query.get(id) as unknown as Thread) || null;
 }
 
+export function listThreadsByIds(ids: string[]): Thread[] {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const db = getDb();
+  const placeholders = uniqueIds.map(() => "?").join(",");
+  const query = db.prepare(`SELECT * FROM threads WHERE id IN (${placeholders})`);
+  const rows = query.all(...uniqueIds) as unknown as Thread[];
+  const byId = new Map(rows.map((thread) => [thread.id, thread]));
+  return uniqueIds.map((id) => byId.get(id)).filter((thread): thread is Thread => Boolean(thread));
+}
+
 export function getMaxThreadSortOrder(): number {
   const db = getDb();
   const query = db.prepare("SELECT COALESCE(MAX(sort_order), 0) AS maxSortOrder FROM threads");

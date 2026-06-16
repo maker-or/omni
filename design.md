@@ -1,101 +1,151 @@
-# Pipper Design System: Fluid Functionalism
+# Pipper Design System
 
-This document describes the design system implementation in Pipper. The system is built around the principles of **Fluid Functionalism**, emphasizing dynamic visual layering, scrolling indicators, spring-based motion, and hot-swappable visual shapes/icons.
+Pipper uses a design system built around **Fluid Functionalism**: layered surfaces, clear scrolling cues, spring-based motion, and swappable visual tokens.
 
----
+## 1. Surfaces and substrates
 
-## 1. Surfaces & Substrates
+### Purpose
 
-### The Concept
+Floating UI should not visually collapse into the page behind it. To avoid that, Pipper uses a surface elevation model with context-aware nesting.
 
-To prevent floating containers (popovers, dropdowns, dialogs, tooltips) from blending into their parent layouts (the "collapsing surface problem"), the design system implements a 3D elevation model called **Surfaces and Substrates**.
+### Surface levels
 
-There are **8 surface levels** (lowest: `1`, highest: `8`). A nested component does not hardcode its color; instead, it queries the parent's surface level from React Context (the **substrate**) and dynamically self-elevates.
+- There are **8 surface levels**.
+- Level `1` is the lowest; level `8` is the highest.
+- Nested floating UI should read the current surface level from context and elevate relative to it.
 
 ### Tokens
 
-Defined in [src/index.css](file:///Users/harshithpasupuleti/code/omni/src/index.css):
+Defined in `src/index.css`.
 
-- **Light Mode**: Uses flat `#ffffff` backgrounds from level 3 upwards. Elevation is represented entirely through layered, soft shadow recipes (`--shadow-1` to `--shadow-8`).
-- **Dark Mode**: Scales backgrounds progressively from charcoal (`--surface-1: #171717`) to light gray (`--surface-8: #484848`). Shadows combine inset highlights (for crisp borders) with deep translucent drop shadows (`--dm-drop`).
+#### Light mode
 
-### Implementation Files
+- Uses flat white backgrounds from level 3 upward.
+- Elevation is shown with shadow layers only.
+- Shadow tokens: `--shadow-1` through `--shadow-8`.
 
-- [src/lib/surface-context.tsx](file:///Users/harshithpasupuleti/code/omni/src/lib/surface-context.tsx): Implements `SurfaceContext`, `SurfaceProvider`, and `useSurface()`.
-- [src/lib/surface-classes.ts](file:///Users/harshithpasupuleti/code/omni/src/lib/surface-classes.ts): Maps surface numbers to static Tailwind utility strings. This is critical for Tailwind v4's scanner to discover and compile surface utilities (dynamic interpolations like `bg-surface-${level}` would be omitted).
-- [src/lib/elevated.tsx](file:///Users/harshithpasupuleti/code/omni/src/lib/elevated.tsx): Exposes the `<Elevated offset={N}>` wrapper. It automatically increments the parent substrate level by `N`, applies the correct shadow/background classes, and re-injects the new substrate level into the context for nested children.
+#### Dark mode
 
-#### Recommended Offsets:
+- Uses stepped charcoal-to-gray surface colors.
+- Surface tokens range from `--surface-1: #171717` to `--surface-8: #484848`.
+- Shadows combine inset highlights and translucent drop shadows.
 
-- `offset={2}`: Popovers, dropdown menus, hovercards.
-- `offset={4}`: Dialogs, modals, slide-out sheets.
+### Implementation files
 
----
+- `src/lib/surface-context.tsx` — surface context and hooks
+- `src/lib/surface-classes.ts` — static Tailwind surface class mapping
+- `src/lib/elevated.tsx` — `<Elevated offset={N}>` wrapper
 
-## 2. Scrolling Affordances (Edges & Cues)
+### Recommended offsets
 
-### The Concept
+- `offset={2}`: popovers, dropdowns, hovercards
+- `offset={4}`: dialogs, modals, sheets
 
-To hint to users that extra content is hidden behind a scrollable viewport, lists and scrolling panes implement **edge cues**. As the user scrolls, a directional chevron and a smooth color-mix gradient overlay fade in at the active edge.
+### Rule
 
-### Implementation Files
-
-- [/@/lib/scroll-fade.tsx](file:///Users/harshithpasupuleti/code/omni/@/lib/scroll-fade.tsx): Contains the logic for detection and rendering:
-  - `useScrollEdges(ref, options)`: Uses `ResizeObserver`, `MutationObserver`, and scroll event listeners to monitor overflow and scroll position on the `top`, `bottom`, `left`, or `right` edges.
-  - `<ScrollEdgeCue />`: Renders absolute or sticky indicators. The cue background uses CSS `color-mix` against the active `var(--surface-N)` context token to dynamically blend the fade color to the parent container's substrate.
-
----
-
-## 3. Motion & Springs
-
-### The Concept
-
-UI movement uses physics-based spring simulations rather than linear or cubic easings. Snappy entry animations combined with slightly faster exit durations create a highly responsive experience.
-
-### Physics Presets
-
-Defined in [/@/lib/springs.ts](file:///Users/harshithpasupuleti/code/omni/@/lib/springs.ts) for Framer Motion:
-
-- **`fast`**: `0.08s` (80ms) duration, `0` bounce, `0.06s` (60ms) exit. Optimized for subtle micro-interactions like buttons or checkbox transitions.
-- **`moderate`**: `0.16s` (160ms) duration, `0.08` bounce, `0.12s` (120ms) exit. Used for dropdowns, popovers, and accordions.
-- **`slow`**: `0.24s` (240ms) duration, `0.12` bounce, `0.16s` (160ms) exit. Reserved for large layout changes like modals or sheet transitions.
+Use `<Elevated offset={N}>` for any floating container. Do not hardcode `bg-surface-*` on floating UI.
 
 ---
 
-## 4. Visual Shape Customization
+## 2. Scrolling affordances
 
-### The Concept
+### Purpose
 
-The codebase features a system to switch the border-radius rounding of all buttons, inputs, and containers globally.
+Scrollable content should signal when more content exists outside the viewport.
 
-### Implementation Files
+### Behavior
 
-- [src/lib/shape-context.tsx](file:///Users/harshithpasupuleti/code/omni/src/lib/shape-context.tsx): Configures two global modes:
-  - `"pill"`: High rounding (e.g., `rounded-[20px]` buttons, `rounded-3xl` containers).
-  - `"rounded"`: Desktop standard rounding (e.g., `rounded-lg` buttons, `rounded-xl` containers).
-- **Keybind Shortcut**: Toggles the active shape state globally when pressing the **`R`** key on non-input nodes.
+- Lists and scroll panes use edge cues.
+- Cues appear on the active edge as the user scrolls.
+- Each cue combines a chevron with a fade overlay.
 
----
+### Implementation
 
-## 5. Swappable Icon System
-
-### The Concept
-
-To allow UI personalization and development testing, the design system maps a standardized list of icon names to multiple external libraries.
-
-### Implementation Files
-
-- [/@/lib/icon-map.tsx](file:///Users/harshithpasupuleti/code/omni/@/lib/icon-map.tsx): Standardizes generic icon names (e.g., `plus`, `search`, `settings`) and resolves them across **Lucide**, **Tabler**, **Phosphor**, and **Hugeicons**.
-- [/@/lib/icon-context.tsx](file:///Users/harshithpasupuleti/code/omni/@/lib/icon-context.tsx): Holds `IconProvider` and the hooks `useIcon` or `useIcons`.
-- **Keybind Shortcut**: Pressing the **`I`** key cycles the entire application UI between the loaded icon packs on the fly.
-- _Note_: As specified in [AGENT.md](file:///Users/harshithpasupuleti/code/omni/AGENT.md), icons from `@phosphor-icons/react` are the primary priority for new code components.
+- `@/lib/scroll-fade.tsx`
+  - `useScrollEdges(ref, options)` detects overflow and scroll position using:
+    - `ResizeObserver`
+    - `MutationObserver`
+    - scroll listeners
+  - `<ScrollEdgeCue />` renders the edge indicator.
+  - Cue backgrounds use CSS `color-mix` against the current surface token.
 
 ---
 
-## 6. Code Guidelines
+## 3. Motion and springs
 
-When writing or modifying UI components in Pipper, follow these structural rules:
+### Purpose
 
-1.  **Do not use hardcoded surface background/shadow classes** (e.g. `bg-surface-3`). Always wrap floating containers in `<Elevated offset={N}>`.
-2.  **Ensure compound hover coordinates are clean**: In structures like menus or select items, supply consecutive `index` props so that mouse proximity-hover cursor tracking and morphing background animations calculate correctly.
-3.  **Preserve import aliasing**: Use `@/` imports resolving to `src/` first, falling back to `/@/` for shared design system structures.
+Use responsive motion instead of linear-feeling transitions.
+
+### Presets
+
+Defined in `@/lib/springs.ts` for Framer Motion.
+
+- `fast`
+  - `0.08s` duration
+  - `0` bounce
+  - `0.06s` exit
+  - For subtle micro-interactions
+
+- `moderate`
+  - `0.16s` duration
+  - `0.08` bounce
+  - `0.12s` exit
+  - For dropdowns, popovers, accordions
+
+- `slow`
+  - `0.24s` duration
+  - `0.12` bounce
+  - `0.16s` exit
+  - For modals and larger layout transitions
+
+---
+
+## 4. Shape system
+
+### Purpose
+
+The app can switch global rounding styles for buttons, inputs, and containers.
+
+### Modes
+
+- `pill` — high rounding
+- `rounded` — standard desktop rounding
+
+### Implementation
+
+- `src/lib/shape-context.tsx`
+- Keybind: press **R** on non-input nodes to toggle shape mode
+
+---
+
+## 5. Swappable icons
+
+### Purpose
+
+Pipper can map generic icon names to different icon libraries.
+
+### Implementation
+
+- `@/lib/icon-map.tsx` — standardized icon name mapping
+- `@/lib/icon-context.tsx` — icon provider and hooks
+
+### Behavior
+
+- Generic names like `plus`, `search`, and `settings` resolve across supported icon sets.
+- Press **I** to cycle icon packs in the UI.
+- For new UI, prefer `@phosphor-icons/react`.
+
+---
+
+## 6. Code guidelines
+
+When adding or changing UI:
+
+1. Use built-in UI components first.
+2. Keep import aliasing consistent:
+   - prefer `@/` for `src/`
+   - fall back to `/@/` for shared design-system code
+3. Do not duplicate shared logic across components.
+4. Keep compound hover/index-driven items in sequence.
+5. Preserve surface, shape, and icon system behavior across nested UI.
