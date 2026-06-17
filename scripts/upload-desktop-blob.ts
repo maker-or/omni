@@ -1,6 +1,7 @@
 import { put } from "@vercel/blob";
 import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 type Architecture = "arm64" | "x64";
@@ -48,6 +49,17 @@ function getArchitecture(fileName: string): Architecture | null {
   }
 
   return null;
+}
+
+async function getFileSha256(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+  const stream = createReadStream(filePath);
+
+  for await (const chunk of stream) {
+    hash.update(chunk);
+  }
+
+  return hash.digest("hex");
 }
 
 async function main() {
@@ -121,10 +133,18 @@ async function main() {
   const envLines: string[] = [];
 
   for (const artifact of artifacts) {
-    console.log(`Uploading ${artifact.fileName} to ${artifact.pathname}`);
+    const sha256 = await getFileSha256(artifact.filePath);
+    const parsedPath = path.posix.parse(artifact.pathname);
+    const immutablePathname = path.posix.join(
+      parsedPath.dir,
+      sha256,
+      parsedPath.base,
+    );
+
+    console.log(`Uploading ${artifact.fileName} to ${immutablePathname}`);
 
     const body = createReadStream(artifact.filePath);
-    const blob = await put(artifact.pathname, body, {
+    const blob = await put(immutablePathname, body, {
       access: "public",
       token,
       allowOverwrite: true,
@@ -133,6 +153,7 @@ async function main() {
     });
 
     envLines.push(`${artifact.envKey}=${blob.downloadUrl}`);
+    envLines.push(`${artifact.envKey}_SHA256=${sha256}`);
   }
 
   console.log("Environment variables:");

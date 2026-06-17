@@ -1,10 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
-const fallbackArm64DmgUrl =
-    "https://3cd02vgzs0uqkfoo.public.blob.vercel-storage.com/desktop/latest/pipper-mac-arm64.dmg?download=1";
-const arm64DmgUrl =
-    import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL ?? fallbackArm64DmgUrl;
+const arm64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL;
 ---
 
 <Layout
@@ -51,16 +48,33 @@ const arm64DmgUrl =
                     <h2 class="platform-name">macOS</h2>
                 </div>
                 <div class="download-cards">
-                    <a
-                        class="download-card"
-                        data-asset="arm64.dmg"
-                        href={arm64DmgUrl}
-                        download
-                        rel="noopener noreferrer"
-                    >
-                        <span class="card-arch">Apple Silicon (arm64)</span>
-                        <span class="card-format">.dmg</span>
-                    </a>
+                    {
+                        arm64DmgUrl ? (
+                            <a
+                                class="download-card"
+                                data-asset="arm64.dmg"
+                                href={arm64DmgUrl}
+                                download
+                                rel="noopener noreferrer"
+                            >
+                                <span class="card-arch">
+                                    Apple Silicon (arm64)
+                                </span>
+                                <span class="card-format">.dmg</span>
+                            </a>
+                        ) : (
+                            <span
+                                class="download-card download-card-disabled"
+                                data-asset="arm64.dmg"
+                                aria-disabled="true"
+                            >
+                                <span class="card-arch">
+                                    Apple Silicon (arm64)
+                                </span>
+                                <span class="card-format">Coming soon</span>
+                            </span>
+                        )
+                    }
                 </div>
             </section>
         </div>
@@ -232,6 +246,16 @@ const arm64DmgUrl =
 
     .download-card:active {
         transform: translateY(0);
+    }
+
+    .download-card-disabled,
+    .download-card-disabled:hover,
+    .download-card-disabled:active {
+        cursor: not-allowed;
+        opacity: 0.5;
+        transform: none;
+        background: rgba(255, 255, 255, 0.02);
+        border-color: var(--border);
     }
 
     .card-arch {
