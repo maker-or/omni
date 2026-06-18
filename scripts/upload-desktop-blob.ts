@@ -1,6 +1,6 @@
-import { put } from "@vercel/blob";
+import { head, put } from "@vercel/blob";
 import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -23,12 +23,12 @@ const releaseTargets: Record<Architecture, ReleaseTarget> = {
   arm64: {
     architecture: "arm64",
     envKey: "PUBLIC_PIPPER_MAC_ARM64_DMG_URL",
-    pathname: "desktop/latest/pipper-mac-arm64.dmg",
+    pathname: "desktop/releases/pipper-mac-arm64.dmg",
   },
   x64: {
     architecture: "x64",
     envKey: "PUBLIC_PIPPER_MAC_X64_DMG_URL",
-    pathname: "desktop/latest/pipper-mac-x64.dmg",
+    pathname: "desktop/releases/pipper-mac-x64.dmg",
   },
 };
 
@@ -134,12 +134,9 @@ async function main() {
 
   for (const artifact of artifacts) {
     const sha256 = await getFileSha256(artifact.filePath);
+    const { size: localSize } = await stat(artifact.filePath);
     const parsedPath = path.posix.parse(artifact.pathname);
-    const immutablePathname = path.posix.join(
-      parsedPath.dir,
-      sha256,
-      parsedPath.base,
-    );
+    const immutablePathname = path.posix.join(parsedPath.dir, sha256, parsedPath.base);
 
     console.log(`Uploading ${artifact.fileName} to ${immutablePathname}`);
 
@@ -147,10 +144,28 @@ async function main() {
     const blob = await put(immutablePathname, body, {
       access: "public",
       token,
-      allowOverwrite: true,
+      allowOverwrite: false,
       addRandomSuffix: false,
+      cacheControlMaxAge: 60,
+      contentType: "application/x-apple-diskimage",
       multipart: true,
     });
+
+    const uploaded = await head(blob.url, { token });
+
+    if (uploaded.size !== localSize) {
+      fail(
+        `Upload verification failed for ${artifact.fileName}: local size ${localSize}, remote size ${uploaded.size}.`,
+      );
+    }
+
+    if (uploaded.contentType !== "application/x-apple-diskimage") {
+      fail(
+        `Upload verification failed for ${artifact.fileName}: unexpected content type ${uploaded.contentType}.`,
+      );
+    }
+
+    console.log(`Verified remote upload: ${uploaded.size} bytes, ${uploaded.contentType}`);
 
     envLines.push(`${artifact.envKey}=${blob.downloadUrl}`);
     envLines.push(`${artifact.envKey}_SHA256=${sha256}`);

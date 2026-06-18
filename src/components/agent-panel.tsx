@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { PlusIcon, FolderPlusIcon } from "@phosphor-icons/react";
+import { CheckIcon as ModelCheckIcon, FolderPlusIcon, MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
@@ -34,6 +34,26 @@ import {
 import type { Thread } from "../../contracts/threads.ts";
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+function formatProviderName(provider: string): string {
+  return provider
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatTokenCount(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Unknown";
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`;
+  if (value >= 1_000) return `${Number((value / 1_000).toFixed(0))}K`;
+  return String(value);
+}
+
+function formatModelPrice(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) return null;
+  return `$${Number(value.toFixed(2))}/M`;
+}
 
 function getToolSummary(message: MessageLike): string | null {
   const content = (message as unknown as { content?: unknown }).content;
@@ -236,6 +256,8 @@ export function AgentPanel() {
   const [inputValue, setInputValue] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [selectedModelProvider, setSelectedModelProvider] = useState<string | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
   const [mountTime] = useState(() => Date.now());
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
@@ -265,6 +287,9 @@ export function AgentPanel() {
   const activeThreadId = openTabsState?.activeThreadId ?? null;
   const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
   const hoveredProjectThreadsQuery = useProjectThreadsQuery(hoveredProjectId);
+  const commands = snapshot?.commands ?? [];
+  const modelName = snapshot?.model?.name ?? "No model";
+  const models = snapshot?.models ?? [];
   const recentProjectsQuery = useRecentProjectsQuery(
     activeProject?.id,
     threadSwitchHistory,
@@ -394,6 +419,12 @@ export function AgentPanel() {
   }, [isDropdownOpen]);
 
   useEffect(() => {
+    if (!isModelDropdownOpen) return;
+    setSelectedModelProvider(snapshot?.model?.provider ?? models[0]?.provider ?? null);
+    setModelSearch("");
+  }, [isModelDropdownOpen, models, snapshot?.model?.provider]);
+
+  useEffect(() => {
     if (!hoveredProjectId) return;
     const exists = projectsList.some((project) => project.id === hoveredProjectId);
     if (!exists) {
@@ -511,9 +542,6 @@ export function AgentPanel() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isDropdownOpen, isModelDropdownOpen]);
 
-  const commands = snapshot?.commands ?? [];
-  const modelName = snapshot?.model?.name ?? "No model";
-  const models = snapshot?.models ?? [];
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = activeTabId || snapshotThreadId;
   const isSwitchingThread = Boolean(activeTabId && activeTabId !== snapshotThreadId);
@@ -772,10 +800,29 @@ export function AgentPanel() {
     hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
   const hoveredThreadsHasMore =
     hoveredProjectThreadsQuery.data?.hasMore || Boolean(hoveredThreadPage?.hasMore);
-  const activeModelIndex = models.findIndex(
-    (model) =>
-      model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId,
-  );
+  const modelGroups = useMemo(() => {
+    const groups = new Map<string, typeof models>();
+    for (const model of models) {
+      const group = groups.get(model.provider) ?? [];
+      group.push(model);
+      groups.set(model.provider, group);
+    }
+    return Array.from(groups.entries()).map(([provider, providerModels]) => ({
+      provider,
+      label: formatProviderName(provider),
+      models: providerModels,
+    }));
+  }, [models]);
+  const activeProvider = selectedModelProvider ?? snapshot?.model?.provider ?? modelGroups[0]?.provider;
+  const visibleProviderModels = (modelGroups.find((group) => group.provider === activeProvider)?.models ?? [])
+    .filter((model) => {
+      const query = modelSearch.trim().toLowerCase();
+      return (
+        !query ||
+        String(model.name ?? "").toLowerCase().includes(query) ||
+        String(model.modelId ?? "").toLowerCase().includes(query)
+      );
+    });
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const emptyStateSubject = currentProject?.name ?? "your project";
 
@@ -1180,38 +1227,106 @@ export function AgentPanel() {
                         setIsModelDropdownOpen((prev) => !prev);
                       }}
                     >
-                      {modelName}
+                      {snapshot?.model ? `${formatProviderName(snapshot.model.provider)} · ${modelName}` : modelName}
                     </Button>
                     {isModelDropdownOpen && models.length > 0 && (
                       <div
                         data-pipper-id="model-dropdown"
                         className="absolute right-0 bottom-full mb-1.5 z-[250]"
                       >
-                        <Dropdown
-                          checkedIndex={activeModelIndex >= 0 ? activeModelIndex : undefined}
-                          className="w-72 max-h-[300px]"
-                        >
-                          {models.map((model, index) => (
-                            <MenuItem
-                              key={`${model.provider}:${model.modelId}`}
-                              index={index}
-                              label={model.name}
-                              checked={
-                                model.provider === snapshot?.model?.provider &&
-                                model.modelId === snapshot?.model?.modelId
-                              }
-                              onSelect={async () => {
-                                const success = await setModel({
-                                  provider: model.provider,
-                                  modelId: model.modelId,
-                                });
-                                if (success) {
-                                  setIsModelDropdownOpen(false);
-                                }
-                              }}
-                            />
-                          ))}
-                        </Dropdown>
+                        <div className="flex h-[420px] w-[520px] overflow-hidden rounded-xl border border-border/80 bg-surface-1 shadow-surface-5">
+                          <div className="flex w-40 shrink-0 flex-col border-r border-border/70 bg-surface-2/50 p-2">
+                            <div className="px-2 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                              Providers
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                            {modelGroups.map((group) => {
+                              const isActiveProvider = group.provider === activeProvider;
+                              const hasSelectedModel = group.provider === snapshot?.model?.provider;
+                              return (
+                                <button
+                                  key={group.provider}
+                                  type="button"
+                                  onClick={() => setSelectedModelProvider(group.provider)}
+                                  className={cn(
+                                    "mb-0.5 flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
+                                    isActiveProvider
+                                      ? "bg-accent text-foreground"
+                                      : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                                  )}
+                                >
+                                  <span className="truncate font-medium">{group.label}</span>
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="text-[10px] tabular-nums opacity-50">{group.models.length}</span>
+                                    {hasSelectedModel && <span className="size-1.5 rounded-full bg-foreground" />}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                            </div>
+                          </div>
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="border-b border-border/70 p-3">
+                              <div className="mb-2 flex items-baseline justify-between gap-3">
+                                <div className="text-[13px] font-semibold">{formatProviderName(activeProvider ?? "Models")}</div>
+                                <div className="text-[11px] text-muted-foreground">{visibleProviderModels.length} models</div>
+                              </div>
+                              <label className="flex h-8 items-center gap-2 rounded-lg border border-border/70 bg-surface-2 px-2.5 text-muted-foreground focus-within:border-foreground/30 focus-within:text-foreground">
+                                <MagnifyingGlassIcon size={14} />
+                                <input
+                                  value={modelSearch}
+                                  onChange={(event) => setModelSearch(event.target.value)}
+                                  placeholder="Search models"
+                                  className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                                  autoFocus
+                                />
+                              </label>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                            {visibleProviderModels.map((model) => {
+                              const isSelected = model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId;
+                              const inputPrice = formatModelPrice(model.cost?.input);
+                              return (
+                              <button
+                                type="button"
+                                key={`${model.provider}:${model.modelId}`}
+                                className={cn(
+                                  "mb-1 flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                                  isSelected
+                                    ? "border-foreground/15 bg-accent text-foreground"
+                                    : "border-transparent text-muted-foreground hover:border-border/70 hover:bg-hover hover:text-foreground",
+                                )}
+                                onClick={async () => {
+                                  const success = await setModel({
+                                    provider: model.provider,
+                                    modelId: model.modelId,
+                                  });
+                                  if (success) {
+                                    setIsModelDropdownOpen(false);
+                                  }
+                                }}
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-[13px] font-medium">{model.name}</span>
+                                  <span className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground/70">
+                                    <span>{formatTokenCount(model.contextWindow)} context</span>
+                                    {model.reasoning && <span>Reasoning</span>}
+                                    {inputPrice && <span>{inputPrice} input</span>}
+                                  </span>
+                                </span>
+                                <span className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full", isSelected ? "bg-foreground text-background" : "opacity-0")}>
+                                  <ModelCheckIcon size={12} weight="bold" />
+                                </span>
+                              </button>
+                            );})}
+                            {visibleProviderModels.length === 0 && (
+                              <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
+                                No models match “{modelSearch}”.
+                              </div>
+                            )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

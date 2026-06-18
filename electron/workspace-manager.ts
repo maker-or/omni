@@ -156,29 +156,35 @@ export async function initializeWorkspaces(
 
     // 3. Initialize package.json inside shared directory for dependency installation
     const activePkgJson = join(activeDir, "package.json");
+    const templatePkgJson = join(templatePath, "package.json");
     const sharedPkgJson = join(sharedDir, "package.json");
-    if (existsSync(activePkgJson) && !existsSync(sharedPkgJson)) {
+    let dependencyManifestChanged = false;
+    const packageSource = existsSync(templatePkgJson) ? templatePkgJson : activePkgJson;
+    if (existsSync(packageSource)) {
       try {
-        const pkg = JSON.parse(readFileSync(activePkgJson, "utf8"));
+        const pkg = JSON.parse(readFileSync(packageSource, "utf8"));
         if (pkg.scripts) {
           delete pkg.scripts.postinstall;
         }
-        writeFileSync(sharedPkgJson, JSON.stringify(pkg, null, 2), "utf8");
-        console.log(
-          "[WorkspaceManager] Created cleaned package.json in shared folder (removed postinstall).",
-        );
+        const nextManifest = `${JSON.stringify(pkg, null, 2)}\n`;
+        const currentManifest = existsSync(sharedPkgJson)
+          ? readFileSync(sharedPkgJson, "utf8")
+          : "";
+        dependencyManifestChanged = currentManifest !== nextManifest;
+        if (dependencyManifestChanged) {
+          writeFileSync(sharedPkgJson, nextManifest, "utf8");
+          console.log("[WorkspaceManager] Updated shared dependency manifest.");
+        }
       } catch (err) {
-        console.error(
-          "[WorkspaceManager] Failed to create cleaned package.json in shared folder:",
-          err,
-        );
-        copyRecursive(activePkgJson, sharedPkgJson);
+        console.error("[WorkspaceManager] Failed to update shared package.json:", err);
+        copyRecursive(packageSource, sharedPkgJson);
+        dependencyManifestChanged = true;
       }
     }
 
     // 4. Run dependency setup inside shared directory
     const sharedNodeModules = join(sharedDir, "node_modules");
-    if (!existsSync(sharedNodeModules)) {
+    if (!existsSync(sharedNodeModules) || dependencyManifestChanged) {
       console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
       const mise = getMisePath();
       // Run bun install using local Mise environment

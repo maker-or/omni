@@ -5,6 +5,13 @@ export interface AgentModelSummary {
   provider: string;
   modelId: string;
   name: string;
+  baseUrl?: string;
+  cost?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
   reasoning: boolean;
   contextWindow: number;
   maxTokens: number;

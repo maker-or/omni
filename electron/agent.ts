@@ -40,6 +40,7 @@ import {
   type SessionStats,
   Theme,
 } from "@earendil-works/pi-coding-agent";
+import { getModel, getModels as getKnownModels, getProviders } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 
 import { getActivePath } from "./workspace-manager.ts";
@@ -75,6 +76,8 @@ function modelToSummary(model: Model<any> | undefined): AgentModelSummary | null
     provider: model.provider,
     modelId: model.id,
     name: model.name,
+    baseUrl: model.baseUrl,
+    cost: model.cost,
     reasoning: model.reasoning,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
@@ -85,6 +88,18 @@ function modelsToSummary(models: Model<any>[]): AgentModelSummary[] {
   return models
     .map((model) => modelToSummary(model))
     .filter((value): value is AgentModelSummary => value != null);
+}
+
+function getKnownModelSummaries(): AgentModelSummary[] {
+  return getProviders().flatMap((provider) => modelsToSummary(getKnownModels(provider as any)));
+}
+
+function getKnownModel(provider: string, modelId: string): Model<any> | null {
+  try {
+    return getModel(provider as any, modelId as any) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function stripThreadSuffix(title: string): string {
@@ -881,7 +896,9 @@ export class AgentManager {
   async setModel(model: { provider: string; modelId: string }): Promise<boolean> {
     const record = this.getCurrentRecord();
     if (!record) return false;
-    const resolved = record.runtime.session.modelRegistry.find(model.provider, model.modelId);
+    const resolved =
+      getKnownModel(model.provider, model.modelId) ??
+      record.runtime.session.modelRegistry.find(model.provider, model.modelId);
     if (!resolved) return false;
     try {
       await record.runtime.session.setModel(resolved);
@@ -935,7 +952,16 @@ export class AgentManager {
 
   getModels(): AgentModelSummary[] {
     const record = this.getCurrentRecord();
-    return record ? modelsToSummary(record.runtime.session.modelRegistry.getAvailable()) : [];
+    if (!record) return getKnownModelSummaries();
+
+    const knownModels = getKnownModelSummaries();
+    const customModels = modelsToSummary(record.runtime.session.modelRegistry.getAvailable()).filter(
+      (model) =>
+        !knownModels.some(
+          (known) => known.provider === model.provider && known.modelId === model.modelId,
+        ),
+    );
+    return [...knownModels, ...customModels];
   }
 
   getStats(): SessionStats | null {

@@ -1,6 +1,5 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
-import net from "node:net";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -269,83 +268,74 @@ function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): 
 }
 
 let viteProcess: import("node:child_process").ChildProcess | null = null;
+let viteServerUrl: string | null = null;
 
-function startViteServer(): Promise<string> {
-  return new Promise((resolve) => {
-    if (viteProcess) {
-      resolve("http://localhost:1953");
-      return;
-    }
+function extractViteUrl(output: string): string | null {
+  const match = output.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+/i);
+  return match?.[0] ?? null;
+}
 
-    const activePath = getActivePath();
-    const cmd = getMisePath();
-    console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise on port 1953`);
+async function startViteServer(): Promise<string> {
+  if (viteProcess && viteServerUrl) {
+    return viteServerUrl;
+  }
 
-    // Use bun run vite directly for faster startup
-    viteProcess = spawn(cmd, ["exec", "--", "bun", "run", "vite", "--port", "1953"], {
-      cwd: activePath,
-      env: { ...process.env, NODE_ENV: "development" },
-    });
+  const activePath = getActivePath();
+  const cmd = getMisePath();
+  console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise`);
+
+  return new Promise((resolve, reject) => {
+    // Let Vite choose its normal port and auto-increment if needed. This keeps
+    // the packaged app and the development app from fighting over a fixed port.
+    viteProcess = spawn(
+      cmd,
+      ["exec", "--", "bun", "run", "vite", "--host", "127.0.0.1"],
+      {
+        cwd: activePath,
+        env: { ...process.env, NODE_ENV: "development" },
+      },
+    );
 
     let resolved = false;
+
+    const maybeResolveFromOutput = (output: string) => {
+      const url = extractViteUrl(output);
+      if (!url) return;
+      viteServerUrl = url;
+      if (!resolved) {
+        resolved = true;
+        console.log(`[Main] Vite server ready at ${url}`);
+        resolve(url);
+      }
+    };
 
     viteProcess.stdout?.on("data", (data) => {
       const output = data.toString();
       console.log(`[Vite compiler stdout] ${output}`);
-      if (output.includes("http://localhost:1953") && !resolved) {
-        resolved = true;
-        resolve("http://localhost:1953");
-      }
+      maybeResolveFromOutput(output);
     });
 
     viteProcess.stderr?.on("data", (data) => {
-      console.error(`[Vite compiler stderr] ${data}`);
+      const output = data.toString();
+      console.error(`[Vite compiler stderr] ${output}`);
+      maybeResolveFromOutput(output);
     });
 
     viteProcess.on("close", (code) => {
       console.log(`[Vite compiler] exited with code ${code}`);
       viteProcess = null;
+      viteServerUrl = null;
+      if (!resolved) {
+        reject(new Error(`Vite dev server exited before becoming ready (code ${code ?? "unknown"}).`));
+      }
     });
 
-    // Polling loop to check if port 1953 is ready
-    const pollInterval = 200;
-    const maxTimeout = 10000;
-    const startTime = Date.now();
-
-    const checkInterval = setInterval(() => {
-      if (resolved) {
-        clearInterval(checkInterval);
-        return;
+    const maxTimeout = 15000;
+    setTimeout(() => {
+      if (!resolved) {
+        reject(new Error("Timed out waiting for Vite dev server URL."));
       }
-
-      const socket = net.connect({ port: 1953, host: "127.0.0.1" }, () => {
-        socket.end();
-        if (!resolved) {
-          resolved = true;
-          clearInterval(checkInterval);
-          console.log("[Main] Vite server detected online via port polling.");
-          resolve("http://localhost:1953");
-        }
-      });
-
-      socket.on("error", () => {
-        // Socket connection failed, port is not ready yet
-      });
-
-      socket.setTimeout(150);
-      socket.on("timeout", () => {
-        socket.destroy();
-      });
-
-      if (Date.now() - startTime > maxTimeout) {
-        clearInterval(checkInterval);
-        if (!resolved) {
-          resolved = true;
-          console.warn("[Main] Vite server port check timed out, resolving fallback url");
-          resolve("http://localhost:1953");
-        }
-      }
-    }, pollInterval);
+    }, maxTimeout);
   });
 }
 
@@ -1246,6 +1236,9 @@ app.whenReady().then(async () => {
       }
     })();
   } else {
+    // Keep the shared dependency cache aligned with the packaged template. The
+    // workspace can be "ready" while still missing dependencies added by an app update.
+    await initializeWorkspaces(app.getAppPath(), isDev);
     const state = await readLaunchState();
     if (state.completed) {
       if (state.projectId) {
