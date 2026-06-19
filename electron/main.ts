@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
 import { spawn, exec } from "node:child_process";
@@ -52,9 +52,12 @@ import {
   restoreFromBackup,
   getActivePath,
   getBackupPath,
-  getSharedPath,
   startDevFileWatcher,
+  stopDevFileWatcher,
+  getActiveDependenciesPath,
+  getInstallationMetadataPath,
 } from "./workspace-manager";
+import { UpdateManager } from "./update-manager";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
@@ -76,6 +79,10 @@ let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let updateManager: UpdateManager | null = null;
+let updateSubsystemReady = false;
+let quitAuthorized = false;
+let updateQuitInProgress = false;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -85,6 +92,11 @@ function requireAgentManager(): AgentManager {
     throw new Error("Agent manager is not initialized.");
   }
   return agentManager;
+}
+
+function requireUpdateManager(): UpdateManager {
+  if (!updateManager) throw new Error("Update manager is not initialized.");
+  return updateManager;
 }
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
@@ -287,14 +299,10 @@ async function startViteServer(): Promise<string> {
   return new Promise((resolve, reject) => {
     // Let Vite choose its normal port and auto-increment if needed. This keeps
     // the packaged app and the development app from fighting over a fixed port.
-    viteProcess = spawn(
-      cmd,
-      ["exec", "--", "bun", "run", "vite", "--host", "127.0.0.1"],
-      {
-        cwd: activePath,
-        env: { ...process.env, NODE_ENV: "development" },
-      },
-    );
+    viteProcess = spawn(cmd, ["exec", "--", "bun", "run", "vite", "--host", "127.0.0.1"], {
+      cwd: activePath,
+      env: { ...process.env, NODE_ENV: "development" },
+    });
 
     let resolved = false;
 
@@ -326,7 +334,9 @@ async function startViteServer(): Promise<string> {
       viteProcess = null;
       viteServerUrl = null;
       if (!resolved) {
-        reject(new Error(`Vite dev server exited before becoming ready (code ${code ?? "unknown"}).`));
+        reject(
+          new Error(`Vite dev server exited before becoming ready (code ${code ?? "unknown"}).`),
+        );
       }
     });
 
@@ -524,6 +534,54 @@ function broadcastToWindows(channel: string, ...args: any[]) {
   }
 }
 
+async function prepareProcessesForUpdate(): Promise<void> {
+  await agentManager?.quiesceForUpdate();
+  companionWindow?.close();
+  for (const [id, process] of ptyProcesses) {
+    try {
+      process.kill();
+    } catch (error) {
+      console.warn(`[Update] Failed to stop terminal ${id}:`, error);
+    }
+  }
+  ptyProcesses.clear();
+  stopDevFileWatcher();
+}
+
+function isUpdateBusy(): boolean {
+  return (
+    updateManager != null &&
+    [
+      "preparing",
+      "fetching-upstream",
+      "agent-running",
+      "installing-dependencies",
+      "validating",
+      "ready-to-promote",
+      "promoting",
+      "awaiting-health-check",
+      "rolling-back",
+    ].includes(updateManager.getState().phase)
+  );
+}
+
+async function restartAfterPromotion(): Promise<void> {
+  await restartViteServer();
+  if (isDev) startDevFileWatcher();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    await mainWindow.loadURL(viteServerUrl ?? (await startViteServer()));
+  }
+  if (launchWindow && !launchWindow.isDestroyed()) launchWindow.webContents.reload();
+}
+
+async function initializeUpdateSubsystem(): Promise<void> {
+  if (updateSubsystemReady || !updateManager) return;
+  await updateManager.recover();
+  updateManager.startPeriodicChecks();
+  updateSubsystemReady = true;
+  void updateManager.check();
+}
+
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -578,6 +636,21 @@ function buildAppMenu(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("update:check", () => requireUpdateManager().check());
+  ipcMain.handle("update:getState", () => requireUpdateManager().getState());
+  ipcMain.handle("update:scheduleForQuit", () => requireUpdateManager().scheduleForQuit());
+  ipcMain.handle("update:startNow", () => requireUpdateManager().startNow());
+  ipcMain.handle("update:dismiss", () => requireUpdateManager().dismiss());
+  ipcMain.handle("update:cancel", () => requireUpdateManager().cancel());
+  ipcMain.handle("update:markActiveHealthy", (_event, version: string) =>
+    requireUpdateManager().markActiveHealthy(version),
+  );
+  ipcMain.handle("update:quitWithoutUpdating", async () => {
+    await requireUpdateManager().cancel();
+    quitAuthorized = true;
+    app.quit();
+  });
+
   ipcMain.handle("projects:list", () => listProjects());
 
   ipcMain.handle("projects:getActive", () => {
@@ -664,11 +737,11 @@ function registerIpc(): void {
     const deps = await checkAllDependencies();
     const activePath = getActivePath();
     const backupPath = getBackupPath();
-    const sharedPath = getSharedPath();
+    const activeDependenciesPath = getActiveDependenciesPath();
     const workspacesInitialized =
       fs.existsSync(activePath) &&
       fs.existsSync(backupPath) &&
-      fs.existsSync(join(sharedPath, "node_modules"));
+      fs.existsSync(join(activeDependenciesPath, "node_modules"));
     return !!(deps.gitInstalled && deps.nodeMatch && deps.bunMatch && workspacesInitialized);
   });
 
@@ -679,6 +752,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
+    if (isUpdateBusy()) throw new Error("Project switching is disabled during an update.");
     setActiveProjectId(projectId);
     try {
       await requireAgentManager().activateProject(projectId);
@@ -878,6 +952,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
+    if (isUpdateBusy()) throw new Error("New terminal sessions are disabled during an update.");
     if (ptyProcesses.has(sessionId)) {
       console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
       return;
@@ -982,7 +1057,10 @@ function registerIpc(): void {
   });
 
   // ─── Editor IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle("editor:activate", () => requireAgentManager().activateEditor());
+  ipcMain.handle("editor:activate", () => {
+    if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
+    return requireAgentManager().activateEditor();
+  });
   ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
   ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
     requireAgentManager().sendEditorPrompt(input),
@@ -1010,6 +1088,7 @@ function registerIpc(): void {
     broadcastToWindows("pipper:stateChanged", { processingId });
   });
   ipcMain.handle("pipper:enterEditMode", () => {
+    if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
     broadcastToWindows("pipper:stateChanged", { editMode: true });
   });
   ipcMain.handle("pipper:exitEditMode", () => {
@@ -1071,18 +1150,36 @@ function registerIpc(): void {
   });
 
   // ─── Pipper Accept/Reject IPC ───────────────────────────────────────────────
-  ipcMain.handle("pipper:acceptChanges", async () => {
+  ipcMain.handle("pipper:acceptChanges", async (_event, intent?: string) => {
     const activePath = getActivePath();
-    const execPromise = promisify(exec);
     const projectId = getActiveProjectId();
     try {
-      await execPromise('git add -u && git commit -m "Pipper Visual Edit Accept"', {
+      const { stdout } = await promisify(exec)("git status --porcelain", { cwd: activePath });
+      const filesChanged = stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.slice(3).split(" -> ").at(-1) ?? "")
+        .filter((file) => file !== "patch.md");
+      if (filesChanged.length === 0) return;
+      const patchPath = join(activePath, "patch.md");
+      const existing = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
+      const entry = {
+        change_id: randomUUID(),
+        files_changed: filesChanged,
+        intent: intent?.trim() || "Accepted visual customization",
+      };
+      fs.writeFileSync(patchPath, `${JSON.stringify(entry, null, 2)}\n\n${existing}`);
+      await promisify(exec)("git add -A && git commit -m 'Pipper Visual Edit Accept'", {
         cwd: activePath,
       });
-    } catch (err) {
-      console.warn("[Accept] git commit warning (probably no changes to commit):", err);
-    }
-    try {
+      const { stdout: headOutput } = await promisify(exec)("git rev-parse HEAD", {
+        cwd: activePath,
+      });
+      const installationPath = getInstallationMetadataPath();
+      const installation = JSON.parse(fs.readFileSync(installationPath, "utf8"));
+      installation.customized_head_commit = headOutput.trim();
+      installation.last_healthy_at = new Date().toISOString();
+      fs.writeFileSync(installationPath, `${JSON.stringify(installation, null, 2)}\n`);
       await backupActiveWorkspace();
       if (projectId) {
         captureAnalytics("mutation_accepted", {
@@ -1156,7 +1253,7 @@ app.whenReady().then(async () => {
     const iconPath = getIconPath();
     if (iconPath) {
       try {
-        app.dock.setIcon(iconPath);
+        app.dock?.setIcon(iconPath);
       } catch (err) {
         console.error("[Main] Failed to set macOS dock icon:", err);
       }
@@ -1199,6 +1296,21 @@ app.whenReady().then(async () => {
       }
     },
   });
+  updateManager = new UpdateManager({
+    manifestUrl:
+      process.env.PIPPER_UPDATE_MANIFEST_URL ??
+      import.meta.env.VITE_PIPPER_UPDATE_MANIFEST_URL ??
+      null,
+    repositoryUrl:
+      process.env.PIPPER_UPSTREAM_REPOSITORY_URL ??
+      import.meta.env.VITE_PIPPER_UPSTREAM_REPOSITORY_URL ??
+      null,
+    agent: agentManager,
+    broadcastState: (state) => broadcastToWindows("update:stateChanged", state),
+    broadcastProgress: (progress) => broadcastToWindows("update:progress", progress),
+    prepareForUpdate: prepareProcessesForUpdate,
+    restartPromotedApp: restartAfterPromotion,
+  });
   registerIpc();
 
   if (isDev) {
@@ -1209,11 +1321,11 @@ app.whenReady().then(async () => {
   const deps = await checkAllDependencies();
   const activePath = getActivePath();
   const backupPath = getBackupPath();
-  const sharedPath = getSharedPath();
+  const activeDependenciesPath = getActiveDependenciesPath();
   const workspacesInitialized =
     fs.existsSync(activePath) &&
     fs.existsSync(backupPath) &&
-    fs.existsSync(join(sharedPath, "node_modules"));
+    fs.existsSync(join(activeDependenciesPath, "node_modules"));
 
   if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch || !workspacesInitialized) {
     console.log("[Main] Launching launcher while workspace setup runs in background.");
@@ -1228,6 +1340,7 @@ app.whenReady().then(async () => {
           await initializeWorkspaces(app.getAppPath(), isDev);
         }
         broadcastToWindows("launch:workspaceReady", {});
+        await initializeUpdateSubsystem();
       } catch (error) {
         console.error("[Main] Background workspace initialization failed:", error);
         broadcastToWindows("launch:workspaceError", {
@@ -1239,6 +1352,7 @@ app.whenReady().then(async () => {
     // Keep the shared dependency cache aligned with the packaged template. The
     // workspace can be "ready" while still missing dependencies added by an app update.
     await initializeWorkspaces(app.getAppPath(), isDev);
+    await initializeUpdateSubsystem();
     const state = await readLaunchState();
     if (state.completed) {
       if (state.projectId) {
@@ -1259,7 +1373,7 @@ app.whenReady().then(async () => {
       const activeInit =
         fs.existsSync(activePath) &&
         fs.existsSync(backupPath) &&
-        fs.existsSync(join(sharedPath, "node_modules"));
+        fs.existsSync(join(activeDependenciesPath, "node_modules"));
 
       if (
         !activeDeps.gitInstalled ||
@@ -1269,7 +1383,10 @@ app.whenReady().then(async () => {
       ) {
         createLaunchWindow("list");
         void initializeWorkspaces(app.getAppPath(), isDev)
-          .then(() => broadcastToWindows("launch:workspaceReady", {}))
+          .then(async () => {
+            broadcastToWindows("launch:workspaceReady", {});
+            await initializeUpdateSubsystem();
+          })
           .catch((error) => {
             console.error("[Main] Background workspace initialization failed:", error);
             broadcastToWindows("launch:workspaceError", {
@@ -1294,11 +1411,37 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on("before-quit", (event) => {
+  if (quitAuthorized || !updateManager?.getState().scheduled_for_quit) return;
+  event.preventDefault();
+  if (updateQuitInProgress) return;
+  updateQuitInProgress = true;
+  if ((!mainWindow || mainWindow.isDestroyed()) && (!launchWindow || launchWindow.isDestroyed())) {
+    createLaunchWindow("list");
+  }
+  void (async () => {
+    if (updateManager?.isCheckStale()) await updateManager.check();
+    const result = await updateManager!.startNow();
+    if (result.success) {
+      quitAuthorized = true;
+      app.quit();
+    } else {
+      updateQuitInProgress = false;
+      if (result.cancelled) {
+        quitAuthorized = true;
+        app.quit();
+      }
+    }
+  })();
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("will-quit", () => {
+  authCallbackServer?.close();
+  updateManager?.stopPeriodicChecks();
   void agentManager?.dispose();
   void shutdownAnalytics();
   for (const [id, ptyProc] of ptyProcesses.entries()) {

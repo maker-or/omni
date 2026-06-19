@@ -10,6 +10,7 @@ import type {
   AgentUiResponse,
 } from "../contracts/agent.ts";
 import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { UpdateProgress, UpdateRunResult, UpdateState } from "../contracts/updates.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -47,6 +48,28 @@ const api = {
   },
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
+  },
+  update: {
+    check: (): Promise<UpdateState> => ipcRenderer.invoke("update:check"),
+    getState: (): Promise<UpdateState> => ipcRenderer.invoke("update:getState"),
+    scheduleForQuit: (): Promise<UpdateState> => ipcRenderer.invoke("update:scheduleForQuit"),
+    startNow: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:startNow"),
+    dismiss: (): Promise<UpdateState> => ipcRenderer.invoke("update:dismiss"),
+    cancel: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:cancel"),
+    quitWithoutUpdating: (): Promise<void> => ipcRenderer.invoke("update:quitWithoutUpdating"),
+    markActiveHealthy: (version: string): Promise<boolean> =>
+      ipcRenderer.invoke("update:markActiveHealthy", version),
+    onStateChanged: (callback: (state: UpdateState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: UpdateState) => callback(state);
+      ipcRenderer.on("update:stateChanged", listener);
+      return () => ipcRenderer.removeListener("update:stateChanged", listener);
+    },
+    onProgress: (callback: (progress: UpdateProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: UpdateProgress) =>
+        callback(progress);
+      ipcRenderer.on("update:progress", listener);
+      return () => ipcRenderer.removeListener("update:progress", listener);
+    },
   },
   projects: {
     list: (): Promise<Project[]> => ipcRenderer.invoke("projects:list"),
@@ -213,7 +236,8 @@ const api = {
       ipcRenderer.invoke("pipper:setProcessing", processingId),
     addComment: (pipperId: string, text: string): Promise<void> =>
       ipcRenderer.invoke("pipper:addComment", pipperId, text),
-    acceptChanges: (): Promise<void> => ipcRenderer.invoke("pipper:acceptChanges"),
+    acceptChanges: (intent?: string): Promise<void> =>
+      ipcRenderer.invoke("pipper:acceptChanges", intent),
     rejectChanges: (): Promise<void> => ipcRenderer.invoke("pipper:rejectChanges"),
     onStateChanged: (
       callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,

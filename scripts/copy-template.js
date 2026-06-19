@@ -1,5 +1,6 @@
-import { cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 
 const srcDir = process.cwd();
 const destDir = join(srcDir, "app-template");
@@ -21,7 +22,10 @@ const filesToCopy = [
   "tsconfig.electron.json",
   "src",
   "@",
+  "contracts",
   "public",
+  "scripts/build.js",
+  "patch.md",
 ];
 
 console.log("[Build] Copying guest template files to app-template...");
@@ -29,14 +33,34 @@ for (const file of filesToCopy) {
   const srcPath = join(srcDir, file);
   const destPath = join(destDir, file);
   if (existsSync(srcPath)) {
-    cpSync(srcPath, destPath, {
-      recursive: true,
-      filter: (src) => !src.toLowerCase().endsWith(".md"),
-    });
+    mkdirSync(dirname(destPath), { recursive: true });
+    cpSync(srcPath, destPath, { recursive: true });
     console.log(` - Copied ${file}`);
   } else {
     console.warn(` - Warning: ${file} not found!`);
   }
+}
+
+try {
+  const packageJson = JSON.parse(readFileSync(join(srcDir, "package.json"), "utf8"));
+  const officialBaseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: srcDir,
+    encoding: "utf8",
+  }).trim();
+  writeFileSync(
+    join(destDir, "installation.json"),
+    `${JSON.stringify(
+      {
+        installed_version: packageJson.version,
+        official_base_commit: officialBaseCommit,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  console.log(" - Generated installation.json");
+} catch (error) {
+  console.warn(` - Warning: could not generate installation metadata: ${error}`);
 }
 
 console.log("[Build] Template preparation complete!");

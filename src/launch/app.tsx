@@ -4,10 +4,14 @@ import type { Project } from "../../contracts/projects.ts";
 import { toast } from "@/components/ui/toast";
 import { UnauthenticatedStage } from "./unauthenticated-stage";
 import { AuthenticatedStage } from "./authenticated-stage";
+import { UpdateStage } from "./update-stage";
+import { useUpdateStore } from "@/store/update-store";
 
 const LOCAL_AUTH_USER = { name: "Developer", email: "developer@local" };
 
 export function LaunchApp() {
+  const initializeUpdates = useUpdateStore((state) => state.initialize);
+  const updateState = useUpdateStore((state) => state.state);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isOpening, setIsOpening] = useState(false);
@@ -62,6 +66,20 @@ export function LaunchApp() {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    void initializeUpdates().then((dispose) => {
+      cleanup = dispose;
+    });
+    return () => cleanup?.();
+  }, [initializeUpdates]);
+
+  useEffect(() => {
+    if (updateState?.phase === "awaiting-health-check" && updateState.to_version) {
+      void window.omni.update.markActiveHealthy(updateState.to_version);
+    }
+  }, [updateState?.phase, updateState?.to_version]);
 
   useEffect(() => {
     if (window.omni?.launch?.isReady) {
@@ -144,16 +162,19 @@ export function LaunchApp() {
   }
 
   return (
-    <AuthenticatedStage
-      authUser={authUser}
-      projects={projects}
-      selectedId={selectedId}
-      isOpening={isOpening}
-      isLoading={isLoading}
-      loadError={loadError}
-      workspaceReady={workspaceReady}
-      handleOpen={handleOpen}
-      handleProjectCreated={handleProjectCreated}
-    />
+    <>
+      <AuthenticatedStage
+        authUser={authUser}
+        projects={projects}
+        selectedId={selectedId}
+        isOpening={isOpening}
+        isLoading={isLoading}
+        loadError={loadError}
+        workspaceReady={workspaceReady}
+        handleOpen={handleOpen}
+        handleProjectCreated={handleProjectCreated}
+      />
+      <UpdateStage />
+    </>
   );
 }

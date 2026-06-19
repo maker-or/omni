@@ -178,6 +178,11 @@ export class AgentManager {
   private activeThreadId: string | null = null;
   // Ephemeral editor record — no DB backing, lives only in memory
   private editorRecord: ProjectRuntimeRecord | null = null;
+  private updaterRecord: ProjectRuntimeRecord | null = null;
+  private updaterCompletion: {
+    resolve: (summary: string) => void;
+    reject: (error: Error) => void;
+  } | null = null;
 
   constructor(options: {
     sendToRenderer: SendToRenderer;
@@ -955,7 +960,9 @@ export class AgentManager {
     if (!record) return getKnownModelSummaries();
 
     const knownModels = getKnownModelSummaries();
-    const customModels = modelsToSummary(record.runtime.session.modelRegistry.getAvailable()).filter(
+    const customModels = modelsToSummary(
+      record.runtime.session.modelRegistry.getAvailable(),
+    ).filter(
       (model) =>
         !knownModels.some(
           (known) => known.provider === model.provider && known.modelId === model.modelId,
@@ -1053,6 +1060,7 @@ export class AgentManager {
     });
     this.projectRuntimes.clear();
     this.pendingUi.clear();
+    disposals.push(this.disposeEditor(), this.disposeUpdater());
     return Promise.allSettled(disposals).then(() => undefined);
   }
 
@@ -1390,5 +1398,142 @@ export class AgentManager {
     } catch (err) {
       console.error("[AgentManager] Error disposing editor runtime:", err);
     }
+  }
+
+  isEditorBusy(): boolean {
+    return Boolean(this.editorRecord?.runtime.session.isStreaming);
+  }
+
+  isEditorActive(): boolean {
+    return this.editorRecord != null;
+  }
+
+  async quiesceForUpdate(): Promise<void> {
+    for (const record of this.projectRuntimes.values()) {
+      if (record.runtime.session.isStreaming) record.runtime.session.abort();
+    }
+    await this.disposeEditor();
+  }
+
+  private emitUpdater(payload: AgentBridgeEvent): void {
+    this.sendToRenderer("updater:event", payload);
+  }
+
+  async activateUpdater(candidatePath: string): Promise<void> {
+    if (this.updaterRecord) throw new Error("An update agent is already active.");
+    const project: Project = {
+      id: "__pipper_updater__",
+      name: "Pipper Updater",
+      path: candidatePath,
+      icon: "code",
+    };
+    const runtime = await createProjectRuntime(project, SessionManager.inMemory(candidatePath));
+    const record: ProjectRuntimeRecord = {
+      project,
+      runtime,
+      queue: { steering: [], followUp: [] },
+      status: {},
+      workingMessage: null,
+      workingVisible: false,
+      hiddenThinkingLabel: null,
+      title: "Personalized update",
+      editorText: "",
+      toolsExpanded: false,
+    };
+    this.updaterRecord = record;
+    record.unsubscribe = runtime.session.subscribe((event) => {
+      this.emitUpdater({ type: "event", event });
+      this.emitUpdater({ type: "snapshot", snapshot: this.resolveUpdaterSnapshot() });
+      if (event.type === "agent_end") {
+        this.updaterCompletion?.resolve("Update agent completed candidate adaptation.");
+        this.updaterCompletion = null;
+      }
+    });
+    await runtime.session.bindExtensions({
+      uiContext: this.buildEditorUiContext(),
+      mode: "rpc",
+      abortHandler: () => runtime.session.abort(),
+      shutdownHandler: () => {},
+      onError: (error) => {
+        const failure = new Error(error.error);
+        this.updaterCompletion?.reject(failure);
+        this.updaterCompletion = null;
+        this.emitUpdater({ type: "notification", message: failure.message, level: "error" });
+      },
+    });
+    this.emitUpdater({ type: "snapshot", snapshot: this.resolveUpdaterSnapshot() });
+  }
+
+  private resolveUpdaterSnapshot(): AgentRuntimeSnapshot {
+    const record = this.updaterRecord;
+    if (!record)
+      return {
+        ...this.resolveEditorSnapshot(),
+        projectId: "__pipper_updater__",
+        title: "Personalized update",
+      };
+    const session = record.runtime.session;
+    return {
+      projectId: "__pipper_updater__",
+      threadId: null,
+      sessionFile: null,
+      sessionId: session.sessionId ?? null,
+      sessionName: session.sessionName ?? null,
+      cwd: record.project.path,
+      model: modelToSummary(session.model),
+      thinkingLevel: session.thinkingLevel,
+      isStreaming: session.isStreaming,
+      isCompacting: session.isCompacting,
+      isRetrying: session.isRetrying,
+      autoCompactionEnabled: session.autoCompactionEnabled,
+      autoRetryEnabled: session.autoRetryEnabled,
+      messages: [...session.messages],
+      streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
+      queue: record.queue,
+      commands: [],
+      models: modelsToSummary(session.modelRegistry.getAvailable()),
+      stats: session.getSessionStats(),
+      status: { ...record.status },
+      workingMessage: record.workingMessage,
+      workingVisible: record.workingVisible,
+      hiddenThinkingLabel: record.hiddenThinkingLabel,
+      title: record.title,
+      editorText: record.editorText,
+    };
+  }
+
+  getUpdaterState(): AgentRuntimeSnapshot {
+    return this.resolveUpdaterSnapshot();
+  }
+
+  async sendUpdaterPrompt(prompt: string): Promise<string> {
+    const record = this.updaterRecord;
+    if (!record) throw new Error("Update agent is unavailable.");
+    if (record.runtime.session.isStreaming) throw new Error("Update agent is already running.");
+    const completion = new Promise<string>((resolve, reject) => {
+      this.updaterCompletion = { resolve, reject };
+    });
+    void record.runtime.session.prompt(prompt).catch((error: unknown) => {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.updaterCompletion?.reject(failure);
+      this.updaterCompletion = null;
+    });
+    return completion;
+  }
+
+  async abortUpdater(): Promise<void> {
+    if (!this.updaterRecord) return;
+    this.updaterCompletion?.reject(new Error("Update cancelled."));
+    this.updaterCompletion = null;
+    this.updaterRecord.runtime.session.abort();
+  }
+
+  async disposeUpdater(): Promise<void> {
+    const record = this.updaterRecord;
+    this.updaterRecord = null;
+    this.updaterCompletion = null;
+    if (!record) return;
+    record.unsubscribe?.();
+    await record.runtime.dispose();
   }
 }

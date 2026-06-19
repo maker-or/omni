@@ -9,6 +9,7 @@ import type {
   AgentUiResponse,
 } from "../../contracts/agent.ts";
 import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { UpdateProgress, UpdateRunResult, UpdateState } from "../../contracts/updates.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -36,6 +37,18 @@ declare global {
       };
       shell: {
         openExternal: (url: string) => Promise<void>;
+      };
+      update: {
+        check: () => Promise<UpdateState>;
+        getState: () => Promise<UpdateState>;
+        scheduleForQuit: () => Promise<UpdateState>;
+        startNow: () => Promise<UpdateRunResult>;
+        dismiss: () => Promise<UpdateState>;
+        cancel: () => Promise<UpdateRunResult>;
+        quitWithoutUpdating: () => Promise<void>;
+        markActiveHealthy: (version: string) => Promise<boolean>;
+        onStateChanged: (callback: (state: UpdateState) => void) => () => void;
+        onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
       };
       projects: {
         list: () => Promise<Project[]>;
@@ -148,7 +161,7 @@ declare global {
         exitEditMode: () => Promise<void>;
         setProcessing: (processingId: string | null) => Promise<void>;
         addComment: (pipperId: string, text: string) => Promise<void>;
-        acceptChanges: () => Promise<void>;
+        acceptChanges: (intent?: string) => Promise<void>;
         rejectChanges: () => Promise<void>;
         onStateChanged: (
           callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,

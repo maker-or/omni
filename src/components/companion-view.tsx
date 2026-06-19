@@ -102,20 +102,9 @@ export function CompanionView() {
     if (prevStreamingRef.current && !isStreaming) {
       void window.omni?.pipper?.setProcessing?.(null);
       activePipperIdRef.current = null;
-
-      if (isProcessingAccept) {
-        (async () => {
-          try {
-            await window.omni?.pipper?.acceptChanges?.();
-          } catch (err) {
-            console.error("[CompanionView] acceptChanges failed:", err);
-          }
-          setIsProcessingAccept(false);
-        })();
-      }
     }
     prevStreamingRef.current = isStreaming;
-  }, [snapshot?.isStreaming, isProcessingAccept]);
+  }, [snapshot?.isStreaming]);
 
   // ── 5. Scroll to bottom on new messages ─────────────────────────────────
   useEffect(() => {
@@ -151,9 +140,15 @@ export function CompanionView() {
 
   const handleAccept = async () => {
     setIsProcessingAccept(true);
-    await sendPrompt(
-      'Commit all completed changes to Git with a clear, descriptive commit message that accurately summarizes the implementation. Do **not** perform a `git push`; only create a local commit.\n\nAfter the commit is created, retrieve the generated commit hash and update the project\'s `patch.md` file.\n\nAt the very top of `patch.md`, prepend a new JSON object in the following format:\n\n```json\n{\n  "files_changed": [],\n  "commit_hash": "",\n  "intent": ""\n}\n```\n\nRequirements:\n\n* `files_changed` must contain the list of files included in the commit.\n* `commit_hash` must contain the newly created Git commit hash.\n* `intent` must contain a concise summary of the purpose of the change.\n* Insert the new JSON object at the beginning of the file.\n* Do not modify, reformat, reorder, or remove any existing content already present in `patch.md`.\n* Do not update or overwrite any existing JSON entries in the file.\n* Preserve the remainder of the file exactly as it currently exists.\n* If `patch.md` does not exist, create it and add the JSON entry as the first record.\n\nThe operation is complete only after both the Git commit and the `patch.md` update have succeeded.',
-    );
+    try {
+      await window.omni?.pipper?.acceptChanges?.("Accepted visual customization");
+      await window.omni?.pipper?.exitEditMode?.();
+      window.omni?.companion?.close?.();
+    } catch (err) {
+      console.error("[CompanionView] acceptChanges failed:", err);
+    } finally {
+      setIsProcessingAccept(false);
+    }
   };
 
   const handleReject = async () => {

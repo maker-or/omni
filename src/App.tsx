@@ -14,6 +14,9 @@ import { PipperOverlay } from "@/components/pipper-overlay";
 import { usePipperStore } from "@/store/pipper-store";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
+import { UpdateBanner } from "@/components/update-banner";
+import { UpdateDialog } from "@/components/update-dialog";
+import { useUpdateStore } from "@/store/update-store";
 
 export default function App() {
   const [stage] = useState<string | null>(() => {
@@ -26,6 +29,9 @@ export default function App() {
 
   const { activeProject, loadActiveProject, isLoading } = useProjectStore();
   const { syncFromBroadcast } = usePipperStore();
+  const initializeUpdates = useUpdateStore((state) => state.initialize);
+  const checkForUpdates = useUpdateStore((state) => state.check);
+  const updateState = useUpdateStore((state) => state.state);
 
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -46,6 +52,20 @@ export default function App() {
   useEffect(() => {
     void loadProjectsList();
   }, [activeProject?.id]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    void initializeUpdates().then((dispose) => {
+      cleanup = dispose;
+    });
+    return () => cleanup?.();
+  }, [initializeUpdates]);
+
+  useEffect(() => {
+    if (updateState?.phase === "awaiting-health-check" && updateState.to_version) {
+      void window.omni.update.markActiveHealthy(updateState.to_version);
+    }
+  }, [updateState?.phase, updateState?.to_version]);
 
   const handleToggleDropdown = async () => {
     if (!isDropdownOpen) {
@@ -113,6 +133,7 @@ export default function App() {
     <div className="relative h-screen w-screen flex flex-col bg-surface-1 text-foreground">
       {/* Pipper overlay — sits above everything in the main window */}
       <PipperOverlay />
+      <UpdateDialog />
 
       {/* Title Bar / Header */}
       <header
@@ -206,15 +227,16 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              void checkForUpdates();
               toast({
                 icon: <Bell className="size-5 text-blue-500" />,
-                title: "Test toast",
-                description: "This is a demo toast using the surface system.",
-              })
-            }
-            aria-label="Test toast"
-            title="Test toast"
+                title: "Checking for updates",
+                description: "Pipper will notify you when a newer version is available.",
+              });
+            }}
+            aria-label="Check for updates"
+            title="Check for updates"
             className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
           >
             <Bell className="size-4" />
@@ -223,6 +245,8 @@ export default function App() {
           <ThemeToggle />
         </div>
       </header>
+
+      <UpdateBanner />
 
       <Toaster />
 

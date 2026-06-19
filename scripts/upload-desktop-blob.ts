@@ -1,4 +1,4 @@
-import { head, put } from "@vercel/blob";
+import { del, head, list, put } from "@vercel/blob";
 import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -60,6 +60,40 @@ async function getFileSha256(filePath: string): Promise<string> {
   }
 
   return hash.digest("hex");
+}
+
+async function deletePreviousDmgs(
+  architecture: Architecture,
+  keepPathname: string,
+  token: string,
+) {
+  let cursor: string | undefined;
+  const obsoleteUrls: string[] = [];
+
+  do {
+    const page = await list({ prefix: "desktop/", cursor, token });
+
+    for (const blob of page.blobs) {
+      const blobArchitecture = getArchitecture(blob.pathname);
+
+      if (
+        blobArchitecture === architecture &&
+        blob.pathname.toLowerCase().endsWith(".dmg") &&
+        blob.pathname !== keepPathname
+      ) {
+        obsoleteUrls.push(blob.url);
+      }
+    }
+
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+
+  if (obsoleteUrls.length > 0) {
+    console.log(
+      `Deleting ${obsoleteUrls.length} previous ${architecture} DMG${obsoleteUrls.length === 1 ? "" : "s"}.`,
+    );
+    await del(obsoleteUrls, { token });
+  }
 }
 
 async function main() {
@@ -135,16 +169,17 @@ async function main() {
   for (const artifact of artifacts) {
     const sha256 = await getFileSha256(artifact.filePath);
     const { size: localSize } = await stat(artifact.filePath);
-    const parsedPath = path.posix.parse(artifact.pathname);
-    const immutablePathname = path.posix.join(parsedPath.dir, sha256, parsedPath.base);
+    // Remove hash-versioned and legacy copies before uploading. DMGs are large
+    // enough that retaining the old object can exceed the Hobby plan quota.
+    await deletePreviousDmgs(artifact.architecture, artifact.pathname, token);
 
-    console.log(`Uploading ${artifact.fileName} to ${immutablePathname}`);
+    console.log(`Uploading ${artifact.fileName} to ${artifact.pathname}`);
 
     const body = createReadStream(artifact.filePath);
-    const blob = await put(immutablePathname, body, {
+    const blob = await put(artifact.pathname, body, {
       access: "public",
       token,
-      allowOverwrite: false,
+      allowOverwrite: true,
       addRandomSuffix: false,
       cacheControlMaxAge: 60,
       contentType: "application/x-apple-diskimage",

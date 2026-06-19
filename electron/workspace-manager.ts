@@ -7,13 +7,17 @@ import {
   readFileSync,
   writeFileSync,
   lstatSync,
+  readlinkSync,
+  renameSync,
   watch,
 } from "node:fs";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { app } from "electron";
+import type { FSWatcher } from "node:fs";
 import { getMisePath } from "./dependency-installer";
 
 const execAsync = promisify(exec);
@@ -49,49 +53,222 @@ export function getSharedPath(): string {
   return join(getPipperLibraryPath(), "shared");
 }
 
-function copyRecursive(src: string, dest: string): void {
-  if (src.toLowerCase().endsWith(".md")) {
+export function getCandidatePath(): string {
+  return join(getPipperLibraryPath(), "candidate");
+}
+
+export function getPreviousPath(): string {
+  return join(getPipperLibraryPath(), "previous");
+}
+
+export function getUpdatesPath(): string {
+  return join(getPipperLibraryPath(), "updates");
+}
+
+export function getUpdateStatePath(): string {
+  return join(getUpdatesPath(), "state.json");
+}
+
+export function getInstallationMetadataPath(): string {
+  return join(getPipperLibraryPath(), "installation.json");
+}
+
+export function getActiveDependenciesPath(): string {
+  return join(getSharedPath(), "active-deps");
+}
+
+export function getCandidateDependenciesPath(): string {
+  return join(getSharedPath(), "candidate-deps");
+}
+
+type CopyPolicy = "packaged-template" | "managed-workspace" | "recovery-snapshot";
+
+const COMMON_EXCLUSIONS = new Set([
+  "node_modules",
+  "out",
+  "dist",
+  "release",
+  ".cache",
+  ".vite",
+  "logs",
+]);
+const TEMPLATE_EXCLUSIONS = new Set([
+  ...COMMON_EXCLUSIONS,
+  "electron",
+  ".git",
+  "app-template",
+  "marketing",
+  ".env",
+  "updates",
+  "installation.json",
+]);
+
+function shouldExclude(name: string, policy: CopyPolicy): boolean {
+  if (COMMON_EXCLUSIONS.has(name) || name.endsWith(".log")) return true;
+  return policy === "packaged-template" && TEMPLATE_EXCLUSIONS.has(name);
+}
+
+function copyRecursive(src: string, dest: string, policy: CopyPolicy = "recovery-snapshot"): void {
+  const stat = lstatSync(src);
+  if (stat.isSymbolicLink()) {
+    mkdirSync(dirname(dest), { recursive: true });
+    symlinkSync(readlinkSync(src), dest);
     return;
   }
-  const stat = lstatSync(src);
   if (stat.isDirectory()) {
     mkdirSync(dest, { recursive: true });
     const entries = readdirSync(src);
     for (const entry of entries) {
-      copyRecursive(join(src, entry), join(dest, entry));
+      if (!shouldExclude(entry, policy)) copyRecursive(join(src, entry), join(dest, entry), policy);
     }
   } else {
+    mkdirSync(dirname(dest), { recursive: true });
     const data = readFileSync(src);
     writeFileSync(dest, data);
   }
 }
 
-function copyTemplateFiles(srcDir: string, destDir: string): void {
+function copyWithPolicy(srcDir: string, destDir: string, policy: CopyPolicy): void {
   mkdirSync(destDir, { recursive: true });
   const entries = readdirSync(srcDir, { withFileTypes: true });
 
   for (const entry of entries) {
     const name = entry.name;
-    // Exclude launcher binary code, caches, node_modules, and markdown files from the clone
-    if (
-      name === "node_modules" ||
-      name === "electron" ||
-      name === "out" ||
-      name === ".git" ||
-      name === "dist" ||
-      name === "release" ||
-      name === "app-template" ||
-      name === "marketing" ||
-      name === ".env" ||
-      name.toLowerCase().endsWith(".md")
-    ) {
-      continue;
-    }
+    if (shouldExclude(name, policy)) continue;
     const srcPath = join(srcDir, name);
     const destPath = join(destDir, name);
-
-    copyRecursive(srcPath, destPath);
+    copyRecursive(srcPath, destPath, policy);
   }
+}
+
+export function copyPackagedTemplate(srcDir: string, destDir: string): void {
+  copyWithPolicy(srcDir, destDir, "packaged-template");
+}
+
+export function copyManagedWorkspace(srcDir: string, destDir: string): void {
+  copyWithPolicy(srcDir, destDir, "managed-workspace");
+}
+
+export function copyRecoverySnapshot(srcDir: string, destDir: string): void {
+  copyWithPolicy(srcDir, destDir, "recovery-snapshot");
+}
+
+function fileSha256(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+export interface CandidateSnapshot {
+  active_head: string;
+  candidate_head: string;
+  file_count: number;
+  critical_checksums: Record<string, string>;
+}
+
+async function gitHead(path: string): Promise<string> {
+  const { stdout } = await execAsync("git rev-parse HEAD", { cwd: path });
+  return stdout.trim();
+}
+
+function countFiles(path: string): number {
+  let count = 0;
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    count += entry.isDirectory() ? countFiles(join(path, entry.name)) : 1;
+  }
+  return count;
+}
+
+export async function createCandidateFromActive(): Promise<CandidateSnapshot> {
+  const active = getActivePath();
+  const candidate = getCandidatePath();
+  if (!existsSync(join(active, ".git"))) throw new Error("Active workspace has no Git history.");
+  rmSync(candidate, { recursive: true, force: true });
+  copyManagedWorkspace(active, candidate);
+  const activeHead = await gitHead(active);
+  const candidateHead = await gitHead(candidate);
+  if (candidateHead !== activeHead) throw new Error("Candidate Git HEAD does not match active.");
+  const criticalChecksums: Record<string, string> = {};
+  for (const relative of ["package.json", "bun.lock", "patch.md"]) {
+    const path = join(candidate, relative);
+    if (existsSync(path)) criticalChecksums[relative] = fileSha256(path);
+  }
+  return {
+    active_head: activeHead,
+    candidate_head: candidateHead,
+    file_count: countFiles(candidate),
+    critical_checksums: criticalChecksums,
+  };
+}
+
+export function removeCandidate(): void {
+  rmSync(getCandidatePath(), { recursive: true, force: true });
+  rmSync(getCandidateDependenciesPath(), { recursive: true, force: true });
+}
+
+export async function prepareCandidateDependencies(packageChanged: boolean): Promise<void> {
+  const candidate = getCandidatePath();
+  const dependencies = getCandidateDependenciesPath();
+  rmSync(dependencies, { recursive: true, force: true });
+  mkdirSync(dependencies, { recursive: true });
+  for (const name of ["package.json", "bun.lock"]) {
+    const source = join(candidate, name);
+    if (existsSync(source)) copyRecursive(source, join(dependencies, name));
+  }
+  const mise = getMisePath();
+  const install = packageChanged ? "bun install" : "bun install --frozen-lockfile";
+  await execAsync(`"${mise}" exec -- ${install}`, {
+    cwd: dependencies,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const generatedLock = join(dependencies, "bun.lock");
+  if (existsSync(generatedLock)) copyRecursive(generatedLock, join(candidate, "bun.lock"));
+  ensureNodeModulesSymlink(join(candidate, "node_modules"), join(dependencies, "node_modules"));
+}
+
+export function promoteCandidate(): void {
+  const active = getActivePath();
+  const candidate = getCandidatePath();
+  const previous = getPreviousPath();
+  if (existsSync(previous)) throw new Error("Previous workspace already exists.");
+  if (!existsSync(candidate)) throw new Error("Candidate workspace does not exist.");
+  renameSync(active, previous);
+  try {
+    renameSync(candidate, active);
+  } catch (error) {
+    renameSync(previous, active);
+    throw error;
+  }
+}
+
+export function finalizePromotion(): void {
+  const backup = getBackupPath();
+  const previous = getPreviousPath();
+  if (!existsSync(previous)) throw new Error("Previous workspace is unavailable.");
+  rmSync(backup, { recursive: true, force: true });
+  renameSync(previous, backup);
+}
+
+export function rollbackPromotion(): void {
+  const active = getActivePath();
+  const previous = getPreviousPath();
+  if (!existsSync(previous)) return;
+  if (existsSync(active)) {
+    renameSync(active, join(getPipperLibraryPath(), `candidate-failed-${Date.now()}`));
+  }
+  renameSync(previous, active);
+}
+
+export function recoverInterruptedPromotion(): "none" | "restored" | "candidate-promoted" {
+  const active = getActivePath();
+  const previous = getPreviousPath();
+  const candidate = getCandidatePath();
+  if (existsSync(active) || !existsSync(previous)) return "none";
+  if (existsSync(candidate)) {
+    renameSync(candidate, active);
+    return "candidate-promoted";
+  }
+  renameSync(previous, active);
+  return "restored";
 }
 
 let initPromise: Promise<void> | null = null;
@@ -126,7 +303,7 @@ export async function initializeWorkspaces(
       !existsSync(join(activeDir, "package.json"))
     ) {
       console.log("[WorkspaceManager] Copying files to active workspace...");
-      copyTemplateFiles(templatePath, activeDir);
+      copyPackagedTemplate(templatePath, activeDir);
     }
 
     // Initialize Git in active workspace if not present
@@ -151,15 +328,58 @@ export async function initializeWorkspaces(
       !existsSync(join(backupDir, "package.json"))
     ) {
       console.log("[WorkspaceManager] Copying files to backup workspace...");
-      copyTemplateFiles(templatePath, backupDir);
+      copyRecoverySnapshot(activeDir, backupDir);
+    }
+
+    // Launcher-controlled metadata is created once and never inferred from an edited package.json again.
+    const installationPath = getInstallationMetadataPath();
+    if (!existsSync(installationPath)) {
+      const head = await gitHead(activeDir);
+      let installedVersion = "0.0.0";
+      let officialBaseCommit = head;
+      try {
+        const packagedMetadataPath = join(templatePath, "installation.json");
+        if (existsSync(packagedMetadataPath)) {
+          const packagedMetadata = JSON.parse(readFileSync(packagedMetadataPath, "utf8"));
+          if (typeof packagedMetadata.installed_version === "string") {
+            installedVersion = packagedMetadata.installed_version;
+          }
+          if (/^[0-9a-f]{40}$/i.test(packagedMetadata.official_base_commit)) {
+            officialBaseCommit = packagedMetadata.official_base_commit.toLowerCase();
+          }
+        } else {
+          const packaged = JSON.parse(readFileSync(join(templatePath, "package.json"), "utf8"));
+          if (typeof packaged.version === "string") installedVersion = packaged.version;
+          if (/^[0-9a-f]{40}$/i.test(process.env.PIPPER_OFFICIAL_BASE_COMMIT ?? "")) {
+            officialBaseCommit = process.env.PIPPER_OFFICIAL_BASE_COMMIT!.toLowerCase();
+          }
+        }
+      } catch (error) {
+        console.warn("[WorkspaceManager] Could not read initial packaged version:", error);
+      }
+      writeFileSync(
+        installationPath,
+        `${JSON.stringify(
+          {
+            installed_version: installedVersion,
+            official_base_commit: officialBaseCommit,
+            customized_head_commit: head,
+            last_healthy_at: new Date().toISOString(),
+          },
+          null,
+          2,
+        )}\n`,
+      );
     }
 
     // 3. Initialize package.json inside shared directory for dependency installation
     const activePkgJson = join(activeDir, "package.json");
     const templatePkgJson = join(templatePath, "package.json");
-    const sharedPkgJson = join(sharedDir, "package.json");
+    const activeDependenciesDir = getActiveDependenciesPath();
+    mkdirSync(activeDependenciesDir, { recursive: true });
+    const sharedPkgJson = join(activeDependenciesDir, "package.json");
     let dependencyManifestChanged = false;
-    const packageSource = existsSync(templatePkgJson) ? templatePkgJson : activePkgJson;
+    const packageSource = existsSync(activePkgJson) ? activePkgJson : templatePkgJson;
     if (existsSync(packageSource)) {
       try {
         const pkg = JSON.parse(readFileSync(packageSource, "utf8"));
@@ -175,6 +395,9 @@ export async function initializeWorkspaces(
           writeFileSync(sharedPkgJson, nextManifest, "utf8");
           console.log("[WorkspaceManager] Updated shared dependency manifest.");
         }
+        const activeLock = join(activeDir, "bun.lock");
+        if (existsSync(activeLock))
+          copyRecursive(activeLock, join(activeDependenciesDir, "bun.lock"));
       } catch (err) {
         console.error("[WorkspaceManager] Failed to update shared package.json:", err);
         copyRecursive(packageSource, sharedPkgJson);
@@ -183,13 +406,13 @@ export async function initializeWorkspaces(
     }
 
     // 4. Run dependency setup inside shared directory
-    const sharedNodeModules = join(sharedDir, "node_modules");
+    const sharedNodeModules = join(activeDependenciesDir, "node_modules");
     if (!existsSync(sharedNodeModules) || dependencyManifestChanged) {
       console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
       const mise = getMisePath();
       // Run bun install using local Mise environment
       try {
-        await execAsync(`"${mise}" exec -- bun install`, { cwd: sharedDir });
+        await execAsync(`"${mise}" exec -- bun install`, { cwd: activeDependenciesDir });
       } catch (err: any) {
         console.error("[WorkspaceManager] dependency installation command failed!");
         if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);
@@ -222,7 +445,12 @@ function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void
   try {
     const stat = lstatSync(symlinkPath);
     if (stat.isSymbolicLink()) {
-      needsSymlink = false;
+      const currentTarget = readlinkSync(symlinkPath);
+      if (currentTarget === targetPath) {
+        needsSymlink = false;
+      } else {
+        rmSync(symlinkPath, { force: true });
+      }
     } else {
       console.log(
         `[WorkspaceManager] Removing existing non-symlink node_modules at ${symlinkPath}...`,
@@ -255,8 +483,8 @@ export async function backupActiveWorkspace(): Promise<void> {
     }
   }
 
-  // Copy files from active to backup (excluding .git and node_modules)
-  copyTemplateFiles(activeDir, backupDir);
+  // Recovery snapshots preserve Git history and Markdown customization context.
+  copyRecoverySnapshot(activeDir, backupDir);
 }
 
 export async function restoreFromBackup(): Promise<void> {
@@ -311,14 +539,17 @@ export async function restoreFromBackup(): Promise<void> {
   }
 }
 
+let devFileWatcher: FSWatcher | null = null;
+
 export function startDevFileWatcher(): void {
+  if (devFileWatcher) return;
   const srcDir = process.cwd();
   const activeDir = getActivePath();
 
   console.log(`[WorkspaceManager] Starting development file watcher on: ${srcDir}`);
 
   try {
-    watch(srcDir, { recursive: true }, (eventType, filename) => {
+    devFileWatcher = watch(srcDir, { recursive: true }, (_eventType, filename) => {
       if (!filename) return;
 
       const normalized = filename.replace(/\\/g, "/");
@@ -360,4 +591,9 @@ export function startDevFileWatcher(): void {
   } catch (err) {
     console.error("[Watcher] Failed to start file watcher:", err);
   }
+}
+
+export function stopDevFileWatcher(): void {
+  devFileWatcher?.close();
+  devFileWatcher = null;
 }
