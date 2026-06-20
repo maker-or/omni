@@ -22,6 +22,16 @@ export interface AgentQueueState {
   followUp: string[];
 }
 
+export interface AgentPromptImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+export interface AgentMessageEntryRef {
+  entryId: string;
+  parentId: string | null;
+}
+
 export interface AgentUiSelectRequest {
   id: string;
   kind: "select";
@@ -65,6 +75,7 @@ export interface AgentRuntimeSnapshot {
   autoCompactionEnabled: boolean;
   autoRetryEnabled: boolean;
   messages: AgentMessage[];
+  messageEntryRefs: AgentMessageEntryRef[];
   streamingMessage: AgentMessage | null;
   queue: AgentQueueState;
   commands: SlashCommandInfo[];
@@ -132,5 +143,12 @@ export interface AgentPromptInput {
   threadId?: string | null;
   message: string;
   streamingBehavior?: "steer" | "followUp";
-  images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  images?: AgentPromptImage[];
+}
+
+export interface AgentReplacePromptInput {
+  threadId: string;
+  targetUserEntryId: string;
+  message: string;
+  images?: AgentPromptImage[];
 }

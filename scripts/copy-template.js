@@ -26,6 +26,8 @@ const filesToCopy = [
   "public",
   "scripts/build.js",
   "patch.md",
+  "AGENT.md",
+  "DESIGN.md",
 ];
 
 console.log("[Build] Copying guest template files to app-template...");

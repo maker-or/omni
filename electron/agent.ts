@@ -5,6 +5,7 @@ import type {
   AgentBridgeEvent,
   AgentModelSummary,
   AgentPromptInput,
+  AgentReplacePromptInput,
   AgentQueueState,
   AgentRuntimeSnapshot,
   AgentUiRequest,
@@ -443,6 +444,7 @@ export class AgentManager {
         autoCompactionEnabled: true,
         autoRetryEnabled: true,
         messages: [],
+        messageEntryRefs: [],
         streamingMessage: null,
         queue: { steering: [], followUp: [] },
         commands: [],
@@ -473,6 +475,10 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
+      messageEntryRefs: session.sessionManager
+        .getBranch()
+        .filter((entry) => entry.type === "message")
+        .map((entry) => ({ entryId: entry.id, parentId: entry.parentId ?? null })),
       streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: session.extensionRunner.getRegisteredCommands().map((command) => ({
@@ -869,6 +875,38 @@ export class AgentManager {
     this.pushSnapshot(projectId);
   }
 
+  async replacePrompt(input: AgentReplacePromptInput): Promise<void> {
+    const thread = getThread(input.threadId);
+    if (!thread) throw new Error(`Thread not found: ${input.threadId}`);
+    if (input.threadId !== this.activeThreadId) await this.switchThread(input.threadId);
+    const record = this.getRecord(thread.project_id);
+    if (!record) throw new Error("Agent runtime is unavailable.");
+    const session = record.runtime.session;
+    if (session.isStreaming || session.isCompacting || session.isRetrying) {
+      throw new Error("Cannot replace a prompt while the agent is busy.");
+    }
+    const branch = session.sessionManager.getBranch();
+    const targetIndex = branch.findIndex((entry) => entry.id === input.targetUserEntryId);
+    const target = branch[targetIndex];
+    if (!target || target.type !== "message" || target.message.role !== "user") {
+      throw new Error("The target user message is not on the active branch.");
+    }
+    const previous = branch[targetIndex - 1];
+    if (previous) session.sessionManager.branch(previous.id);
+    else session.sessionManager.resetLeaf();
+    this.pushSnapshot(thread.project_id);
+    try {
+      await this.sendPrompt({
+        threadId: input.threadId,
+        message: input.message,
+        images: input.images,
+      });
+    } catch (error) {
+      this.pushSnapshot(thread.project_id);
+      throw error;
+    }
+  }
+
   async abort(): Promise<void> {
     const record = this.getCurrentRecord();
     if (!record) return;
@@ -1021,6 +1059,7 @@ export class AgentManager {
         autoCompactionEnabled: true,
         autoRetryEnabled: true,
         messages: [],
+        messageEntryRefs: [],
         streamingMessage: null,
         queue: { steering: [], followUp: [] },
         commands: [],
@@ -1247,6 +1286,7 @@ export class AgentManager {
         autoCompactionEnabled: true,
         autoRetryEnabled: true,
         messages: [],
+        messageEntryRefs: [],
         streamingMessage: null,
         queue: { steering: [], followUp: [] },
         commands: [],
@@ -1276,6 +1316,7 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
+      messageEntryRefs: [],
       streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: [],
@@ -1488,6 +1529,7 @@ export class AgentManager {
       autoCompactionEnabled: session.autoCompactionEnabled,
       autoRetryEnabled: session.autoRetryEnabled,
       messages: [...session.messages],
+      messageEntryRefs: [],
       streamingMessage: session.isStreaming ? (session.state.streamingMessage ?? null) : null,
       queue: record.queue,
       commands: [],

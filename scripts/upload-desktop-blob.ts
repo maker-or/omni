@@ -62,11 +62,7 @@ async function getFileSha256(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function deletePreviousDmgs(
-  architecture: Architecture,
-  keepPathname: string,
-  token: string,
-) {
+async function deletePreviousDmgs(architecture: Architecture, keepPathname: string, token: string) {
   let cursor: string | undefined;
   const obsoleteUrls: string[] = [];
 

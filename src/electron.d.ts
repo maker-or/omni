@@ -5,6 +5,7 @@ import type {
   AgentBridgeEvent,
   AgentModelSummary,
   AgentPromptInput,
+  AgentReplacePromptInput,
   AgentRuntimeSnapshot,
   AgentUiResponse,
 } from "../../contracts/agent.ts";
@@ -16,8 +17,6 @@ export interface CreateProjectInput {
   path: string;
   icon: string;
 }
-
-export {};
 
 declare global {
   type ThinkingLevel = "low" | "medium" | "high";
@@ -106,6 +105,7 @@ declare global {
         getModels: () => Promise<AgentModelSummary[]>;
         getStats: () => Promise<SessionStats | null>;
         sendPrompt: (input: AgentPromptInput) => Promise<void>;
+        replacePrompt: (input: AgentReplacePromptInput) => Promise<void>;
         abort: () => Promise<void>;
         switchThread: (threadId: string) => Promise<void>;
         createThread: (

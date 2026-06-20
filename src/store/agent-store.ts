@@ -6,6 +6,7 @@ import type {
   AgentUiRequest,
   AgentUiResponse,
   AgentPromptInput,
+  AgentReplacePromptInput,
 } from "../../contracts/agent.ts";
 import type { Thread } from "../../contracts/threads.ts";
 import type { SlashCommandInfo, SessionStats } from "@earendil-works/pi-coding-agent";
@@ -23,6 +24,7 @@ interface AgentState {
   refresh: () => Promise<void>;
   respondToUiRequest: (response: AgentUiResponse) => Promise<void>;
   sendPrompt: (input: AgentPromptInput) => Promise<void>;
+  replacePrompt: (input: AgentReplacePromptInput) => Promise<void>;
   abort: () => Promise<void>;
   switchThread: (threadId: string) => Promise<void>;
   createThread: (
@@ -202,6 +204,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
   sendPrompt: async (input) => {
     await window.omni.agent.sendPrompt(input);
+  },
+  replacePrompt: async (input) => {
+    await window.omni.agent.replacePrompt(input);
   },
   abort: async () => {
     await window.omni.agent.abort();

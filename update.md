@@ -75,15 +75,15 @@ Extend the layout:
 
 Directory responsibilities:
 
-| Directory | Purpose | Agent writable |
-|---|---|---:|
-| `active/` | Currently running customized app | Editor agent only |
-| `backup/` | Last known-good recovery copy | No |
-| `candidate/` | Proposed updated customized app | Update agent only |
-| `previous/` | Temporary directory during promotion | No |
-| `shared/active-deps/` | Dependencies used by active | No during update |
-| `shared/candidate-deps/` | Candidate dependencies | Installer only |
-| `updates/` | Update state, diagnostics and logs | Updater only |
+| Directory                | Purpose                              |    Agent writable |
+| ------------------------ | ------------------------------------ | ----------------: |
+| `active/`                | Currently running customized app     | Editor agent only |
+| `backup/`                | Last known-good recovery copy        |                No |
+| `candidate/`             | Proposed updated customized app      | Update agent only |
+| `previous/`              | Temporary directory during promotion |                No |
+| `shared/active-deps/`    | Dependencies used by active          |  No during update |
+| `shared/candidate-deps/` | Candidate dependencies               |    Installer only |
+| `updates/`               | Update state, diagnostics and logs   |      Updater only |
 
 The update agent must never work in `active/` or `backup/`.
 
@@ -104,10 +104,7 @@ For the MVP, host a JSON document on the website:
   "target_commit": "full-pr-head-commit-sha",
   "published_at": "2026-06-19T10:00:00Z",
   "minimum_version": "0.1.0",
-  "validation_commands": [
-    "bun run lint",
-    "bun run build"
-  ]
+  "validation_commands": ["bun run lint", "bun run build"]
 }
 ```
 
@@ -316,8 +313,7 @@ Configuration:
 
 ```ts
 const UPDATE_MANIFEST_URL =
-  process.env.PIPPER_UPDATE_MANIFEST_URL ??
-  import.meta.env.VITE_PIPPER_UPDATE_MANIFEST_URL;
+  process.env.PIPPER_UPDATE_MANIFEST_URL ?? import.meta.env.VITE_PIPPER_UPDATE_MANIFEST_URL;
 ```
 
 Check:
@@ -332,14 +328,14 @@ Do not block normal application startup on network failure.
 Expose IPC:
 
 ```ts
-update.check()
-update.getState()
-update.scheduleForQuit()
-update.startNow()
-update.dismiss()
-update.cancel()
-update.onStateChanged()
-update.onProgress()
+update.check();
+update.getState();
+update.scheduleForQuit();
+update.startNow();
+update.dismiss();
+update.cancel();
+update.onStateChanged();
+update.onProgress();
 ```
 
 Add corresponding contracts in:
@@ -450,15 +446,15 @@ Before starting:
 Add these functions to the workspace layer:
 
 ```ts
-getCandidatePath()
-getPreviousPath()
-getUpdateStatePath()
-createCandidateFromActive()
-removeCandidate()
-prepareCandidateDependencies()
-promoteCandidate()
-rollbackPromotion()
-recoverInterruptedPromotion()
+getCandidatePath();
+getPreviousPath();
+getUpdateStatePath();
+createCandidateFromActive();
+removeCandidate();
+prepareCandidateDependencies();
+promoteCandidate();
+rollbackPromotion();
+recoverInterruptedPromotion();
 ```
 
 `createCandidateFromActive()` must:
@@ -481,9 +477,9 @@ Do not reuse the current `copyTemplateFiles()` unchanged because it excludes `.g
 Create separate copy policies:
 
 ```ts
-copyPackagedTemplate()
-copyManagedWorkspace()
-copyRecoverySnapshot()
+copyPackagedTemplate();
+copyManagedWorkspace();
+copyRecoverySnapshot();
 ```
 
 Each must have an explicit purpose and exclusions.
@@ -536,7 +532,7 @@ Store update context in:
 Do not reuse the active editor session. Add a dedicated ephemeral update runtime in [agent.ts](/Users/harshithpasupuleti/code/omni/electron/agent.ts), comparable to the current editor runtime but with:
 
 ```ts
-cwd: getCandidatePath()
+cwd: getCandidatePath();
 ```
 
 Suggested methods:
@@ -749,7 +745,7 @@ The new active application should report readiness after:
 Add an IPC/internal signal such as:
 
 ```ts
-updateManager.markActiveHealthy(version)
+updateManager.markActiveHealthy(version);
 ```
 
 The launcher waits for a bounded timeout, for example 30 seconds.
@@ -773,14 +769,14 @@ At launcher startup, inspect `updates/state.json`.
 
 Recovery rules:
 
-| State | Recovery |
-|---|---|
-| `preparing`–`validating` | Delete candidate or offer retry; keep active |
-| `ready-to-promote` | Resume promotion or keep active |
+| State                                         | Recovery                                                 |
+| --------------------------------------------- | -------------------------------------------------------- |
+| `preparing`–`validating`                      | Delete candidate or offer retry; keep active             |
+| `ready-to-promote`                            | Resume promotion or keep active                          |
 | `promoting` with `previous/` and no `active/` | Promote candidate if present; otherwise restore previous |
-| `awaiting-health-check` | Attempt new active once; otherwise restore previous |
-| `rolling-back` | Complete rollback |
-| `completed` | Clean stale temporary files |
+| `awaiting-health-check`                       | Attempt new active once; otherwise restore previous      |
+| `rolling-back`                                | Complete rollback                                        |
+| `completed`                                   | Clean stale temporary files                              |
 
 Recovery decisions must be deterministic and not require the agent.
 
@@ -952,27 +948,19 @@ Prepare a controlled scenario with a real semantic conflict.
 Version A:
 
 ```tsx
-<Button className="rounded-full bg-blue-500">
-  Create thread
-</Button>
+<Button className="rounded-full bg-blue-500">Create thread</Button>
 ```
 
 User customization:
 
 ```tsx
-<Button className="rounded-md bg-purple-500">
-  Start conversation
-</Button>
+<Button className="rounded-md bg-purple-500">Start conversation</Button>
 ```
 
 Version B changes the component behavior:
 
 ```tsx
-<Button
-  className="rounded-full bg-blue-500"
-  disabled={isCreating}
-  onClick={createThread}
->
+<Button className="rounded-full bg-blue-500" disabled={isCreating} onClick={createThread}>
   {isCreating ? "Creating…" : "Create thread"}
 </Button>
 ```
@@ -980,11 +968,7 @@ Version B changes the component behavior:
 Expected agent-produced result:
 
 ```tsx
-<Button
-  className="rounded-md bg-purple-500"
-  disabled={isCreating}
-  onClick={createThread}
->
+<Button className="rounded-md bg-purple-500" disabled={isCreating} onClick={createThread}>
   {isCreating ? "Creating…" : "Start conversation"}
 </Button>
 ```

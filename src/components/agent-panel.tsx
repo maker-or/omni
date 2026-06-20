@@ -4,7 +4,16 @@ import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CheckIcon as ModelCheckIcon, FolderPlusIcon, MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+  CheckIcon as ModelCheckIcon,
+  FolderPlusIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  PaperclipIcon,
+  StopIcon,
+  TrashIcon,
+  WarningIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
@@ -21,8 +30,16 @@ import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import type { AgentUiRequest } from "../../contracts/agent.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
+import {
+  extractGroupedMessageImages,
+  fileToPromptImage,
+  partitionValidImageFiles,
+  type ChatImageAttachment,
+} from "@/lib/agent-message-images";
+import { matchAgentCommands, mergeAgentCommands } from "@/lib/agent-commands";
 import {
   OPEN_TABS_QUERY_KEY,
   useMergedProjectThreads,
@@ -33,7 +50,7 @@ import {
 } from "@/lib/thread-queries";
 import type { Thread } from "../../contracts/threads.ts";
 const iconButtonClass =
-  "inline-flex size-6 items-center justify-center rounded-full border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 function formatProviderName(provider: string): string {
   return provider
@@ -236,7 +253,8 @@ export function AgentPanel() {
   "use no memo";
   const queryClient = useQueryClient();
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, pagesByProject, loadProjectThreads, renameThread, addThread } = useThreadStore();
+  const { threads, pagesByProject, loadProjectThreads, renameThread, addThread, deleteThread } =
+    useThreadStore();
   const {
     snapshot,
     error,
@@ -244,6 +262,9 @@ export function AgentPanel() {
     connect,
     refresh,
     sendPrompt,
+    replacePrompt,
+    abort,
+    compact,
     switchThread,
     createThread,
     respondToUiRequest,
@@ -254,6 +275,16 @@ export function AgentPanel() {
     Array<{ id: string; name: string; icon: string }>
   >([]);
   const [inputValue, setInputValue] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAborting, setIsAborting] = useState(false);
+  const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [editState, setEditState] = useState<{
+    targetEntryId: string;
+    images: ChatImageAttachment[];
+  } | null>(null);
+  const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [selectedModelProvider, setSelectedModelProvider] = useState<string | null>(null);
@@ -287,7 +318,10 @@ export function AgentPanel() {
   const activeThreadId = openTabsState?.activeThreadId ?? null;
   const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
   const hoveredProjectThreadsQuery = useProjectThreadsQuery(hoveredProjectId);
-  const commands = snapshot?.commands ?? [];
+  const commands = useMemo(
+    () => mergeAgentCommands(snapshot?.commands ?? []),
+    [snapshot?.commands],
+  );
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
   const recentProjectsQuery = useRecentProjectsQuery(
@@ -339,12 +373,18 @@ export function AgentPanel() {
       const msg = activeMessages[i] as MessageLike;
       if (msg.role === "user") {
         const promptText = stringifyMessageContent(msg);
-        if (promptText) {
-          await sendPrompt({
-            threadId: snapshot?.threadId ?? undefined,
+        const entryId = snapshot?.messageEntryRefs[i]?.entryId;
+        if (entryId && snapshot?.threadId)
+          await replacePrompt({
+            threadId: snapshot.threadId,
+            targetUserEntryId: entryId,
             message: promptText,
+            images: extractGroupedMessageImages([msg]).map(({ type, data, mimeType }) => ({
+              type,
+              data,
+              mimeType,
+            })),
           });
-        }
         break;
       }
     }
@@ -552,7 +592,7 @@ export function AgentPanel() {
     const trimmed = inputValue.trimStart();
     if (!trimmed.startsWith("/")) return [];
     const query = trimmed.slice(1).split(/\s+/, 1)[0].toLowerCase();
-    return commands.filter((command) => command.name.toLowerCase().includes(query));
+    return matchAgentCommands(commands, query);
   }, [commands, inputValue]);
 
   interface GroupedMessageEntry {
@@ -717,14 +757,87 @@ export function AgentPanel() {
     }
   };
 
-  const handleSend = async (text: string) => {
+  const handleSend = async (text: string, files: File[]) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    await sendPrompt({
-      threadId: snapshot?.threadId ?? undefined,
-      message: trimmed,
+    if (!trimmed && !files.length && !editState?.images.length) return;
+    const [token, ...args] = trimmed.split(/\s+/);
+    if (token === "/abort" && args.length === 0) {
+      await abort();
+      setInputValue("");
+      return;
+    }
+    if (token === "/compact") {
+      await compact(args.join(" ") || undefined);
+      setInputValue("");
+      return;
+    }
+    const operationThreadId = snapshot?.threadId;
+    setIsSubmitting(true);
+    try {
+      const newImages = await Promise.all(files.map(fileToPromptImage));
+      const retained = (editState?.images ?? []).map(({ type, data, mimeType }) => ({
+        type,
+        data,
+        mimeType,
+      }));
+      if (editState && operationThreadId)
+        await replacePrompt({
+          threadId: operationThreadId,
+          targetUserEntryId: editState.targetEntryId,
+          message: trimmed,
+          images: [...retained, ...newImages],
+        });
+      else
+        await sendPrompt({
+          threadId: operationThreadId,
+          message: trimmed,
+          images: newImages.length ? newImages : undefined,
+          streamingBehavior: isStreaming ? streamingBehavior : undefined,
+        });
+      if (snapshot?.threadId === operationThreadId) {
+        setInputValue("");
+        setAttachedFiles([]);
+        setEditState(null);
+      }
+      setStreamingBehavior("followUp");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFilesChange = (files: File[]) => {
+    const { valid, errors } = partitionValidImageFiles(files);
+    setAttachedFiles(valid);
+    if (errors.length)
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Attachment rejected",
+        description: errors.join(" "),
+      });
+  };
+
+  const handleAbort = async () => {
+    if (isAborting) return;
+    setIsAborting(true);
+    try {
+      await abort();
+    } finally {
+      setIsAborting(false);
+    }
+  };
+
+  const handleDeleteThread = async (thread: Thread) => {
+    if (thread.id === snapshot?.threadId && isStreaming) return;
+    if (!window.confirm(`Permanently delete “${thread.title}” and its session history?`)) return;
+    await deleteThread(thread.id);
+    setIsDropdownOpen(false);
+    await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+    await queryClient.invalidateQueries({
+      queryKey: ["threads", thread.project_id],
     });
-    setInputValue("");
+    const state = await window.omni.tabs.listOpen();
+    if (state.activeThreadId) await handleSelectThread(state.activeThreadId);
+    else setActiveTabId(null);
   };
 
   const applyCommand = (commandName: string) => {
@@ -813,16 +926,22 @@ export function AgentPanel() {
       models: providerModels,
     }));
   }, [models]);
-  const activeProvider = selectedModelProvider ?? snapshot?.model?.provider ?? modelGroups[0]?.provider;
-  const visibleProviderModels = (modelGroups.find((group) => group.provider === activeProvider)?.models ?? [])
-    .filter((model) => {
-      const query = modelSearch.trim().toLowerCase();
-      return (
-        !query ||
-        String(model.name ?? "").toLowerCase().includes(query) ||
-        String(model.modelId ?? "").toLowerCase().includes(query)
-      );
-    });
+  const activeProvider =
+    selectedModelProvider ?? snapshot?.model?.provider ?? modelGroups[0]?.provider;
+  const visibleProviderModels = (
+    modelGroups.find((group) => group.provider === activeProvider)?.models ?? []
+  ).filter((model) => {
+    const query = modelSearch.trim().toLowerCase();
+    return (
+      !query ||
+      String(model.name ?? "")
+        .toLowerCase()
+        .includes(query) ||
+      String(model.modelId ?? "")
+        .toLowerCase()
+        .includes(query)
+    );
+  });
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const emptyStateSubject = currentProject?.name ?? "your project";
 
@@ -841,6 +960,21 @@ export function AgentPanel() {
             });
           }}
         />
+      )}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/75 p-8"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
+          onClick={() => setPreviewImage(null)}
+        >
+          <img
+            src={`data:${previewImage.mimeType};base64,${previewImage.data}`}
+            alt="Message attachment preview"
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
       )}
 
       <Tabs
@@ -964,28 +1098,41 @@ export function AgentPanel() {
                                 getThreadRecencyTime(thread, index),
                               );
                               return (
-                                <button
+                                <div
                                   key={thread.id}
-                                  type="button"
                                   className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted"
-                                  onClick={async () => {
-                                    setIsDropdownOpen(false);
-                                    await handleSelectThread(thread.id);
-                                  }}
                                 >
-                                  <span
-                                    className={
-                                      isActive
-                                        ? "min-w-0 flex-1 truncate text-[13px] text-foreground font-medium"
-                                        : "min-w-0 flex-1 truncate text-[13px] text-muted-foreground hover:text-foreground"
-                                    }
+                                  <button
+                                    type="button"
+                                    className="min-w-0 flex-1 text-left"
+                                    onClick={async () => {
+                                      setIsDropdownOpen(false);
+                                      await handleSelectThread(thread.id);
+                                    }}
                                   >
-                                    {thread.title}
-                                  </span>
+                                    <span
+                                      className={
+                                        isActive
+                                          ? "min-w-0 flex-1 truncate text-[13px] text-foreground font-medium"
+                                          : "min-w-0 flex-1 truncate text-[13px] text-muted-foreground hover:text-foreground"
+                                      }
+                                    >
+                                      {thread.title}
+                                    </span>
+                                  </button>
                                   <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] leading-tight text-muted-foreground/75 max-sm:hidden">
                                     {recencyLabel}
                                   </span>
-                                </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Delete ${thread.title}`}
+                                    disabled={thread.id === snapshot?.threadId && isStreaming}
+                                    onClick={() => void handleDeleteThread(thread)}
+                                    className="text-muted-foreground hover:text-destructive disabled:opacity-30"
+                                  >
+                                    <TrashIcon size={14} />
+                                  </button>
+                                </div>
                               );
                             })
                           ) : (
@@ -1029,7 +1176,7 @@ export function AgentPanel() {
           </div>
         </div>
 
-        <div className="relative flex-1 overflow-hidden min-h-0 flex flex-col">
+        <div className="relative flex-1 overflow-hidden  min-h-0 flex flex-col">
           {allMessages.length === 0 && (
             <AmbientPixelField
               pixelSize={6}
@@ -1045,7 +1192,7 @@ export function AgentPanel() {
             className="relative flex-1 overflow-y-auto min-h-0 z-10"
             aria-busy={isSwitchingThread}
           >
-            <div className="min-h-full">
+            <div className="min-h-full ">
               {allMessages.length === 0 ? (
                 <div
                   data-pipper-id="empty-state"
@@ -1064,7 +1211,9 @@ export function AgentPanel() {
                 <div
                   data-pipper-id="messages-list"
                   className="relative p-4"
-                  style={{ height: `${conversationVirtualizer.getTotalSize()}px` }}
+                  style={{
+                    height: `${conversationVirtualizer.getTotalSize()}px`,
+                  }}
                 >
                   {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
                     const entry = allMessages[virtualRow.index];
@@ -1081,6 +1230,7 @@ export function AgentPanel() {
                       : formatMessageTime(messages[messages.length - 1]);
                     const hasContent =
                       bodyText.trim() !== "" ||
+                      extractGroupedMessageImages(messages).length > 0 ||
                       (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
 
                     const actions =
@@ -1091,8 +1241,18 @@ export function AgentPanel() {
                             type="button"
                             aria-label="Edit message"
                             className={iconButtonClass}
+                            disabled={
+                              isStreaming ||
+                              isSubmitting ||
+                              !snapshot?.messageEntryRefs[originalIndex]
+                            }
                             onClick={() => {
                               setInputValue(bodyText);
+                              setAttachedFiles([]);
+                              setEditState({
+                                targetEntryId: snapshot!.messageEntryRefs[originalIndex]!.entryId,
+                                images: extractGroupedMessageImages(messages),
+                              });
                               if (composerTextareaRef.current) {
                                 composerTextareaRef.current.focus();
                               }
@@ -1109,6 +1269,9 @@ export function AgentPanel() {
                               type="button"
                               aria-label="Regenerate response"
                               className={iconButtonClass}
+                              disabled={
+                                isSubmitting || snapshot?.isCompacting || snapshot?.isRetrying
+                              }
                               onClick={() => handleRegenerate(originalIndex)}
                             >
                               <RotateCcwIcon size={13} />
@@ -1135,6 +1298,24 @@ export function AgentPanel() {
                               activeMessages={activeMessages}
                             />
                           ) : undefined}
+                          {extractGroupedMessageImages(messages).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {extractGroupedMessageImages(messages).map((image) => (
+                                <button
+                                  key={image.id}
+                                  type="button"
+                                  onClick={() => setPreviewImage(image)}
+                                >
+                                  <img
+                                    src={`data:${image.mimeType};base64,${image.data}`}
+                                    alt="Message attachment"
+                                    className="size-24 rounded-md object-cover border border-border"
+                                    onLoad={() => conversationVirtualizer.measure()}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </ChatMessage>
                       </div>
                     );
@@ -1165,23 +1346,69 @@ export function AgentPanel() {
             )}
           >
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+              {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
+                <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
+                  {snapshot.queue.steering.length > 0 && (
+                    <div>
+                      <span className="font-medium">Steering</span>
+                      {snapshot.queue.steering.map((item, index) => (
+                        <div
+                          key={index}
+                          className="line-clamp-2 text-muted-foreground"
+                          title={item}
+                        >
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {snapshot.queue.followUp.length > 0 && (
+                    <div className="mt-1">
+                      <span className="font-medium">Next</span>
+                      {snapshot.queue.followUp.map((item, index) => (
+                        <div
+                          key={index}
+                          className="line-clamp-2 text-muted-foreground"
+                          title={item}
+                        >
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {editState && (
+                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
+                  <span>Editing message · {editState.images.length} retained image(s)</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditState(null);
+                      setInputValue("");
+                      setAttachedFiles([]);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
               {slashMatches.length > 0 && (
                 <div
                   data-pipper-id="slash-commands"
                   className="rounded-lg border border-border bg-surface-2 p-2"
                 >
-                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground px-1 pb-2">
-                    Slash commands
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {slashMatches.slice(0, 8).map((command) => (
+                  <div className="flex-col flex-wrap gap-2">
+                    {slashMatches.slice(0, 8).map((command, index) => (
                       <Button
                         key={command.name}
                         variant="secondary"
                         size="sm"
+                        active={selectedCommandIndex === index}
                         onClick={() => applyCommand(command.name)}
                       >
-                        /{command.name}
+                        {command.name}
                       </Button>
                     ))}
                   </div>
@@ -1194,16 +1421,90 @@ export function AgentPanel() {
                 onValueChange={setInputValue}
                 placeholder="Type here"
                 onSend={handleSend}
-                disabled={isSwitchingThread}
+                disabled={isSwitchingThread || isSubmitting || Boolean(editState && isStreaming)}
+                files={attachedFiles}
+                onFilesChange={handleFilesChange}
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                maxFiles={5}
+                hideSendButton={isStreaming}
+                sendLabel={isSubmitting ? "Sending" : "Send"}
+                leftSlot={({ openFilePicker }) => (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Attach images"
+                    onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
+                  >
+                    <PaperclipIcon size={15} />
+                  </Button>
+                )}
                 textareaProps={{
                   onKeyDown: (event) => {
+                    if (
+                      slashMatches.length &&
+                      (event.key === "ArrowDown" || event.key === "ArrowUp")
+                    ) {
+                      event.preventDefault();
+                      setSelectedCommandIndex(
+                        (current) =>
+                          (current + (event.key === "ArrowDown" ? 1 : -1) + slashMatches.length) %
+                          slashMatches.length,
+                      );
+                      return;
+                    }
+                    if (
+                      slashMatches.length &&
+                      (event.key === "Tab" ||
+                        (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
+                    ) {
+                      event.preventDefault();
+                      applyCommand(
+                        slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
+                      );
+                      return;
+                    }
                     if (event.key === "Escape") {
-                      setInputValue("");
+                      setSelectedCommandIndex(0);
                     }
                   },
                 }}
                 rightSlot={
                   <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
+                    {isStreaming && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setStreamingBehavior((value) =>
+                              value === "followUp" ? "steer" : "followUp",
+                            )
+                          }
+                        >
+                          {streamingBehavior === "followUp" ? "Next" : "Steer"}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          leadingIcon={StopIcon}
+                          disabled={isAborting}
+                          onClick={() => void handleAbort()}
+                        >
+                          {isAborting ? "Stopping…" : "Stop"}
+                        </Button>
+                      </>
+                    )}
+                    {!isStreaming && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={Boolean(snapshot?.isCompacting || snapshot?.isRetrying)}
+                        onClick={() => void compact()}
+                      >
+                        {snapshot?.isCompacting ? "Compacting…" : "Compact"}
+                      </Button>
+                    )}
                     {snapshot?.thinkingLevel !== undefined && snapshot?.thinkingLevel !== null && (
                       <Button
                         variant="ghost"
@@ -1227,7 +1528,9 @@ export function AgentPanel() {
                         setIsModelDropdownOpen((prev) => !prev);
                       }}
                     >
-                      {snapshot?.model ? `${formatProviderName(snapshot.model.provider)} · ${modelName}` : modelName}
+                      {snapshot?.model
+                        ? `${formatProviderName(snapshot.model.provider)} · ${modelName}`
+                        : modelName}
                     </Button>
                     {isModelDropdownOpen && models.length > 0 && (
                       <div
@@ -1240,36 +1543,45 @@ export function AgentPanel() {
                               Providers
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto">
-                            {modelGroups.map((group) => {
-                              const isActiveProvider = group.provider === activeProvider;
-                              const hasSelectedModel = group.provider === snapshot?.model?.provider;
-                              return (
-                                <button
-                                  key={group.provider}
-                                  type="button"
-                                  onClick={() => setSelectedModelProvider(group.provider)}
-                                  className={cn(
-                                    "mb-0.5 flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
-                                    isActiveProvider
-                                      ? "bg-accent text-foreground"
-                                      : "text-muted-foreground hover:bg-hover hover:text-foreground",
-                                  )}
-                                >
-                                  <span className="truncate font-medium">{group.label}</span>
-                                  <span className="flex items-center gap-1.5">
-                                    <span className="text-[10px] tabular-nums opacity-50">{group.models.length}</span>
-                                    {hasSelectedModel && <span className="size-1.5 rounded-full bg-foreground" />}
-                                  </span>
-                                </button>
-                              );
-                            })}
+                              {modelGroups.map((group) => {
+                                const isActiveProvider = group.provider === activeProvider;
+                                const hasSelectedModel =
+                                  group.provider === snapshot?.model?.provider;
+                                return (
+                                  <button
+                                    key={group.provider}
+                                    type="button"
+                                    onClick={() => setSelectedModelProvider(group.provider)}
+                                    className={cn(
+                                      "mb-0.5 flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
+                                      isActiveProvider
+                                        ? "bg-accent text-foreground"
+                                        : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                                    )}
+                                  >
+                                    <span className="truncate font-medium">{group.label}</span>
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="text-[10px] tabular-nums opacity-50">
+                                        {group.models.length}
+                                      </span>
+                                      {hasSelectedModel && (
+                                        <span className="size-1.5 rounded-full bg-foreground" />
+                                      )}
+                                    </span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                           <div className="flex min-w-0 flex-1 flex-col">
                             <div className="border-b border-border/70 p-3">
                               <div className="mb-2 flex items-baseline justify-between gap-3">
-                                <div className="text-[13px] font-semibold">{formatProviderName(activeProvider ?? "Models")}</div>
-                                <div className="text-[11px] text-muted-foreground">{visibleProviderModels.length} models</div>
+                                <div className="text-[13px] font-semibold">
+                                  {formatProviderName(activeProvider ?? "Models")}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {visibleProviderModels.length} models
+                                </div>
                               </div>
                               <label className="flex h-8 items-center gap-2 rounded-lg border border-border/70 bg-surface-2 px-2.5 text-muted-foreground focus-within:border-foreground/30 focus-within:text-foreground">
                                 <MagnifyingGlassIcon size={14} />
@@ -1283,47 +1595,57 @@ export function AgentPanel() {
                               </label>
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                            {visibleProviderModels.map((model) => {
-                              const isSelected = model.provider === snapshot?.model?.provider && model.modelId === snapshot?.model?.modelId;
-                              const inputPrice = formatModelPrice(model.cost?.input);
-                              return (
-                              <button
-                                type="button"
-                                key={`${model.provider}:${model.modelId}`}
-                                className={cn(
-                                  "mb-1 flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                                  isSelected
-                                    ? "border-foreground/15 bg-accent text-foreground"
-                                    : "border-transparent text-muted-foreground hover:border-border/70 hover:bg-hover hover:text-foreground",
-                                )}
-                                onClick={async () => {
-                                  const success = await setModel({
-                                    provider: model.provider,
-                                    modelId: model.modelId,
-                                  });
-                                  if (success) {
-                                    setIsModelDropdownOpen(false);
-                                  }
-                                }}
-                              >
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-[13px] font-medium">{model.name}</span>
-                                  <span className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground/70">
-                                    <span>{formatTokenCount(model.contextWindow)} context</span>
-                                    {model.reasoning && <span>Reasoning</span>}
-                                    {inputPrice && <span>{inputPrice} input</span>}
-                                  </span>
-                                </span>
-                                <span className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full", isSelected ? "bg-foreground text-background" : "opacity-0")}>
-                                  <ModelCheckIcon size={12} weight="bold" />
-                                </span>
-                              </button>
-                            );})}
-                            {visibleProviderModels.length === 0 && (
-                              <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
-                                No models match “{modelSearch}”.
-                              </div>
-                            )}
+                              {visibleProviderModels.map((model) => {
+                                const isSelected =
+                                  model.provider === snapshot?.model?.provider &&
+                                  model.modelId === snapshot?.model?.modelId;
+                                const inputPrice = formatModelPrice(model.cost?.input);
+                                return (
+                                  <button
+                                    type="button"
+                                    key={`${model.provider}:${model.modelId}`}
+                                    className={cn(
+                                      "mb-1 flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                                      isSelected
+                                        ? "border-foreground/15 bg-accent text-foreground"
+                                        : "border-transparent text-muted-foreground hover:border-border/70 hover:bg-hover hover:text-foreground",
+                                    )}
+                                    onClick={async () => {
+                                      const success = await setModel({
+                                        provider: model.provider,
+                                        modelId: model.modelId,
+                                      });
+                                      if (success) {
+                                        setIsModelDropdownOpen(false);
+                                      }
+                                    }}
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-[13px] font-medium">
+                                        {model.name}
+                                      </span>
+                                      <span className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground/70">
+                                        <span>{formatTokenCount(model.contextWindow)} context</span>
+                                        {model.reasoning && <span>Reasoning</span>}
+                                        {inputPrice && <span>{inputPrice} input</span>}
+                                      </span>
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full",
+                                        isSelected ? "bg-foreground text-background" : "opacity-0",
+                                      )}
+                                    >
+                                      <ModelCheckIcon size={12} weight="bold" />
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                              {visibleProviderModels.length === 0 && (
+                                <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
+                                  No models match “{modelSearch}”.
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

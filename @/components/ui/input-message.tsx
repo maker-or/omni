@@ -90,6 +90,7 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   clickToFocus?: boolean;
   /** Accessible label for the send button. */
   sendLabel?: string;
+  hideSendButton?: boolean;
   /** Controlled list of attached files. When undefined, attachment behavior
    *  is disabled (no drag-drop, no file input). */
   files?: File[];
@@ -175,6 +176,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       maxRows = 8,
       clickToFocus = true,
       sendLabel = "Send",
+      hideSendButton = false,
       files,
       onFilesChange,
       accept = DEFAULT_ACCEPT,
@@ -486,16 +488,18 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {rightContent}
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="icon-sm"
-                  onClick={handleSend}
-                  disabled={!canSend}
-                  aria-label={sendLabel}
-                >
-                  <Icon name="arrow-up" />
-                </Button>
+                {!hideSendButton && (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="icon-sm"
+                    onClick={handleSend}
+                    disabled={!canSend}
+                    aria-label={sendLabel}
+                  >
+                    <Icon name="arrow-up" />
+                  </Button>
+                )}
               </div>
             </div>
           </SurfaceProvider>

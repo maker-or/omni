@@ -879,6 +879,9 @@ function registerIpc(): void {
       throw e;
     }
   });
+  ipcMain.handle("agent:replacePrompt", (_event, input) =>
+    requireAgentManager().replacePrompt(input),
+  );
   ipcMain.handle("agent:abort", () => {
     console.log("[IPC] agent:abort called");
     return requireAgentManager().abort();

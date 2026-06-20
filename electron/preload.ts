@@ -6,6 +6,7 @@ import type {
   AgentBridgeEvent,
   AgentModelSummary,
   AgentPromptInput,
+  AgentReplacePromptInput,
   AgentRuntimeSnapshot,
   AgentUiResponse,
 } from "../contracts/agent.ts";
@@ -138,6 +139,8 @@ const api = {
     getStats: (): Promise<SessionStats | null> => ipcRenderer.invoke("agent:getStats"),
     sendPrompt: (input: AgentPromptInput): Promise<void> =>
       ipcRenderer.invoke("agent:sendPrompt", input),
+    replacePrompt: (input: AgentReplacePromptInput): Promise<void> =>
+      ipcRenderer.invoke("agent:replacePrompt", input),
     abort: (): Promise<void> => ipcRenderer.invoke("agent:abort"),
     switchThread: (threadId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchThread", threadId),

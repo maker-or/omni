@@ -45,3 +45,7 @@ When there is a tradeoff, choose correctness and robustness over short-term conv
 - Preserve predictable behavior during reconnects, session restarts, and partial streams.
 - Prefer small, composable components.
 - Reuse existing patterns before introducing new ones.
+
+## core architecture
+
+the base application the agentic core is build on top of pi-sdk[https://pi.dev/docs/latest/sdk] , so before making any chages to agentic core , first understand how the pi-sdk actaully work , and how its implemented in your application , and also understand the previous changes users had made from the patch.md

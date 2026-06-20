@@ -151,6 +151,7 @@ export const useThreadStore = create<ThreadState>((set) => ({
       }));
     } catch (err) {
       console.error("Failed to delete thread:", err);
+      throw err;
     }
   },
   addThread: (thread) => {
