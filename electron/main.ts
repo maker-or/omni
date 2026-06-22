@@ -56,8 +56,10 @@ import {
   stopDevFileWatcher,
   getActiveDependenciesPath,
   getInstallationMetadataPath,
+  getPipperLibraryPath,
 } from "./workspace-manager";
 import { UpdateManager } from "./update-manager";
+import { LauncherUpdateManager } from "./launcher-update-manager";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +82,7 @@ let launchWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
 let updateManager: UpdateManager | null = null;
+let launcherUpdateManager: LauncherUpdateManager | null = null;
 let updateSubsystemReady = false;
 let quitAuthorized = false;
 let updateQuitInProgress = false;
@@ -97,6 +100,11 @@ function requireAgentManager(): AgentManager {
 function requireUpdateManager(): UpdateManager {
   if (!updateManager) throw new Error("Update manager is not initialized.");
   return updateManager;
+}
+
+function requireLauncherUpdateManager(): LauncherUpdateManager {
+  if (!launcherUpdateManager) throw new Error("Launcher update manager is not initialized.");
+  return launcherUpdateManager;
 }
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
@@ -630,12 +638,88 @@ function buildAppMenu(): void {
           : ([{ role: "close" }] as Electron.MenuItemConstructorOptions[])),
       ],
     },
+    {
+      role: "help",
+      submenu: [
+        {
+          label: "Check for Updates…",
+          click: () => {
+            void Promise.allSettled([launcherUpdateManager?.check(), updateManager?.check()]);
+          },
+        },
+        {
+          label: "Application Update Details…",
+          click: () => {
+            const noWindow =
+              (!mainWindow || mainWindow.isDestroyed()) &&
+              (!launchWindow || launchWindow.isDestroyed());
+            if (noWindow) {
+              createLaunchWindow();
+              launchWindow?.webContents.once("did-finish-load", () =>
+                launchWindow?.webContents.send("launcher-update:openDetails", {}),
+              );
+            }
+            launcherUpdateManager?.showForSession();
+            if (!noWindow) broadcastToWindows("launcher-update:openDetails", {});
+          },
+        },
+      ],
+    },
   ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function registerIpc(): void {
+  ipcMain.handle("launcher-update:check", () => requireLauncherUpdateManager().check());
+  ipcMain.handle("launcher-update:getState", () => requireLauncherUpdateManager().getState());
+  ipcMain.handle("launcher-update:isDismissedForSession", () =>
+    requireLauncherUpdateManager().isDismissedForSession(),
+  );
+  ipcMain.handle("launcher-update:download", () => requireLauncherUpdateManager().download());
+  ipcMain.handle("launcher-update:cancelDownload", () =>
+    requireLauncherUpdateManager().cancelDownload(),
+  );
+  ipcMain.handle("launcher-update:dismissForSession", () => {
+    const state = requireLauncherUpdateManager().dismissForSession();
+    broadcastToWindows("launcher-update:dismissedForSession", {});
+    return state;
+  });
+  ipcMain.handle("launcher-update:retryDownload", () =>
+    requireLauncherUpdateManager().retryDownload(),
+  );
+  ipcMain.handle("launcher-update:openDownloadFolder", () =>
+    requireLauncherUpdateManager().openDownloadFolder(),
+  );
+  ipcMain.handle("launcher-update:downloadInBrowser", () =>
+    requireLauncherUpdateManager().downloadInBrowser(),
+  );
+  ipcMain.handle("launcher-update:clearDownloadedUpdate", () =>
+    requireLauncherUpdateManager().clearDownloadedUpdate(),
+  );
+  ipcMain.handle("launcher-update:getDiagnostics", () =>
+    requireLauncherUpdateManager().getDiagnostics(),
+  );
+  ipcMain.handle("launcher-update:copyDiagnostics", () =>
+    requireLauncherUpdateManager().copyDiagnostics(),
+  );
+  ipcMain.handle("launcher-update:installAndQuit", async () => {
+    const manager = requireLauncherUpdateManager();
+    if (isUpdateBusy())
+      return { success: false, error: "Wait for the personalized update to finish." };
+    try {
+      const path = await manager.verifyDownloadedInstaller();
+      const openError = await shell.openPath(path);
+      if (openError) throw new Error(openError);
+      quitAuthorized = true;
+      app.quit();
+      return { success: true };
+    } catch (error) {
+      const state = manager.recordFailure(error);
+      return { success: false, error: state.error ?? "Unable to open the installer." };
+    }
+  });
+
   ipcMain.handle("update:check", () => requireUpdateManager().check());
   ipcMain.handle("update:getState", () => requireUpdateManager().getState());
   ipcMain.handle("update:scheduleForQuit", () => requireUpdateManager().scheduleForQuit());
@@ -1314,7 +1398,27 @@ app.whenReady().then(async () => {
     prepareForUpdate: prepareProcessesForUpdate,
     restartPromotedApp: restartAfterPromotion,
   });
+  const launcherManifestUrl =
+    process.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+    import.meta.env.VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+    null;
+  const launcherUpdatesEnabled =
+    app.isPackaged ||
+    (process.env.PIPPER_ENABLE_LAUNCHER_UPDATES_IN_DEV === "1" && launcherManifestUrl != null);
+  if (!launcherManifestUrl)
+    console.info("[LauncherUpdate] Disabled: manifest URL is not configured.");
+  launcherUpdateManager = new LauncherUpdateManager({
+    currentVersion: app.getVersion(),
+    manifestUrl: launcherManifestUrl,
+    rootPath: join(getPipperLibraryPath(), "launcher-updates"),
+    enabled: launcherUpdatesEnabled,
+    broadcastState: (state) => broadcastToWindows("launcher-update:stateChanged", state),
+    broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
+  });
   registerIpc();
+  await launcherUpdateManager.recover();
+  launcherUpdateManager.startPeriodicChecks();
+  void launcherUpdateManager.check();
 
   if (isDev) {
     startDevFileWatcher();
@@ -1445,6 +1549,7 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   authCallbackServer?.close();
   updateManager?.stopPeriodicChecks();
+  launcherUpdateManager?.stopPeriodicChecks();
   void agentManager?.dispose();
   void shutdownAnalytics();
   for (const [id, ptyProc] of ptyProcesses.entries()) {

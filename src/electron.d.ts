@@ -11,6 +11,11 @@ import type {
 } from "../../contracts/agent.ts";
 import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { UpdateProgress, UpdateRunResult, UpdateState } from "../../contracts/updates.ts";
+import type {
+  LauncherDownloadProgress,
+  LauncherUpdateDiagnostics,
+  LauncherUpdateState,
+} from "../../contracts/launcher-updates.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -48,6 +53,25 @@ declare global {
         markActiveHealthy: (version: string) => Promise<boolean>;
         onStateChanged: (callback: (state: UpdateState) => void) => () => void;
         onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
+      };
+      launcherUpdate: {
+        check: () => Promise<LauncherUpdateState>;
+        getState: () => Promise<LauncherUpdateState>;
+        isDismissedForSession: () => Promise<boolean>;
+        download: () => Promise<LauncherUpdateState>;
+        cancelDownload: () => Promise<LauncherUpdateState>;
+        dismissForSession: () => Promise<LauncherUpdateState>;
+        installAndQuit: () => Promise<{ success: boolean; error?: string }>;
+        retryDownload: () => Promise<LauncherUpdateState>;
+        openDownloadFolder: () => Promise<void>;
+        downloadInBrowser: () => Promise<void>;
+        clearDownloadedUpdate: () => Promise<LauncherUpdateState>;
+        getDiagnostics: () => Promise<LauncherUpdateDiagnostics>;
+        copyDiagnostics: () => Promise<void>;
+        onStateChanged: (callback: (state: LauncherUpdateState) => void) => () => void;
+        onProgress: (callback: (progress: LauncherDownloadProgress) => void) => () => void;
+        onOpenDetails: (callback: () => void) => () => void;
+        onDismissedForSession: (callback: () => void) => () => void;
       };
       projects: {
         list: () => Promise<Project[]>;

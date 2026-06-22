@@ -12,6 +12,11 @@ import type {
 } from "../contracts/agent.ts";
 import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { UpdateProgress, UpdateRunResult, UpdateState } from "../contracts/updates.ts";
+import type {
+  LauncherDownloadProgress,
+  LauncherUpdateDiagnostics,
+  LauncherUpdateState,
+} from "../contracts/launcher-updates.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -70,6 +75,51 @@ const api = {
         callback(progress);
       ipcRenderer.on("update:progress", listener);
       return () => ipcRenderer.removeListener("update:progress", listener);
+    },
+  },
+  launcherUpdate: {
+    check: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:check"),
+    getState: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:getState"),
+    isDismissedForSession: (): Promise<boolean> =>
+      ipcRenderer.invoke("launcher-update:isDismissedForSession"),
+    download: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:download"),
+    cancelDownload: (): Promise<LauncherUpdateState> =>
+      ipcRenderer.invoke("launcher-update:cancelDownload"),
+    dismissForSession: (): Promise<LauncherUpdateState> =>
+      ipcRenderer.invoke("launcher-update:dismissForSession"),
+    installAndQuit: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke("launcher-update:installAndQuit"),
+    retryDownload: (): Promise<LauncherUpdateState> =>
+      ipcRenderer.invoke("launcher-update:retryDownload"),
+    openDownloadFolder: (): Promise<void> =>
+      ipcRenderer.invoke("launcher-update:openDownloadFolder"),
+    downloadInBrowser: (): Promise<void> => ipcRenderer.invoke("launcher-update:downloadInBrowser"),
+    clearDownloadedUpdate: (): Promise<LauncherUpdateState> =>
+      ipcRenderer.invoke("launcher-update:clearDownloadedUpdate"),
+    getDiagnostics: (): Promise<LauncherUpdateDiagnostics> =>
+      ipcRenderer.invoke("launcher-update:getDiagnostics"),
+    copyDiagnostics: (): Promise<void> => ipcRenderer.invoke("launcher-update:copyDiagnostics"),
+    onStateChanged: (callback: (state: LauncherUpdateState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: LauncherUpdateState) =>
+        callback(state);
+      ipcRenderer.on("launcher-update:stateChanged", listener);
+      return () => ipcRenderer.removeListener("launcher-update:stateChanged", listener);
+    },
+    onProgress: (callback: (progress: LauncherDownloadProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: LauncherDownloadProgress) =>
+        callback(progress);
+      ipcRenderer.on("launcher-update:progress", listener);
+      return () => ipcRenderer.removeListener("launcher-update:progress", listener);
+    },
+    onOpenDetails: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("launcher-update:openDetails", listener);
+      return () => ipcRenderer.removeListener("launcher-update:openDetails", listener);
+    },
+    onDismissedForSession: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("launcher-update:dismissedForSession", listener);
+      return () => ipcRenderer.removeListener("launcher-update:dismissedForSession", listener);
     },
   },
   projects: {

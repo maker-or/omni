@@ -1,6 +1,6 @@
 {
   "name": "pipper-code-alpha",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -10,6 +10,8 @@
     "build": "node scripts/build.js",
     "dist": "electron-builder --mac --arm64",
     "upload-release": "bun scripts/upload-desktop-blob.ts",
+    "release:launcher:publish": "bun scripts/upload-desktop-blob.ts",
+    "release:launcher:prune": "bun scripts/upload-desktop-blob.ts --prune-old",
     "preview": "bunx --bun electron-vite preview",
     "start": "electron .",
     "lint": "oxlint",
@@ -77,6 +79,9 @@
     "oxlint": "^1.68.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.12"
+  },
+  "pipper": {
+    "workspaceVersion": "0.0.0"
   },
   "trustedDependencies": [
     "node-pty"

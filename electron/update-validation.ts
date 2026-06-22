@@ -9,8 +9,11 @@ const execAsync = promisify(exec);
 const PROTECTED_PREFIXES = [
   "electron/",
   "contracts/updates",
+  "contracts/launcher-updates",
   "src/store/update-store",
+  "src/store/launcher-update-store",
   "src/components/update-",
+  "src/components/launcher-update",
   "src/launch/update-stage",
 ];
 

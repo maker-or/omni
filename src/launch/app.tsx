@@ -6,12 +6,15 @@ import { UnauthenticatedStage } from "./unauthenticated-stage";
 import { AuthenticatedStage } from "./authenticated-stage";
 import { UpdateStage } from "./update-stage";
 import { useUpdateStore } from "@/store/update-store";
+import { useLauncherUpdateStore } from "@/store/launcher-update-store";
+import { LauncherUpdateDialog, LauncherUpdateNotice } from "@/components/launcher-update";
 
 const LOCAL_AUTH_USER = { name: "Developer", email: "developer@local" };
 
 export function LaunchApp() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const updateState = useUpdateStore((state) => state.state);
+  const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isOpening, setIsOpening] = useState(false);
@@ -74,6 +77,14 @@ export function LaunchApp() {
     });
     return () => cleanup?.();
   }, [initializeUpdates]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    void initializeLauncherUpdates().then((dispose) => {
+      cleanup = dispose;
+    });
+    return () => cleanup?.();
+  }, [initializeLauncherUpdates]);
 
   useEffect(() => {
     if (updateState?.phase === "awaiting-health-check" && updateState.to_version) {
@@ -148,16 +159,27 @@ export function LaunchApp() {
 
   if (isCheckingAuth) {
     return (
-      <div className="h-screen w-screen bg-[#171717] flex flex-col items-center justify-center text-muted-foreground gap-3">
-        <CircleNotch className="animate-spin text-primary" size={32} />
-        <span className="text-sm font-medium tracking-tight">Checking authorization…</span>
-      </div>
+      <>
+        <div className="h-screen w-screen bg-[#171717] flex flex-col items-center justify-center text-muted-foreground gap-3 pb-28">
+          <CircleNotch className="animate-spin text-primary" size={32} />
+          <span className="text-sm font-medium tracking-tight">Checking authorization…</span>
+        </div>
+        <LauncherUpdateNotice />
+        <LauncherUpdateDialog />
+      </>
     );
   }
 
   if (!authUser) {
     return (
-      <UnauthenticatedStage isLaunchingAuth={isLaunchingAuth} onAuthRedirect={handleAuthRedirect} />
+      <>
+        <UnauthenticatedStage
+          isLaunchingAuth={isLaunchingAuth}
+          onAuthRedirect={handleAuthRedirect}
+        />
+        <LauncherUpdateNotice />
+        <LauncherUpdateDialog />
+      </>
     );
   }
 
@@ -175,6 +197,8 @@ export function LaunchApp() {
         handleProjectCreated={handleProjectCreated}
       />
       <UpdateStage />
+      <LauncherUpdateNotice />
+      <LauncherUpdateDialog />
     </>
   );
 }

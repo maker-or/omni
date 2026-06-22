@@ -2,6 +2,8 @@ import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } fr
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
 const srcDir = process.cwd();
 const destDir = join(srcDir, "app-template");
 
@@ -45,6 +47,16 @@ for (const file of filesToCopy) {
 
 try {
   const packageJson = JSON.parse(readFileSync(join(srcDir, "package.json"), "utf8"));
+  const launcherVersion = packageJson.version;
+  const workspaceVersion = packageJson.pipper?.workspaceVersion;
+  if (!SEMVER.test(launcherVersion ?? "") || !SEMVER.test(workspaceVersion ?? "")) {
+    throw new Error(
+      "package.json launcher and pipper.workspaceVersion must be valid semantic versions",
+    );
+  }
+  const templatePackage = { ...packageJson, version: workspaceVersion };
+  delete templatePackage.pipper;
+  writeFileSync(join(destDir, "package.json"), `${JSON.stringify(templatePackage, null, 2)}\n`);
   const officialBaseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: srcDir,
     encoding: "utf8",
@@ -53,7 +65,7 @@ try {
     join(destDir, "installation.json"),
     `${JSON.stringify(
       {
-        installed_version: packageJson.version,
+        installed_version: workspaceVersion,
         official_base_commit: officialBaseCommit,
       },
       null,
@@ -62,7 +74,8 @@ try {
   );
   console.log(" - Generated installation.json");
 } catch (error) {
-  console.warn(` - Warning: could not generate installation metadata: ${error}`);
+  console.error(` - Failed to generate template version metadata: ${error}`);
+  process.exit(1);
 }
 
 console.log("[Build] Template preparation complete!");

@@ -17,6 +17,8 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { UpdateBanner } from "@/components/update-banner";
 import { UpdateDialog } from "@/components/update-dialog";
 import { useUpdateStore } from "@/store/update-store";
+import { useLauncherUpdateStore } from "@/store/launcher-update-store";
+import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
 
 export default function App() {
   const [stage] = useState<string | null>(() => {
@@ -32,6 +34,7 @@ export default function App() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const checkForUpdates = useUpdateStore((state) => state.check);
   const updateState = useUpdateStore((state) => state.state);
+  const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
 
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -60,6 +63,14 @@ export default function App() {
     });
     return () => cleanup?.();
   }, [initializeUpdates]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    void initializeLauncherUpdates().then((dispose) => {
+      cleanup = dispose;
+    });
+    return () => cleanup?.();
+  }, [initializeLauncherUpdates]);
 
   useEffect(() => {
     if (updateState?.phase === "awaiting-health-check" && updateState.to_version) {
@@ -134,6 +145,7 @@ export default function App() {
       {/* Pipper overlay — sits above everything in the main window */}
       <PipperOverlay />
       <UpdateDialog />
+      <LauncherUpdateDialog />
 
       {/* Title Bar / Header */}
       <header
@@ -228,7 +240,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
-              void checkForUpdates();
+              void Promise.allSettled([window.omni.launcherUpdate.check(), checkForUpdates()]);
               toast({
                 icon: <Bell className="size-5 text-blue-500" />,
                 title: "Checking for updates",
@@ -246,6 +258,7 @@ export default function App() {
         </div>
       </header>
 
+      <LauncherUpdateBanner />
       <UpdateBanner />
 
       <Toaster />

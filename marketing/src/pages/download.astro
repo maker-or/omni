@@ -1,7 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
-const arm64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL;
+const launcherManifestUrl = import.meta.env.PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL;
 ---
 
 <Layout
@@ -25,10 +25,11 @@ const arm64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL;
         </p>
 
         <aside class="launch note" aria-label="Unsigned launch build notice">
-            <strong>Launch build note:</strong> currently macOS is unsigned, so run
-            this command and if your facing isssue while downloading the dmg use safari
+            <strong>Unsigned alpha build:</strong> After replacing the app, Control-click
+            Pipper Code (Alpha) and choose Open. If macOS still blocks it, use System
+            Settings &gt; Privacy &amp; Security &gt; Open Anyway. As a last-resort support step:
             <code class="launch-command"
-                >xattr -cr "/Applications/pipper code (Alpha).app"</code
+                >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
             >
         </aside>
 
@@ -48,38 +49,57 @@ const arm64DmgUrl = import.meta.env.PUBLIC_PIPPER_MAC_ARM64_DMG_URL;
                     <h2 class="platform-name">macOS</h2>
                 </div>
                 <div class="download-cards">
-                    {
-                        arm64DmgUrl ? (
-                            <a
-                                class="download-card"
-                                data-asset="arm64.dmg"
-                                href={arm64DmgUrl}
-                                download
-                                rel="noopener noreferrer"
-                            >
-                                <span class="card-arch">
-                                    Apple Silicon (arm64)
-                                </span>
-                                <span class="card-format">.dmg</span>
-                            </a>
-                        ) : (
-                            <span
-                                class="download-card download-card-disabled"
-                                data-asset="arm64.dmg"
-                                aria-disabled="true"
-                            >
-                                <span class="card-arch">
-                                    Apple Silicon (arm64)
-                                </span>
-                                <span class="card-format">Coming soon</span>
-                            </span>
-                        )
-                    }
+                    <a id="arm64-download" class="download-card download-card-disabled" data-asset="arm64.dmg" aria-disabled="true">
+                        <span class="card-arch">Checking latest version…</span>
+                        <span class="card-format">.dmg</span>
+                    </a>
                 </div>
+                <button id="download-retry" type="button" style="display:none">Retry</button>
             </section>
         </div>
     </div>
 </Layout>
+
+<script define:vars={{ launcherManifestUrl }}>
+    const card = document.querySelector("#arm64-download");
+    const label = document.querySelector("#version-label");
+    const retry = document.querySelector("#download-retry");
+    const arch = card?.querySelector(".card-arch");
+    const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+    function valid(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(["schema_version", "sha256", "url", "version"])) return false;
+        try {
+            const url = new URL(value.url);
+            return value.schema_version === 1 && semver.test(value.version) && url.protocol === "https:" && url.pathname.toLowerCase().endsWith(".dmg") && /^[0-9a-fA-F]{64}$/.test(value.sha256);
+        } catch { return false; }
+    }
+    async function resolveDownload() {
+        card?.classList.add("download-card-disabled");
+        card?.setAttribute("aria-disabled", "true");
+        card?.removeAttribute("href");
+        retry.style.display = "none";
+        if (arch) arch.textContent = "Checking latest version…";
+        try {
+            if (!launcherManifestUrl) throw new Error("Manifest URL is not configured");
+            const response = await fetch(launcherManifestUrl, { cache: "no-store" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const manifest = await response.json();
+            if (!valid(manifest)) throw new Error("Invalid manifest");
+            card.href = manifest.url;
+            card.setAttribute("download", "");
+            card.classList.remove("download-card-disabled");
+            card.removeAttribute("aria-disabled");
+            if (arch) arch.textContent = "Apple Silicon (arm64)";
+            if (label) label.textContent = `Version ${manifest.version}`;
+        } catch {
+            if (arch) arch.textContent = "Download temporarily unavailable. Try again.";
+            retry.style.display = "inline-flex";
+        }
+    }
+    retry?.addEventListener("click", resolveDownload);
+    void resolveDownload();
+</script>
 
 <style>
     @import url("https://fonts.googleapis.com/css2?family=Geist:ital,wght@0,100..900;1,100..900&display=swap");
