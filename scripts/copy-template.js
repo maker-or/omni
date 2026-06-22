@@ -1,5 +1,4 @@
 import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -57,16 +56,11 @@ try {
   const templatePackage = { ...packageJson, version: workspaceVersion };
   delete templatePackage.pipper;
   writeFileSync(join(destDir, "package.json"), `${JSON.stringify(templatePackage, null, 2)}\n`);
-  const officialBaseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: srcDir,
-    encoding: "utf8",
-  }).trim();
   writeFileSync(
     join(destDir, "installation.json"),
     `${JSON.stringify(
       {
         installed_version: workspaceVersion,
-        official_base_commit: officialBaseCommit,
       },
       null,
       2,

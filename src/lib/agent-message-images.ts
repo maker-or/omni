@@ -1,12 +1,7 @@
 import type { AgentPromptImage } from "../../contracts/agent.ts";
 import type { MessageLike } from "./message-utils";
 
-const AGENT_IMAGE_MIME_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-] as const;
+const AGENT_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 const MAX_AGENT_IMAGES = 5;
 const MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024;
 

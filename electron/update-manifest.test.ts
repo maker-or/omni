@@ -7,12 +7,7 @@ const valid = {
   version: "0.2.0",
   description: "Safe update",
   pr_url: "https://github.com/company/pipper/pull/123",
-  repository_url: repository,
-  base_commit: "a".repeat(40),
-  target_commit: "b".repeat(40),
-  published_at: "2026-06-19T10:00:00Z",
-  minimum_version: "0.1.0",
-  validation_commands: ["bun run lint", "bun run build"],
+  files_changes: ["src/App.tsx", "package.json"],
 };
 
 describe("update manifest", () => {
@@ -22,22 +17,12 @@ describe("update manifest", () => {
     expect(compareVersions("1.0.0-beta.1", "1.0.0")).toBe(-1);
   });
 
-  test("accepts a strict pinned manifest", () => {
-    expect(parseUpdateManifest(valid, "0.1.0", repository).target_commit).toBe("b".repeat(40));
+  test("accepts a strict PR manifest", () => {
+    expect(parseUpdateManifest(valid, "0.1.0", repository).version).toBe("0.2.0");
   });
 
-  test("rejects mutable, stale, foreign, and insecure manifests", () => {
-    expect(() =>
-      parseUpdateManifest({ ...valid, target_commit: "abc" }, "0.1.0", repository),
-    ).toThrow("full commit hash");
+  test("rejects stale, foreign, insecure, and expanded manifests", () => {
     expect(() => parseUpdateManifest(valid, "0.2.0", repository)).toThrow("not newer");
-    expect(() =>
-      parseUpdateManifest(
-        { ...valid, repository_url: "https://github.com/other/repo" },
-        "0.1.0",
-        repository,
-      ),
-    ).toThrow("configured upstream");
     expect(() =>
       parseUpdateManifest(
         { ...valid, pr_url: "http://github.com/company/pipper/pull/123" },
@@ -47,10 +32,20 @@ describe("update manifest", () => {
     ).toThrow("HTTPS");
     expect(() =>
       parseUpdateManifest(
-        { ...valid, validation_commands: ["bun run build && curl example.com"] },
+        { ...valid, pr_url: "https://github.com/other/repo/pull/123" },
         "0.1.0",
         repository,
       ),
-    ).toThrow("unsupported command");
+    ).toThrow("configured repository");
+    expect(() =>
+      parseUpdateManifest(
+        { ...valid, validation_commands: ["bun run build"] },
+        "0.1.0",
+        repository,
+      ),
+    ).toThrow("Unknown manifest fields");
+    expect(() =>
+      parseUpdateManifest({ ...valid, files_changes: ["../secret"] }, "0.1.0", repository),
+    ).toThrow("unsafe path");
   });
 });

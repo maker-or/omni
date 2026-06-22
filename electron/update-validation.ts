@@ -70,7 +70,7 @@ export async function validateCandidate(
   );
   if (protectedFile)
     throw new Error(`Update modified protected launcher/updater file: ${protectedFile}`);
-  const commands = [...new Set(["bun run lint", "bun run build", ...manifest.validation_commands])];
+  const commands = ["bun run lint", "bun run build"];
   const results = [status];
   for (const command of commands) {
     const result = await run(path, command);

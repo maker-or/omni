@@ -156,7 +156,8 @@ Modify `scripts/copy-template.js` so it:
 3. Rewrites only `app-template/package.json.version` to `pipper.workspaceVersion`.
 4. Removes the `pipper` launcher-only metadata from the copied template package unless application code has a demonstrated need for it. Default: remove it.
 5. Writes `app-template/installation.json.installed_version` from `pipper.workspaceVersion`, not the root launcher version.
-6. Continues writing `official_base_commit` from `git rev-parse HEAD`.
+6. Writes no commit identifiers into packaged installation metadata; the updater downloads the PR
+   diff directly and uses local Git history only for accepted edit-mode changes.
 7. Fails the build instead of emitting a warning when either version is absent or invalid. A release with ambiguous version metadata must not be built.
 
 Existing users are unaffected because `~/Library/pipper/installation.json` is only created when missing. Launcher updates must never rewrite it.

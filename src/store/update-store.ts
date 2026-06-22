@@ -20,22 +20,30 @@ export const useUpdateStore = create<UpdateStore>((set) => ({
   detailsOpen: false,
   initialize: async () => {
     const state = await window.omni.update.getState();
-    set({ state });
+    set({
+      state,
+      detailsOpen:
+        state.scheduled_for_quit &&
+        state.progress_message === "Scheduled update will begin when Pipper quits.",
+    });
     const offState = window.omni.update.onStateChanged((next) =>
       set({
         state: next,
-        detailsOpen: [
-          "preparing",
-          "fetching-upstream",
-          "agent-running",
-          "installing-dependencies",
-          "validating",
-          "ready-to-promote",
-          "promoting",
-          "awaiting-health-check",
-          "rolling-back",
-          "failed",
-        ].includes(next.phase),
+        detailsOpen:
+          (next.scheduled_for_quit &&
+            next.progress_message === "Scheduled update will begin when Pipper quits.") ||
+          [
+            "preparing",
+            "fetching-upstream",
+            "agent-running",
+            "installing-dependencies",
+            "validating",
+            "ready-to-promote",
+            "promoting",
+            "awaiting-health-check",
+            "rolling-back",
+            "failed",
+          ].includes(next.phase),
       }),
     );
     const offProgress = window.omni.update.onProgress((progress) => set({ progress }));

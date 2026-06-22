@@ -195,7 +195,7 @@ export class UpdateManager {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("not newer") || message.includes("minimum version")) {
+      if (message.includes("not newer")) {
         this.persist(
           { manifest: null, to_version: null, scheduled_for_quit: false, error: null },
           "idle",
@@ -210,6 +210,15 @@ export class UpdateManager {
   scheduleForQuit(): UpdateState {
     if (!this.state.manifest) throw new Error("No update is available.");
     this.persist({ scheduled_for_quit: true, dismissed_for_session: false }, "scheduled");
+    return this.getState();
+  }
+
+  announceScheduledQuit(): UpdateState {
+    if (!this.state.scheduled_for_quit || !this.state.manifest) return this.getState();
+    this.persist(
+      { progress_message: "Scheduled update will begin when Pipper quits." },
+      "scheduled",
+    );
     return this.getState();
   }
 
@@ -268,7 +277,11 @@ export class UpdateManager {
       this.ensureNotCancelled();
 
       this.progress("fetching-upstream", "Downloading pinned upstream changes");
-      const context = await acquireUpdateContext(getCandidatePath(), manifest, installation);
+      const context = await acquireUpdateContext(
+        getCandidatePath(),
+        manifest,
+        this.options.repositoryUrl!,
+      );
       this.ensureNotCancelled();
 
       this.progress("agent-running", "Adapting the update to your customizations");
@@ -329,7 +342,6 @@ export class UpdateManager {
       finalizePromotion();
       const nextInstallation: InstallationMetadata = {
         installed_version: manifest.version,
-        official_base_commit: manifest.target_commit,
         customized_head_commit: candidateCommit,
         last_healthy_at: new Date().toISOString(),
       };

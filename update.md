@@ -6,7 +6,7 @@ Build an agent-assisted update system that:
 
 - Detects an available upstream Pipper update.
 - Presents it to the user.
-- Lets the user choose “Update now,” “Update when I quit,” or “Later.”
+- Lets the user choose “Update when I quit” or “Later.”
 - Applies the upstream PR to a temporary candidate workspace.
 - Preserves all user customizations.
 - Validates the candidate.
@@ -99,12 +99,7 @@ For the MVP, host a JSON document on the website:
   "version": "0.2.0",
   "description": "Adds thread search and fixes terminal reconnection.",
   "pr_url": "https://github.com/company/pipper/pull/123",
-  "repository_url": "https://github.com/company/pipper",
-  "base_commit": "full-base-commit-sha",
-  "target_commit": "full-pr-head-commit-sha",
-  "published_at": "2026-06-19T10:00:00Z",
-  "minimum_version": "0.1.0",
-  "validation_commands": ["bun run lint", "bun run build"]
+  "files_changes": ["src/App.tsx", "package.json"]
 }
 ```
 
@@ -113,10 +108,11 @@ Required validation:
 - Reject unsupported `schema_version`.
 - Validate version format.
 - Require HTTPS URLs.
-- Require full commit hashes.
 - Reject a manifest older than or equal to the installed version.
-- Pin `target_commit`; do not use a mutable PR head implicitly.
-- Reject manifests whose repository does not match the configured upstream repository.
+- Require `pr_url` to identify a pull request in that repository.
+- Require `files_changes` to contain safe, unique repository-relative paths.
+- Resolve the pull request head when the update begins and verify that it descends from the
+  previously applied upstream history.
 
 For the MVP, signature verification can be deferred, but manifest parsing must still be strict.
 
@@ -135,7 +131,6 @@ Example:
 ```json
 {
   "installed_version": "0.1.0",
-  "official_base_commit": "abc123...",
   "customized_head_commit": "def456...",
   "last_healthy_at": "2026-06-19T10:00:00Z"
 }
@@ -143,10 +138,8 @@ Example:
 
 This file is launcher-controlled.
 
-`official_base_commit` is essential. It identifies the common ancestor needed to compare:
-
-- Official base → upstream update
-- Official base → user customization
+The updater uses local Git history only to understand accepted edit-mode changes. It downloads the
+upstream pull-request diff directly, so the two repositories do not need shared ancestry.
 
 Do not derive the installed version from `package.json`; users may edit it.
 
@@ -165,18 +158,14 @@ User customization
 User customization
 ```
 
-Store the original official baseline SHA in `installation.json`.
-
 For an update, the agent receives:
 
 ```text
-official_base_commit
-customized_head_commit
-upstream_target_commit
-diff(official_base, customized_head)
-diff(official_base, upstream_target)
+current candidate workspace and local Git history
+pull-request diff
+declared changed-file list and full upstream file contents
 patch.md
-PR metadata
+PR URL
 ```
 
 After a successful update, the candidate history should contain:
@@ -191,13 +180,12 @@ Then update `installation.json`:
 ```json
 {
   "installed_version": "0.2.0",
-  "official_base_commit": "<target_commit>",
   "customized_head_commit": "<candidate HEAD>",
   "last_healthy_at": "<timestamp>"
 }
 ```
 
-The upstream target becomes the new semantic base even though the customized Git history may not be a literal descendant of that commit.
+The resolved pull-request head is stored only in the private Git ref after successful validation.
 
 ---
 
@@ -359,17 +347,15 @@ Pipper 0.2.0 is available
 
 Adds thread search and fixes terminal reconnection.
 
-[View changes] [Later] [Update when I quit] [Update now]
+[Later] [Update when I quit]
 ```
-
-“View changes” opens the PR URL externally.
 
 Recommended behavior:
 
 - `Later`: dismiss for this session.
 - `Update when I quit`: persist scheduling state.
-- `Update now`: begin immediately.
-- Do not announce the update for the first time during Command-Q unless necessary.
+- On Command-Q, tell the user to leave Pipper open and not close the laptop while updating.
+- Explain that Pipper will quit automatically after the update finishes.
 
 During update, show a dedicated non-editable progress screen:
 
@@ -488,30 +474,19 @@ Each must have an explicit purpose and exclusions.
 
 # 13. Retrieving the PR
 
-For a public GitHub PR, retrieve:
-
-- PR metadata.
-- Base SHA.
-- Head SHA.
-- Unified diff.
-- Changed-file list.
-- Full content of changed files at `target_commit`.
+For a public GitHub PR, retrieve the unified PR diff directly. Fetch the PR head only to read the
+full upstream content of the files declared by the manifest.
 
 Preferred MVP mechanism:
 
 ```bash
-git fetch <repository_url> <target_commit>
-git show <target_commit>
-git diff <base_commit>..<target_commit>
+git fetch <configured_upstream_repository> refs/pull/<number>/head
+curl <pr_url>.diff
 ```
-
-Using Git is more reliable than scraping GitHub HTML.
 
 Validation:
 
-- Fetched target must equal manifest `target_commit`.
-- PR base must be compatible with `base_commit`.
-- Reject if the target cannot be fetched.
+- Reject if the PR diff or PR head cannot be fetched.
 - Do not execute code from the fetched commit before candidate isolation is ready.
 
 Store update context in:
@@ -520,8 +495,7 @@ Store update context in:
 ~/Library/pipper/updates/context/
 ├── manifest.json
 ├── upstream.diff
-├── customization.diff
-├── pr-metadata.json
+├── upstream-files/
 └── changed-files.json
 ```
 
@@ -862,14 +836,14 @@ Keep the update coordinator separate from `workspace-manager.ts`; that file shou
 - Add version comparison.
 - Fetch manifest at startup.
 - Add update store and banner.
-- Add “Later,” “Update now,” and “Update when I quit.”
+- Add “Later” and “Update when I quit.”
 
 ## Phase 3: PR acquisition
 
-- Fetch pinned target commit.
-- Generate upstream and customization diffs.
+- Resolve and fetch the pull request head.
+- Download the upstream PR diff directly.
 - Save update context.
-- Validate PR base and target.
+- Validate the PR URL and changed-file paths.
 - Expose progress events.
 
 ## Phase 4: Update agent
@@ -937,7 +911,7 @@ Keep the update coordinator separate from `workspace-manager.ts`; that file shou
 12. Command-Q cancellation quits without updating.
 13. Repeated update request does not start concurrent jobs.
 14. Already-installed version is ignored.
-15. Mutable PR head does not override pinned target SHA.
+15. An installed workspace with unrelated local Git history can still acquire the PR diff.
 
 ---
 

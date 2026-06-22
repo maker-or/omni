@@ -22,12 +22,7 @@ export interface UpdateManifest {
   version: string;
   description: string;
   pr_url: string;
-  repository_url: string;
-  base_commit: string;
-  target_commit: string;
-  published_at: string;
-  minimum_version: string;
-  validation_commands: string[];
+  files_changes: string[];
 }
 
 export interface ValidationResult {
@@ -57,17 +52,14 @@ export interface UpdateState {
 
 export interface InstallationMetadata {
   installed_version: string;
-  official_base_commit: string;
   customized_head_commit: string;
   last_healthy_at: string;
 }
 
 export interface UpdateContext {
   manifest: UpdateManifest;
-  installation: InstallationMetadata;
   candidate_path: string;
   upstream_diff_path: string;
-  customization_diff_path: string;
   changed_files_path: string;
   upstream_changed_files: string[];
 }

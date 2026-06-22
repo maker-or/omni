@@ -40,9 +40,7 @@ export function AgentSlashCommandMenu({
                 }
           }
           transition={
-            prefersReducedMotion
-              ? { duration: 0 }
-              : { type: "spring", duration: 0.3, bounce: 0 }
+            prefersReducedMotion ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0 }
           }
           style={{ transformOrigin: "bottom center" }}
           className="absolute inset-x-5 bottom-[calc(100%-12px)] z-0 overflow-hidden rounded-t-xl border border-border bg-surface-2 px-2 pb-5 pt-2 shadow-lg"

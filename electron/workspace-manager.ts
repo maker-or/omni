@@ -336,7 +336,6 @@ export async function initializeWorkspaces(
     if (!existsSync(installationPath)) {
       const head = await gitHead(activeDir);
       let installedVersion = "0.0.0";
-      let officialBaseCommit = head;
       try {
         const packagedMetadataPath = join(templatePath, "installation.json");
         if (existsSync(packagedMetadataPath)) {
@@ -344,15 +343,9 @@ export async function initializeWorkspaces(
           if (typeof packagedMetadata.installed_version === "string") {
             installedVersion = packagedMetadata.installed_version;
           }
-          if (/^[0-9a-f]{40}$/i.test(packagedMetadata.official_base_commit)) {
-            officialBaseCommit = packagedMetadata.official_base_commit.toLowerCase();
-          }
         } else {
           const packaged = JSON.parse(readFileSync(join(templatePath, "package.json"), "utf8"));
           if (typeof packaged.version === "string") installedVersion = packaged.version;
-          if (/^[0-9a-f]{40}$/i.test(process.env.PIPPER_OFFICIAL_BASE_COMMIT ?? "")) {
-            officialBaseCommit = process.env.PIPPER_OFFICIAL_BASE_COMMIT!.toLowerCase();
-          }
         }
       } catch (error) {
         console.warn("[WorkspaceManager] Could not read initial packaged version:", error);
@@ -362,7 +355,6 @@ export async function initializeWorkspaces(
         `${JSON.stringify(
           {
             installed_version: installedVersion,
-            official_base_commit: officialBaseCommit,
             customized_head_commit: head,
             last_healthy_at: new Date().toISOString(),
           },

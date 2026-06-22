@@ -1523,10 +1523,12 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (updateQuitInProgress) return;
   updateQuitInProgress = true;
+  updateManager.announceScheduledQuit();
   if ((!mainWindow || mainWindow.isDestroyed()) && (!launchWindow || launchWindow.isDestroyed())) {
     createLaunchWindow("list");
   }
   void (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     if (updateManager?.isCheckStale()) await updateManager.check();
     const result = await updateManager!.startNow();
     if (result.success) {
