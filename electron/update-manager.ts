@@ -171,6 +171,13 @@ export class UpdateManager {
         signal: AbortSignal.timeout(10_000),
         cache: "no-store",
       });
+      if (response.status === 204) {
+        this.persist(
+          { manifest: null, to_version: null, scheduled_for_quit: false, error: null },
+          "idle",
+        );
+        return this.getState();
+      }
       if (!response.ok) throw new Error(`Manifest request failed (${response.status}).`);
       const manifest = parseUpdateManifest(
         await response.json(),

@@ -62,6 +62,8 @@ import { UpdateManager } from "./update-manager";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.json";
+const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
 const ptyProcesses = new Map<string, pty.IPty>();
 
@@ -1387,11 +1389,11 @@ app.whenReady().then(async () => {
     manifestUrl:
       process.env.PIPPER_UPDATE_MANIFEST_URL ??
       import.meta.env.VITE_PIPPER_UPDATE_MANIFEST_URL ??
-      null,
+      DEFAULT_AGENT_UPDATE_MANIFEST_URL,
     repositoryUrl:
       process.env.PIPPER_UPSTREAM_REPOSITORY_URL ??
       import.meta.env.VITE_PIPPER_UPSTREAM_REPOSITORY_URL ??
-      null,
+      DEFAULT_UPSTREAM_REPOSITORY_URL,
     agent: agentManager,
     broadcastState: (state) => broadcastToWindows("update:stateChanged", state),
     broadcastProgress: (progress) => broadcastToWindows("update:progress", progress),
