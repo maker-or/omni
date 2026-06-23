@@ -81,7 +81,7 @@
     "vite": "^8.0.12"
   },
   "pipper": {
-    "workspaceVersion": "0.0.0"
+    "workspaceVersion": "0.0.2"
   },
   "trustedDependencies": [
     "node-pty"
