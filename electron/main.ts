@@ -66,6 +66,7 @@ const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.j
 const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
 const ptyProcesses = new Map<string, pty.IPty>();
+let currentTheme: "light" | "dark" | "system" = "system";
 
 const isDev = !app.isPackaged;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -77,6 +78,10 @@ if (!gotSingleInstanceLock) {
 function generateRandomId(): string {
   const hex = randomBytes(4).toString("hex");
   return `${hex.slice(0, 4)}-${hex.slice(4, 8)}`;
+}
+
+function normalizeTheme(theme: string): "light" | "dark" | "system" {
+  return theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -1250,8 +1255,11 @@ function registerIpc(): void {
     }
   });
 
+  ipcMain.handle("theme:getCurrent", () => currentTheme);
+
   ipcMain.on("theme:changed", (_event, theme: string) => {
-    broadcastToWindows("theme:changed", theme);
+    currentTheme = normalizeTheme(theme);
+    broadcastToWindows("theme:changed", currentTheme);
   });
 
   // ─── Editor IPC ─────────────────────────────────────────────────────────────
@@ -1262,6 +1270,9 @@ function registerIpc(): void {
   ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
   ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
     requireAgentManager().sendEditorPrompt(input),
+  );
+  ipcMain.handle("editor:setModel", (_event, model: { provider: string; modelId: string }) =>
+    requireAgentManager().setEditorModel(model),
   );
   ipcMain.handle("editor:dispose", () => requireAgentManager().disposeEditor());
 

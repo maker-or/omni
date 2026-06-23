@@ -967,6 +967,40 @@ export class AgentManager {
     }
   }
 
+  async setEditorModel(model: { provider: string; modelId: string }): Promise<boolean> {
+    if (!this.editorRecord) {
+      await this.activateEditor();
+    }
+    const record = this.editorRecord;
+    if (!record) return false;
+    const resolved =
+      getKnownModel(model.provider, model.modelId) ??
+      record.runtime.session.modelRegistry.find(model.provider, model.modelId);
+    if (!resolved) return false;
+    try {
+      await record.runtime.session.setModel(resolved);
+      this.pushEditorSnapshot();
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to set model.";
+      this.emitEditor({ type: "notification", message, level: "error" });
+      try {
+        const fallback = await record.runtime.session.cycleModel();
+        if (fallback) {
+          this.emitEditor({
+            type: "notification",
+            message: `Automatically switched to fallback model: ${fallback.model.name}`,
+            level: "warning",
+          });
+          this.pushEditorSnapshot();
+        }
+      } catch (cycleErr) {
+        console.error("Failed to cycle editor model on error:", cycleErr);
+      }
+      return false;
+    }
+  }
+
   async setThinkingLevel(level: any): Promise<void> {
     const record = this.getCurrentRecord();
     if (!record) return;

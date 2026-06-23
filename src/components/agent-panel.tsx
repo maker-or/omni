@@ -54,7 +54,7 @@ import type { Thread } from "../../contracts/threads.ts";
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-function formatProviderName(provider: string): string {
+export function formatProviderName(provider: string): string {
   return provider
     .split(/[\s_-]+/)
     .filter(Boolean)
@@ -76,7 +76,7 @@ function getProviderIconKind(provider: string): string {
   return "generic";
 }
 
-function ProviderMark({ provider, className }: { provider: string; className?: string }) {
+export function ProviderMark({ provider, className }: { provider: string; className?: string }) {
   const kind = getProviderIconKind(provider);
   const label = formatProviderName(provider) || "Provider";
   const iconClassName = cn("h-4 w-4 shrink-0", className);

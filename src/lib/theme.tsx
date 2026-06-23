@@ -29,6 +29,15 @@ function getStoredTheme(): Theme {
   return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
 }
 
+function normalizeTheme(theme: string | null | undefined): Theme | null {
+  return theme === "light" || theme === "dark" || theme === "system" ? theme : null;
+}
+
+function isCompanionStage(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("stage") === "companion";
+}
+
 function applyResolvedTheme(resolved: ResolvedTheme): void {
   const root = document.documentElement;
   if (resolved === "dark") root.classList.add("dark");
@@ -46,6 +55,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     getStoredTheme() === "system" ? getSystemTheme() : (getStoredTheme() as ResolvedTheme),
   );
+
+  useEffect(() => {
+    if (!window.omni?.theme) return;
+
+    if (isCompanionStage()) {
+      const getCurrentTheme = window.omni.theme.getCurrent;
+      if (!getCurrentTheme) return;
+      let cancelled = false;
+      void getCurrentTheme().then((currentTheme) => {
+        if (cancelled) return;
+        const normalized = normalizeTheme(currentTheme);
+        if (!normalized) return;
+        setThemeState(normalized);
+        window.localStorage.setItem(STORAGE_KEY, normalized);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    window.omni.theme.changed?.(theme);
+  }, []);
 
   useEffect(() => {
     const resolved: ResolvedTheme = theme === "system" ? getSystemTheme() : theme;
@@ -68,10 +99,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!window.omni?.theme?.onChanged) return;
     const unsubscribe = window.omni.theme.onChanged((nextTheme) => {
+      const normalized = normalizeTheme(nextTheme);
+      if (!normalized) return;
       setThemeState((current) => {
-        if (current !== nextTheme) {
-          window.localStorage.setItem(STORAGE_KEY, nextTheme);
-          return nextTheme as Theme;
+        if (current !== normalized) {
+          window.localStorage.setItem(STORAGE_KEY, normalized);
+          return normalized;
         }
         return current;
       });

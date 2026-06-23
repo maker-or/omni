@@ -268,6 +268,8 @@ const api = {
       ipcRenderer.invoke("editor:getState"),
     sendPrompt: (input: { message: string }): Promise<void> =>
       ipcRenderer.invoke("editor:sendPrompt", input),
+    setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
+      ipcRenderer.invoke("editor:setModel", model),
     dispose: (): Promise<void> => ipcRenderer.invoke("editor:dispose"),
     onEvent: (callback: (payload: import("../contracts/agent.ts").AgentBridgeEvent) => void) => {
       const listener = (_event: any, payload: import("../contracts/agent.ts").AgentBridgeEvent) =>
@@ -310,6 +312,7 @@ const api = {
     },
   },
   theme: {
+    getCurrent: (): Promise<string> => ipcRenderer.invoke("theme:getCurrent"),
     changed: (theme: string): void => ipcRenderer.send("theme:changed", theme),
     onChanged: (callback: (theme: string) => void) => {
       const listener = (_event: any, theme: string) => callback(theme);
