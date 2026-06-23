@@ -33,10 +33,39 @@ function validateManifest(value: unknown): Manifest {
     throw new Error("Remote launcher manifest values are invalid.");
   return m as Manifest;
 }
+function manifestsMatch(left: Manifest, right: Manifest): boolean {
+  return (
+    left.schema_version === right.schema_version &&
+    left.version === right.version &&
+    left.url === right.url &&
+    left.sha256 === right.sha256
+  );
+}
 async function hashFile(file: string) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest("hex");
+}
+async function verifyPublishedManifest(url: string, expected: Manifest): Promise<void> {
+  let lastProblem = "verification did not run";
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const verifyUrl = new URL(url);
+    verifyUrl.searchParams.set("verify", `${Date.now()}-${attempt}`);
+    try {
+      const response = await fetch(verifyUrl, { cache: "no-store" });
+      if (!response.ok) {
+        lastProblem = `HTTP ${response.status}`;
+      } else {
+        const actual = validateManifest(await response.json());
+        if (manifestsMatch(actual, expected)) return;
+        lastProblem = `received manifest version ${actual.version}`;
+      }
+    } catch (error) {
+      lastProblem = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+  }
+  throw new Error(`Remote manifest verification failed after retries: ${lastProblem}.`);
 }
 async function findManifestUrl(): Promise<string> {
   let cursor: string | undefined;
@@ -71,6 +100,7 @@ async function prune() {
 }
 
 async function publish() {
+  const resume = process.argv.includes("--resume");
   const pkg = JSON.parse(await readFile("package.json", "utf8")) as { version?: string };
   if (!pkg.version || !SEMVER.test(pkg.version))
     throw new Error("Root package version is invalid.");
@@ -82,20 +112,26 @@ async function publish() {
     );
   const file = path.join("release", expected);
   const pathname = `${PREFIX}${expected}`;
-  const existing = await list({ prefix: pathname, token });
-  if (existing.blobs.some((blob) => blob.pathname === pathname))
-    throw new Error(`Refusing to overwrite published artifact ${pathname}.`);
   const sha256 = await hashFile(file);
   const local = await stat(file);
-  const artifact = await put(pathname, createReadStream(file), {
-    access: "public",
-    token,
-    addRandomSuffix: false,
-    allowOverwrite: false,
-    cacheControlMaxAge: 31536000,
-    contentType: "application/x-apple-diskimage",
-    multipart: true,
-  });
+  const existing = await list({ prefix: pathname, token });
+  const existingArtifact = existing.blobs.find((blob) => blob.pathname === pathname);
+  if (existingArtifact && !resume) {
+    throw new Error(
+      `Artifact ${pathname} already exists. Use --resume only to repair a known partial publication.`,
+    );
+  }
+  const artifact = existingArtifact
+    ? existingArtifact
+    : await put(pathname, createReadStream(file), {
+        access: "public",
+        token,
+        addRandomSuffix: false,
+        allowOverwrite: false,
+        cacheControlMaxAge: 31536000,
+        contentType: "application/x-apple-diskimage",
+        multipart: true,
+      });
   const remote = await head(artifact.url, { token });
   if (
     remote.size !== local.size ||
@@ -103,6 +139,9 @@ async function publish() {
     remote.pathname !== pathname
   )
     throw new Error("Remote artifact verification failed.");
+  if (existingArtifact) {
+    console.log(`Resuming with metadata-verified artifact ${pathname}.`);
+  }
   const manifest: Manifest = {
     schema_version: 1,
     version: pkg.version,
@@ -117,11 +156,7 @@ async function publish() {
     cacheControlMaxAge: 60,
     contentType: "application/json",
   });
-  const verify = await fetch(manifestBlob.url, { cache: "no-store" });
-  if (!verify.ok) throw new Error(`Remote manifest verification failed: HTTP ${verify.status}.`);
-  const verifiedManifest = validateManifest(await verify.json());
-  if (JSON.stringify(verifiedManifest) !== JSON.stringify(manifest))
-    throw new Error("Remote manifest verification returned unexpected content.");
+  await verifyPublishedManifest(manifestBlob.url, manifest);
   console.log(
     JSON.stringify(
       {
