@@ -11,6 +11,11 @@ import type {
 import { parseUpdateManifest } from "./update-manifest.ts";
 import { assertUpdateTransition, readUpdateState, writeUpdateStateAtomic } from "./update-state.ts";
 import {
+  assertInstallationMetadataMatchesActive,
+  readInstallationMetadata,
+  writeInstallationMetadata,
+} from "./update-installation.ts";
+import {
   acquireUpdateContext,
   assertCleanWorkspace,
   buildUpdaterPrompt,
@@ -98,18 +103,12 @@ export class UpdateManager {
     this.options.broadcastProgress({ phase, message, detail });
   }
 
-  private readInstallation(): InstallationMetadata {
-    return JSON.parse(readFileSync(getInstallationMetadataPath(), "utf8")) as InstallationMetadata;
-  }
-
   async recover(): Promise<void> {
     const directoryRecovery = recoverInterruptedPromotion();
     if (directoryRecovery !== "none") {
       if (directoryRecovery === "candidate-promoted") rollbackPromotion();
       this.persist({ error: `Recovered interrupted promotion: ${directoryRecovery}.` }, "failed");
-      return;
-    }
-    if (
+    } else if (
       (this.state.phase === "promoting" || this.state.phase === "awaiting-health-check") &&
       existsSync(getPreviousPath())
     ) {
@@ -119,9 +118,7 @@ export class UpdateManager {
         { error: "The interrupted promoted version was rolled back before startup." },
         "failed",
       );
-      return;
-    }
-    if (
+    } else if (
       [
         "preparing",
         "fetching-upstream",
@@ -144,6 +141,20 @@ export class UpdateManager {
     } else if (this.state.phase === "completed") {
       rmSync(getPreviousPath(), { recursive: true, force: true });
     }
+    await this.validateRecoveredInstallationMetadata();
+  }
+
+  private async validateRecoveredInstallationMetadata(): Promise<void> {
+    if (!existsSync(getInstallationMetadataPath()) || !existsSync(getActivePath())) return;
+    try {
+      await assertCleanWorkspace(getActivePath());
+      const installation = readInstallationMetadata();
+      assertInstallationMetadataMatchesActive(installation, await getGitHead(getActivePath()));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("uncommitted changes")) return;
+      this.persist({ error: message }, "failed");
+    }
   }
 
   startPeriodicChecks(): void {
@@ -164,7 +175,7 @@ export class UpdateManager {
     this.lastCheckAt = Date.now();
     if (!this.options.manifestUrl || !this.options.repositoryUrl || this.running)
       return this.getState();
-    const installation = this.readInstallation();
+    const installation = readInstallationMetadata();
     let response: Response;
     try {
       response = await fetch(this.options.manifestUrl, {
@@ -274,13 +285,15 @@ export class UpdateManager {
       };
     }
     this.cancelled = false;
-    const installation = this.readInstallation();
+    const installation = readInstallationMetadata();
     const started = Date.now();
     try {
       await assertCleanWorkspace(getActivePath());
+      const activeStartHead = await getGitHead(getActivePath());
+      assertInstallationMetadataMatchesActive(installation, activeStartHead);
       await this.options.prepareForUpdate();
       this.progress("preparing", "Preserving your current version");
-      await createCandidateFromActive();
+      const candidateSnapshot = await createCandidateFromActive();
       this.ensureNotCancelled();
 
       this.progress("fetching-upstream", "Downloading pinned upstream changes");
@@ -316,7 +329,7 @@ export class UpdateManager {
       this.progress("validating", "Validating the updated application");
       const validationResults = await validateCandidate(getCandidatePath(), manifest);
       await assertCleanWorkspace(getActivePath());
-      if ((await getGitHead(getActivePath())) !== installation.customized_head_commit) {
+      if ((await getGitHead(getActivePath())) !== candidateSnapshot.active_head) {
         throw new Error("Active workspace changed while the update candidate was being prepared.");
       }
       await execFileAsync("git", ["add", "-A"], { cwd: getCandidatePath() });
@@ -352,10 +365,7 @@ export class UpdateManager {
         customized_head_commit: candidateCommit,
         last_healthy_at: new Date().toISOString(),
       };
-      writeFileSync(
-        getInstallationMetadataPath(),
-        `${JSON.stringify(nextInstallation, null, 2)}\n`,
-      );
+      writeInstallationMetadata(nextInstallation);
       this.persist(
         {
           scheduled_for_quit: false,

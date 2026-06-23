@@ -45,12 +45,15 @@ When there is a tradeoff, choose correctness and robustness over short-term conv
 - Preserve predictable behavior during reconnects, session restarts, and partial streams.
 - Prefer small, composable components.
 - Reuse existing patterns before introducing new ones.
+- During co-editing, only change files in the repository root scope; do not mirror edits into subdirectories such as `app-template` and ignore this exception if `app-template` is not present.
+- When reviewing or changing complex flows, proactively audit the invariants before relying on symptoms or happy paths: list the trusted state, every reader, every writer, every transition, and every crash/restart or async boundary. Check whether stale state, partial failure, retries, or out-of-band changes can break the invariant, and ensure errors only claim what the code proves.
 
 ## core architecture
 
 the base application the agentic core is build on top of pi-sdk[https://pi.dev/docs/latest/sdk] , so before making any chages to agentic core , first understand how the pi-sdk actaully work , and how its implemented in your application , and also understand the previous changes users had made from the patch.md
 
 ## Things to know
+
 - If a user want to adding a new view , first check whether the view can i be added to the other-views , if yes , then you need to descibe whether that view is going to be like thread-specific , project-specific, or global-specific
 - the example of the thread-specific view can be like a diff view
 - the example of the project-specific view can be like a plan view
