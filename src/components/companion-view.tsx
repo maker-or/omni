@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { CaretDownIcon, CheckIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { usePipperStore } from "@/store/pipper-store";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { InputMessage } from "@/components/ui/input-message";
@@ -6,9 +7,15 @@ import { Streamdown } from "streamdown";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
-import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../../contracts/agent.ts";
+import type {
+  AgentBridgeEvent,
+  AgentModelSummary,
+  AgentRuntimeSnapshot,
+} from "../../contracts/agent.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import { Button } from "@/components/ui/button";
+import { Elevated } from "@/lib/elevated";
+import { ProviderMark, formatProviderName } from "@/components/agent-panel";
 
 function getMessageKey(message: MessageLike, index: number): string {
   const meta = message as { id?: string; toolCallId?: string };
@@ -28,6 +35,16 @@ function isInternalCommitPrompt(message: MessageLike): boolean {
   return stringifyMessageContent(message).includes(
     "Commit all completed changes to Git with a clear, descriptive commit message",
   );
+}
+
+function formatModelCost(model: AgentModelSummary): string {
+  if (!model.cost) return "Cost unavailable";
+  const input = model.cost.input;
+  const output = model.cost.output;
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return "Cost unavailable";
+  return `$${input.toFixed(input >= 1 ? 2 : 3)}/M in · $${output.toFixed(
+    output >= 1 ? 2 : 3,
+  )}/M out`;
 }
 
 // ─── Editor session hook ───────────────────────────────────────────────────
@@ -76,8 +93,11 @@ function useEditorSession() {
 export function CompanionView() {
   const { snapshot, sendPrompt } = useEditorSession();
   const [inputValue, setInputValue] = useState("");
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const { syncFromBroadcast } = usePipperStore();
 
   const [isProcessingAccept, setIsProcessingAccept] = useState(false);
@@ -124,6 +144,18 @@ export function CompanionView() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [snapshot?.messages, snapshot?.streamingMessage]);
 
+  useEffect(() => {
+    if (!isModelDropdownOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(target)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isModelDropdownOpen]);
+
   const activeMessages = (snapshot?.messages ?? []).filter(
     (m) =>
       ((m as MessageLike).role === "user" || (m as MessageLike).role === "assistant") &&
@@ -132,6 +164,20 @@ export function CompanionView() {
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage =
     isStreaming && !isProcessingAccept ? (snapshot?.streamingMessage ?? null) : null;
+  const models = snapshot?.models ?? [];
+  const modelName = snapshot?.model?.name ?? "No model";
+  const selectedModelProvider = snapshot?.model?.provider ?? null;
+  const visibleModels = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    return models.filter((model) => {
+      if (!query) return true;
+      return (
+        model.name.toLowerCase().includes(query) ||
+        model.modelId.toLowerCase().includes(query) ||
+        formatProviderName(model.provider).toLowerCase().includes(query)
+      );
+    });
+  }, [modelSearch, models]);
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
@@ -140,6 +186,17 @@ export function CompanionView() {
     activePipperIdRef.current = null;
     await window.omni?.pipper?.setProcessing?.(null);
     await sendPrompt(trimmed);
+  };
+
+  const handleSelectModel = async (model: AgentModelSummary) => {
+    const success = await window.omni?.editor?.setModel?.({
+      provider: model.provider,
+      modelId: model.modelId,
+    });
+    if (success) {
+      setIsModelDropdownOpen(false);
+      setModelSearch("");
+    }
   };
 
   const handleAccept = async () => {
@@ -323,6 +380,113 @@ export function CompanionView() {
           onSend={handleSend}
           placeholder={isProcessingAccept ? "Committing..." : "start here"}
           disabled={isProcessingAccept}
+          rightSlot={
+            <div ref={modelDropdownRef} className="relative flex items-center">
+              <Button
+                type="button"
+                data-pipper-id="companion-model-selector"
+                variant="ghost"
+                size="sm"
+                trailingIcon={CaretDownIcon}
+                active={isModelDropdownOpen}
+                disabled={models.length === 0}
+                onClick={() => setIsModelDropdownOpen((value) => !value)}
+                title={
+                  snapshot?.model
+                    ? `${snapshot.model.name} · ${formatModelCost(snapshot.model)}`
+                    : undefined
+                }
+              >
+                <span className="inline-flex min-w-0 max-w-[150px] items-center gap-1.5">
+                  {selectedModelProvider && (
+                    <ProviderMark
+                      provider={selectedModelProvider}
+                      className="h-3.5 w-3.5 opacity-85"
+                    />
+                  )}
+                  <span className="truncate">{modelName}</span>
+                </span>
+              </Button>
+
+              {isModelDropdownOpen && models.length > 0 && (
+                <div
+                  data-pipper-id="companion-model-dropdown"
+                  className="absolute right-0 bottom-full z-[250] mb-1.5"
+                >
+                  <Elevated
+                    offset={2}
+                    shadowLevel={5}
+                    className="flex h-[320px] w-[320px] flex-col overflow-hidden rounded-xl border border-border/80 p-1.5"
+                  >
+                    <label className="flex h-9 shrink-0 items-center gap-2 px-2.5 text-muted-foreground focus-within:text-foreground">
+                      <MagnifyingGlassIcon size={14} />
+                      <input
+                        value={modelSearch}
+                        onChange={(event) => setModelSearch(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") setIsModelDropdownOpen(false);
+                        }}
+                        placeholder="Find a model"
+                        aria-label="Find a model"
+                        className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60"
+                        autoFocus
+                      />
+                    </label>
+                    <div className="mx-2 border-t border-border/60" />
+                    <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                      {visibleModels.map((model) => {
+                        const isSelected =
+                          model.provider === snapshot?.model?.provider &&
+                          model.modelId === snapshot?.model?.modelId;
+                        const providerLabel = formatProviderName(model.provider);
+                        return (
+                          <button
+                            type="button"
+                            key={`${model.provider}:${model.modelId}`}
+                            aria-label={`${model.name}, ${providerLabel}, ${formatModelCost(model)}`}
+                            title={`${model.name} · ${providerLabel} · ${formatModelCost(model)}`}
+                            className={cn(
+                              "group/model-row flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
+                              isSelected
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                            )}
+                            onClick={() => void handleSelectModel(model)}
+                          >
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "flex size-7 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold transition-colors",
+                                isSelected
+                                  ? "border-border/70 bg-surface-4 text-foreground"
+                                  : "border-transparent bg-transparent text-muted-foreground/70 group-hover/model-row:bg-surface-3 group-hover/model-row:text-foreground",
+                              )}
+                            >
+                              <ProviderMark provider={model.provider} />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-foreground">{model.name}</span>
+                              <span className="block truncate text-[11px] text-muted-foreground">
+                                {providerLabel} · {formatModelCost(model)}
+                              </span>
+                            </span>
+                            {isSelected && (
+                              <CheckIcon className="shrink-0" size={13} weight="bold" />
+                            )}
+                          </button>
+                        );
+                      })}
+                      {visibleModels.length === 0 && (
+                        <div className="flex h-24 items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
+                          No matching models
+                        </div>
+                      )}
+                    </div>
+                  </Elevated>
+                </div>
+              )}
+            </div>
+          }
         />
       </div>
     </div>

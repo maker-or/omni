@@ -1263,6 +1263,9 @@ function registerIpc(): void {
   ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
     requireAgentManager().sendEditorPrompt(input),
   );
+  ipcMain.handle("editor:setModel", (_event, model: { provider: string; modelId: string }) =>
+    requireAgentManager().setEditorModel(model),
+  );
   ipcMain.handle("editor:dispose", () => requireAgentManager().disposeEditor());
 
   ipcMain.handle(

@@ -268,6 +268,8 @@ const api = {
       ipcRenderer.invoke("editor:getState"),
     sendPrompt: (input: { message: string }): Promise<void> =>
       ipcRenderer.invoke("editor:sendPrompt", input),
+    setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
+      ipcRenderer.invoke("editor:setModel", model),
     dispose: (): Promise<void> => ipcRenderer.invoke("editor:dispose"),
     onEvent: (callback: (payload: import("../contracts/agent.ts").AgentBridgeEvent) => void) => {
       const listener = (_event: any, payload: import("../contracts/agent.ts").AgentBridgeEvent) =>

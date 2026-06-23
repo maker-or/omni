@@ -171,6 +171,7 @@ declare global {
         activate: () => Promise<void>;
         getState: () => Promise<AgentRuntimeSnapshot>;
         sendPrompt: (input: { message: string }) => Promise<void>;
+        setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
         dispose: () => Promise<void>;
         onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
       };
