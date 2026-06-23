@@ -1,10 +1,16 @@
 {
   "schema_version": 1,
-  "version": "0.0.2",
-  "description": "Adds the new model picker and few improvements",
-  "pr_url": "https://github.com/maker-or/omni/pull/6",
+  "version": "0.0.3",
+  "description": "Adds the new model picker in the eidt mode and fixed a bug thats stoping the edit mode from folllowing the same themes",
+  "pr_url": "https://github.com/maker-or/omni/pull/7",
+
   "files_changes": [
+    "electron/agent.ts",
+    "electron/main.ts",
+    "electron/preload.ts",
     "src/components/agent-panel.tsx",
-    "scripts/upload-desktop-blob.ts"
+    "src/components/companion-view.tsx",
+    "src/lib/theme.tsx",
+    "src/electron.d.ts"
   ]
 }
