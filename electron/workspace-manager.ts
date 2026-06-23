@@ -18,7 +18,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { app } from "electron";
 import type { FSWatcher } from "node:fs";
-import { getMisePath } from "./dependency-installer";
+import { getMiseExecCommand } from "./dependency-installer";
 
 const execAsync = promisify(exec);
 
@@ -214,9 +214,8 @@ export async function prepareCandidateDependencies(packageChanged: boolean): Pro
     const source = join(candidate, name);
     if (existsSync(source)) copyRecursive(source, join(dependencies, name));
   }
-  const mise = getMisePath();
   const install = packageChanged ? "bun install" : "bun install --frozen-lockfile";
-  await execAsync(`"${mise}" exec -- ${install}`, {
+  await execAsync(getMiseExecCommand(install), {
     cwd: dependencies,
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -401,10 +400,12 @@ export async function initializeWorkspaces(
     const sharedNodeModules = join(activeDependenciesDir, "node_modules");
     if (!existsSync(sharedNodeModules) || dependencyManifestChanged) {
       console.log("[WorkspaceManager] Installing workspace dependencies inside shared folder...");
-      const mise = getMisePath();
-      // Run bun install using local Mise environment
+      // Run bun install using the launcher-pinned Mise runtime.
       try {
-        await execAsync(`"${mise}" exec -- bun install`, { cwd: activeDependenciesDir });
+        await execAsync(getMiseExecCommand("bun install"), {
+          cwd: activeDependenciesDir,
+          maxBuffer: 10 * 1024 * 1024,
+        });
       } catch (err: any) {
         console.error("[WorkspaceManager] dependency installation command failed!");
         if (err.stdout) console.error("[WorkspaceManager] stdout:\n", err.stdout);

@@ -21,6 +21,7 @@ export function LaunchApp() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isLaunchingAuth, setIsLaunchingAuth] = useState(false);
   const [authUser, setAuthUser] = useState<{ name: string | null; email: string | null } | null>(
     null,
@@ -101,9 +102,11 @@ export function LaunchApp() {
 
     if (!window.omni?.launch?.onWorkspaceReady) return;
     const cleanupReady = window.omni.launch.onWorkspaceReady(() => {
+      setWorkspaceError(null);
       setWorkspaceReady(true);
     });
     const cleanupError = window.omni.launch.onWorkspaceError((message) => {
+      setWorkspaceError(message);
       toast({
         title: "Workspace Setup Failed",
         description: message,
@@ -126,6 +129,10 @@ export function LaunchApp() {
 
   const handleOpen = useCallback(async (projectId: string) => {
     if (!window.omni?.launch?.complete) return;
+    if (!workspaceReady) {
+      setWorkspaceError("Workspace setup is still running. Please wait before opening a project.");
+      return;
+    }
     setSelectedId(projectId);
     setIsOpening(true);
     try {
@@ -135,14 +142,16 @@ export function LaunchApp() {
       setIsOpening(false);
       setSelectedId(null);
     }
-  }, []);
+  }, [workspaceReady]);
 
   const handleProjectCreated = useCallback(
     (project: Project) => {
       setProjects((current) => [...current, project].sort((a, b) => a.name.localeCompare(b.name)));
-      void handleOpen(project.id);
+      if (workspaceReady) {
+        void handleOpen(project.id);
+      }
     },
-    [handleOpen],
+    [handleOpen, workspaceReady],
   );
 
   const handleAuthRedirect = useCallback(async (kind: "sign-in" | "sign-up") => {
@@ -193,6 +202,7 @@ export function LaunchApp() {
         isLoading={isLoading}
         loadError={loadError}
         workspaceReady={workspaceReady}
+        workspaceError={workspaceError}
         handleOpen={handleOpen}
         handleProjectCreated={handleProjectCreated}
       />

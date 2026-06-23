@@ -9,9 +9,16 @@ import { cn } from "@/lib/utils";
 interface AddProjectFormProps {
   onBack: () => void;
   onCreated: (project: Project) => void;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
-export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
+export function AddProjectForm({
+  onBack,
+  onCreated,
+  disabled = false,
+  disabledReason,
+}: AddProjectFormProps) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string | undefined>();
   const [path, setPath] = useState("");
@@ -20,6 +27,7 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
   const [isBrowsing, setIsBrowsing] = useState(false);
 
   const handleBrowse = useCallback(async () => {
+    if (disabled) return;
     if (!window.omni?.dialog?.pickDirectory) return;
     setIsBrowsing(true);
     setError(null);
@@ -39,10 +47,14 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
     } finally {
       setIsBrowsing(false);
     }
-  }, []);
+  }, [disabled]);
 
   const handleSubmit = useCallback(async () => {
     setError(null);
+    if (disabled) {
+      setError(disabledReason ?? "Workspace setup is still running.");
+      return;
+    }
 
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -73,9 +85,9 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [icon, name, onCreated, path]);
+  }, [disabled, disabledReason, icon, name, onCreated, path]);
 
-  const canSubmit = name.trim().length > 0 && icon != null && path.length > 0;
+  const canSubmit = !disabled && name.trim().length > 0 && icon != null && path.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -110,7 +122,7 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
             value={path}
             onChange={() => {}}
             placeholder="No folder selected"
-            disabled={isSubmitting || isBrowsing}
+            disabled={disabled || isSubmitting || isBrowsing}
             readOnly
             onClick={handleBrowse}
             index={0}
@@ -123,7 +135,7 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
             size="md"
             className="h-9 mb-[1px]"
             onClick={handleBrowse}
-            disabled={isSubmitting || isBrowsing}
+            disabled={disabled || isSubmitting || isBrowsing}
           >
             Browse
           </Button>
@@ -134,7 +146,7 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
           value={name}
           onChange={setName}
           placeholder="My project"
-          disabled={isSubmitting}
+          disabled={disabled || isSubmitting}
           index={1}
         />
       </InputGroup>
@@ -142,6 +154,12 @@ export function AddProjectForm({ onBack, onCreated }: AddProjectFormProps) {
       {error != null && (
         <p className="text-sm text-destructive px-0.5" role="alert">
           {error}
+        </p>
+      )}
+
+      {disabled && error == null && disabledReason != null && (
+        <p className="text-sm text-muted-foreground px-0.5" role="status">
+          {disabledReason}
         </p>
       )}
 

@@ -15,6 +15,7 @@ interface AuthenticatedStageProps {
   isLoading: boolean;
   loadError: string | null;
   workspaceReady: boolean;
+  workspaceError: string | null;
   handleOpen: (projectId: string) => void;
   handleProjectCreated: (project: Project) => void;
 }
@@ -29,6 +30,7 @@ export function AuthenticatedStage({
   isLoading,
   loadError,
   workspaceReady,
+  workspaceError,
   handleOpen,
   handleProjectCreated,
 }: AuthenticatedStageProps) {
@@ -72,10 +74,17 @@ export function AuthenticatedStage({
                   onClick={() => setStage("add")}
                   leadingIcon={FolderIcon}
                   className="h-8 text-xs"
+                  disabled={!workspaceReady}
                 >
                   Add Project
                 </Button>
               </div>
+
+              {!workspaceReady && (
+                <p className="rounded-lg border border-border/50 bg-surface-1/50 px-3 py-2 text-xs text-muted-foreground">
+                  {workspaceError ?? "Setting up the local runtime. Project actions will unlock when ready."}
+                </p>
+              )}
 
               <div className="flex flex-col gap-1.5 max-h-[260px] overflow-y-auto pr-1">
                 {loadError != null && (
@@ -144,7 +153,14 @@ export function AuthenticatedStage({
           </>
         ) : (
           <>
-            <AddProjectForm onBack={() => setStage("list")} onCreated={handleProjectCreated} />
+            <AddProjectForm
+              onBack={() => setStage("list")}
+              onCreated={handleProjectCreated}
+              disabled={!workspaceReady}
+              disabledReason={
+                workspaceError ?? "Setting up the local runtime. Project creation will unlock when ready."
+              }
+            />
           </>
         )}
       </div>

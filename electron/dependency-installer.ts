@@ -35,6 +35,9 @@ export interface DependencyStatus {
   miseInstalled: boolean;
 }
 
+export const REQUIRED_NODE_VERSION = "24.13.1";
+export const REQUIRED_BUN_VERSION = "1.3.11";
+
 let isMiseGlobal = false;
 
 export async function checkMiseGlobal(): Promise<boolean> {
@@ -51,11 +54,36 @@ export async function checkMiseGlobal(): Promise<boolean> {
   }
 }
 
-export function getMisePath(): string {
+function resolveMisePath(): string | null {
   if (isMiseGlobal) return "mise";
   const localMise = join(os.homedir(), ".local/bin/mise");
   if (existsSync(localMise)) return localMise;
-  return join(os.homedir(), ".local/share/mise/bin/mise");
+  const alternateMise = join(os.homedir(), ".local/share/mise/bin/mise");
+  if (existsSync(alternateMise)) return alternateMise;
+  return null;
+}
+
+export function getMisePath(): string {
+  const mise = resolveMisePath();
+  if (!mise) {
+    throw new Error("Mise executable was not found. Run dependency setup before launching a project.");
+  }
+  return mise;
+}
+
+export function getMiseExecArgs(command: string[]): string[] {
+  return [
+    "exec",
+    `node@${REQUIRED_NODE_VERSION}`,
+    `bun@${REQUIRED_BUN_VERSION}`,
+    "--",
+    ...command,
+  ];
+}
+
+export function getMiseExecCommand(command: string): string {
+  const mise = getMisePath();
+  return `"${mise}" exec node@${REQUIRED_NODE_VERSION} bun@${REQUIRED_BUN_VERSION} -- ${command}`;
 }
 
 export async function checkMise(): Promise<boolean> {
@@ -88,14 +116,14 @@ export async function checkGit(): Promise<boolean> {
 
 export async function checkNode(): Promise<boolean> {
   try {
-    const { stdout } = await execAsync("node -v");
+    if (!(await checkMise())) return false;
+    const { stdout } = await execAsync(getMiseExecCommand("node -v"));
     const parsed = parseSemver(stdout.trim());
     if (!parsed) {
       console.log("[DependencyInstaller] Node version parse failed for output:", stdout);
       return false;
     }
-    // We expect Node v24 as verified in development environment
-    return parsed.major === 24;
+    return stdout.trim().replace(/^v/, "") === REQUIRED_NODE_VERSION;
   } catch (err: any) {
     console.log("[DependencyInstaller] Node version check failed:", err.message || err);
     return false;
@@ -104,14 +132,14 @@ export async function checkNode(): Promise<boolean> {
 
 export async function checkBun(): Promise<boolean> {
   try {
-    const { stdout } = await execAsync("bun --version");
+    if (!(await checkMise())) return false;
+    const { stdout } = await execAsync(getMiseExecCommand("bun --version"));
     const parsed = parseSemver(stdout.trim());
     if (!parsed) {
       console.log("[DependencyInstaller] Bun version parse failed for output:", stdout);
       return false;
     }
-    // We expect Bun v1.3 as verified in development environment
-    return parsed.major === 1 && parsed.minor >= 3;
+    return stdout.trim() === REQUIRED_BUN_VERSION;
   } catch (err: any) {
     console.log("[DependencyInstaller] Bun version check failed:", err.message || err);
     return false;
@@ -160,14 +188,21 @@ export async function installMise(): Promise<void> {
 
 export async function installNodeAndBunWithMise(): Promise<void> {
   const mise = getMisePath();
-  console.log("[DependencyInstaller] Installing Node 24 and Bun 1.3 via Mise...");
+  console.log(
+    `[DependencyInstaller] Installing Node ${REQUIRED_NODE_VERSION} and Bun ${REQUIRED_BUN_VERSION} via Mise...`,
+  );
   try {
-    // Mise will read from local configs but we can pre-install them globally or locally
-    await execAsync(`"${mise}" install node@24`);
-    await execAsync(`"${mise}" install bun@1.3`);
+    await execAsync(`"${mise}" install node@${REQUIRED_NODE_VERSION}`);
+    await execAsync(`"${mise}" install bun@${REQUIRED_BUN_VERSION}`);
   } catch (err: any) {
     console.error("[DependencyInstaller] Error installing Node/Bun via Mise command:", err);
     throw err;
   }
-  console.log("[DependencyInstaller] Node 24 and Bun 1.3 installed via Mise.");
+  const [nodeOk, bunOk] = await Promise.all([checkNode(), checkBun()]);
+  if (!nodeOk || !bunOk) {
+    throw new Error(
+      `Mise installed runtime versions, but verification failed. Required Node ${REQUIRED_NODE_VERSION}, Bun ${REQUIRED_BUN_VERSION}.`,
+    );
+  }
+  console.log("[DependencyInstaller] Required Node and Bun versions installed via Mise.");
 }

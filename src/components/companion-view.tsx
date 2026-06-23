@@ -17,6 +17,19 @@ function getMessageKey(message: MessageLike, index: number): string {
   return `${message.role ?? "message"}-${index}`;
 }
 
+function parseComponentAnnotation(bodyText: string): { componentId: string; text: string } | null {
+  const match = bodyText.match(/^\[Component:\s*(.+?)\]\n([\s\S]+)$/);
+  if (!match) return null;
+  return { componentId: match[1], text: match[2] };
+}
+
+function isInternalCommitPrompt(message: MessageLike): boolean {
+  if (message.role !== "user") return false;
+  return stringifyMessageContent(message).includes(
+    "Commit all completed changes to Git with a clear, descriptive commit message",
+  );
+}
+
 // ─── Editor session hook ───────────────────────────────────────────────────
 function useEditorSession() {
   const [snapshot, setSnapshot] = useState<AgentRuntimeSnapshot | null>(null);
@@ -111,19 +124,10 @@ export function CompanionView() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [snapshot?.messages, snapshot?.streamingMessage]);
 
-  const commitMsgIndex = (snapshot?.messages ?? []).findIndex((m) => {
-    const content = stringifyMessageContent(m as MessageLike);
-    return content.includes(
-      "Commit all completed changes to Git with a clear, descriptive commit message",
-    );
-  });
-  const visibleMessages =
-    commitMsgIndex !== -1
-      ? (snapshot?.messages ?? []).slice(0, commitMsgIndex)
-      : (snapshot?.messages ?? []);
-
-  const activeMessages = visibleMessages.filter(
-    (m) => (m as MessageLike).role === "user" || (m as MessageLike).role === "assistant",
+  const activeMessages = (snapshot?.messages ?? []).filter(
+    (m) =>
+      ((m as MessageLike).role === "user" || (m as MessageLike).role === "assistant") &&
+      !isInternalCommitPrompt(m as MessageLike),
   );
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage =
@@ -212,8 +216,9 @@ export function CompanionView() {
               const msgId = getMessageKey(msg, index);
               if (!bodyText.trim()) return null;
 
-              // Structured annotation: [Component: X]\ncomment
-              const componentMatch = bodyText.match(/^\[Component:\s*(.+?)\]\n([\s\S]+)$/);
+              const componentAnnotation = parseComponentAnnotation(bodyText);
+              const displayText =
+                from === "user" && componentAnnotation ? componentAnnotation.text : bodyText;
 
               return (
                 <div
@@ -223,47 +228,35 @@ export function CompanionView() {
                     from === "user" ? "self-end items-end" : "self-start items-start",
                   )}
                 >
-                  {from === "user" && componentMatch ? (
-                    /* Annotation bubble — surface-3 (floats above page) */
-                    <div
-                      className={cn(
-                        "flex flex-col gap-1 rounded-xl px-3 py-2",
-                        surfaceClasses(3, 2),
-                      )}
-                      style={{ maxWidth: 240 }}
-                    >
-                      <span
-                        className={cn(
-                          "inline-flex self-start items-center rounded-md px-1.5 py-0.5",
-                          "text-[9px] font-bold tracking-wide uppercase text-foreground",
-                          surfaceClasses(5, 3),
+                  <div
+                    className={cn(
+                      "rounded-xl px-3 py-2 text-[13px] whitespace-pre-wrap break-words",
+                      from === "user"
+                        ? cn("text-foreground", surfaceClasses(4, 3))
+                        : "text-foreground",
+                    )}
+                  >
+                    {from === "assistant" ? (
+                      <div className="prose prose-sm max-w-none dark:prose-invert text-[13px] leading-relaxed">
+                        <Streamdown mode="static">{bodyText}</Streamdown>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        {componentAnnotation && (
+                          <span
+                            className={cn(
+                              "inline-flex self-start items-center rounded-md px-1.5 py-0.5",
+                              "text-[9px] font-bold tracking-wide uppercase text-foreground",
+                              surfaceClasses(5, 3),
+                            )}
+                          >
+                            {componentAnnotation.componentId}
+                          </span>
                         )}
-                      >
-                        {componentMatch[1]}
-                      </span>
-                      <p className="text-[12px] leading-relaxed text-foreground">
-                        {componentMatch[2]}
-                      </p>
-                    </div>
-                  ) : (
-                    /* Regular message bubble */
-                    <div
-                      className={cn(
-                        "rounded-xl px-3 py-2 text-[13px] whitespace-pre-wrap break-words",
-                        from === "user"
-                          ? cn("text-foreground", surfaceClasses(4, 3))
-                          : "text-foreground",
-                      )}
-                    >
-                      {from === "assistant" ? (
-                        <div className="prose prose-sm max-w-none dark:prose-invert text-[13px] leading-relaxed">
-                          <Streamdown mode="static">{bodyText}</Streamdown>
-                        </div>
-                      ) : (
-                        bodyText
-                      )}
-                    </div>
-                  )}
+                        <p className="text-[13px] leading-relaxed text-foreground">{displayText}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

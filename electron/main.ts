@@ -32,12 +32,12 @@ import {
 import {
   checkAllDependencies,
   checkGit,
-  checkNode,
-  checkBun,
   installMise,
   installNodeAndBunWithMise,
   getMisePath,
+  getMiseExecArgs,
   prependStandardPaths,
+  type DependencyStatus,
 } from "./dependency-installer";
 import { captureAnalytics, identifyAnalyticsUser, shutdownAnalytics } from "./analytics";
 import type { AnalyticsProperties } from "./analytics-schema";
@@ -139,6 +139,19 @@ function sendToMainWindow(channel: string, payload: unknown): void {
 function sendToCompanionWindow(channel: string, payload: unknown): void {
   if (companionWindow && !companionWindow.isDestroyed()) {
     companionWindow.webContents.send(channel, payload);
+  }
+}
+
+function endCompanionSession(): void {
+  broadcastToWindows("pipper:stateChanged", { editMode: false, processingId: null });
+  try {
+    void requireAgentManager()
+      .disposeEditor()
+      .catch((err) => {
+        console.error("[Main] Failed to dispose editor session:", err);
+      });
+  } catch (err) {
+    console.error("[Main] Failed to find editor session manager:", err);
   }
 }
 
@@ -291,6 +304,7 @@ function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): 
 
 let viteProcess: import("node:child_process").ChildProcess | null = null;
 let viteServerUrl: string | null = null;
+let viteStartPromise: Promise<string> | null = null;
 
 function extractViteUrl(output: string): string | null {
   const match = output.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+/i);
@@ -298,65 +312,98 @@ function extractViteUrl(output: string): string | null {
 }
 
 async function startViteServer(): Promise<string> {
-  if (viteProcess && viteServerUrl) {
+  if (viteServerUrl) {
     return viteServerUrl;
   }
+  if (viteStartPromise) return viteStartPromise;
 
   const activePath = getActivePath();
   const cmd = getMisePath();
+  const args = getMiseExecArgs(["bun", "run", "vite", "--host", "127.0.0.1"]);
   console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise`);
 
-  return new Promise((resolve, reject) => {
+  const startPromise = new Promise<string>((resolve, reject) => {
     // Let Vite choose its normal port and auto-increment if needed. This keeps
     // the packaged app and the development app from fighting over a fixed port.
-    viteProcess = spawn(cmd, ["exec", "--", "bun", "run", "vite", "--host", "127.0.0.1"], {
+    const child = spawn(cmd, args, {
       cwd: activePath,
       env: { ...process.env, NODE_ENV: "development" },
     });
+    viteProcess = child;
 
-    let resolved = false;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        try {
+          child.kill("SIGKILL");
+        } catch (err) {
+          console.error("[Main] Failed to kill timed-out Vite process:", err);
+        }
+        settleReject(new Error("Timed out waiting for Vite dev server URL."));
+      }
+    }, 15000);
+
+    const settleResolve = (url: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      viteServerUrl = url;
+      console.log(`[Main] Vite server ready at ${url}`);
+      resolve(url);
+    };
+
+    const settleReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (viteProcess === child) {
+        viteProcess = null;
+        viteServerUrl = null;
+      }
+      reject(error);
+    };
 
     const maybeResolveFromOutput = (output: string) => {
       const url = extractViteUrl(output);
       if (!url) return;
-      viteServerUrl = url;
-      if (!resolved) {
-        resolved = true;
-        console.log(`[Main] Vite server ready at ${url}`);
-        resolve(url);
-      }
+      settleResolve(url);
     };
 
-    viteProcess.stdout?.on("data", (data) => {
+    child.stdout?.on("data", (data) => {
       const output = data.toString();
       console.log(`[Vite compiler stdout] ${output}`);
       maybeResolveFromOutput(output);
     });
 
-    viteProcess.stderr?.on("data", (data) => {
+    child.stderr?.on("data", (data) => {
       const output = data.toString();
       console.error(`[Vite compiler stderr] ${output}`);
       maybeResolveFromOutput(output);
     });
 
-    viteProcess.on("close", (code) => {
+    child.on("error", (error) => {
+      console.error("[Vite compiler] failed to start:", error);
+      settleReject(error);
+    });
+
+    child.on("close", (code) => {
       console.log(`[Vite compiler] exited with code ${code}`);
-      viteProcess = null;
-      viteServerUrl = null;
-      if (!resolved) {
-        reject(
+      if (viteProcess === child) {
+        viteProcess = null;
+        viteServerUrl = null;
+      }
+      if (!settled) {
+        settleReject(
           new Error(`Vite dev server exited before becoming ready (code ${code ?? "unknown"}).`),
         );
       }
     });
-
-    const maxTimeout = 15000;
-    setTimeout(() => {
-      if (!resolved) {
-        reject(new Error("Timed out waiting for Vite dev server URL."));
-      }
-    }, maxTimeout);
+  }).finally(() => {
+    viteStartPromise = null;
   });
+  viteStartPromise = startPromise;
+
+  return startPromise;
 }
 
 async function restartViteServer(): Promise<void> {
@@ -368,6 +415,8 @@ async function restartViteServer(): Promise<void> {
       console.error("[Main] Error killing Vite process:", err);
     }
     viteProcess = null;
+    viteServerUrl = null;
+    viteStartPromise = null;
     // Brief sleep to allow OS to release the port
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -492,7 +541,7 @@ async function createCompanionWindow(): Promise<void> {
     minHeight: 480,
     x: savedBounds?.x,
     y: savedBounds?.y,
-    alwaysOnTop: true,
+    parent: mainWindow ?? undefined,
     title: "Companion",
     show: false,
     icon: getIconPath(),
@@ -526,6 +575,7 @@ async function createCompanionWindow(): Promise<void> {
 
   companionWindow.on("closed", () => {
     console.log("[Main] companionWindow closed");
+    endCompanionSession();
     companionWindow = null;
   });
 
@@ -541,6 +591,64 @@ function broadcastToWindows(channel: string, ...args: any[]) {
   }
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send(channel, ...args);
+  }
+}
+
+function areDependenciesReady(deps: DependencyStatus): boolean {
+  return deps.gitInstalled && deps.miseInstalled && deps.nodeMatch && deps.bunMatch;
+}
+
+function areWorkspacesInitialized(): boolean {
+  return (
+    fs.existsSync(getActivePath()) &&
+    fs.existsSync(getBackupPath()) &&
+    fs.existsSync(join(getActiveDependenciesPath(), "node_modules"))
+  );
+}
+
+async function ensureDependencyRuntime(): Promise<DependencyStatus> {
+  let deps = await checkAllDependencies();
+  if (!deps.gitInstalled) {
+    throw new Error("Git is required. Please install Git and restart setup.");
+  }
+
+  if (!deps.miseInstalled || !deps.nodeMatch || !deps.bunMatch) {
+    console.log("[Main] Installing missing or mismatched launcher runtime dependencies...");
+    await installMise();
+    await installNodeAndBunWithMise();
+    deps = await checkAllDependencies();
+  }
+
+  if (!areDependenciesReady(deps)) {
+    throw new Error("Dependency setup did not produce the required Mise, Node, and Bun runtime.");
+  }
+
+  return deps;
+}
+
+async function isWorkspaceReady(): Promise<boolean> {
+  const deps = await checkAllDependencies();
+  return areDependenciesReady(deps) && areWorkspacesInitialized();
+}
+
+async function ensureWorkspaceReady(): Promise<void> {
+  await ensureDependencyRuntime();
+  await initializeWorkspaces(app.getAppPath(), isDev);
+  if (!areWorkspacesInitialized()) {
+    throw new Error("Workspace setup finished, but required workspace files are still missing.");
+  }
+}
+
+async function runWorkspaceSetupForLauncher(): Promise<void> {
+  try {
+    await ensureWorkspaceReady();
+    broadcastToWindows("launch:workspaceReady", {});
+    await initializeUpdateSubsystem();
+  } catch (error) {
+    console.error("[Main] Background workspace initialization failed:", error);
+    broadcastToWindows("launch:workspaceError", {
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -796,6 +904,9 @@ function registerIpc(): void {
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
     }
+    if (isUpdateBusy()) throw new Error("Project launch is disabled during an update.");
+
+    await ensureWorkspaceReady();
 
     setActiveProjectId(projectId);
     await markLaunchComplete(projectId);
@@ -820,15 +931,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("launch:isWorkspaceReady", async () => {
-    const deps = await checkAllDependencies();
-    const activePath = getActivePath();
-    const backupPath = getBackupPath();
-    const activeDependenciesPath = getActiveDependenciesPath();
-    const workspacesInitialized =
-      fs.existsSync(activePath) &&
-      fs.existsSync(backupPath) &&
-      fs.existsSync(join(activeDependenciesPath, "node_modules"));
-    return !!(deps.gitInstalled && deps.nodeMatch && deps.bunMatch && workspacesInitialized);
+    return isWorkspaceReady();
   });
 
   ipcMain.handle("launch:getUser", () => {
@@ -839,6 +942,11 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
     if (isUpdateBusy()) throw new Error("Project switching is disabled during an update.");
+    const project = getProject(projectId);
+    if (!project) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
+    await ensureWorkspaceReady();
     setActiveProjectId(projectId);
     try {
       await requireAgentManager().activateProject(projectId);
@@ -862,6 +970,7 @@ function registerIpc(): void {
   });
 
   ipcMain.on("companion:close", () => {
+    endCompanionSession();
     companionWindow?.close();
   });
 
@@ -1211,15 +1320,19 @@ function registerIpc(): void {
         return;
       }
 
-      sendProgress("Checking Node and Bun versions...", "running", undefined, true);
-      const nodeOk = await checkNode();
-      const bunOk = await checkBun();
+      sendProgress("Checking Mise, Node, and Bun versions...", "running", undefined, true);
+      const deps = await checkAllDependencies();
 
-      if (!nodeOk || !bunOk) {
+      if (!deps.miseInstalled || !deps.nodeMatch || !deps.bunMatch) {
         sendProgress("Installing Mise version manager...", "running", undefined, true);
         await installMise();
 
-        sendProgress("Setting up Node and Bun versions locally...", "running", undefined, true);
+        sendProgress(
+          "Setting up required Node and Bun versions locally...",
+          "running",
+          undefined,
+          true,
+        );
         await installNodeAndBunWithMise();
       }
 
@@ -1426,41 +1539,14 @@ app.whenReady().then(async () => {
     startDevFileWatcher();
   }
 
-  // Check dependencies and workspace status on startup
-  const deps = await checkAllDependencies();
-  const activePath = getActivePath();
-  const backupPath = getBackupPath();
-  const activeDependenciesPath = getActiveDependenciesPath();
-  const workspacesInitialized =
-    fs.existsSync(activePath) &&
-    fs.existsSync(backupPath) &&
-    fs.existsSync(join(activeDependenciesPath, "node_modules"));
-
-  if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch || !workspacesInitialized) {
+  if (!(await isWorkspaceReady())) {
     console.log("[Main] Launching launcher while workspace setup runs in background.");
     createLaunchWindow("list");
-    void (async () => {
-      try {
-        if (!deps.gitInstalled || !deps.nodeMatch || !deps.bunMatch) {
-          console.log("[Main] Running dependency setup in background...");
-          await initializeWorkspaces(app.getAppPath(), isDev);
-        } else if (!workspacesInitialized) {
-          console.log("[Main] Initializing workspaces in background...");
-          await initializeWorkspaces(app.getAppPath(), isDev);
-        }
-        broadcastToWindows("launch:workspaceReady", {});
-        await initializeUpdateSubsystem();
-      } catch (error) {
-        console.error("[Main] Background workspace initialization failed:", error);
-        broadcastToWindows("launch:workspaceError", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
+    void runWorkspaceSetupForLauncher();
   } else {
     // Keep the shared dependency cache aligned with the packaged template. The
     // workspace can be "ready" while still missing dependencies added by an app update.
-    await initializeWorkspaces(app.getAppPath(), isDev);
+    await ensureWorkspaceReady();
     await initializeUpdateSubsystem();
     const state = await readLaunchState();
     if (state.completed) {
@@ -1478,30 +1564,9 @@ app.whenReady().then(async () => {
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
     if (!hasMain && !hasLaunch) {
-      const activeDeps = await checkAllDependencies();
-      const activeInit =
-        fs.existsSync(activePath) &&
-        fs.existsSync(backupPath) &&
-        fs.existsSync(join(activeDependenciesPath, "node_modules"));
-
-      if (
-        !activeDeps.gitInstalled ||
-        !activeDeps.nodeMatch ||
-        !activeDeps.bunMatch ||
-        !activeInit
-      ) {
+      if (!(await isWorkspaceReady())) {
         createLaunchWindow("list");
-        void initializeWorkspaces(app.getAppPath(), isDev)
-          .then(async () => {
-            broadcastToWindows("launch:workspaceReady", {});
-            await initializeUpdateSubsystem();
-          })
-          .catch((error) => {
-            console.error("[Main] Background workspace initialization failed:", error);
-            broadcastToWindows("launch:workspaceError", {
-              message: error instanceof Error ? error.message : String(error),
-            });
-          });
+        void runWorkspaceSetupForLauncher();
         return;
       }
 
