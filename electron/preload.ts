@@ -312,6 +312,7 @@ const api = {
     },
   },
   theme: {
+    getCurrent: (): Promise<string> => ipcRenderer.invoke("theme:getCurrent"),
     changed: (theme: string): void => ipcRenderer.send("theme:changed", theme),
     onChanged: (callback: (theme: string) => void) => {
       const listener = (_event: any, theme: string) => callback(theme);

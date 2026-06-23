@@ -194,6 +194,7 @@ declare global {
         onCommentAdded: (callback: (pipperId: string, text: string) => void) => () => void;
       };
       theme: {
+        getCurrent: () => Promise<string>;
         changed: (theme: string) => void;
         onChanged: (callback: (theme: string) => void) => () => void;
       };
