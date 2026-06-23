@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Adds the new model picker and few improvements",
   "pr_url": "https://github.com/maker-or/omni/pull/6",
   "files_changes": [
