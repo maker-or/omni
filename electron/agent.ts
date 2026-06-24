@@ -184,6 +184,7 @@ export class AgentManager {
     resolve: (summary: string) => void;
     reject: (error: Error) => void;
   } | null = null;
+  private updaterEventHandler: ((payload: AgentBridgeEvent) => void) | null = null;
 
   constructor(options: {
     sendToRenderer: SendToRenderer;
@@ -1491,7 +1492,12 @@ export class AgentManager {
   }
 
   private emitUpdater(payload: AgentBridgeEvent): void {
+    this.updaterEventHandler?.(payload);
     this.sendToRenderer("updater:event", payload);
+  }
+
+  setUpdaterEventHandler(handler: ((payload: AgentBridgeEvent) => void) | null): void {
+    this.updaterEventHandler = handler;
   }
 
   async activateUpdater(candidatePath: string): Promise<void> {
@@ -1520,7 +1526,13 @@ export class AgentManager {
       this.emitUpdater({ type: "event", event });
       this.emitUpdater({ type: "snapshot", snapshot: this.resolveUpdaterSnapshot() });
       if (event.type === "agent_end") {
-        this.updaterCompletion?.resolve("Update agent completed candidate adaptation.");
+        const summary =
+          "summary" in event && typeof event.summary === "string"
+            ? event.summary
+            : "message" in event && typeof event.message === "string"
+              ? event.message
+              : "Update agent completed candidate adaptation.";
+        this.updaterCompletion?.resolve(summary);
         this.updaterCompletion = null;
       }
     });

@@ -10,7 +10,14 @@ import type {
   AgentUiResponse,
 } from "../../contracts/agent.ts";
 import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { UpdateProgress, UpdateRunResult, UpdateState } from "../../contracts/updates.ts";
+import type {
+  InstallationMetadata,
+  UpdateManifest,
+  UpdateProgress,
+  UpdateRunRecord,
+  UpdateRunResult,
+  UpdateState,
+} from "../../contracts/updates.ts";
 import type {
   LauncherDownloadProgress,
   LauncherUpdateDiagnostics,
@@ -45,6 +52,10 @@ declare global {
       update: {
         check: () => Promise<UpdateState>;
         getState: () => Promise<UpdateState>;
+        getManifest: () => Promise<UpdateManifest | null>;
+        getInstallation: () => Promise<InstallationMetadata>;
+        getRun: (runId: string) => Promise<UpdateRunRecord | null>;
+        getUpdaterSnapshot: () => Promise<AgentRuntimeSnapshot>;
         scheduleForQuit: () => Promise<UpdateState>;
         startNow: () => Promise<UpdateRunResult>;
         dismiss: () => Promise<UpdateState>;
@@ -53,6 +64,7 @@ declare global {
         markActiveHealthy: (version: string) => Promise<boolean>;
         onStateChanged: (callback: (state: UpdateState) => void) => () => void;
         onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
+        onUpdaterEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
       };
       launcherUpdate: {
         check: () => Promise<LauncherUpdateState>;

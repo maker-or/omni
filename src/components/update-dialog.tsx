@@ -3,12 +3,12 @@ import { useUpdateStore } from "@/store/update-store";
 import { UpdateProgressView } from "./update-progress";
 
 export function UpdateDialog() {
-  const { state, detailsOpen, setDetailsOpen, cancel } = useUpdateStore();
+  const { state, manifest, progress, run, detailsOpen, setDetailsOpen, cancel } = useUpdateStore();
   if (!state || !detailsOpen) return null;
   const scheduledQuitStarting =
     state.phase === "scheduled" &&
     state.scheduled_for_quit &&
-    state.progress_message === "Scheduled update will begin when Pipper quits.";
+    progress?.message === "Scheduled update will begin when Pipper quits.";
   const updateRunning = [
     "preparing",
     "fetching-upstream",
@@ -40,18 +40,27 @@ export function UpdateDialog() {
         <p className="mt-1 mb-5 text-sm text-muted-foreground">
           {(scheduledQuitStarting || updateRunning) && state.scheduled_for_quit
             ? "Please leave Pipper open and do not close your laptop. Pipper will quit automatically after the update finishes."
-            : (state.error ?? state.progress_message ?? state.manifest?.description)}
+            : (state.error ?? progress?.message ?? manifest?.description)}
         </p>
-        {updateRunning && state.scheduled_for_quit && state.progress_message && (
-          <p className="-mt-3 mb-5 text-xs text-muted-foreground">{state.progress_message}</p>
+        {updateRunning && state.scheduled_for_quit && progress?.message && (
+          <p className="-mt-3 mb-5 text-xs text-muted-foreground">{progress.message}</p>
         )}
-        {updateRunning && <UpdateProgressView phase={state.phase} />}
-        {state.validation_results.length > 0 && (
+        {updateRunning && <UpdateProgressView phase={state.phase} run={run} />}
+        {state.phase === "failed" && run?.failure && (
+          <div className="mt-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-200">
+            <div className="font-medium">
+              {run.failure.code} · {run.failure.step}
+            </div>
+            <div className="mt-1 text-red-100/80">{run.failure.message}</div>
+            {run.log_path && <div className="mt-2 font-mono text-red-100/70">{run.log_path}</div>}
+          </div>
+        )}
+        {(run?.validation_results?.length ?? 0) > 0 && (
           <details className="mt-4 max-h-48 overflow-auto rounded-lg bg-black/20 p-3 text-xs">
             <summary className="cursor-pointer">Show details</summary>
             <pre className="mt-2 whitespace-pre-wrap">
-              {state.validation_results
-                .map(
+              {run!
+                .validation_results!.map(
                   (result) => `${result.success ? "✓" : "✗"} ${result.command}\n${result.output}`,
                 )
                 .join("\n\n")}

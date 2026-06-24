@@ -31,20 +31,10 @@ const TRANSITIONS: Record<UpdatePhase, readonly UpdatePhase[]> = {
 export function createIdleUpdateState(): UpdateState {
   return {
     phase: "idle",
-    from_version: null,
-    to_version: null,
-    manifest: null,
-    started_at: null,
     updated_at: new Date().toISOString(),
     scheduled_for_quit: false,
-    candidate_path: null,
-    previous_path: null,
-    dismissed_for_session: false,
     error: null,
-    progress_message: null,
-    validation_results: [],
-    candidate_commit: null,
-    agent_summary: null,
+    run_id: null,
   };
 }
 
@@ -57,9 +47,14 @@ export function assertUpdateTransition(from: UpdatePhase, to: UpdatePhase): void
 export function readUpdateState(path: string): UpdateState {
   if (!existsSync(path)) return createIdleUpdateState();
   try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<UpdateState>;
     return {
       ...createIdleUpdateState(),
-      ...(JSON.parse(readFileSync(path, "utf8")) as UpdateState),
+      phase: parsed.phase ?? "idle",
+      updated_at: parsed.updated_at ?? new Date().toISOString(),
+      scheduled_for_quit: parsed.scheduled_for_quit ?? false,
+      error: parsed.error ?? null,
+      run_id: parsed.run_id ?? null,
     };
   } catch (error) {
     throw new Error(

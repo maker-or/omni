@@ -2,27 +2,34 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../contracts/agent.ts";
 import type {
   InstallationMetadata,
+  UpdateFailure,
+  UpdateFailureCode,
+  UpdateManifest,
   UpdateProgress,
+  UpdateRunRecord,
   UpdateRunResult,
   UpdateState,
 } from "../contracts/updates.ts";
 import { parseUpdateManifest } from "./update-manifest.ts";
 import { assertUpdateTransition, readUpdateState, writeUpdateStateAtomic } from "./update-state.ts";
 import {
-  assertInstallationMetadataMatchesActive,
+  readAndValidateInstallationAgainstActive,
   readInstallationMetadata,
   writeInstallationMetadata,
 } from "./update-installation.ts";
 import {
-  acquireUpdateContext,
   assertCleanWorkspace,
   buildUpdaterPrompt,
+  fetchUpstreamRef,
   getGitHead,
+  getUpdatePrNumber,
 } from "./update-git.ts";
 import { validateCandidate } from "./update-validation.ts";
 import {
+  assertPostSwapInvariants,
   createCandidateFromActive,
   finalizePromotion,
   getActivePath,
@@ -31,23 +38,96 @@ import {
   getPreviousPath,
   getUpdateStatePath,
   getUpdatesPath,
+  normalizeActiveBeforeUpdate,
   prepareCandidateDependencies,
   promoteCandidate,
   recoverInterruptedPromotion,
   removeCandidate,
   rollbackPromotion,
 } from "./workspace-manager.ts";
+import {
+  appendUpdateRunLog,
+  createRunId,
+  getRunLogPath,
+  readNewestUpdateRunRecord,
+  readUpdateRunRecord,
+  writeUpdateRunRecordAtomic,
+} from "./update-run-record.ts";
 
 const execFileAsync = promisify(execFile);
 const CHECK_INTERVAL_MS = 5 * 60 * 60 * 1000;
+const RUNNING_PHASES: UpdateState["phase"][] = [
+  "preparing",
+  "fetching-upstream",
+  "agent-running",
+  "installing-dependencies",
+  "validating",
+  "ready-to-promote",
+  "promoting",
+  "awaiting-health-check",
+  "rolling-back",
+];
 
 interface UpdateAgentBridge {
   activateUpdater(candidatePath: string): Promise<void>;
   sendUpdaterPrompt(prompt: string): Promise<string>;
   abortUpdater(): Promise<void>;
   disposeUpdater(): Promise<void>;
+  getUpdaterState(): AgentRuntimeSnapshot;
+  setUpdaterEventHandler?(handler: ((payload: AgentBridgeEvent) => void) | null): void;
   isEditorActive(): boolean;
   isEditorBusy(): boolean;
+}
+
+function manifestPath(): string {
+  return join(getUpdatesPath(), "manifest.json");
+}
+
+function readManifestFile(): UpdateManifest | null {
+  const path = manifestPath();
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8")) as UpdateManifest;
+}
+
+function makeFailure(
+  code: UpdateFailureCode,
+  message: string,
+  step: UpdateFailure["step"],
+): UpdateFailure {
+  return { code, message, step, at: new Date().toISOString() };
+}
+
+function throwUpdateFailure(failure: UpdateFailure): never {
+  throw Object.assign(new Error(failure.message), { updateFailure: failure });
+}
+
+function failureFromError(error: unknown, phase: UpdateState["phase"]): UpdateFailure {
+  const maybeFailure = (error as { updateFailure?: UpdateFailure } | null)?.updateFailure;
+  if (maybeFailure) return maybeFailure;
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("Update cancelled")) {
+    return makeFailure("AGENT_CANCELLED", message, "agent");
+  }
+  if (message.includes("Installation metadata is stale")) {
+    return makeFailure("INSTALLATION_STALE", message, "preflight");
+  }
+  if (message.includes("Active workspace changed") || message.includes("uncommitted changes")) {
+    return makeFailure("ACTIVE_DRIFT", message, "preflight");
+  }
+  if (phase === "agent-running") return makeFailure("AGENT_RUNTIME", message, "agent");
+  if (phase === "promoting" || phase === "awaiting-health-check" || phase === "rolling-back") {
+    return makeFailure("PROMOTION_HEALTH", message, "promotion");
+  }
+  return makeFailure("VALIDATION", message, phase === "validating" ? "validation" : "preflight");
+}
+
+function dirtyFilesFromStatus(status: string): string[] {
+  return status
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => line.slice(3).split(" -> ").at(-1) ?? "")
+    .filter(Boolean);
 }
 
 export class UpdateManager {
@@ -57,6 +137,7 @@ export class UpdateManager {
     agent: UpdateAgentBridge;
     broadcastState: (state: UpdateState) => void;
     broadcastProgress: (progress: UpdateProgress) => void;
+    broadcastUpdaterEvent: (payload: AgentBridgeEvent) => void;
     prepareForUpdate: () => Promise<void>;
     restartPromotedApp: () => Promise<void>;
   };
@@ -66,6 +147,7 @@ export class UpdateManager {
   private lastCheckAt = 0;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private healthResolve: ((healthy: boolean) => void) | null = null;
+  private currentRun: UpdateRunRecord | null = null;
 
   constructor(options: {
     manifestUrl: string | null;
@@ -73,16 +155,36 @@ export class UpdateManager {
     agent: UpdateAgentBridge;
     broadcastState: (state: UpdateState) => void;
     broadcastProgress: (progress: UpdateProgress) => void;
+    broadcastUpdaterEvent: (payload: AgentBridgeEvent) => void;
     prepareForUpdate: () => Promise<void>;
     restartPromotedApp: () => Promise<void>;
   }) {
     this.options = options;
     this.state = readUpdateState(getUpdateStatePath());
-    this.state.dismissed_for_session = false;
+    this.options.agent.setUpdaterEventHandler?.((payload) => {
+      this.handleUpdaterEvent(payload);
+      this.options.broadcastUpdaterEvent(payload);
+    });
   }
 
   getState(): UpdateState {
     return structuredClone(this.state);
+  }
+
+  getManifest(): UpdateManifest | null {
+    return readManifestFile();
+  }
+
+  getInstallation(): InstallationMetadata {
+    return readInstallationMetadata();
+  }
+
+  getRun(runId: string): UpdateRunRecord | null {
+    return readUpdateRunRecord(runId);
+  }
+
+  getUpdaterSnapshot(): AgentRuntimeSnapshot {
+    return this.options.agent.getUpdaterState();
   }
 
   private persist(patch: Partial<UpdateState>, phase?: UpdateState["phase"]): void {
@@ -98,25 +200,133 @@ export class UpdateManager {
     this.options.broadcastState(this.getState());
   }
 
+  private writeRun(record: UpdateRunRecord): void {
+    this.currentRun = record;
+    writeUpdateRunRecordAtomic(record.run_id, record);
+  }
+
+  private patchRun(patch: (record: UpdateRunRecord) => UpdateRunRecord): UpdateRunRecord | null {
+    const existing =
+      this.currentRun ?? (this.state.run_id ? readUpdateRunRecord(this.state.run_id) : null);
+    if (!existing) return null;
+    const next = patch(structuredClone(existing));
+    this.writeRun(next);
+    return next;
+  }
+
+  private log(line: string): void {
+    const runId = this.currentRun?.run_id ?? this.state.run_id;
+    if (runId) appendUpdateRunLog(runId, line);
+  }
+
   private progress(phase: UpdateState["phase"], message: string, detail?: string): void {
-    this.persist({ progress_message: message }, phase);
+    this.persist({}, phase);
+    this.log(`phase=${phase}${detail ? ` detail=${JSON.stringify(detail)}` : ""}`);
     this.options.broadcastProgress({ phase, message, detail });
   }
 
+  private handleUpdaterEvent(payload: AgentBridgeEvent): void {
+    if (!this.currentRun) return;
+    if (payload.type === "snapshot") {
+      this.patchRun((record) => ({
+        ...record,
+        agent: {
+          ...record.agent,
+          session_id: payload.snapshot.sessionId ?? record.agent.session_id,
+          status: payload.snapshot.isStreaming ? "streaming" : record.agent.status,
+        },
+      }));
+      return;
+    }
+    if (payload.type !== "event") return;
+    const event = payload.event as { type?: string; summary?: string; message?: string };
+    if (!event.type) return;
+    const agentEvent =
+      event.type === "tool_start" || event.type === "tool_end" || event.type === "message"
+        ? event.type
+        : event.type === "agent_end"
+          ? "agent_end"
+          : undefined;
+    if (!agentEvent) return;
+    this.patchRun((record) => ({
+      ...record,
+      agent: {
+        ...record.agent,
+        status: agentEvent === "agent_end" ? "completed" : "streaming",
+        last_event: agentEvent,
+        tool_count:
+          agentEvent === "tool_start"
+            ? (record.agent.tool_count ?? 0) + 1
+            : record.agent.tool_count,
+        ended_at: agentEvent === "agent_end" ? new Date().toISOString() : record.agent.ended_at,
+        summary:
+          agentEvent === "agent_end"
+            ? (event.summary ?? event.message ?? record.agent.summary)
+            : record.agent.summary,
+      },
+    }));
+    this.log(`agent_event=${event.type}`);
+  }
+
   async recover(): Promise<void> {
+    rmSync(join(getUpdatesPath(), "context"), { recursive: true, force: true });
+    const run =
+      (this.state.run_id ? readUpdateRunRecord(this.state.run_id) : null) ??
+      (RUNNING_PHASES.includes(this.state.phase) ? readNewestUpdateRunRecord() : null);
+    if (run) this.currentRun = run;
+
     const directoryRecovery = recoverInterruptedPromotion();
     if (directoryRecovery !== "none") {
       if (directoryRecovery === "candidate-promoted") rollbackPromotion();
-      this.persist({ error: `Recovered interrupted promotion: ${directoryRecovery}.` }, "failed");
+      this.failRecoveredRun(
+        makeFailure(
+          "PROMOTION_SWAP",
+          `Recovered interrupted promotion: ${directoryRecovery}.`,
+          "promotion",
+        ),
+      );
+    } else if (run?.promotion.status === "health_ok") {
+      this.progress("promoting", "Finalizing a health-confirmed update after restart");
+      finalizePromotion();
+      const candidateCommit = run.candidate_commit ?? run.promotion.candidate_commit;
+      if (!candidateCommit) {
+        this.failRecoveredRun(
+          makeFailure(
+            "PROMOTION_FINALIZE",
+            "Recovered update is missing candidate commit.",
+            "promotion",
+          ),
+        );
+      } else {
+        writeInstallationMetadata({
+          installed_version: run.target_version,
+          customized_head_commit: candidateCommit,
+          last_healthy_at: new Date().toISOString(),
+        });
+        this.writeRun({
+          ...run,
+          promotion: {
+            ...run.promotion,
+            status: "finalized",
+            finalized_at: new Date().toISOString(),
+          },
+          outcome: "completed",
+          finished_at: new Date().toISOString(),
+        });
+        this.persist({ error: null, scheduled_for_quit: false }, "completed");
+      }
     } else if (
       (this.state.phase === "promoting" || this.state.phase === "awaiting-health-check") &&
       existsSync(getPreviousPath())
     ) {
       this.progress("rolling-back", "Restoring the previous version after an interrupted launch");
       rollbackPromotion();
-      this.persist(
-        { error: "The interrupted promoted version was rolled back before startup." },
-        "failed",
+      this.failRecoveredRun(
+        makeFailure(
+          "PROMOTION_HEALTH",
+          "The interrupted promoted version was rolled back before startup.",
+          "promotion",
+        ),
       );
     } else if (
       [
@@ -128,31 +338,68 @@ export class UpdateManager {
       ].includes(this.state.phase)
     ) {
       removeCandidate();
-      this.persist({ error: "Interrupted update preparation was cleaned up." }, "failed");
+      this.failRecoveredRun(
+        makeFailure("VALIDATION", "Interrupted update preparation was cleaned up.", "preflight"),
+      );
     } else if (this.state.phase === "rolling-back") {
       rollbackPromotion();
-      this.persist({ error: "Interrupted rollback was completed." }, "failed");
+      this.failRecoveredRun(
+        makeFailure("PROMOTION_HEALTH", "Interrupted rollback was completed.", "promotion"),
+      );
     } else if (this.state.phase === "ready-to-promote") {
-      removeCandidate();
-      this.persist(
-        { error: "A validated candidate was left pending; the current version was kept." },
-        "failed",
+      this.failRecoveredRun(
+        makeFailure(
+          "PROMOTION_SWAP",
+          "A validated candidate was left pending; inspect candidate before retrying.",
+          "promotion",
+        ),
       );
     } else if (this.state.phase === "completed") {
       rmSync(getPreviousPath(), { recursive: true, force: true });
     }
     await this.validateRecoveredInstallationMetadata();
+    if (this.state.phase === "failed") this.options.broadcastState(this.getState());
+  }
+
+  private failRecoveredRun(failure: UpdateFailure): void {
+    const run = this.currentRun;
+    if (run) {
+      appendUpdateRunLog(
+        run.run_id,
+        `failure code=${failure.code} message=${JSON.stringify(failure.message)}`,
+      );
+      this.writeRun({
+        ...run,
+        failure,
+        outcome: "failed",
+        finished_at: new Date().toISOString(),
+        promotion:
+          failure.step === "promotion"
+            ? {
+                ...run.promotion,
+                status: run.promotion.status === "health_ok" ? "failed" : "rolled_back",
+                error: failure.message,
+                rollback_reason: failure.message,
+              }
+            : run.promotion,
+      });
+    }
+    this.persist(
+      {
+        error: failure.message,
+        scheduled_for_quit: false,
+        run_id: run?.run_id ?? this.state.run_id,
+      },
+      "failed",
+    );
   }
 
   private async validateRecoveredInstallationMetadata(): Promise<void> {
     if (!existsSync(getInstallationMetadataPath()) || !existsSync(getActivePath())) return;
     try {
-      await assertCleanWorkspace(getActivePath());
-      const installation = readInstallationMetadata();
-      assertInstallationMetadataMatchesActive(installation, await getGitHead(getActivePath()));
+      readAndValidateInstallationAgainstActive({ repair: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("uncommitted changes")) return;
       this.persist({ error: message }, "failed");
     }
   }
@@ -176,17 +423,15 @@ export class UpdateManager {
     if (!this.options.manifestUrl || !this.options.repositoryUrl || this.running)
       return this.getState();
     const installation = readInstallationMetadata();
-    let response: Response;
+    const wasFailed = this.state.phase === "failed";
     try {
-      response = await fetch(this.options.manifestUrl, {
+      const response = await fetch(this.options.manifestUrl, {
         signal: AbortSignal.timeout(10_000),
         cache: "no-store",
       });
       if (response.status === 204) {
-        this.persist(
-          { manifest: null, to_version: null, scheduled_for_quit: false, error: null },
-          "idle",
-        );
+        rmSync(manifestPath(), { force: true });
+        if (!wasFailed) this.persist({ scheduled_for_quit: false, error: null }, "idle");
         return this.getState();
       }
       if (!response.ok) throw new Error(`Manifest request failed (${response.status}).`);
@@ -196,28 +441,21 @@ export class UpdateManager {
         this.options.repositoryUrl,
       );
       mkdirSync(getUpdatesPath(), { recursive: true });
-      writeFileSync(
-        join(getUpdatesPath(), "manifest.json"),
-        `${JSON.stringify(manifest, null, 2)}\n`,
-      );
-      this.persist(
-        {
-          from_version: installation.installed_version,
-          to_version: manifest.version,
-          manifest,
-          scheduled_for_quit: this.state.scheduled_for_quit,
-          dismissed_for_session: false,
-          error: null,
-        },
-        this.state.scheduled_for_quit ? "scheduled" : "available",
-      );
+      writeFileSync(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`);
+      if (!wasFailed) {
+        this.persist(
+          {
+            scheduled_for_quit: this.state.scheduled_for_quit,
+            error: null,
+          },
+          this.state.scheduled_for_quit ? "scheduled" : "available",
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("not newer")) {
-        this.persist(
-          { manifest: null, to_version: null, scheduled_for_quit: false, error: null },
-          "idle",
-        );
+        rmSync(manifestPath(), { force: true });
+        if (!wasFailed) this.persist({ scheduled_for_quit: false, error: null }, "idle");
         return this.getState();
       }
       console.warn("[UpdateManager] Update check failed:", message);
@@ -226,25 +464,23 @@ export class UpdateManager {
   }
 
   scheduleForQuit(): UpdateState {
-    if (!this.state.manifest) throw new Error("No update is available.");
-    this.persist({ scheduled_for_quit: true, dismissed_for_session: false }, "scheduled");
+    if (!readManifestFile()) throw new Error("No update is available.");
+    this.persist({ scheduled_for_quit: true }, "scheduled");
     return this.getState();
   }
 
   announceScheduledQuit(): UpdateState {
-    if (!this.state.scheduled_for_quit || !this.state.manifest) return this.getState();
-    this.persist(
-      { progress_message: "Scheduled update will begin when Pipper quits." },
-      "scheduled",
-    );
+    if (!this.state.scheduled_for_quit || !readManifestFile()) return this.getState();
+    this.options.broadcastProgress({
+      phase: "scheduled",
+      message: "Scheduled update will begin when Pipper quits.",
+    });
     return this.getState();
   }
 
   dismiss(): UpdateState {
-    this.persist(
-      { dismissed_for_session: true, scheduled_for_quit: false },
-      this.state.manifest ? "available" : "idle",
-    );
+    const manifest = readManifestFile();
+    this.persist({ scheduled_for_quit: false, error: null }, manifest ? "available" : "idle");
     return this.getState();
   }
 
@@ -252,11 +488,9 @@ export class UpdateManager {
     this.cancelled = true;
     await this.options.agent.abortUpdater();
     this.healthResolve?.(false);
-    if (!this.running)
-      this.persist(
-        { scheduled_for_quit: false, progress_message: null },
-        this.state.manifest ? "available" : "idle",
-      );
+    if (!this.running) {
+      this.persist({ scheduled_for_quit: false }, readManifestFile() ? "available" : "idle");
+    }
     return { success: false, cancelled: true };
   }
 
@@ -269,35 +503,75 @@ export class UpdateManager {
   }
 
   private ensureNotCancelled(): void {
-    if (this.cancelled) throw new Error("Update cancelled.");
+    if (this.cancelled)
+      throwUpdateFailure(makeFailure("AGENT_CANCELLED", "Update cancelled.", "agent"));
+  }
+
+  private async createRunRecord(manifest: UpdateManifest): Promise<UpdateRunRecord> {
+    const runId = createRunId();
+    const activeHead = await getGitHead(getActivePath());
+    const prNumber = getUpdatePrNumber(manifest, this.options.repositoryUrl!);
+    const record: UpdateRunRecord = {
+      run_id: runId,
+      started_at: new Date().toISOString(),
+      installed_version_at_start: readInstallationMetadata().installed_version,
+      target_version: manifest.version,
+      pr_url: manifest.pr_url,
+      pr_number: prNumber,
+      git_ref: `refs/pipper-update/pr-${prNumber}`,
+      files_changes: manifest.files_changes,
+      active_head_at_start: activeHead,
+      agent: { status: "pending", tool_count: 0 },
+      promotion: { status: "pending" },
+      log_path: getRunLogPath(runId),
+    };
+    this.writeRun(record);
+    return record;
+  }
+
+  private async getCandidateDirtyFiles(): Promise<string[]> {
+    const status = (await execFileAsync("git", ["status", "--short"], { cwd: getCandidatePath() }))
+      .stdout;
+    return dirtyFilesFromStatus(status);
   }
 
   private async run(): Promise<UpdateRunResult> {
-    const manifest = this.state.manifest;
-    if (!manifest) return { success: false, error: "No update is available." };
-    if (this.options.agent.isEditorActive() || this.options.agent.isEditorBusy()) {
-      this.persist({
-        error: "Exit Edit Mode and accept or reject pending changes before updating.",
-      });
-      return {
-        success: false,
-        error: "Exit Edit Mode and accept or reject pending changes before updating.",
-      };
+    const manifest = readManifestFile();
+    if (!manifest) {
+      this.persist({ error: "No update is available.", scheduled_for_quit: false }, "failed");
+      return { success: false, error: "No update is available." };
     }
     this.cancelled = false;
-    const installation = readInstallationMetadata();
     const started = Date.now();
+    const record = await this.createRunRecord(manifest);
+    this.persist({ run_id: record.run_id, error: null }, "preparing");
+    appendUpdateRunLog(record.run_id, "run=started");
+
     try {
-      await assertCleanWorkspace(getActivePath());
-      const activeStartHead = await getGitHead(getActivePath());
-      assertInstallationMetadataMatchesActive(installation, activeStartHead);
+      if (this.options.agent.isEditorActive() || this.options.agent.isEditorBusy()) {
+        throwUpdateFailure(
+          makeFailure(
+            "ACTIVE_DRIFT",
+            "Exit Edit Mode and accept or reject pending changes before updating.",
+            "preflight",
+          ),
+        );
+      }
+
       await this.options.prepareForUpdate();
       this.progress("preparing", "Preserving your current version");
+      await normalizeActiveBeforeUpdate(getActivePath());
+      const installation = readAndValidateInstallationAgainstActive({ repair: true });
+      this.patchRun((run) => ({
+        ...run,
+        installed_version_at_start: installation.installed_version,
+        active_head_at_start: readInstallationMetadata().customized_head_commit,
+      }));
       const candidateSnapshot = await createCandidateFromActive();
       this.ensureNotCancelled();
 
       this.progress("fetching-upstream", "Downloading pinned upstream changes");
-      const context = await acquireUpdateContext(
+      const context = await fetchUpstreamRef(
         getCandidatePath(),
         manifest,
         this.options.repositoryUrl!,
@@ -305,32 +579,65 @@ export class UpdateManager {
       this.ensureNotCancelled();
 
       this.progress("agent-running", "Adapting the update to your customizations");
+      this.patchRun((run) => ({
+        ...run,
+        agent: { ...run.agent, status: "activating", activated_at: new Date().toISOString() },
+      }));
       await this.options.agent.activateUpdater(getCandidatePath());
+      this.patchRun((run) => ({
+        ...run,
+        agent: { ...run.agent, status: "prompt_sent", prompt_sent_at: new Date().toISOString() },
+      }));
+      appendUpdateRunLog(record.run_id, "agent=prompt_sent");
       const summary = await this.options.agent.sendUpdaterPrompt(buildUpdaterPrompt(context));
-      this.persist({ agent_summary: summary });
+      this.patchRun((run) => ({
+        ...run,
+        agent: {
+          ...run.agent,
+          status: "completed",
+          ended_at: run.agent.ended_at ?? new Date().toISOString(),
+          summary: run.agent.summary ?? summary,
+        },
+      }));
       this.ensureNotCancelled();
+
+      const dirtyFiles = await this.getCandidateDirtyFiles();
+      this.patchRun((run) => ({
+        ...run,
+        agent: { ...run.agent, candidate_dirty_files: dirtyFiles },
+      }));
+      if (dirtyFiles.length === 0) {
+        throwUpdateFailure(
+          makeFailure("VALIDATION", "Update agent produced no candidate changes.", "agent"),
+        );
+      }
 
       const candidatePackagePath = join(getCandidatePath(), "package.json");
       const candidatePackage = JSON.parse(readFileSync(candidatePackagePath, "utf8"));
+      let packageVersionChanged = false;
       if (candidatePackage.version !== manifest.version) {
         candidatePackage.version = manifest.version;
         writeFileSync(candidatePackagePath, `${JSON.stringify(candidatePackage, null, 2)}\n`);
+        packageVersionChanged = true;
       }
 
-      const packageChanged = (
-        await execFileAsync("git", ["diff", "--name-only", "HEAD"], { cwd: getCandidatePath() })
-      ).stdout
-        .split("\n")
-        .includes("package.json");
+      const packageChanged = packageVersionChanged || dirtyFiles.includes("package.json");
       this.progress("installing-dependencies", "Installing isolated candidate dependencies");
       await prepareCandidateDependencies(packageChanged);
       this.ensureNotCancelled();
 
       this.progress("validating", "Validating the updated application");
       const validationResults = await validateCandidate(getCandidatePath(), manifest);
+      this.patchRun((run) => ({ ...run, validation_results: validationResults }));
       await assertCleanWorkspace(getActivePath());
       if ((await getGitHead(getActivePath())) !== candidateSnapshot.active_head) {
-        throw new Error("Active workspace changed while the update candidate was being prepared.");
+        throwUpdateFailure(
+          makeFailure(
+            "ACTIVE_DRIFT",
+            "Active workspace changed while the update candidate was being prepared.",
+            "preflight",
+          ),
+        );
       }
       await execFileAsync("git", ["add", "-A"], { cwd: getCandidatePath() });
       await execFileAsync(
@@ -339,11 +646,31 @@ export class UpdateManager {
         { cwd: getCandidatePath() },
       );
       const candidateCommit = await getGitHead(getCandidatePath());
-      this.persist({ validation_results: validationResults, candidate_commit: candidateCommit });
+      this.patchRun((run) => ({
+        ...run,
+        candidate_commit: candidateCommit,
+        promotion: { ...run.promotion, candidate_commit: candidateCommit },
+      }));
 
       this.progress("ready-to-promote", "Candidate passed validation");
       this.progress("promoting", "Promoting the validated update");
-      promoteCandidate();
+      const receipt = promoteCandidate();
+      assertPostSwapInvariants(receipt, candidateCommit);
+      this.patchRun((run) => ({
+        ...run,
+        promotion: {
+          ...run.promotion,
+          status: "swapped",
+          candidate_commit: candidateCommit,
+          active_head_before: receipt.active_head_before,
+          active_head_after_swap: receipt.active_head_after,
+          swapped_at: receipt.swapped_at,
+        },
+      }));
+      appendUpdateRunLog(
+        record.run_id,
+        `promotion=swapped active_head_after=${receipt.active_head_after}`,
+      );
       this.progress(
         "awaiting-health-check",
         "Waiting for the updated application to become healthy",
@@ -357,8 +684,20 @@ export class UpdateManager {
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
       ]);
       this.healthResolve = null;
-      if (!healthy)
-        throw new Error("The updated application did not report healthy within 30 seconds.");
+      if (!healthy) {
+        appendUpdateRunLog(record.run_id, "health=false reason=timeout_or_rejected");
+        throwUpdateFailure(
+          makeFailure(
+            "PROMOTION_HEALTH",
+            "The updated application did not report healthy within 30 seconds.",
+            "promotion",
+          ),
+        );
+      }
+      this.patchRun((run) => ({
+        ...run,
+        promotion: { ...run.promotion, status: "health_ok", health_at: new Date().toISOString() },
+      }));
       finalizePromotion();
       const nextInstallation: InstallationMetadata = {
         installed_version: manifest.version,
@@ -366,24 +705,38 @@ export class UpdateManager {
         last_healthy_at: new Date().toISOString(),
       };
       writeInstallationMetadata(nextInstallation);
-      this.persist(
-        {
-          scheduled_for_quit: false,
-          progress_message: `Updated in ${Date.now() - started}ms`,
-          error: null,
+      this.patchRun((run) => ({
+        ...run,
+        promotion: {
+          ...run.promotion,
+          status: "finalized",
+          finalized_at: new Date().toISOString(),
         },
-        "completed",
-      );
+        outcome: "completed",
+        finished_at: new Date().toISOString(),
+      }));
+      appendUpdateRunLog(record.run_id, `run=completed duration_ms=${Date.now() - started}`);
+      this.persist({ scheduled_for_quit: false, error: null }, "completed");
       return { success: true };
     } catch (error: any) {
-      const message = error instanceof Error ? error.message : String(error);
-      const validationResults = Array.isArray(error?.results)
-        ? error.results
-        : this.state.validation_results;
+      const failure = failureFromError(error, this.state.phase);
+      const validationResults = Array.isArray(error?.results) ? error.results : undefined;
+      if (validationResults) {
+        this.patchRun((run) => ({ ...run, validation_results: validationResults }));
+      }
       if (existsSync(getPreviousPath())) {
         try {
-          this.progress("rolling-back", "Restoring the previous working version", message);
+          this.progress("rolling-back", "Restoring the previous working version", failure.message);
           rollbackPromotion();
+          this.patchRun((run) => ({
+            ...run,
+            promotion: {
+              ...run.promotion,
+              status: "rolled_back",
+              error: failure.message,
+              rollback_reason: failure.message,
+            },
+          }));
           await this.options.restartPromotedApp();
         } catch (rollbackError) {
           console.error("[UpdateManager] Rollback failed:", rollbackError);
@@ -392,19 +745,51 @@ export class UpdateManager {
         removeCandidate();
       }
       await this.options.agent.disposeUpdater().catch(() => {});
+      this.patchRun((run) => ({
+        ...run,
+        failure,
+        outcome: this.cancelled ? "cancelled" : "failed",
+        finished_at: new Date().toISOString(),
+        agent:
+          failure.step === "agent"
+            ? {
+                ...run.agent,
+                status: this.cancelled ? "cancelled" : "failed",
+                error: failure.message,
+                ended_at: run.agent.ended_at ?? new Date().toISOString(),
+              }
+            : run.agent,
+        promotion:
+          failure.step === "promotion" && run.promotion.status !== "rolled_back"
+            ? { ...run.promotion, status: "failed", error: failure.message }
+            : run.promotion,
+      }));
+      appendUpdateRunLog(
+        record.run_id,
+        `failure code=${failure.code} message=${JSON.stringify(failure.message)}`,
+      );
       this.persist(
-        { error: message, validation_results: validationResults, scheduled_for_quit: false },
+        { error: failure.message, scheduled_for_quit: false, run_id: record.run_id },
         "failed",
       );
-      return { success: false, cancelled: this.cancelled, error: message };
+      return { success: false, cancelled: this.cancelled, error: failure.message };
     } finally {
       await this.options.agent.disposeUpdater().catch(() => {});
     }
   }
 
   markActiveHealthy(version: string): boolean {
-    if (this.state.phase !== "awaiting-health-check" || version !== this.state.to_version)
+    const run =
+      this.currentRun ?? (this.state.run_id ? readUpdateRunRecord(this.state.run_id) : null);
+    if (this.state.phase !== "awaiting-health-check" || version !== run?.target_version) {
+      if (run)
+        appendUpdateRunLog(
+          run.run_id,
+          `health=false reason=version_or_phase_mismatch version=${version}`,
+        );
       return false;
+    }
+    appendUpdateRunLog(run.run_id, "health=true");
     this.healthResolve?.(true);
     return true;
   }

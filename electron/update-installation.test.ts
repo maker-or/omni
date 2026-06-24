@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { InstallationMetadata } from "../contracts/updates.ts";
 import {
   STALE_INSTALLATION_METADATA_ERROR,
   assertInstallationMetadataMatchesActive,
+  readAndValidateInstallationAgainstActive,
+  writeInstallationMetadata,
 } from "./update-installation.ts";
 
 const installation: InstallationMetadata = {
@@ -22,5 +28,48 @@ describe("installation metadata invariants", () => {
     expect(() => assertInstallationMetadataMatchesActive(installation, "different-head")).toThrow(
       STALE_INSTALLATION_METADATA_ERROR,
     );
+  });
+
+  test("repairs clean active HEAD without changing installed version", () => {
+    const root = mkdtempSync(join(tmpdir(), "pipper-installation-"));
+    try {
+      const activePath = join(root, "active");
+      const installationPath = join(root, "installation.json");
+      execFileSync("git", ["init", activePath]);
+      writeFileSync(join(activePath, "package.json"), '{"version":"9.9.9"}\n');
+      execFileSync("git", ["add", "."], { cwd: activePath });
+      execFileSync("git", ["commit", "-m", "init"], {
+        cwd: activePath,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "Pipper",
+          GIT_AUTHOR_EMAIL: "pipper@internal",
+          GIT_COMMITTER_NAME: "Pipper",
+          GIT_COMMITTER_EMAIL: "pipper@internal",
+        },
+      });
+      const head = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: activePath,
+        encoding: "utf8",
+      }).trim();
+      writeInstallationMetadata(
+        {
+          installed_version: "0.1.0",
+          customized_head_commit: "old",
+          last_healthy_at: "2026-06-23T00:00:00.000Z",
+        },
+        installationPath,
+      );
+
+      const repaired = readAndValidateInstallationAgainstActive({
+        repair: true,
+        activePath,
+        installationPath,
+      });
+      expect(repaired.customized_head_commit).toBe(head);
+      expect(repaired.installed_version).toBe("0.1.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

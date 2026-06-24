@@ -1,5 +1,5 @@
 import { Check, Circle, CircleNotch } from "@phosphor-icons/react";
-import type { UpdatePhase } from "../../contracts/updates.ts";
+import type { UpdatePhase, UpdateRunRecord } from "../../contracts/updates.ts";
 
 const STEPS: Array<{ phases: UpdatePhase[]; label: string }> = [
   { phases: ["preparing"], label: "Preserved your current version" },
@@ -22,7 +22,20 @@ const ORDER: UpdatePhase[] = [
   "completed",
 ];
 
-export function UpdateProgressView({ phase }: { phase: UpdatePhase }) {
+function detailForStep(label: string, run: UpdateRunRecord | null): string | null {
+  if (!run) return null;
+  if (label.includes("Adapted")) return run.agent.status.replaceAll("_", " ");
+  if (label.includes("Promoted")) return run.promotion.status.replaceAll("_", " ");
+  return null;
+}
+
+export function UpdateProgressView({
+  phase,
+  run,
+}: {
+  phase: UpdatePhase;
+  run?: UpdateRunRecord | null;
+}) {
   const current = ORDER.indexOf(phase);
   return (
     <div className="space-y-2">
@@ -43,6 +56,11 @@ export function UpdateProgressView({ phase }: { phase: UpdatePhase }) {
             <span className={complete || active ? "text-foreground" : "text-muted-foreground"}>
               {step.label}
             </span>
+            {detailForStep(step.label, run ?? null) && (
+              <span className="text-xs text-muted-foreground">
+                {detailForStep(step.label, run ?? null)}
+              </span>
+            )}
           </div>
         );
       })}

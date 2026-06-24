@@ -15,22 +15,24 @@ import {
 import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import os from "node:os";
-import { exec } from "node:child_process";
+import { exec, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { app } from "electron";
 import type { FSWatcher } from "node:fs";
 import { getMiseExecCommand } from "./dependency-installer";
+import type { PromotionReceipt } from "../contracts/updates.ts";
 
 const execAsync = promisify(exec);
 
 export function getPipperLibraryPath(): string {
+  if (process.env.PIPPER_LIBRARY_PATH) return process.env.PIPPER_LIBRARY_PATH;
   try {
     if (process.platform === "darwin") {
       return join(os.homedir(), "Library/pipper");
     }
     const appData = app.getPath("appData");
     return join(appData, "pipper");
-  } catch (err) {
+  } catch {
     const home = os.homedir();
     if (process.platform === "win32") {
       return join(process.env.APPDATA || join(home, "AppData/Roaming"), "pipper");
@@ -103,9 +105,13 @@ const TEMPLATE_EXCLUSIONS = new Set([
   "updates",
   "installation.json",
 ]);
+const MANAGED_MARKDOWN_ALLOWLIST = new Set(["AGENT.md", "DESIGN.md", "patch.md"]);
 
 function shouldExclude(name: string, policy: CopyPolicy): boolean {
   if (COMMON_EXCLUSIONS.has(name) || name.endsWith(".log")) return true;
+  if (policy === "managed-workspace" && name.endsWith(".md")) {
+    return !MANAGED_MARKDOWN_ALLOWLIST.has(name);
+  }
   return policy === "packaged-template" && TEMPLATE_EXCLUSIONS.has(name);
 }
 
@@ -237,6 +243,10 @@ export function removeCandidate(): void {
   rmSync(getCandidateDependenciesPath(), { recursive: true, force: true });
 }
 
+export async function normalizeActiveBeforeUpdate(activePath = getActivePath()): Promise<void> {
+  await execAsync("git reset --hard HEAD && git clean -fd", { cwd: activePath });
+}
+
 export async function prepareCandidateDependencies(packageChanged: boolean): Promise<void> {
   const candidate = getCandidatePath();
   const dependencies = getCandidateDependenciesPath();
@@ -256,18 +266,45 @@ export async function prepareCandidateDependencies(packageChanged: boolean): Pro
   ensureNodeModulesSymlink(join(candidate, "node_modules"), join(dependencies, "node_modules"));
 }
 
-export function promoteCandidate(): void {
+function gitHeadSync(path: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim();
+}
+
+export function promoteCandidate(): PromotionReceipt {
   const active = getActivePath();
   const candidate = getCandidatePath();
   const previous = getPreviousPath();
   if (existsSync(previous)) throw new Error("Previous workspace already exists.");
   if (!existsSync(candidate)) throw new Error("Candidate workspace does not exist.");
+  const activeHeadBefore = gitHeadSync(active);
+  const candidateHead = gitHeadSync(candidate);
   renameSync(active, previous);
   try {
     renameSync(candidate, active);
   } catch (error) {
     renameSync(previous, active);
     throw error;
+  }
+  return {
+    previous_path: previous,
+    active_head_before: activeHeadBefore,
+    active_head_after: gitHeadSync(active),
+    candidate_head: candidateHead,
+    swapped_at: new Date().toISOString(),
+  };
+}
+
+export function assertPostSwapInvariants(receipt: PromotionReceipt, candidateCommit: string): void {
+  const active = getActivePath();
+  const candidate = getCandidatePath();
+  const previous = getPreviousPath();
+  if (!existsSync(active)) throw new Error("Promotion swap invariant failed: active is missing.");
+  if (!existsSync(previous))
+    throw new Error("Promotion swap invariant failed: previous is missing.");
+  if (existsSync(candidate))
+    throw new Error("Promotion swap invariant failed: candidate still exists.");
+  if (receipt.candidate_head !== candidateCommit || receipt.active_head_after !== candidateCommit) {
+    throw new Error("Promotion swap invariant failed: active HEAD does not match candidate.");
   }
 }
 

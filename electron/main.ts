@@ -851,6 +851,10 @@ function registerIpc(): void {
 
   ipcMain.handle("update:check", () => requireUpdateManager().check());
   ipcMain.handle("update:getState", () => requireUpdateManager().getState());
+  ipcMain.handle("update:getManifest", () => requireUpdateManager().getManifest());
+  ipcMain.handle("update:getInstallation", () => requireUpdateManager().getInstallation());
+  ipcMain.handle("update:getRun", (_event, runId: string) => requireUpdateManager().getRun(runId));
+  ipcMain.handle("update:getUpdaterSnapshot", () => requireUpdateManager().getUpdaterSnapshot());
   ipcMain.handle("update:scheduleForQuit", () => requireUpdateManager().scheduleForQuit());
   ipcMain.handle("update:startNow", () => requireUpdateManager().startNow());
   ipcMain.handle("update:dismiss", () => requireUpdateManager().dismiss());
@@ -1537,6 +1541,7 @@ app.whenReady().then(async () => {
     agent: agentManager,
     broadcastState: (state) => broadcastToWindows("update:stateChanged", state),
     broadcastProgress: (progress) => broadcastToWindows("update:progress", progress),
+    broadcastUpdaterEvent: (payload) => broadcastToWindows("updater:event", payload),
     prepareForUpdate: prepareProcessesForUpdate,
     restartPromotedApp: restartAfterPromotion,
   });

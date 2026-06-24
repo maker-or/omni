@@ -11,7 +11,14 @@ import type {
   AgentUiResponse,
 } from "../contracts/agent.ts";
 import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { UpdateProgress, UpdateRunResult, UpdateState } from "../contracts/updates.ts";
+import type {
+  InstallationMetadata,
+  UpdateManifest,
+  UpdateProgress,
+  UpdateRunRecord,
+  UpdateRunResult,
+  UpdateState,
+} from "../contracts/updates.ts";
 import type {
   LauncherDownloadProgress,
   LauncherUpdateDiagnostics,
@@ -58,6 +65,13 @@ const api = {
   update: {
     check: (): Promise<UpdateState> => ipcRenderer.invoke("update:check"),
     getState: (): Promise<UpdateState> => ipcRenderer.invoke("update:getState"),
+    getManifest: (): Promise<UpdateManifest | null> => ipcRenderer.invoke("update:getManifest"),
+    getInstallation: (): Promise<InstallationMetadata> =>
+      ipcRenderer.invoke("update:getInstallation"),
+    getRun: (runId: string): Promise<UpdateRunRecord | null> =>
+      ipcRenderer.invoke("update:getRun", runId),
+    getUpdaterSnapshot: (): Promise<AgentRuntimeSnapshot> =>
+      ipcRenderer.invoke("update:getUpdaterSnapshot"),
     scheduleForQuit: (): Promise<UpdateState> => ipcRenderer.invoke("update:scheduleForQuit"),
     startNow: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:startNow"),
     dismiss: (): Promise<UpdateState> => ipcRenderer.invoke("update:dismiss"),
@@ -75,6 +89,12 @@ const api = {
         callback(progress);
       ipcRenderer.on("update:progress", listener);
       return () => ipcRenderer.removeListener("update:progress", listener);
+    },
+    onUpdaterEvent: (callback: (payload: AgentBridgeEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: AgentBridgeEvent) =>
+        callback(payload);
+      ipcRenderer.on("updater:event", listener);
+      return () => ipcRenderer.removeListener("updater:event", listener);
     },
   },
   launcherUpdate: {

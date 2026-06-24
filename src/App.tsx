@@ -34,6 +34,7 @@ export default function App() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const checkForUpdates = useUpdateStore((state) => state.check);
   const updateState = useUpdateStore((state) => state.state);
+  const updateRun = useUpdateStore((state) => state.run);
   const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
 
   const [projectsList, setProjectsList] = useState<any[]>([]);
@@ -73,10 +74,10 @@ export default function App() {
   }, [initializeLauncherUpdates]);
 
   useEffect(() => {
-    if (updateState?.phase === "awaiting-health-check" && updateState.to_version) {
-      void window.omni.update.markActiveHealthy(updateState.to_version);
+    if (updateState?.phase === "awaiting-health-check" && updateRun?.target_version) {
+      void window.omni.update.markActiveHealthy(updateRun.target_version);
     }
-  }, [updateState?.phase, updateState?.to_version]);
+  }, [updateState?.phase, updateRun?.target_version]);
 
   const handleToggleDropdown = async () => {
     if (!isDropdownOpen) {

@@ -12,6 +12,7 @@ import { LauncherUpdateDialog, LauncherUpdateNotice } from "@/components/launche
 export function LaunchApp() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const updateState = useUpdateStore((state) => state.state);
+  const updateRun = useUpdateStore((state) => state.run);
   const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -86,10 +87,10 @@ export function LaunchApp() {
   }, [initializeLauncherUpdates]);
 
   useEffect(() => {
-    if (updateState?.phase === "awaiting-health-check" && updateState.to_version) {
-      void window.omni.update.markActiveHealthy(updateState.to_version);
+    if (updateState?.phase === "awaiting-health-check" && updateRun?.target_version) {
+      void window.omni.update.markActiveHealthy(updateRun.target_version);
     }
-  }, [updateState?.phase, updateState?.to_version]);
+  }, [updateState?.phase, updateRun?.target_version]);
 
   useEffect(() => {
     if (window.omni?.launch?.isReady) {
