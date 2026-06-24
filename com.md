@@ -8,12 +8,12 @@ Do not expand scope into broader UX polish or redesign work unless a fix here re
 
 ## Scope
 
-| # | Issue | Verified | Beta-fixable |
-|---|-------|----------|--------------|
-| 1 | Closing edit mode should delete the session; reopening must start with no prior logs | Yes | Yes |
-| 2 | Within a session, conversation should feel back-and-forth with the agent | Partially (agent supports it; UI limits it) | Yes |
-| 3 | Companion window must not float above all desktop apps | Yes | Yes |
-| 4 | Overlay input and companion bottom input render user messages differently | Yes | Yes |
+| #   | Issue                                                                                | Verified                                    | Beta-fixable |
+| --- | ------------------------------------------------------------------------------------ | ------------------------------------------- | ------------ |
+| 1   | Closing edit mode should delete the session; reopening must start with no prior logs | Yes                                         | Yes          |
+| 2   | Within a session, conversation should feel back-and-forth with the agent             | Partially (agent supports it; UI limits it) | Yes          |
+| 3   | Companion window must not float above all desktop apps                               | Yes                                         | Yes          |
+| 4   | Overlay input and companion bottom input render user messages differently            | Yes                                         | Yes          |
 
 ---
 
@@ -81,13 +81,13 @@ If the user did not fully close the window, the same session and UI state remain
 
 ### Files involved
 
-| File | Role |
-|------|------|
-| `electron/agent.ts` | `activateEditor()`, `disposeEditor()`, `editorRecord`, `sendEditorPrompt()` |
-| `electron/main.ts` | `createCompanionWindow()`, `companion:open`, `companion:close`, `editor:dispose` IPC |
-| `src/components/companion-view.tsx` | `useEditorSession()` mount/unmount lifecycle |
-| `electron/preload.ts` | `editor.dispose`, `companion.close` bridge |
-| `src/electron.d.ts` | Type definitions for editor/companion IPC |
+| File                                | Role                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `electron/agent.ts`                 | `activateEditor()`, `disposeEditor()`, `editorRecord`, `sendEditorPrompt()`          |
+| `electron/main.ts`                  | `createCompanionWindow()`, `companion:open`, `companion:close`, `editor:dispose` IPC |
+| `src/components/companion-view.tsx` | `useEditorSession()` mount/unmount lifecycle                                         |
+| `electron/preload.ts`               | `editor.dispose`, `companion.close` bridge                                           |
+| `src/electron.d.ts`                 | Type definitions for editor/companion IPC                                            |
 
 ### Recommended fix (for coding agent)
 
@@ -163,12 +163,12 @@ Each completed agent turn reloads the main Pipper window. Conversation history r
 
 ### Files involved
 
-| File | Role |
-|------|------|
-| `src/components/companion-view.tsx` | `handleSend`, `visibleMessages` filtering, streaming gate |
-| `electron/agent.ts` | `sendEditorPrompt()`, `agent_end` → `reloadMainWindow` |
-| `electron/main.ts` | `reloadMainWindow` implementation (restarts Vite + reloads) |
-| `src/components/agent-panel.tsx` | Reference for follow-up/steer queue pattern (if porting) |
+| File                                | Role                                                        |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `src/components/companion-view.tsx` | `handleSend`, `visibleMessages` filtering, streaming gate   |
+| `electron/agent.ts`                 | `sendEditorPrompt()`, `agent_end` → `reloadMainWindow`      |
+| `electron/main.ts`                  | `reloadMainWindow` implementation (restarts Vite + reloads) |
+| `src/components/agent-panel.tsx`    | Reference for follow-up/steer queue pattern (if porting)    |
 
 ### Recommended fix (for coding agent)
 
@@ -209,8 +209,8 @@ companionWindow = new BrowserWindow({
 
 ### Files involved
 
-| File | Role |
-|------|------|
+| File               | Role                                            |
+| ------------------ | ----------------------------------------------- |
 | `electron/main.ts` | `createCompanionWindow()` BrowserWindow options |
 
 ### Recommended fix (for coding agent)
@@ -270,12 +270,12 @@ The agent already distinguishes sources in analytics (`overlay_comment` vs `comp
 
 ### Files involved
 
-| File | Role |
-|------|------|
-| `src/components/companion-view.tsx` | `onCommentAdded`, `handleSend`, message rendering loop |
+| File                                | Role                                                               |
+| ----------------------------------- | ------------------------------------------------------------------ |
+| `src/components/companion-view.tsx` | `onCommentAdded`, `handleSend`, message rendering loop             |
 | `src/components/pipper-overlay.tsx` | Overlay submit → `pipper:addComment` (does not render chat itself) |
-| `electron/main.ts` | `pipper:addComment` broadcast to companion |
-| `electron/agent.ts` | `buildMutationProperties()` source tagging |
+| `electron/main.ts`                  | `pipper:addComment` broadcast to companion                         |
+| `electron/agent.ts`                 | `buildMutationProperties()` source tagging                         |
 
 ### Recommended fix (for coding agent)
 
@@ -299,18 +299,18 @@ Do not change the overlay popup itself for beta unless needed — fix the compan
 
 ## IPC / state reference (quick lookup)
 
-| IPC / API | Direction | Purpose |
-|-----------|-----------|---------|
-| `companion:open` | renderer → main | Open/show companion window |
-| `companion:close` | renderer → main | Close companion window |
-| `editor:activate` | renderer → main | Start editor session |
-| `editor:dispose` | renderer → main | Tear down editor session |
-| `editor:sendPrompt` | renderer → main | Send user message to editor agent |
-| `pipper:enterEditMode` | renderer → main | Broadcast `editMode: true` |
-| `pipper:exitEditMode` | renderer → main | Broadcast `editMode: false` |
-| `pipper:addComment` | renderer → main | Overlay comment → companion auto-send |
-| `pipper:stateChanged` | main → all windows | Sync `editMode`, `processingId` |
-| `pipper:commentAdded` | main → companion | Overlay text forwarded to companion |
+| IPC / API              | Direction          | Purpose                               |
+| ---------------------- | ------------------ | ------------------------------------- |
+| `companion:open`       | renderer → main    | Open/show companion window            |
+| `companion:close`      | renderer → main    | Close companion window                |
+| `editor:activate`      | renderer → main    | Start editor session                  |
+| `editor:dispose`       | renderer → main    | Tear down editor session              |
+| `editor:sendPrompt`    | renderer → main    | Send user message to editor agent     |
+| `pipper:enterEditMode` | renderer → main    | Broadcast `editMode: true`            |
+| `pipper:exitEditMode`  | renderer → main    | Broadcast `editMode: false`           |
+| `pipper:addComment`    | renderer → main    | Overlay comment → companion auto-send |
+| `pipper:stateChanged`  | main → all windows | Sync `editMode`, `processingId`       |
+| `pipper:commentAdded`  | main → companion   | Overlay text forwarded to companion   |
 
 State store: `src/store/pipper-store.ts` (`editMode`, `processingId`).
 

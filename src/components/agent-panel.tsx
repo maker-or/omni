@@ -10,7 +10,6 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   PaperclipIcon,
-  StopIcon,
   TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
@@ -29,6 +28,7 @@ import { useAgentStore } from "@/store/agent-store";
 import { Streamdown } from "streamdown";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
+import { ContextWindowRing } from "@/components/ui/context-window-ring";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { cn } from "@/lib/utils";
@@ -1564,7 +1564,9 @@ export function AgentPanel() {
                   onFilesChange={handleFilesChange}
                   accept="image/png,image/jpeg,image/gif,image/webp"
                   maxFiles={5}
-                  hideSendButton={isStreaming}
+                  isStreaming={isStreaming}
+                  onStop={() => void handleAbort()}
+                  isStopping={isAborting}
                   sendLabel={isSubmitting ? "Sending" : "Send"}
                   leftSlot={({ openFilePicker }) => (
                     <Button
@@ -1622,26 +1624,7 @@ export function AgentPanel() {
                           >
                             {streamingBehavior === "followUp" ? "Next" : "Steer"}
                           </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            leadingIcon={StopIcon}
-                            disabled={isAborting}
-                            onClick={() => void handleAbort()}
-                          >
-                            {isAborting ? "Stopping…" : "Stop"}
-                          </Button>
                         </>
-                      )}
-                      {!isStreaming && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={Boolean(snapshot?.isCompacting || snapshot?.isRetrying)}
-                          onClick={() => void compact()}
-                        >
-                          {snapshot?.isCompacting ? "Compacting…" : "Compact"}
-                        </Button>
                       )}
                       {snapshot?.thinkingLevel !== undefined &&
                         snapshot?.thinkingLevel !== null && (
@@ -1765,19 +1748,25 @@ export function AgentPanel() {
 
               <div
                 data-pipper-id="stats-bar"
-                className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
+                className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground"
               >
-                <div className="flex flex-wrap items-center gap-2"></div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {snapshot?.stats && (
-                    <div className="flex items-center gap-2">
-                      <span>{snapshot.stats.tokens.total} tks</span>
-                      {snapshot.stats.cost > 0 && (
-                        <span className="opacity-70">(${snapshot.stats.cost.toFixed(4)})</span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {snapshot?.stats && (
+                  <>
+                    <ContextWindowRing
+                      contextUsage={snapshot.stats.contextUsage}
+                      contextWindowFallback={snapshot.model?.contextWindow}
+                      modelName={snapshot.model?.name}
+                      autoCompactionEnabled={snapshot.autoCompactionEnabled}
+                      sessionTokens={snapshot.stats.tokens.total}
+                      sessionCost={snapshot.stats.cost}
+                    />
+                    {snapshot.stats.cost > 0 && (
+                      <span className="tabular-nums opacity-70">
+                        (${snapshot.stats.cost.toFixed(4)})
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>

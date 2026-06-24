@@ -15,16 +15,17 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
+import { CircleIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { springs } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
 import { Icon } from "@/lib/icon-context";
+import { Elevated } from "@/lib/elevated";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
-import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PipperBeam } from "@/components/ui/pipper-beam";
 
@@ -91,6 +92,14 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   /** Accessible label for the send button. */
   sendLabel?: string;
   hideSendButton?: boolean;
+  /** When true, the send button morphs into a stop control that calls onStop. */
+  isStreaming?: boolean;
+  /** Called when the user clicks the stop control while isStreaming is true. */
+  onStop?: () => void;
+  /** Accessible label for the stop control. */
+  stopLabel?: string;
+  /** Disables the stop control while an abort is in flight. */
+  isStopping?: boolean;
   /** Controlled list of attached files. When undefined, attachment behavior
    *  is disabled (no drag-drop, no file input). */
   files?: File[];
@@ -177,6 +186,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       clickToFocus = true,
       sendLabel = "Send",
       hideSendButton = false,
+      isStreaming = false,
+      onStop,
+      stopLabel = "Stop",
+      isStopping = false,
       files,
       onFilesChange,
       accept = DEFAULT_ACCEPT,
@@ -221,6 +234,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
 
     const trimmed = value.trim();
     const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0);
+    const showActionButton = !hideSendButton || isStreaming;
+    const actionLabel = isStreaming ? (isStopping ? "Stopping…" : stopLabel) : sendLabel;
+    const actionDisabled = isStreaming ? isStopping : !canSend;
 
     // Edge = the box-shadow's 1px ring, recoloured in place per state so the
     // stroke gains contrast without ever appearing to thicken (no second
@@ -242,6 +258,15 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       if (!canSend) return;
       onSend?.(trimmed, filesArr);
     }, [canSend, onSend, trimmed, filesArr]);
+
+    const handleAction = useCallback(() => {
+      if (isStreaming) {
+        if (isStopping) return;
+        onStop?.();
+        return;
+      }
+      handleSend();
+    }, [handleSend, isStreaming, isStopping, onStop]);
 
     const handleKeyDown = useCallback(
       (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -488,17 +513,62 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {rightContent}
-                {!hideSendButton && (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="icon-sm"
-                    onClick={handleSend}
-                    disabled={!canSend}
-                    aria-label={sendLabel}
+                {showActionButton && (
+                  <Elevated
+                    offset={1}
+                    className={cn(
+                      shape.button,
+                      "inline-flex h-8 w-8 shrink-0",
+                      actionDisabled && "opacity-50 pointer-events-none",
+                    )}
                   >
-                    <Icon name="arrow-up" />
-                  </Button>
+                    <button
+                      type="button"
+                      onClick={handleAction}
+                      disabled={actionDisabled}
+                      aria-label={actionLabel}
+                      className={cn(
+                        "flex h-full w-full items-center justify-center outline-none cursor-pointer",
+                        "text-foreground transition-colors duration-80",
+                        "hover:bg-hover active:bg-active",
+                        "focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
+                        "disabled:cursor-not-allowed",
+                        shape.button,
+                      )}
+                    >
+                      <span className="grid size-3.5 place-items-center">
+                        <AnimatePresence mode="popLayout" initial={false}>
+                          {isStreaming ? (
+                            <motion.span
+                              key="stop"
+                              initial={{ opacity: 0, scale: 0.85 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.06 } }}
+                              transition={springs.fast}
+                              className="col-start-1 row-start-1 flex items-center justify-center"
+                            >
+                              <CircleIcon
+                                size={14}
+                                weight="fill"
+                                className="fill-current stroke-none"
+                              />
+                            </motion.span>
+                          ) : (
+                            <motion.span
+                              key="send"
+                              initial={{ opacity: 0, scale: 0.85 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.06 } }}
+                              transition={springs.fast}
+                              className="col-start-1 row-start-1 flex items-center justify-center"
+                            >
+                              <Icon name="arrow-up" size={14} strokeWidth={2} />
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
+                      </span>
+                    </button>
+                  </Elevated>
                 )}
               </div>
             </div>
