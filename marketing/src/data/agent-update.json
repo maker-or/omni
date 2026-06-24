@@ -1,16 +1,18 @@
 {
   "schema_version": 1,
-  "version": "0.0.3",
-  "description": "Adds the new model picker in the eidt mode and fixed a bug thats stoping the edit mode from folllowing the same themes",
-  "pr_url": "https://github.com/maker-or/omni/pull/7",
+  "version": "0.0.4",
+  "description": "changes to the input-message filed and the context window",
+  "pr_url": "https://github.com/maker-or/omni/pull/8",
 
   "files_changes": [
-    "electron/agent.ts",
-    "electron/main.ts",
-    "electron/preload.ts",
+    "@/components/ui/context-window-ring.tsx",
+    "@/components/ui/input-message.tsx",
+    "@/lib/format-tokens.ts",
+    "electron/dependency-installer.ts",
+    "electron/update-git.ts",
+    "electron/update-validation.ts",
     "src/components/agent-panel.tsx",
-    "src/components/companion-view.tsx",
-    "src/lib/theme.tsx",
-    "src/electron.d.ts"
+    "src/launch/app.tsx",
+    "src/launch/authenticated-stage.tsx"
   ]
 }
