@@ -9,8 +9,6 @@ import { useUpdateStore } from "@/store/update-store";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateDialog, LauncherUpdateNotice } from "@/components/launcher-update";
 
-const LOCAL_AUTH_USER = { name: "Developer", email: "developer@local" };
-
 export function LaunchApp() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const updateState = useUpdateStore((state) => state.state);
@@ -53,13 +51,13 @@ export function LaunchApp() {
       try {
         if (window.omni?.launch?.getUser) {
           const user = await window.omni.launch.getUser();
-          setAuthUser(user ?? LOCAL_AUTH_USER);
+          setAuthUser(user);
           return;
         }
-        setAuthUser(LOCAL_AUTH_USER);
+        setAuthUser(null);
       } catch (err) {
         console.error("Failed to check auth user:", err);
-        setAuthUser(LOCAL_AUTH_USER);
+        setAuthUser(null);
       } finally {
         setIsCheckingAuth(false);
       }
@@ -139,6 +137,9 @@ export function LaunchApp() {
       await window.omni.launch.complete(projectId);
     } catch (err) {
       console.error("Failed to complete launch:", err);
+      if (err instanceof Error && err.message.includes("Sign in is required")) {
+        setAuthUser(null);
+      }
       setIsOpening(false);
       setSelectedId(null);
     }

@@ -200,8 +200,10 @@ function parseAuthCallback(url: string): {
 async function handleAuthCallback(url: string): Promise<void> {
   const payload = parseAuthCallback(url);
   if (!payload.providerUserId) {
-    console.warn("[Main] Auth callback missing provider user id");
-    return;
+    throw new Error("Auth callback missing provider user id.");
+  }
+  if (!payload.email) {
+    throw new Error("Auth callback missing email.");
   }
 
   const record = upsertAuthUser({
@@ -220,6 +222,18 @@ async function handleAuthCallback(url: string): Promise<void> {
     launchWindow.show();
     launchWindow.focus();
   }
+}
+
+function getAuthenticatedUserForLaunch() {
+  const user = getMostRecentAuthUser();
+  if (!user?.provider_user_id || !user.email) return null;
+  return user;
+}
+
+function requireAuthenticatedUserForLaunch() {
+  const user = getAuthenticatedUserForLaunch();
+  if (!user) throw new Error("Sign in is required before opening a project.");
+  return user;
 }
 
 async function ensureAuthCallbackServer(): Promise<number> {
@@ -860,6 +874,7 @@ function registerIpc(): void {
   ipcMain.handle(
     "projects:create",
     (_event, input: { name: string; path: string; icon: string }) => {
+      requireAuthenticatedUserForLaunch();
       const project = createProject(input);
       captureAnalytics("project_created", {
         windowType: "launch",
@@ -905,6 +920,8 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("launch:complete", async (_event, projectId: string) => {
+    requireAuthenticatedUserForLaunch();
+
     const project = getProject(projectId);
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
@@ -940,12 +957,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("launch:getUser", () => {
-    const user = getMostRecentAuthUser();
-    if (user) return user;
-    return { name: "Developer", email: "developer@local" };
+    return getAuthenticatedUserForLaunch();
   });
 
   ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
+    requireAuthenticatedUserForLaunch();
     if (isUpdateBusy()) throw new Error("Project switching is disabled during an update.");
     const project = getProject(projectId);
     if (!project) {
@@ -1474,7 +1490,7 @@ app.whenReady().then(async () => {
   }
   buildAppMenu();
   getDb();
-  const authUser = getMostRecentAuthUser();
+  const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {
     identifyAnalyticsUser(authUser.provider_user_id);
   }
@@ -1560,7 +1576,8 @@ app.whenReady().then(async () => {
     await ensureWorkspaceReady();
     await initializeUpdateSubsystem();
     const state = await readLaunchState();
-    if (state.completed) {
+    const authUser = getAuthenticatedUserForLaunch();
+    if (state.completed && authUser) {
       if (state.projectId) {
         setActiveProjectId(state.projectId);
         await agentManager.activateFromLaunchState();
@@ -1582,7 +1599,8 @@ app.whenReady().then(async () => {
       }
 
       void readLaunchState().then((s) => {
-        if (s.completed) {
+        const authUser = getAuthenticatedUserForLaunch();
+        if (s.completed && authUser) {
           if (s.projectId) {
             setActiveProjectId(s.projectId);
             void agentManager?.activateFromLaunchState();
