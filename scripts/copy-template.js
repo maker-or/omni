@@ -14,6 +14,7 @@ mkdirSync(destDir, { recursive: true });
 
 const filesToCopy = [
   "package.json",
+  ".gitignore",
   "vite.config.ts",
   "components.json",
   "index.html",

@@ -35,9 +35,11 @@ describe("workspace copy policies", () => {
     const destination = join(root, "active");
     mkdirSync(join(source, "electron"), { recursive: true });
     writeFileSync(join(source, "electron", "main.ts"), "launcher");
+    writeFileSync(join(source, ".gitignore"), "node_modules\n");
     writeFileSync(join(source, "patch.md"), "context");
     copyPackagedTemplate(source, destination);
     expect(existsSync(join(destination, "electron"))).toBeFalse();
+    expect(existsSync(join(destination, ".gitignore"))).toBeTrue();
     expect(existsSync(join(destination, "patch.md"))).toBeTrue();
   });
 });

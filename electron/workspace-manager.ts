@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   rmSync,
   symlinkSync,
   existsSync,
@@ -169,6 +170,37 @@ async function gitHead(path: string): Promise<string> {
   return stdout.trim();
 }
 
+async function isGitWorkspaceClean(path: string): Promise<boolean> {
+  const { stdout } = await execAsync("git status --porcelain", { cwd: path });
+  return stdout.trim() === "";
+}
+
+function ensureWorkspaceGitExcludes(workspacePath: string): void {
+  const gitInfoPath = join(workspacePath, ".git", "info");
+  if (!existsSync(gitInfoPath)) return;
+  const excludePath = join(gitInfoPath, "exclude");
+  const required = ["node_modules", "dist", "out", ".cache", ".vite", "logs"];
+  const current = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+  const missing = required.filter((entry) => !current.split(/\r?\n/).includes(entry));
+  if (missing.length > 0) appendFileSync(excludePath, `${missing.join("\n")}\n`);
+}
+
+async function repairInstallationHeadIfActiveClean(installationPath: string, activeDir: string) {
+  if (!existsSync(installationPath) || !existsSync(join(activeDir, ".git"))) return;
+  try {
+    if (!(await isGitWorkspaceClean(activeDir))) return;
+    const installation = JSON.parse(readFileSync(installationPath, "utf8"));
+    const head = await gitHead(activeDir);
+    if (installation.customized_head_commit === head) return;
+    installation.customized_head_commit = head;
+    installation.last_healthy_at = new Date().toISOString();
+    writeFileSync(installationPath, `${JSON.stringify(installation, null, 2)}\n`);
+    console.log("[WorkspaceManager] Repaired installation metadata to match clean active HEAD.");
+  } catch (error) {
+    console.warn("[WorkspaceManager] Failed to repair installation metadata:", error);
+  }
+}
+
 function countFiles(path: string): number {
   let count = 0;
   for (const entry of readdirSync(path, { withFileTypes: true })) {
@@ -311,13 +343,23 @@ export async function initializeWorkspaces(
       console.log("[WorkspaceManager] Initializing git repository in active workspace...");
       try {
         await execAsync("git init", { cwd: activeDir });
-        await execAsync("git config user.name 'Pipper'", { cwd: activeDir });
-        await execAsync("git config user.email 'pipper@internal'", { cwd: activeDir });
+        ensureWorkspaceGitExcludes(activeDir);
         await execAsync("git add .", { cwd: activeDir });
-        await execAsync("git commit -m 'Initial commit'", { cwd: activeDir });
+        await execAsync("git commit -m 'Initial commit'", {
+          cwd: activeDir,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "Pipper",
+            GIT_AUTHOR_EMAIL: "pipper@internal",
+            GIT_COMMITTER_NAME: "Pipper",
+            GIT_COMMITTER_EMAIL: "pipper@internal",
+          },
+        });
       } catch (err) {
         console.warn("[WorkspaceManager] Failed to initialize git in active workspace:", err);
       }
+    } else {
+      ensureWorkspaceGitExcludes(activeDir);
     }
 
     // 2. Copy source files to backup if not present or incomplete
@@ -422,6 +464,8 @@ export async function initializeWorkspaces(
     const backupNodeModules = join(backupDir, "node_modules");
     console.log("[WorkspaceManager] Linking shared node_modules to backup workspace...");
     ensureNodeModulesSymlink(backupNodeModules, sharedNodeModules);
+
+    await repairInstallationHeadIfActiveClean(installationPath, activeDir);
 
     console.log("[WorkspaceManager] Workspace initialization complete.");
   })();
