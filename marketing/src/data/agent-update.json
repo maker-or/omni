@@ -1,18 +1,8 @@
 {
   "schema_version": 1,
-  "version": "0.0.4",
-  "description": "changes to the input-message filed and the context window",
-  "pr_url": "https://github.com/maker-or/omni/pull/8",
+  "version": "0.0.5",
+  "description": "Just name changes",
+  "pr_url": "https://github.com/maker-or/omni/pull/9",
 
-  "files_changes": [
-    "@/components/ui/context-window-ring.tsx",
-    "@/components/ui/input-message.tsx",
-    "@/lib/format-tokens.ts",
-    "electron/dependency-installer.ts",
-    "electron/update-git.ts",
-    "electron/update-validation.ts",
-    "src/components/agent-panel.tsx",
-    "src/launch/app.tsx",
-    "src/launch/authenticated-stage.tsx"
-  ]
+  "files_changes": ["src/components/others-view.tsx"]
 }
