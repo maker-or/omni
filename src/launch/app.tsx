@@ -125,25 +125,30 @@ export function LaunchApp() {
     };
   }, []);
 
-  const handleOpen = useCallback(async (projectId: string) => {
-    if (!window.omni?.launch?.complete) return;
-    if (!workspaceReady) {
-      setWorkspaceError("Workspace setup is still running. Please wait before opening a project.");
-      return;
-    }
-    setSelectedId(projectId);
-    setIsOpening(true);
-    try {
-      await window.omni.launch.complete(projectId);
-    } catch (err) {
-      console.error("Failed to complete launch:", err);
-      if (err instanceof Error && err.message.includes("Sign in is required")) {
-        setAuthUser(null);
+  const handleOpen = useCallback(
+    async (projectId: string) => {
+      if (!window.omni?.launch?.complete) return;
+      if (!workspaceReady) {
+        setWorkspaceError(
+          "Workspace setup is still running. Please wait before opening a project.",
+        );
+        return;
       }
-      setIsOpening(false);
-      setSelectedId(null);
-    }
-  }, [workspaceReady]);
+      setSelectedId(projectId);
+      setIsOpening(true);
+      try {
+        await window.omni.launch.complete(projectId);
+      } catch (err) {
+        console.error("Failed to complete launch:", err);
+        if (err instanceof Error && err.message.includes("Sign in is required")) {
+          setAuthUser(null);
+        }
+        setIsOpening(false);
+        setSelectedId(null);
+      }
+    },
+    [workspaceReady],
+  );
 
   const handleProjectCreated = useCallback(
     (project: Project) => {

@@ -42,18 +42,12 @@ export async function acquireUpdateContext(
 ): Promise<UpdateContext> {
   const repository = new URL(repositoryUrl);
   const pr = new URL(manifest.pr_url);
-  const repositoryPath = repository.pathname
-    .replace(/\.git$/i, "")
-    .replace(/\/$/, "");
+  const repositoryPath = repository.pathname.replace(/\.git$/i, "").replace(/\/$/, "");
   const match = pr.pathname.match(
-    new RegExp(
-      `^${repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/pull/(\\d+)/?$`,
-    ),
+    new RegExp(`^${repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/pull/(\\d+)/?$`),
   );
   if (pr.origin !== repository.origin || !match) {
-    throw new Error(
-      "Update PR URL does not belong to the configured upstream repository.",
-    );
+    throw new Error("Update PR URL does not belong to the configured upstream repository.");
   }
   const prNumber = match[1]!;
   const targetRef = `refs/pipper-update/pr-${prNumber}`;
@@ -65,9 +59,7 @@ export async function acquireUpdateContext(
     repositoryUrl,
     `+refs/pull/${prNumber}/head:${targetRef}`,
   ]);
-  const target = (
-    await git(candidatePath, ["rev-parse", targetRef])
-  ).toLowerCase();
+  const target = (await git(candidatePath, ["rev-parse", targetRef])).toLowerCase();
   const diffResponse = await fetch(`${manifest.pr_url}.diff`, {
     signal: AbortSignal.timeout(30_000),
     cache: "no-store",
@@ -85,8 +77,7 @@ export async function acquireUpdateContext(
       const content = await git(candidatePath, ["show", `${target}:${file}`]);
       const destination = join(upstreamFilesPath, file);
       const backtrack = relative(upstreamFilesPath, destination);
-      if (backtrack.startsWith(".."))
-        throw new Error(`Unsafe upstream path: ${file}`);
+      if (backtrack.startsWith("..")) throw new Error(`Unsafe upstream path: ${file}`);
       await mkdir(dirname(destination), { recursive: true });
       await writeFile(destination, content);
     } catch (error) {

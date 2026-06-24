@@ -22,9 +22,7 @@ function isManifest(value: unknown): boolean {
   if (
     record.schema_version !== 1 ||
     typeof record.version !== "string" ||
-    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(
-      record.version,
-    ) ||
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(record.version) ||
     typeof record.description !== "string" ||
     !record.description.trim() ||
     typeof record.pr_url !== "string"

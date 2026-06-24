@@ -82,7 +82,8 @@ export function AuthenticatedStage({
 
               {!workspaceReady && (
                 <p className="rounded-lg border border-border/50 bg-surface-1/50 px-3 py-2 text-xs text-muted-foreground">
-                  {workspaceError ?? "Setting up the local runtime. Project actions will unlock when ready."}
+                  {workspaceError ??
+                    "Setting up the local runtime. Project actions will unlock when ready."}
                 </p>
               )}
 
@@ -158,7 +159,8 @@ export function AuthenticatedStage({
               onCreated={handleProjectCreated}
               disabled={!workspaceReady}
               disabledReason={
-                workspaceError ?? "Setting up the local runtime. Project creation will unlock when ready."
+                workspaceError ??
+                "Setting up the local runtime. Project creation will unlock when ready."
               }
             />
           </>

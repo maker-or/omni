@@ -34,8 +34,7 @@ async function run(path: string, command: string): Promise<ValidationResult> {
     return {
       command,
       success: false,
-      output:
-        `${error.stdout ?? ""}${error.stderr ?? ""}${error.message ?? ""}`.trim(),
+      output: `${error.stdout ?? ""}${error.stderr ?? ""}${error.message ?? ""}`.trim(),
       duration_ms: Date.now() - started,
     };
   }
@@ -55,9 +54,7 @@ export async function validateCandidate(
     if (!existsSync(join(path, required)))
       throw new Error(`Candidate is missing required entry point: ${required}`);
   }
-  const packageJson = JSON.parse(
-    readFileSync(join(path, "package.json"), "utf8"),
-  ) as {
+  const packageJson = JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as {
     version?: string;
   };
   if (packageJson.version && packageJson.version !== manifest.version) {
@@ -70,15 +67,12 @@ export async function validateCandidate(
     .split("\n")
     .filter(Boolean)
     .map((line) => line.slice(3).split(" -> ").at(-1) ?? "");
-  if (changedFiles.length === 0)
-    throw new Error("Update agent produced no candidate changes.");
+  if (changedFiles.length === 0) throw new Error("Update agent produced no candidate changes.");
   const protectedFile = changedFiles.find((file) =>
     PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix)),
   );
   if (protectedFile)
-    throw new Error(
-      `Update modified protected launcher/updater file: ${protectedFile}`,
-    );
+    throw new Error(`Update modified protected launcher/updater file: ${protectedFile}`);
   const commands = ["bun run build"];
   const results = [status];
   for (const command of commands) {

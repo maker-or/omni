@@ -66,19 +66,15 @@ function resolveMisePath(): string | null {
 export function getMisePath(): string {
   const mise = resolveMisePath();
   if (!mise) {
-    throw new Error("Mise executable was not found. Run dependency setup before launching a project.");
+    throw new Error(
+      "Mise executable was not found. Run dependency setup before launching a project.",
+    );
   }
   return mise;
 }
 
 export function getMiseExecArgs(command: string[]): string[] {
-  return [
-    "exec",
-    `node@${REQUIRED_NODE_VERSION}`,
-    `bun@${REQUIRED_BUN_VERSION}`,
-    "--",
-    ...command,
-  ];
+  return ["exec", `node@${REQUIRED_NODE_VERSION}`, `bun@${REQUIRED_BUN_VERSION}`, "--", ...command];
 }
 
 export function getMiseExecCommand(command: string): string {
