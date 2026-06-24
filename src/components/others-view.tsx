@@ -124,7 +124,7 @@ export function OthersView() {
         >
           {sessions.length === 0 ? (
             <div
-              className="relative h-full w-full flex flex-col items-center justify-center bg-surface-1 p-6 select-none overflow-hidden"
+              className="relative h-full w-full bg-surface-1 select-none overflow-hidden"
               data-pipper-id="others-emptyView-panel"
             >
               <AmbientPixelField
@@ -135,10 +135,12 @@ export function OthersView() {
                 animated={true}
                 className="absolute inset-0 z-0 pointer-events-none"
               />
-              <div className="relative z-10 flex flex-col items-center gap-2 text-muted-foreground pointer-events-none">
-                <span className="text-[13px] font-medium tracking-tight">
-                  Click the plus icon to add new views
-                </span>
+              <div className="relative z-10 min-h-[280px] flex items-center justify-center p-6 pointer-events-none">
+                <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
+                  <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                    Click the plus icon to add new views
+                  </span>
+                </h2>
               </div>
             </div>
           ) : (
