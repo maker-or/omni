@@ -61,10 +61,7 @@ export function OthersView() {
   }, [isDropdownOpen]);
 
   return (
-    <section
-      className="h-full w-full flex flex-col bg-surface-1"
-      data-pipper-id="others-panel"
-    >
+    <section className="h-full w-full flex flex-col bg-surface-1" data-pipper-id="others-panel">
       <Tabs
         value={activeTabId || ""}
         onValueChange={handleTabChange}

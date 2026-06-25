@@ -46,6 +46,18 @@ import {
   rollbackPromotion,
 } from "./workspace-manager.ts";
 import {
+  dirtyFilesFromStatus,
+  formatDiagnosticsForLog,
+  getCandidateWorkspaceDiagnostics,
+} from "./update-candidate-diagnostics.ts";
+import {
+  appendUpdateRunTranscript,
+  extractAssistantSummaryFromMessages,
+  getRunTranscriptPath,
+  serializeBridgeEvent,
+  textFromMessageContent,
+} from "./update-run-transcript.ts";
+import {
   appendUpdateRunLog,
   createRunId,
   getRunLogPath,
@@ -121,13 +133,35 @@ function failureFromError(error: unknown, phase: UpdateState["phase"]): UpdateFa
   return makeFailure("VALIDATION", message, phase === "validating" ? "validation" : "preflight");
 }
 
-function dirtyFilesFromStatus(status: string): string[] {
-  return status
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .map((line) => line.slice(3).split(" -> ").at(-1) ?? "")
-    .filter(Boolean);
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function agentEventDetail(event: Record<string, unknown>): string {
+  const type = String(event.type ?? "unknown");
+  if (type === "tool_execution_start" || type === "tool_execution_end") {
+    const tool = String(event.toolName ?? "unknown");
+    const error = type === "tool_execution_end" && event.isError ? " error=true" : "";
+    return ` tool=${tool}${error}`;
+  }
+  if (type === "turn_end") {
+    const toolResults = Array.isArray(event.toolResults) ? event.toolResults.length : 0;
+    return ` tool_results=${toolResults}`;
+  }
+  return "";
+}
+
+function summarizeAgentEnd(event: Record<string, unknown>): {
+  messageCount: number;
+  textPreview: string;
+} {
+  const messages = Array.isArray(event.messages) ? event.messages : [];
+  const preview = extractAssistantSummaryFromMessages(messages);
+  return {
+    messageCount: messages.length,
+    textPreview: preview.length > 240 ? `${preview.slice(0, 240)}…` : preview,
+  };
 }
 
 export class UpdateManager {
@@ -148,6 +182,7 @@ export class UpdateManager {
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private healthResolve: ((healthy: boolean) => void) | null = null;
   private currentRun: UpdateRunRecord | null = null;
+  private lastTranscriptMessageCount = 0;
 
   constructor(options: {
     manifestUrl: string | null;
@@ -219,6 +254,57 @@ export class UpdateManager {
     if (runId) appendUpdateRunLog(runId, line);
   }
 
+  private logLines(lines: string[]): void {
+    for (const line of lines) this.log(line);
+  }
+
+  private transcriptRunId(): string | null {
+    return this.currentRun?.run_id ?? this.state.run_id;
+  }
+
+  private logTranscript(entry: Parameters<typeof appendUpdateRunTranscript>[1]): void {
+    const runId = this.transcriptRunId();
+    if (!runId) return;
+    appendUpdateRunTranscript(runId, entry);
+  }
+
+  private logBridgePayload(payload: AgentBridgeEvent): void {
+    this.logTranscript({ kind: "bridge", payload: serializeBridgeEvent(payload) });
+  }
+
+  private async logCandidateDiagnostics(
+    label: string,
+    gitRef: string,
+    filesChanges: string[],
+  ): Promise<void> {
+    const diagnostics = await getCandidateWorkspaceDiagnostics(
+      getCandidatePath(),
+      gitRef,
+      filesChanges,
+    );
+    this.logLines(formatDiagnosticsForLog(label, diagnostics));
+  }
+
+  private logUpdaterSnapshot(label: string): void {
+    const snapshot = this.options.agent.getUpdaterState();
+    this.log(
+      `agent_snapshot=${label} streaming=${snapshot.isStreaming} messages=${snapshot.messages.length} session=${snapshot.sessionId ?? "none"}`,
+    );
+    const lastAssistant = [...snapshot.messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (lastAssistant) {
+      const preview = textFromMessageContent(lastAssistant.content);
+      if (preview) {
+        this.log(
+          `agent_snapshot=${label} last_assistant=${JSON.stringify(
+            preview.length > 240 ? `${preview.slice(0, 240)}…` : preview,
+          )}`,
+        );
+      }
+    }
+  }
+
   private progress(phase: UpdateState["phase"], message: string, detail?: string): void {
     this.persist({}, phase);
     this.log(`phase=${phase}${detail ? ` detail=${JSON.stringify(detail)}` : ""}`);
@@ -227,45 +313,94 @@ export class UpdateManager {
 
   private handleUpdaterEvent(payload: AgentBridgeEvent): void {
     if (!this.currentRun) return;
+    this.logBridgePayload(payload);
     if (payload.type === "snapshot") {
+      const messageCount = payload.snapshot.messages.length;
+      if (messageCount !== this.lastTranscriptMessageCount) {
+        this.lastTranscriptMessageCount = messageCount;
+        this.logTranscript({
+          kind: "session_messages",
+          label: `snapshot_${messageCount}`,
+          messages: payload.snapshot.messages,
+        });
+      }
       this.patchRun((record) => ({
         ...record,
         agent: {
           ...record.agent,
           session_id: payload.snapshot.sessionId ?? record.agent.session_id,
           status: payload.snapshot.isStreaming ? "streaming" : record.agent.status,
+          message_count: messageCount,
         },
       }));
       return;
     }
     if (payload.type !== "event") return;
-    const event = payload.event as { type?: string; summary?: string; message?: string };
-    if (!event.type) return;
-    const agentEvent =
-      event.type === "tool_start" || event.type === "tool_end" || event.type === "message"
-        ? event.type
-        : event.type === "agent_end"
-          ? "agent_end"
-          : undefined;
-    if (!agentEvent) return;
-    this.patchRun((record) => ({
-      ...record,
-      agent: {
-        ...record.agent,
-        status: agentEvent === "agent_end" ? "completed" : "streaming",
-        last_event: agentEvent,
-        tool_count:
-          agentEvent === "tool_start"
-            ? (record.agent.tool_count ?? 0) + 1
-            : record.agent.tool_count,
-        ended_at: agentEvent === "agent_end" ? new Date().toISOString() : record.agent.ended_at,
-        summary:
-          agentEvent === "agent_end"
-            ? (event.summary ?? event.message ?? record.agent.summary)
-            : record.agent.summary,
-      },
-    }));
-    this.log(`agent_event=${event.type}`);
+    const event = asRecord(payload.event);
+    if (!event || typeof event.type !== "string") return;
+    const eventType = event.type;
+    this.log(`agent_event=${eventType}${agentEventDetail(event)}`);
+
+    if (eventType === "tool_execution_start") {
+      const toolName = String(event.toolName ?? "unknown");
+      this.patchRun((record) => ({
+        ...record,
+        agent: {
+          ...record.agent,
+          status: "streaming",
+          last_event: eventType,
+          tool_count: (record.agent.tool_count ?? 0) + 1,
+          tools_used: [...new Set([...(record.agent.tools_used ?? []), toolName])],
+        },
+      }));
+      return;
+    }
+
+    if (eventType === "tool_execution_end") {
+      this.patchRun((record) => ({
+        ...record,
+        agent: {
+          ...record.agent,
+          status: "streaming",
+          last_event: eventType,
+        },
+      }));
+      return;
+    }
+
+    if (eventType === "agent_end") {
+      const messages = Array.isArray(event.messages) ? event.messages : [];
+      const { messageCount, textPreview } = summarizeAgentEnd(event);
+      this.logTranscript({
+        kind: "session_messages",
+        label: "agent_end",
+        messages,
+      });
+      this.patchRun((record) => ({
+        ...record,
+        agent: {
+          ...record.agent,
+          status: "completed",
+          last_event: eventType,
+          message_count: messageCount,
+          ended_at: new Date().toISOString(),
+          summary: textPreview || record.agent.summary,
+        },
+      }));
+      if (textPreview) this.log(`agent_end_summary=${JSON.stringify(textPreview)}`);
+      return;
+    }
+
+    if (eventType === "agent_start" || eventType === "turn_start" || eventType === "turn_end") {
+      this.patchRun((record) => ({
+        ...record,
+        agent: {
+          ...record.agent,
+          status: "streaming",
+          last_event: eventType,
+        },
+      }));
+    }
   }
 
   async recover(): Promise<void> {
@@ -524,6 +659,7 @@ export class UpdateManager {
       agent: { status: "pending", tool_count: 0 },
       promotion: { status: "pending" },
       log_path: getRunLogPath(runId),
+      transcript_path: getRunTranscriptPath(runId),
     };
     this.writeRun(record);
     return record;
@@ -579,17 +715,22 @@ export class UpdateManager {
       this.ensureNotCancelled();
 
       this.progress("agent-running", "Adapting the update to your customizations");
+      this.lastTranscriptMessageCount = 0;
       this.patchRun((run) => ({
         ...run,
         agent: { ...run.agent, status: "activating", activated_at: new Date().toISOString() },
       }));
       await this.options.agent.activateUpdater(getCandidatePath());
+      const prompt = buildUpdaterPrompt(context);
       this.patchRun((run) => ({
         ...run,
         agent: { ...run.agent, status: "prompt_sent", prompt_sent_at: new Date().toISOString() },
       }));
       appendUpdateRunLog(record.run_id, "agent=prompt_sent");
-      const summary = await this.options.agent.sendUpdaterPrompt(buildUpdaterPrompt(context));
+      this.logTranscript({ kind: "prompt", text: prompt });
+      await this.logCandidateDiagnostics("before_agent", context.git_ref, context.files_changes);
+      this.logUpdaterSnapshot("before_agent");
+      const summary = await this.options.agent.sendUpdaterPrompt(prompt);
       this.patchRun((run) => ({
         ...run,
         agent: {
@@ -601,12 +742,39 @@ export class UpdateManager {
       }));
       this.ensureNotCancelled();
 
+      this.logUpdaterSnapshot("after_agent");
+      const finalSnapshot = this.options.agent.getUpdaterState();
+      this.logTranscript({
+        kind: "session_messages",
+        label: "after_agent_final",
+        messages: finalSnapshot.messages,
+      });
+      await this.logCandidateDiagnostics("after_agent", context.git_ref, context.files_changes);
       const dirtyFiles = await this.getCandidateDirtyFiles();
-      this.patchRun((run) => ({
+      const runAfterAgent = this.patchRun((run) => ({
         ...run,
         agent: { ...run.agent, candidate_dirty_files: dirtyFiles },
       }));
+      this.log(
+        `agent_result tool_count=${runAfterAgent?.agent.tool_count ?? 0} tools_used=${JSON.stringify(runAfterAgent?.agent.tools_used ?? [])} dirty_files=${JSON.stringify(dirtyFiles)}`,
+      );
       if (dirtyFiles.length === 0) {
+        const pendingUpstream = (
+          await getCandidateWorkspaceDiagnostics(
+            getCandidatePath(),
+            context.git_ref,
+            context.files_changes,
+          )
+        ).upstreamDiffs.filter((entry) => entry.hasDiff);
+        if (pendingUpstream.length === 0) {
+          this.log(
+            "agent_result note=upstream_already_matches_candidate_head_no_working_tree_delta",
+          );
+        } else {
+          this.log(
+            `agent_result note=upstream_still_differs_files=${JSON.stringify(pendingUpstream.map((entry) => entry.file))}`,
+          );
+        }
         throwUpdateFailure(
           makeFailure("VALIDATION", "Update agent produced no candidate changes.", "agent"),
         );

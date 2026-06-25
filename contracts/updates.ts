@@ -89,8 +89,10 @@ export interface UpdateRunAgentState {
   ended_at?: string;
   error?: string;
   session_id?: string;
-  last_event?: "tool_start" | "tool_end" | "message" | "agent_end";
+  last_event?: string;
   tool_count?: number;
+  tools_used?: string[];
+  message_count?: number;
   summary?: string;
   candidate_dirty_files?: string[];
 }
@@ -125,6 +127,7 @@ export interface UpdateRunRecord {
   finished_at?: string;
   outcome?: "completed" | "failed" | "cancelled";
   log_path?: string;
+  transcript_path?: string;
 }
 
 export interface PromotionReceipt {

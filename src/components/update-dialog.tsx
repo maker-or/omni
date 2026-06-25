@@ -52,7 +52,14 @@ export function UpdateDialog() {
               {run.failure.code} · {run.failure.step}
             </div>
             <div className="mt-1 text-red-100/80">{run.failure.message}</div>
-            {run.log_path && <div className="mt-2 font-mono text-red-100/70">{run.log_path}</div>}
+            {run.log_path && (
+              <div className="mt-2 font-mono text-red-100/70">Log: {run.log_path}</div>
+            )}
+            {run.transcript_path && (
+              <div className="mt-1 font-mono text-red-100/70">
+                Transcript: {run.transcript_path}
+              </div>
+            )}
           </div>
         )}
         {(run?.validation_results?.length ?? 0) > 0 && (

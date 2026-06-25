@@ -28,6 +28,7 @@ import {
   deleteThread as removeThreadRow,
 } from "./threads.ts";
 import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
+import { extractAssistantSummaryFromAgentEnd } from "./update-run-transcript.ts";
 import {
   createAgentSessionRuntime,
   createAgentSessionFromServices,
@@ -1526,12 +1527,12 @@ export class AgentManager {
       this.emitUpdater({ type: "event", event });
       this.emitUpdater({ type: "snapshot", snapshot: this.resolveUpdaterSnapshot() });
       if (event.type === "agent_end") {
+        const fromMessages = extractAssistantSummaryFromAgentEnd(event);
         const summary =
-          "summary" in event && typeof event.summary === "string"
-            ? event.summary
-            : "message" in event && typeof event.message === "string"
-              ? event.message
-              : "Update agent completed candidate adaptation.";
+          fromMessages ||
+          ("summary" in event && typeof event.summary === "string" ? event.summary : "") ||
+          ("message" in event && typeof event.message === "string" ? event.message : "") ||
+          "Update agent completed without an assistant summary.";
         this.updaterCompletion?.resolve(summary);
         this.updaterCompletion = null;
       }
