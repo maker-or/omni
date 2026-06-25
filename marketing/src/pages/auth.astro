@@ -1,6 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import { SignInButton, SignUpButton } from "@clerk/astro/components";
+import { SignInButton } from "@clerk/astro/components";
 
 const returnTo = Astro.url.searchParams.get("return_to") ?? "";
 const callbackUrl = new URL("/auth/complete", Astro.url);
@@ -12,14 +12,8 @@ if (returnTo) {
 <Layout title="Pipper Code (Alpha) auth">
     <main class="shell">
         <section class="flex justify-center items-center">
-            <div class="flex gap-4 [&_button]:py-3 [&_button]:px-6 [&_button]:text-[15px] [&_button]:font-semibold [&_button]:rounded-xl [&_button]:border [&_button]:border-white/8 [&_button]:bg-white/6 [&_button]:text-white [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button]:hover:bg-white/12 [&_button]:hover:border-white/16 [&_button]:hover:-translate-y-0.5">
+            <div class="flex gap-4 [&_button]:py-3 [&_button]:px-6 [&_button]:text-[15px] [&_button]:font-semibold [&_button]:rounded-xl [&_button]:bg-white/6 [&_button]:text-[#0C3A8F] [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button]:hover:bg-white/12 [&_button]:hover:-translate-y-0.5">
                 <SignInButton
-                    mode="redirect"
-                    forceRedirectUrl={callbackUrl.toString()}
-                    fallbackRedirectUrl={callbackUrl.toString()}
-                />
-
-                <SignUpButton
                     mode="redirect"
                     forceRedirectUrl={callbackUrl.toString()}
                     fallbackRedirectUrl={callbackUrl.toString()}
