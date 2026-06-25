@@ -32,29 +32,30 @@ const showDownloadNavLink = pageClass !== "download-page";
     <body class={pageClass} data-page={pageName}>
         <div class="page">
             <header
-                class="w-full max-w-7xl mx-auto px-8 pt-6 md:pt-10 flex justify-between items-center flex-shrink-0"
+                class="page-container pt-6 md:pt-10 flex flex-nowrap justify-between items-center flex-shrink-0 gap-6"
             >
                 <a
                     href="/"
-                    class="font-['Averia_Serif_Libre'] italic text-3xl md:text-4xl tracking-tight text-[#5474AF] hover:opacity-80 transition-opacity"
+                    class="font-['Averia_Serif_Libre'] italic text-3xl md:text-4xl tracking-tight text-[#5474AF] hover:opacity-80 transition-opacity shrink-0"
                 >
                     pipper
                 </a>
                 <nav
-                    class="flex items-center gap-8 md:gap-12 font-['Averia_Serif_Libre'] text-xl md:text-2xl text-[#5474AF]"
+                    class="flex flex-nowrap items-center gap-8 md:gap-12 font-['Averia_Serif_Libre'] text-xl md:text-2xl text-[#5474AF] shrink-0"
+                    aria-label="Primary"
                 >
                     <a
                         href="https://discord.gg/S928NjYv"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="hover:text-[#0C3A8F] transition-colors"
+                        class="hover:text-[#0C3A8F] transition-colors whitespace-nowrap"
                         >Discord</a
                     >
                     {
                         showDownloadNavLink ? (
                             <a
                                 href="/download"
-                                class="hover:text-[#0C3A8F] transition-colors"
+                                class="hover:text-[#0C3A8F] transition-colors whitespace-nowrap"
                             >
                                 Download
                             </a>
@@ -80,6 +81,15 @@ const showDownloadNavLink = pageClass !== "download-page";
         --border: rgba(12, 58, 143, 0.15);
         --surface: rgba(12, 58, 143, 0.04);
         --surface-strong: rgba(12, 58, 143, 0.08);
+        --page-max-width: 80rem;
+        --page-gutter: clamp(1.5rem, 5vw, 2.5rem);
+    }
+
+    .page-container {
+        width: 100%;
+        max-width: var(--page-max-width);
+        margin-inline: auto;
+        padding-inline: var(--page-gutter);
     }
 
     * {
