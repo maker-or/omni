@@ -1,6 +1,6 @@
 {
   "name": "pipper-code-alpha",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -81,7 +81,7 @@
     "vite": "^8.0.12"
   },
   "pipper": {
-    "workspaceVersion": "0.0.4"
+    "workspaceVersion": "0.0.6"
   },
   "trustedDependencies": [
     "node-pty"
