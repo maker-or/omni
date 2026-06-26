@@ -61,10 +61,7 @@ export function OthersView() {
   }, [isDropdownOpen]);
 
   return (
-    <section
-      className="h-full w-full flex flex-col bg-surface-1"
-      data-pipper-id="others-panel"
-    >
+    <section className="h-full w-full flex flex-col bg-surface-1" data-pipper-id="others-panel">
       <Tabs
         value={activeTabId || ""}
         onValueChange={handleTabChange}
@@ -141,8 +138,7 @@ export function OthersView() {
               <div className="relative z-10 min-h-[280px] flex items-center justify-center p-6 pointer-events-none">
                 <h2 className="flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65">
                   <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                    Click <span className="text-foreground">+</span> to add new
-                    views
+                    Click <span className="text-foreground">+</span> to add new views
                   </span>
                 </h2>
               </div>

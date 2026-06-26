@@ -12,6 +12,7 @@ import { markLaunchComplete, readLaunchState } from "./launch-state";
 import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
+import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import { getDb, getMostRecentAuthUser, upsertAuthUser } from "./db";
 import {
   listThreads,
@@ -263,9 +264,7 @@ async function ensureAuthCallbackServer(): Promise<number> {
       void handleAuthCallback(fullUrl)
         .then(() => {
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(
-            "<!doctype html><html><body><h1>Signed in</h1><p>You can return to the desktop app.</p></body></html>",
-          );
+          res.end(AUTH_CALLBACK_SUCCESS_HTML);
         })
         .catch((error) => {
           console.error("[Main] Auth callback handling failed:", error);
@@ -857,6 +856,7 @@ function registerIpc(): void {
   ipcMain.handle("update:getUpdaterSnapshot", () => requireUpdateManager().getUpdaterSnapshot());
   ipcMain.handle("update:scheduleForQuit", () => requireUpdateManager().scheduleForQuit());
   ipcMain.handle("update:startNow", () => requireUpdateManager().startNow());
+  ipcMain.handle("update:retryFailedUpdate", () => requireUpdateManager().retryFailedUpdate());
   ipcMain.handle("update:dismiss", () => requireUpdateManager().dismiss());
   ipcMain.handle("update:cancel", () => requireUpdateManager().cancel());
   ipcMain.handle("update:markActiveHealthy", (_event, version: string) =>
@@ -1316,9 +1316,12 @@ function registerIpc(): void {
   ipcMain.handle("pipper:setProcessing", (_event, processingId: string | null) => {
     broadcastToWindows("pipper:stateChanged", { processingId });
   });
+  ipcMain.handle("pipper:setOverlayVisible", (_event, overlayVisible: boolean) => {
+    broadcastToWindows("pipper:stateChanged", { overlayVisible });
+  });
   ipcMain.handle("pipper:enterEditMode", () => {
     if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
-    broadcastToWindows("pipper:stateChanged", { editMode: true });
+    broadcastToWindows("pipper:stateChanged", { editMode: true, overlayVisible: true });
   });
   ipcMain.handle("pipper:exitEditMode", () => {
     broadcastToWindows("pipper:stateChanged", { editMode: false });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -18,6 +18,8 @@ afterEach(() => {
 describe("update state", () => {
   test("validates transitions", () => {
     expect(() => assertUpdateTransition("available", "preparing")).not.toThrow();
+    expect(() => assertUpdateTransition("failed", "available")).not.toThrow();
+    expect(() => assertUpdateTransition("failed", "idle")).not.toThrow();
     expect(() => assertUpdateTransition("idle", "promoting")).toThrow("Invalid update transition");
   });
 
@@ -51,5 +53,29 @@ describe("update state", () => {
     expect(state.error).toBe("kept");
     expect(state.to_version).toBeUndefined();
     expect(state.validation_results).toBeUndefined();
+  });
+
+  test("normalizes failed state so it cannot stay scheduled for quit", () => {
+    temporaryPath = mkdtempSync(join(tmpdir(), "pipper-state-"));
+    const path = join(temporaryPath, "updates", "state.json");
+    writeUpdateStateAtomic(path, {
+      ...createIdleUpdateState(),
+      phase: "failed",
+      scheduled_for_quit: true,
+      error: "kept",
+    });
+
+    const state = readUpdateState(path);
+    expect(state.phase).toBe("failed");
+    expect(state.scheduled_for_quit).toBeFalse();
+  });
+
+  test("rejects structurally invalid persisted update state", () => {
+    temporaryPath = mkdtempSync(join(tmpdir(), "pipper-state-"));
+    const path = join(temporaryPath, "updates", "state.json");
+    mkdirSync(join(temporaryPath, "updates"), { recursive: true });
+    writeFileSync(path, JSON.stringify({ phase: "installing", scheduled_for_quit: "yes" }));
+
+    expect(() => readUpdateState(path)).toThrow("Update state is unreadable");
   });
 });

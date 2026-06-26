@@ -14,6 +14,7 @@ import type {
 } from "../../contracts/agent.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Elevated } from "@/lib/elevated";
 import { ProviderMark, formatProviderName } from "@/components/agent-panel";
 
@@ -99,6 +100,8 @@ export function CompanionView() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const { syncFromBroadcast } = usePipperStore();
+  const overlayVisible = usePipperStore((state) => state.overlayVisible);
+  const setOverlayVisible = usePipperStore((state) => state.setOverlayVisible);
 
   const [isProcessingAccept, setIsProcessingAccept] = useState(false);
 
@@ -134,10 +137,13 @@ export function CompanionView() {
     const isStreaming = snapshot?.isStreaming ?? false;
     if (prevStreamingRef.current && !isStreaming) {
       void window.omni?.pipper?.setProcessing?.(null);
+      if (overlayVisible) {
+        void window.omni?.pipper?.enterEditMode?.();
+      }
       activePipperIdRef.current = null;
     }
     prevStreamingRef.current = isStreaming;
-  }, [snapshot?.isStreaming]);
+  }, [overlayVisible, snapshot?.isStreaming]);
 
   // ── 5. Scroll to bottom on new messages ─────────────────────────────────
   useEffect(() => {
@@ -251,7 +257,19 @@ export function CompanionView() {
           "bg-surface-1",
         )}
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-      ></header>
+      >
+        <span className="text-xs font-medium text-muted-foreground"></span>
+        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <Switch
+            label="Overlay"
+            checked={overlayVisible}
+            onToggle={() => {
+              void setOverlayVisible(!overlayVisible);
+            }}
+            className="px-0 py-0"
+          />
+        </div>
+      </header>
 
       {/* ── Message Area ──────────────────────────────────────────────── */}
       <div className="relative z-10 flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-3">

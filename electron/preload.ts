@@ -74,6 +74,7 @@ const api = {
       ipcRenderer.invoke("update:getUpdaterSnapshot"),
     scheduleForQuit: (): Promise<UpdateState> => ipcRenderer.invoke("update:scheduleForQuit"),
     startNow: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:startNow"),
+    retryFailedUpdate: (): Promise<UpdateState> => ipcRenderer.invoke("update:retryFailedUpdate"),
     dismiss: (): Promise<UpdateState> => ipcRenderer.invoke("update:dismiss"),
     cancel: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:cancel"),
     quitWithoutUpdating: (): Promise<void> => ipcRenderer.invoke("update:quitWithoutUpdating"),
@@ -309,17 +310,27 @@ const api = {
     exitEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:exitEditMode"),
     setProcessing: (processingId: string | null): Promise<void> =>
       ipcRenderer.invoke("pipper:setProcessing", processingId),
+    setOverlayVisible: (visible: boolean): Promise<void> =>
+      ipcRenderer.invoke("pipper:setOverlayVisible", visible),
     addComment: (pipperId: string, text: string): Promise<void> =>
       ipcRenderer.invoke("pipper:addComment", pipperId, text),
     acceptChanges: (intent?: string): Promise<void> =>
       ipcRenderer.invoke("pipper:acceptChanges", intent),
     rejectChanges: (): Promise<void> => ipcRenderer.invoke("pipper:rejectChanges"),
     onStateChanged: (
-      callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
+      callback: (payload: {
+        processingId?: string | null;
+        editMode?: boolean;
+        overlayVisible?: boolean;
+      }) => void,
     ) => {
       const listener = (
         _event: any,
-        payload: { processingId?: string | null; editMode?: boolean },
+        payload: {
+          processingId?: string | null;
+          editMode?: boolean;
+          overlayVisible?: boolean;
+        },
       ) => callback(payload);
       ipcRenderer.on("pipper:stateChanged", listener);
       return () => ipcRenderer.removeListener("pipper:stateChanged", listener);

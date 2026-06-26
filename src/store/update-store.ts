@@ -19,7 +19,7 @@ const ACTIVE_PHASES: UpdateState["phase"][] = [
   "rolling-back",
 ];
 
-let dismissedForSession = false;
+let dismissedManifestVersion: string | null = null;
 
 interface UpdateStore {
   state: UpdateState | null;
@@ -33,6 +33,7 @@ interface UpdateStore {
   check: () => Promise<void>;
   refreshRun: (runId?: string | null) => Promise<void>;
   startNow: () => Promise<void>;
+  retryFailedUpdate: () => Promise<void>;
   scheduleForQuit: () => Promise<void>;
   dismiss: () => Promise<void>;
   cancel: () => Promise<void>;
@@ -48,12 +49,16 @@ async function readOfferInputs() {
 }
 
 function shouldOpenDetails(state: UpdateState, progress: UpdateProgress | null): boolean {
+  if (state.phase === "failed") return true;
   return (
-    state.phase === "failed" ||
     ACTIVE_PHASES.includes(state.phase) ||
     (state.scheduled_for_quit &&
       progress?.message === "Scheduled update will begin when Pipper quits.")
   );
+}
+
+function isDismissedForSession(manifest: UpdateManifest | null): boolean {
+  return manifest != null && dismissedManifestVersion === manifest.version;
 }
 
 export const useUpdateStore = create<UpdateStore>((set, get) => ({
@@ -63,7 +68,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   run: null,
   progress: null,
   detailsOpen: false,
-  dismissedForSession,
+  dismissedForSession: false,
   initialize: async () => {
     const [state, offer] = await Promise.all([window.omni.update.getState(), readOfferInputs()]);
     const run = state.run_id ? await window.omni.update.getRun(state.run_id) : null;
@@ -72,10 +77,15 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       run,
       ...offer,
       detailsOpen: shouldOpenDetails(state, null),
-      dismissedForSession,
+      dismissedForSession: isDismissedForSession(offer.manifest),
     });
     const offState = window.omni.update.onStateChanged((next) => {
-      void readOfferInputs().then((offerInputs) => set(offerInputs));
+      void readOfferInputs().then((offerInputs) =>
+        set({
+          ...offerInputs,
+          dismissedForSession: isDismissedForSession(offerInputs.manifest),
+        }),
+      );
       void get().refreshRun(next.run_id);
       set((current) => ({
         state: next,
@@ -102,7 +112,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   check: async () => {
     const state = await window.omni.update.check();
     const offer = await readOfferInputs();
-    set({ state, ...offer });
+    set({ state, ...offer, dismissedForSession: isDismissedForSession(offer.manifest) });
     await get().refreshRun(state.run_id);
   },
   refreshRun: async (runId) => {
@@ -122,11 +132,24 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       set({ detailsOpen: true });
     }
   },
+  retryFailedUpdate: async () => {
+    set({ detailsOpen: true });
+    const retryState = await window.omni.update.retryFailedUpdate();
+    set({ state: retryState, detailsOpen: retryState.phase !== "idle" });
+    await get().refreshRun(retryState.run_id);
+    if (retryState.phase === "available" || retryState.phase === "scheduled") {
+      await get().startNow();
+    }
+  },
   scheduleForQuit: async () => set({ state: await window.omni.update.scheduleForQuit() }),
   dismiss: async () => {
-    dismissedForSession = true;
+    dismissedManifestVersion = get().manifest?.version ?? null;
     const state = await window.omni.update.dismiss();
-    set({ state, detailsOpen: false, dismissedForSession });
+    set({
+      state,
+      detailsOpen: false,
+      dismissedForSession: isDismissedForSession(get().manifest),
+    });
   },
   cancel: async () => {
     await window.omni.update.cancel();
@@ -134,5 +157,20 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     set({ state, detailsOpen: false });
     await get().refreshRun(state.run_id);
   },
-  setDetailsOpen: (detailsOpen) => set({ detailsOpen }),
+  setDetailsOpen: (detailsOpen) => {
+    set({ detailsOpen });
+  },
 }));
+
+export function __resetUpdateStoreForTests(): void {
+  dismissedManifestVersion = null;
+  useUpdateStore.setState({
+    state: null,
+    manifest: null,
+    installation: null,
+    run: null,
+    progress: null,
+    detailsOpen: false,
+    dismissedForSession: false,
+  });
+}

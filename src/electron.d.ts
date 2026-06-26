@@ -58,6 +58,7 @@ declare global {
         getUpdaterSnapshot: () => Promise<AgentRuntimeSnapshot>;
         scheduleForQuit: () => Promise<UpdateState>;
         startNow: () => Promise<UpdateRunResult>;
+        retryFailedUpdate: () => Promise<UpdateState>;
         dismiss: () => Promise<UpdateState>;
         cancel: () => Promise<UpdateRunResult>;
         quitWithoutUpdating: () => Promise<void>;
@@ -197,11 +198,16 @@ declare global {
         enterEditMode: () => Promise<void>;
         exitEditMode: () => Promise<void>;
         setProcessing: (processingId: string | null) => Promise<void>;
+        setOverlayVisible: (visible: boolean) => Promise<void>;
         addComment: (pipperId: string, text: string) => Promise<void>;
         acceptChanges: (intent?: string) => Promise<void>;
         rejectChanges: () => Promise<void>;
         onStateChanged: (
-          callback: (payload: { processingId?: string | null; editMode?: boolean }) => void,
+          callback: (payload: {
+            processingId?: string | null;
+            editMode?: boolean;
+            overlayVisible?: boolean;
+          }) => void,
         ) => () => void;
         onCommentAdded: (callback: (pipperId: string, text: string) => void) => () => void;
       };

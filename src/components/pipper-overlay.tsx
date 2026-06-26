@@ -35,6 +35,7 @@ interface CommentPopup {
  */
 export function PipperOverlay() {
   const editMode = usePipperStore((s) => s.editMode);
+  const overlayVisible = usePipperStore((s) => s.overlayVisible);
   const processingId = usePipperStore((s) => s.processingId);
   const exitEditMode = usePipperStore((s) => s.exitEditMode);
 
@@ -63,14 +64,16 @@ export function PipperOverlay() {
     [],
   );
 
-  // Clear everything when edit mode exits
+  // Clear everything when edit mode exits or the overlay is hidden.
   useEffect(() => {
-    if (!editMode) {
+    if (!editMode || !overlayVisible) {
       setHighlight(null);
       setPopup(null);
       setCommentText("");
+      setEscArmed(false);
+      if (escTimerRef.current) clearTimeout(escTimerRef.current);
     }
-  }, [editMode]);
+  }, [editMode, overlayVisible]);
 
   // Focus popup textarea when it opens
   useEffect(() => {
@@ -84,6 +87,7 @@ export function PipperOverlay() {
   // Global Escape handler — double-Esc exits edit mode AND closes the companion
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (!editMode || !overlayVisible) return;
       if (e.key !== "Escape") return;
 
       // If popup is open, first Esc just closes it (doesn't arm exit)
@@ -112,7 +116,7 @@ export function PipperOverlay() {
       window.removeEventListener("keydown", onKeyDown);
       if (escTimerRef.current) clearTimeout(escTimerRef.current);
     };
-  }, [popup, escArmed, exitEditMode]);
+  }, [editMode, overlayVisible, popup, escArmed, exitEditMode]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -173,7 +177,7 @@ export function PipperOverlay() {
     if (!popup && !isBeaming) setHighlight(null);
   }, [popup, isBeaming]);
 
-  if (!editMode) return null;
+  if (!editMode || !overlayVisible) return null;
 
   return (
     <>

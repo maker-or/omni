@@ -3,7 +3,8 @@ import { useUpdateStore } from "@/store/update-store";
 import { UpdateProgressView } from "./update-progress";
 
 export function UpdateDialog() {
-  const { state, manifest, progress, run, detailsOpen, setDetailsOpen, cancel } = useUpdateStore();
+  const { state, manifest, progress, run, detailsOpen, setDetailsOpen, cancel, retryFailedUpdate } =
+    useUpdateStore();
   if (!state || !detailsOpen) return null;
   const scheduledQuitStarting =
     state.phase === "scheduled" &&
@@ -83,7 +84,14 @@ export function UpdateDialog() {
               Quit without updating
             </Button>
           )}
-          {scheduledQuitStarting ? null : running ? (
+          {state.phase === "failed" ? (
+            <>
+              <Button variant="tertiary" onClick={() => setDetailsOpen(false)}>
+                Close
+              </Button>
+              <Button onClick={() => void retryFailedUpdate()}>Retry update</Button>
+            </>
+          ) : scheduledQuitStarting ? null : running ? (
             <Button variant="tertiary" onClick={() => void cancel()}>
               Cancel update and keep current version
             </Button>

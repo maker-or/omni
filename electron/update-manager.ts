@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../contracts/agent.ts";
@@ -14,7 +14,12 @@ import type {
   UpdateState,
 } from "../contracts/updates.ts";
 import { parseUpdateManifest } from "./update-manifest.ts";
-import { assertUpdateTransition, readUpdateState, writeUpdateStateAtomic } from "./update-state.ts";
+import {
+  assertUpdateTransition,
+  createIdleUpdateState,
+  readUpdateState,
+  writeUpdateStateAtomic,
+} from "./update-state.ts";
 import {
   readAndValidateInstallationAgainstActive,
   readInstallationMetadata,
@@ -68,6 +73,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const CHECK_INTERVAL_MS = 5 * 60 * 60 * 1000;
+type ManifestRefreshResult = { status: "available" | "none" | "error"; error?: string };
 const RUNNING_PHASES: UpdateState["phase"][] = [
   "preparing",
   "fetching-upstream",
@@ -99,6 +105,10 @@ function readManifestFile(): UpdateManifest | null {
   const path = manifestPath();
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, "utf8")) as UpdateManifest;
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function makeFailure(
@@ -195,7 +205,16 @@ export class UpdateManager {
     restartPromotedApp: () => Promise<void>;
   }) {
     this.options = options;
-    this.state = readUpdateState(getUpdateStatePath());
+    try {
+      this.state = readUpdateState(getUpdateStatePath());
+    } catch (error) {
+      const statePath = getUpdateStatePath();
+      if (existsSync(statePath))
+        renameSync(statePath, join(getUpdatesPath(), `state.corrupt-${Date.now()}.json`));
+      this.state = createIdleUpdateState();
+      this.state.error = `Recovered unreadable workspace update state: ${message(error)}`;
+      writeUpdateStateAtomic(statePath, this.state);
+    }
     this.options.agent.setUpdaterEventHandler?.((payload) => {
       this.handleUpdaterEvent(payload);
       this.options.broadcastUpdaterEvent(payload);
@@ -553,31 +572,27 @@ export class UpdateManager {
     return Date.now() - this.lastCheckAt > CHECK_INTERVAL_MS;
   }
 
-  async check(): Promise<UpdateState> {
-    this.lastCheckAt = Date.now();
-    if (!this.options.manifestUrl || !this.options.repositoryUrl || this.running)
-      return this.getState();
+  private async refreshManifest(updateState: boolean): Promise<ManifestRefreshResult> {
     const installation = readInstallationMetadata();
-    const wasFailed = this.state.phase === "failed";
     try {
-      const response = await fetch(this.options.manifestUrl, {
+      const response = await fetch(this.options.manifestUrl!, {
         signal: AbortSignal.timeout(10_000),
         cache: "no-store",
       });
       if (response.status === 204) {
         rmSync(manifestPath(), { force: true });
-        if (!wasFailed) this.persist({ scheduled_for_quit: false, error: null }, "idle");
-        return this.getState();
+        if (updateState) this.persist({ scheduled_for_quit: false, error: null }, "idle");
+        return { status: "none" };
       }
       if (!response.ok) throw new Error(`Manifest request failed (${response.status}).`);
       const manifest = parseUpdateManifest(
         await response.json(),
         installation.installed_version,
-        this.options.repositoryUrl,
+        this.options.repositoryUrl!,
       );
       mkdirSync(getUpdatesPath(), { recursive: true });
       writeFileSync(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`);
-      if (!wasFailed) {
+      if (updateState) {
         this.persist(
           {
             scheduled_for_quit: this.state.scheduled_for_quit,
@@ -586,19 +601,31 @@ export class UpdateManager {
           this.state.scheduled_for_quit ? "scheduled" : "available",
         );
       }
+      return { status: "available" };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("not newer")) {
         rmSync(manifestPath(), { force: true });
-        if (!wasFailed) this.persist({ scheduled_for_quit: false, error: null }, "idle");
-        return this.getState();
+        if (updateState) this.persist({ scheduled_for_quit: false, error: null }, "idle");
+        return { status: "none" };
       }
       console.warn("[UpdateManager] Update check failed:", message);
+      return { status: "error", error: message };
     }
+  }
+
+  async check(): Promise<UpdateState> {
+    this.lastCheckAt = Date.now();
+    if (!this.options.manifestUrl || !this.options.repositoryUrl || this.running)
+      return this.getState();
+    await this.refreshManifest(this.state.phase !== "failed");
     return this.getState();
   }
 
   scheduleForQuit(): UpdateState {
+    if (this.state.phase === "failed") {
+      throw new Error("The previous workspace update failed and must be reviewed before retrying.");
+    }
     if (!readManifestFile()) throw new Error("No update is available.");
     this.persist({ scheduled_for_quit: true }, "scheduled");
     return this.getState();
@@ -614,12 +641,19 @@ export class UpdateManager {
   }
 
   dismiss(): UpdateState {
+    if (this.state.phase === "failed") return this.getState();
     const manifest = readManifestFile();
     this.persist({ scheduled_for_quit: false, error: null }, manifest ? "available" : "idle");
     return this.getState();
   }
 
   async cancel(): Promise<UpdateRunResult> {
+    if (this.state.phase === "failed" && !this.running) {
+      return {
+        success: false,
+        error: "The previous workspace update failed and must be reviewed before retrying.",
+      };
+    }
     this.cancelled = true;
     await this.options.agent.abortUpdater();
     this.healthResolve?.(false);
@@ -630,11 +664,37 @@ export class UpdateManager {
   }
 
   startNow(): Promise<UpdateRunResult> {
+    if (this.state.phase === "failed") {
+      return Promise.resolve({
+        success: false,
+        error: "The previous workspace update failed and must be reviewed before retrying.",
+      });
+    }
     if (this.running) return this.running;
     this.running = this.run().finally(() => {
       this.running = null;
     });
     return this.running;
+  }
+
+  async retryFailedUpdate(): Promise<UpdateState> {
+    if (this.state.phase !== "failed") return this.getState();
+    let manifest = readManifestFile();
+    if (!manifest) {
+      if (!this.options.manifestUrl || !this.options.repositoryUrl) return this.getState();
+      const result = await this.refreshManifest(false);
+      if (result.status === "error") {
+        this.options.broadcastState(this.getState());
+        return this.getState();
+      }
+      manifest = readManifestFile();
+    }
+    if (!manifest) {
+      this.persist({ error: null, run_id: null, scheduled_for_quit: false }, "idle");
+      return this.getState();
+    }
+    this.persist({ error: null, scheduled_for_quit: false }, "available");
+    return this.getState();
   }
 
   private ensureNotCancelled(): void {
