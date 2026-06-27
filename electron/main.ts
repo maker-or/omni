@@ -72,6 +72,13 @@ const execFileAsync = promisify(execFile);
 let currentTheme: "light" | "dark" | "system" = "system";
 
 const isDev = !app.isPackaged;
+
+if (isDev && !process.env.PIPPER_LIBRARY_PATH) {
+  const devUserDataPath =
+    process.env.PIPPER_DEV_USER_DATA_PATH ?? join(app.getPath("appData"), "pipper-dev");
+  app.setPath("userData", devUserDataPath);
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -204,7 +211,7 @@ function resolveRendererFile(page: "main" | "launch"): string {
 
 function getIconPath(): string | undefined {
   const path = isDev
-    ? join(app.getAppPath(), "public/icon.png")
+    ? join(app.getAppPath(), "public/devIcon.png")
     : join(mainDir, "../renderer/icon.png");
   return fs.existsSync(path) ? path : undefined;
 }
@@ -622,7 +629,7 @@ async function createMainWindow(): Promise<void> {
     titleBarStyle: "hidden",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
-      sandbox: true,
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -682,7 +689,7 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
     backgroundColor: "#171717",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
-      sandbox: true,
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -732,7 +739,7 @@ async function createCompanionWindow(): Promise<void> {
     titleBarStyle: "hidden",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
-      sandbox: true,
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },

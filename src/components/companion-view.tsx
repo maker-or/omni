@@ -55,7 +55,8 @@ export function formatModelCost(model: AgentModelSummary): string {
   if (!model.cost) return "Cost unavailable";
   const input = model.cost.input;
   const output = model.cost.output;
-  if (!Number.isFinite(input) || !Number.isFinite(output)) return "Cost unavailable";
+  if (!Number.isFinite(input) || !Number.isFinite(output))
+    return "Cost unavailable";
   return `$${input.toFixed(input >= 1 ? 2 : 3)}/M in · $${output.toFixed(
     output >= 1 ? 2 : 3,
   )}/M out`;
@@ -88,7 +89,9 @@ export function applyEditorBridgeEvent(
         status: { ...snapshot?.status, [payload.key]: payload.text },
       });
     case "working-message":
-      return patchEditorSnapshot(snapshot, { workingMessage: payload.message ?? null });
+      return patchEditorSnapshot(snapshot, {
+        workingMessage: payload.message ?? null,
+      });
     case "working-visible":
       return patchEditorSnapshot(snapshot, { workingVisible: payload.visible });
     case "title":
@@ -103,7 +106,9 @@ export function applyEditorBridgeEvent(
   }
 }
 
-export function getEditorStatusItems(snapshot: AgentRuntimeSnapshot | null): string[] {
+export function getEditorStatusItems(
+  snapshot: AgentRuntimeSnapshot | null,
+): string[] {
   if (!snapshot) return [];
   const items: string[] = [];
   if (snapshot.workingVisible) {
@@ -115,10 +120,13 @@ export function getEditorStatusItems(snapshot: AgentRuntimeSnapshot | null): str
     if (statusText) items.push(statusText);
   }
   const hiddenThinkingLabel = cleanStatusText(snapshot.hiddenThinkingLabel);
-  if (hiddenThinkingLabel && snapshot.isStreaming) items.push(`Thinking: ${hiddenThinkingLabel}`);
+  if (hiddenThinkingLabel && snapshot.isStreaming)
+    items.push(`Thinking: ${hiddenThinkingLabel}`);
   const editorText = cleanStatusText(snapshot.editorText);
   if (editorText) {
-    items.push(`Draft: ${editorText.length > 120 ? `${editorText.slice(0, 117)}...` : editorText}`);
+    items.push(
+      `Draft: ${editorText.length > 120 ? `${editorText.slice(0, 117)}...` : editorText}`,
+    );
   }
   if (snapshot.isCompacting) items.push("Compacting");
   if (snapshot.isRetrying) items.push("Retrying");
@@ -147,21 +155,25 @@ function useEditorSession() {
         setActivationError(null);
         setIsActivated(false);
         if (window.omni?.editor?.onEvent) {
-          unsubscribe = window.omni.editor.onEvent((payload: AgentBridgeEvent) => {
-            if (payload.type === "notification") {
-              toast({
-                icon:
-                  payload.level === "error" ? (
-                    <WarningIcon className="size-5 text-red-500" />
-                  ) : (
-                    <InfoIcon className="size-5 text-blue-500" />
-                  ),
-                title: payload.level.toUpperCase(),
-                description: payload.message,
-              });
-            }
-            setSnapshot((current) => applyEditorBridgeEvent(current, payload));
-          });
+          unsubscribe = window.omni.editor.onEvent(
+            (payload: AgentBridgeEvent) => {
+              if (payload.type === "notification") {
+                toast({
+                  icon:
+                    payload.level === "error" ? (
+                      <WarningIcon className="size-5 text-red-500" />
+                    ) : (
+                      <InfoIcon className="size-5 text-blue-500" />
+                    ),
+                  title: payload.level.toUpperCase(),
+                  description: payload.message,
+                });
+              }
+              setSnapshot((current) =>
+                applyEditorBridgeEvent(current, payload),
+              );
+            },
+          );
         }
         await window.omni?.editor?.activate?.();
         const initial = await window.omni?.editor?.getState?.();
@@ -169,9 +181,14 @@ function useEditorSession() {
         if (initial) setSnapshot(initial);
         setIsActivated(true);
       } catch (err) {
-        console.error("[CompanionView] Failed to activate editor session:", err);
+        console.error(
+          "[CompanionView] Failed to activate editor session:",
+          err,
+        );
         if (active) {
-          setActivationError(errorMessage(err, "Failed to activate editor session."));
+          setActivationError(
+            errorMessage(err, "Failed to activate editor session."),
+          );
         }
       } finally {
         if (active) setIsActivating(false);
@@ -205,7 +222,15 @@ function useEditorSession() {
     setActivationAttempt((value) => value + 1);
   }, []);
 
-  return { snapshot, isActivated, isActivating, activationError, retryActivate, sendPrompt, abort };
+  return {
+    snapshot,
+    isActivated,
+    isActivating,
+    activationError,
+    retryActivate,
+    sendPrompt,
+    abort,
+  };
 }
 
 // ─── CompanionView ─────────────────────────────────────────────────────────
@@ -222,7 +247,9 @@ export function CompanionView() {
   const [inputValue, setInputValue] = useState("");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
-  const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
+  const [streamingBehavior, setStreamingBehavior] = useState<
+    "followUp" | "steer"
+  >("followUp");
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -273,7 +300,9 @@ export function CompanionView() {
   // ── 2. Sync pipper state broadcasts from main window ────────────────────
   useEffect(() => {
     if (!window.omni?.pipper?.onStateChanged) return;
-    const unsub = window.omni.pipper.onStateChanged((payload) => syncFromBroadcast(payload));
+    const unsub = window.omni.pipper.onStateChanged((payload) =>
+      syncFromBroadcast(payload),
+    );
     return unsub;
   }, [syncFromBroadcast]);
 
@@ -282,11 +311,13 @@ export function CompanionView() {
     if (!window.omni?.pipper?.onCommentAdded) return;
     const unsub = window.omni.pipper.onCommentAdded((pipperId, text) => {
       setActivePipperId(pipperId);
-      queueEditorPrompt(`[Component: ${pipperId}]\n${text}`, isStreaming ? "followUp" : undefined)
-        .catch((err) => {
-          setOperationError(errorMessage(err, "Failed to send overlay request."));
-          void window.omni?.pipper?.setProcessing?.(null);
-        });
+      queueEditorPrompt(
+        `[Component: ${pipperId}]\n${text}`,
+        isStreaming ? "followUp" : undefined,
+      ).catch((err) => {
+        setOperationError(errorMessage(err, "Failed to send overlay request."));
+        void window.omni?.pipper?.setProcessing?.(null);
+      });
     });
     return unsub;
   }, [isStreaming, queueEditorPrompt]);
@@ -307,7 +338,10 @@ export function CompanionView() {
     if (!isModelDropdownOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(target)) {
+      if (
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(target)
+      ) {
         setIsModelDropdownOpen(false);
       }
     };
@@ -317,18 +351,27 @@ export function CompanionView() {
 
   const activeMessages = (snapshot?.messages ?? []).filter(
     (m) =>
-      ((m as MessageLike).role === "user" || (m as MessageLike).role === "assistant") &&
+      ((m as MessageLike).role === "user" ||
+        (m as MessageLike).role === "assistant") &&
       !isInternalCommitPrompt(m as MessageLike),
   );
   const streamingMessage =
-    isStreaming && !isProcessingAccept ? (snapshot?.streamingMessage ?? null) : null;
+    isStreaming && !isProcessingAccept
+      ? (snapshot?.streamingMessage ?? null)
+      : null;
   const models = snapshot?.models ?? [];
   const modelName = snapshot?.model?.name ?? "No model";
   const selectedModelProvider = snapshot?.model?.provider ?? null;
   const statusItems = useMemo(() => getEditorStatusItems(snapshot), [snapshot]);
   const queuedItems = [
-    ...(snapshot?.queue.steering ?? []).map((text) => ({ label: "Steer", text })),
-    ...(snapshot?.queue.followUp ?? []).map((text) => ({ label: "Next", text })),
+    ...(snapshot?.queue.steering ?? []).map((text) => ({
+      label: "Steer",
+      text,
+    })),
+    ...(snapshot?.queue.followUp ?? []).map((text) => ({
+      label: "Next",
+      text,
+    })),
   ];
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
@@ -359,7 +402,8 @@ export function CompanionView() {
   const conversationVirtualizer = useVirtualizer({
     count: conversationEntries.length,
     getScrollElement: () => messagesScrollRef.current,
-    estimateSize: (index) => (conversationEntries[index]?.message.role === "user" ? 82 : 140),
+    estimateSize: (index) =>
+      conversationEntries[index]?.message.role === "user" ? 82 : 140,
     getItemKey: (index) => conversationEntries[index]?.key ?? index,
     overscan: 6,
   });
@@ -382,7 +426,8 @@ export function CompanionView() {
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || !isActivated || isProcessingAccept || isProcessingReject) return;
+    if (!trimmed || !isActivated || isProcessingAccept || isProcessingReject)
+      return;
     setInputValue("");
     setActivePipperId(null);
     setOperationError(null);
@@ -429,7 +474,9 @@ export function CompanionView() {
     setIsProcessingAccept(true);
     setOperationError(null);
     try {
-      const result = await window.omni?.pipper?.acceptChanges?.("Accepted visual customization");
+      const result = await window.omni?.pipper?.acceptChanges?.(
+        "Accepted visual customization",
+      );
       if (!result?.committed) {
         setOperationError("No edit-session changes to accept.");
         return;
@@ -496,7 +543,9 @@ export function CompanionView() {
             checked={overlayVisible}
             onToggle={() => {
               setOverlayVisible(!overlayVisible).catch((err) => {
-                setOperationError(errorMessage(err, "Failed to update targeting overlay."));
+                setOperationError(
+                  errorMessage(err, "Failed to update targeting overlay."),
+                );
               });
             }}
             className="px-0 py-0"
@@ -535,7 +584,9 @@ export function CompanionView() {
 
               const componentAnnotation = parseComponentAnnotation(bodyText);
               const displayText =
-                from === "user" && componentAnnotation ? componentAnnotation.text : bodyText;
+                from === "user" && componentAnnotation
+                  ? componentAnnotation.text
+                  : bodyText;
 
               return (
                 <div
@@ -550,7 +601,9 @@ export function CompanionView() {
                   <div
                     className={cn(
                       "flex max-w-[92%] flex-col gap-1",
-                      from === "user" ? "ml-auto items-end" : "mr-auto items-start",
+                      from === "user"
+                        ? "ml-auto items-end"
+                        : "mr-auto items-start",
                     )}
                   >
                     <div
@@ -563,7 +616,9 @@ export function CompanionView() {
                     >
                       {from === "assistant" ? (
                         <div className="prose prose-sm max-w-none dark:prose-invert text-[13px] leading-relaxed">
-                          <Streamdown mode={entry.isStreaming ? "streaming" : "static"}>
+                          <Streamdown
+                            mode={entry.isStreaming ? "streaming" : "static"}
+                          >
                             {bodyText}
                           </Streamdown>
                         </div>
@@ -614,12 +669,19 @@ export function CompanionView() {
           {activationError && (
             <div className="flex items-center justify-between gap-2 text-red-500">
               <span>{activationError}</span>
-              <Button type="button" variant="ghost" size="sm" onClick={retryActivate}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={retryActivate}
+              >
                 Retry
               </Button>
             </div>
           )}
-          {operationError && <div className="text-red-500">{operationError}</div>}
+          {operationError && (
+            <div className="text-red-500">{operationError}</div>
+          )}
           {activePipperId && (
             <div className="flex flex-wrap gap-1.5">
               <span
@@ -648,8 +710,15 @@ export function CompanionView() {
           {queuedItems.length > 0 && (
             <div className="flex flex-col gap-1">
               {queuedItems.map((item, index) => (
-                <div key={`${item.label}-${index}`} className="line-clamp-2" title={item.text}>
-                  <span className="font-medium text-foreground/80">{item.label}</span>: {item.text}
+                <div
+                  key={`${item.label}-${index}`}
+                  className="line-clamp-2"
+                  title={item.text}
+                >
+                  <span className="font-medium text-foreground/80">
+                    {item.label}
+                  </span>
+                  : {item.text}
                 </div>
               ))}
             </div>
@@ -663,25 +732,25 @@ export function CompanionView() {
         !isStreaming &&
         !isProcessingAccept &&
         !isProcessingReject && (
-        <div className="flex items-center justify-between gap-2 px-3 py-2 border-t border-border/40 bg-surface-2/40 backdrop-blur-md shrink-0">
-          <Button
-            variant="tertiary"
-            size="sm"
-            className="flex-1 text-red-500 hover:text-red-400 hover:bg-red-500/10 border-red-500/20"
-            onClick={handleReject}
-          >
-            Reject
-          </Button>
-          <Button
-            variant="tertiary"
-            size="sm"
-            className="flex-1 text-green-500 hover:text-green-400 hover:bg-green-500/10 border-green-500/20"
-            onClick={handleAccept}
-          >
-            Accept
-          </Button>
-        </div>
-      )}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 border-t border-border/40 bg-surface-2/40 backdrop-blur-md shrink-0">
+            <Button
+              variant="tertiary"
+              size="sm"
+              className="flex-1 text-red-500 hover:text-red-400 hover:bg-red-500/10 border-red-500/20"
+              onClick={handleReject}
+            >
+              Reject
+            </Button>
+            <Button
+              variant="tertiary"
+              size="sm"
+              className="flex-1 text-green-500 hover:text-green-400 hover:bg-green-500/10 border-green-500/20"
+              onClick={handleAccept}
+            >
+              Accept
+            </Button>
+          </div>
+        )}
 
       {isProcessingAccept && (
         <div className="flex items-center justify-center gap-2 px-3 py-2 text-xs text-muted-foreground animate-pulse shrink-0">
@@ -726,21 +795,10 @@ export function CompanionView() {
           onStop={() => void handleAbort()}
           isStopping={isStopping}
           rightSlot={
-            <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
-              {isStreaming && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    setStreamingBehavior((value) =>
-                      value === "followUp" ? "steer" : "followUp",
-                    )
-                  }
-                >
-                  {streamingBehavior === "followUp" ? "Next" : "Steer"}
-                </Button>
-              )}
+            <div
+              ref={modelDropdownRef}
+              className="relative flex items-center gap-1.5"
+            >
               <Button
                 type="button"
                 data-pipper-id="companion-model-selector"
@@ -783,7 +841,8 @@ export function CompanionView() {
                         value={modelSearch}
                         onChange={(event) => setModelSearch(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Escape") setIsModelDropdownOpen(false);
+                          if (event.key === "Escape")
+                            setIsModelDropdownOpen(false);
                         }}
                         placeholder="Find a model"
                         aria-label="Find a model"
@@ -797,7 +856,9 @@ export function CompanionView() {
                         const isSelected =
                           model.provider === snapshot?.model?.provider &&
                           model.modelId === snapshot?.model?.modelId;
-                        const providerLabel = formatProviderName(model.provider);
+                        const providerLabel = formatProviderName(
+                          model.provider,
+                        );
                         return (
                           <button
                             type="button"
@@ -826,13 +887,19 @@ export function CompanionView() {
                               <ProviderMark provider={model.provider} />
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate text-foreground">{model.name}</span>
+                              <span className="block truncate text-foreground">
+                                {model.name}
+                              </span>
                               <span className="block truncate text-[11px] text-muted-foreground">
                                 {providerLabel} · {formatModelCost(model)}
                               </span>
                             </span>
                             {isSelected && (
-                              <CheckIcon className="shrink-0" size={13} weight="bold" />
+                              <CheckIcon
+                                className="shrink-0"
+                                size={13}
+                                weight="bold"
+                              />
                             )}
                           </button>
                         );

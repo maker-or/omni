@@ -1,7 +1,13 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -33,7 +39,10 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
-import type { AgentRuntimeSnapshot, AgentUiRequest } from "../../contracts/agent.ts";
+import type {
+  AgentRuntimeSnapshot,
+  AgentUiRequest,
+} from "../../contracts/agent.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import {
   extractGroupedMessageImages,
@@ -66,7 +75,8 @@ export function formatProviderName(provider: string): string {
 function getProviderIconKind(provider: string): string {
   const key = provider.toLowerCase();
   if (key.includes("codex")) return "openai-codex";
-  if (key.includes("copilot") || key.includes("github")) return "github-copilot";
+  if (key.includes("copilot") || key.includes("github"))
+    return "github-copilot";
   if (key.includes("anthropic") || key.includes("claude")) return "anthropic";
   if (key.includes("groq")) return "groq";
   if (key.includes("xai") || key.includes("grok")) return "xai";
@@ -77,14 +87,26 @@ function getProviderIconKind(provider: string): string {
   return "generic";
 }
 
-export function ProviderMark({ provider, className }: { provider: string; className?: string }) {
+export function ProviderMark({
+  provider,
+  className,
+}: {
+  provider: string;
+  className?: string;
+}) {
   const kind = getProviderIconKind(provider);
   const label = formatProviderName(provider) || "Provider";
   const iconClassName = cn("h-4 w-4 shrink-0", className);
 
   if (kind === "openai-codex") {
     return (
-      <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" fill="none" role="img">
+      <svg
+        aria-label={label}
+        className={iconClassName}
+        viewBox="0 0 20 20"
+        fill="none"
+        role="img"
+      >
         <path
           fillRule="evenodd"
           clipRule="evenodd"
@@ -97,7 +119,13 @@ export function ProviderMark({ provider, className }: { provider: string; classN
 
   if (kind === "openai") {
     return (
-      <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" fill="none" role="img">
+      <svg
+        aria-label={label}
+        className={iconClassName}
+        viewBox="0 0 20 20"
+        fill="none"
+        role="img"
+      >
         <path
           d="M18.6863 8.16932C18.913 7.49711 18.9914 6.78502 18.9163 6.0806C18.8411 5.37617 18.6142 4.69564 18.2506 4.08447C17.1447 2.18901 14.9219 1.21401 12.751 1.67216C12.15 1.01385 11.3835 0.522841 10.5287 0.24846C9.67395 -0.025921 8.76089 -0.0740183 7.88124 0.108998C7.0016 0.292015 6.18635 0.699703 5.51737 1.29112C4.84838 1.88253 4.34922 2.63685 4.07002 3.47832C3.36515 3.62063 2.69925 3.90944 2.11683 4.32544C1.5344 4.74145 1.04887 5.27506 0.692672 5.89062C-0.425297 7.78309 -0.171469 10.1702 1.32025 11.7937C1.09271 12.4656 1.0135 13.1776 1.08794 13.882C1.16238 14.5864 1.38875 15.2671 1.75189 15.8785C2.85923 17.7746 5.08345 18.7495 7.25549 18.2908C7.73304 18.8203 8.31981 19.2433 8.97663 19.5318C9.63346 19.8202 10.3452 19.9673 11.0644 19.9634C13.2895 19.9653 15.2608 18.551 15.9405 16.4649C16.6452 16.3223 17.311 16.0334 17.8934 15.6174C18.4758 15.2014 18.9614 14.6679 19.3177 14.0525C20.4222 12.1635 20.1674 9.78932 18.6863 8.16932ZM11.0644 18.6569C10.1762 18.6582 9.31592 18.3517 8.63431 17.7911L8.75423 17.7242L12.791 15.4299C12.8914 15.3719 12.9748 15.2892 13.033 15.1898C13.0912 15.0905 13.1221 14.9779 13.1227 14.8632V9.25939L14.8294 10.2314C14.8464 10.2399 14.8583 10.256 14.8613 10.2747V14.9183C14.857 16.9812 13.1595 18.6525 11.0644 18.6569ZM2.90298 15.2253C2.45757 14.468 2.29765 13.5804 2.45134 12.7185L2.57119 12.7893L6.61197 15.0836C6.71195 15.1414 6.82577 15.1718 6.9417 15.1718C7.05762 15.1718 7.17144 15.1414 7.27142 15.0836L12.2074 12.2817V14.2218C12.207 14.2318 12.2042 14.2416 12.1994 14.2505C12.1945 14.2594 12.1877 14.267 12.1795 14.2729L8.0908 16.5948C6.27384 17.6254 3.95252 17.0125 2.90298 15.2253ZM1.83978 6.56755C2.28829 5.80541 2.99621 5.2241 3.83822 4.92655V9.64885C3.8367 9.76295 3.86631 9.87536 3.92395 9.97435C3.9816 10.0733 4.06517 10.1553 4.16595 10.2116L9.07798 13.0018L7.37134 13.9738C7.36211 13.9786 7.35183 13.9811 7.34138 13.9811C7.33094 13.9811 7.32065 13.9786 7.31142 13.9738L3.23072 11.656C1.41736 10.6211 0.795485 8.33724 1.83978 6.54793V6.56755ZM15.8606 9.77485L10.9324 6.95716L12.6352 5.98909C12.6444 5.98426 12.6547 5.98173 12.6652 5.98173C12.6756 5.98173 12.6859 5.98426 12.6952 5.98909L16.7759 8.31093C17.3998 8.66541 17.9085 9.18733 18.2424 9.81577C18.5764 10.4442 18.7219 11.1532 18.662 11.86C18.6021 12.5668 18.3392 13.2423 17.904 13.8075C17.4688 14.3727 16.8793 14.8044 16.2043 15.0521V10.3297C16.2008 10.2158 16.1672 10.1048 16.107 10.0075C16.0467 9.91024 15.9618 9.83007 15.8606 9.77485ZM17.5592 7.26024L17.4392 7.18932L13.4065 4.87539C13.3059 4.81728 13.1914 4.78664 13.0748 4.78664C12.9582 4.78664 12.8436 4.81728 12.7431 4.87539L7.81095 7.67739V5.73732C7.8099 5.72745 7.81158 5.71749 7.8158 5.70849C7.82002 5.69949 7.82663 5.69177 7.83494 5.68616L11.9156 3.36824C12.5411 3.01349 13.2561 2.84141 13.9772 2.87212C14.6983 2.90284 15.3956 3.13507 15.9876 3.54167C16.5796 3.94827 17.0417 4.51242 17.32 5.16814C17.5983 5.82387 17.6812 6.54405 17.5591 7.24447V7.26024H17.5592ZM6.87978 10.6996L5.17314 9.73155C5.16461 9.72647 5.15732 9.71961 5.15178 9.71144C5.14625 9.70328 5.1426 9.69402 5.14111 9.68432V5.05255C5.14206 4.342 5.34842 3.6464 5.73608 3.04707C6.12374 2.44775 6.67666 1.96947 7.33022 1.66816C7.98377 1.36684 8.71093 1.25494 9.42669 1.34554C10.1425 1.43614 10.8172 1.7255 11.3721 2.17978L11.2522 2.2467L7.21548 4.54093C7.11503 4.59895 7.03162 4.68171 6.97347 4.78106C6.91531 4.88041 6.8844 4.99295 6.88377 5.10762L6.87978 10.6997V10.6996ZM7.80697 8.73193L10.0052 7.48447L12.2074 8.73201V11.2269L10.0132 12.4745L7.81103 11.2269L7.80697 8.73193Z"
           fill="currentColor"
@@ -125,7 +153,12 @@ export function ProviderMark({ provider, className }: { provider: string; classN
 
   if (kind === "anthropic") {
     return (
-      <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" role="img">
+      <svg
+        aria-label={label}
+        className={iconClassName}
+        viewBox="0 0 20 20"
+        role="img"
+      >
         <path
           fillRule="evenodd"
           clipRule="evenodd"
@@ -138,7 +171,12 @@ export function ProviderMark({ provider, className }: { provider: string; classN
 
   if (kind === "groq") {
     return (
-      <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" role="img">
+      <svg
+        aria-label={label}
+        className={iconClassName}
+        viewBox="0 0 20 20"
+        role="img"
+      >
         <rect width="20" height="20" rx="4" fill="currentColor" />
         <path
           d="M12.7359 4.87543L12.9245 5.02668C13.5654 5.60061 13.9899 6.41673 14.129 7.26349C14.1386 7.44489 14.1437 7.62648 14.145 7.80817L14.148 8.13125L14.1492 8.47772L14.1509 8.83722C14.1519 9.08817 14.1525 9.33911 14.1529 9.58996C14.1538 9.97205 14.1569 10.3541 14.16 10.7363C14.1607 10.9806 14.1612 11.2249 14.1616 11.4691L14.1654 11.813C14.1621 12.9789 13.8298 13.9852 13.0236 14.8525C12.5707 15.2734 12.1134 15.5861 11.5419 15.8207L11.3044 15.9257C10.3815 16.2595 9.2845 16.1642 8.38111 15.8132C7.88201 15.5764 7.47007 15.2988 7.0643 14.9252C7.43027 14.4748 7.80161 14.09 8.25833 13.7312L8.5631 13.9675C9.11753 14.3613 9.67106 14.486 10.3479 14.4277C11.0404 14.29 11.5872 13.9797 12.0394 13.4326C12.4547 12.7576 12.4961 12.2165 12.4903 11.4332L12.4915 11.0877C12.4918 10.8475 12.491 10.6074 12.4893 10.3672C12.4873 10.001 12.4893 9.63484 12.4919 9.26867C12.4916 9.03454 12.4911 8.80051 12.4903 8.56638L12.4928 8.23683C12.483 7.4412 12.3204 6.9224 11.828 6.29951C11.1528 5.75643 10.524 5.4825 9.64748 5.52419C8.91843 5.6424 8.32629 5.99185 7.87862 6.57902C7.50927 7.16518 7.34887 7.76797 7.46231 8.45752C7.68032 9.20847 7.96171 9.84538 8.65634 10.2486C9.23823 10.5531 9.74012 10.5991 10.3915 10.6155L10.6695 10.6258C10.8939 10.6339 11.1184 10.6404 11.3429 10.6466V12.2386C9.683 12.3056 8.39614 12.3037 7.07902 11.1592C6.25514 10.3337 5.75186 9.21394 5.71484 8.04708C5.75405 7.06499 6.10589 6.26658 6.66629 5.47245L6.83425 5.21742C8.42728 3.53842 10.9499 3.42628 12.7359 4.87543Z"
@@ -166,19 +204,30 @@ export function ProviderMark({ provider, className }: { provider: string; classN
 
   if (kind === "openrouter") {
     return (
-      <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" role="img">
+      <svg
+        aria-label={label}
+        className={iconClassName}
+        viewBox="0 0 20 20"
+        role="img"
+      >
         <path
           d="M0.117188 9.72267C0.703125 9.72267 2.96875 9.217 4.14062 8.55294C5.3125 7.88888 5.3125 7.88888 7.73438 6.17013C10.8007 3.99408 12.9688 4.72267 16.5234 4.72267"
           stroke="currentColor"
           strokeWidth="3.51562"
         />
-        <path d="M19.9609 4.74483L13.9551 8.21233V1.27734L19.9609 4.74483Z" fill="currentColor" />
+        <path
+          d="M19.9609 4.74483L13.9551 8.21233V1.27734L19.9609 4.74483Z"
+          fill="currentColor"
+        />
         <path
           d="M0 9.72656C0.585938 9.72656 2.85156 10.2322 4.02344 10.8963C5.19531 11.5604 5.19531 11.5604 7.61719 13.2791C10.6835 15.4552 12.8516 14.7266 16.4062 14.7266"
           stroke="currentColor"
           strokeWidth="3.51562"
         />
-        <path d="M19.8438 14.7057L13.8379 11.2383V18.1732L19.8438 14.7057Z" fill="currentColor" />
+        <path
+          d="M19.8438 14.7057L13.8379 11.2383V18.1732L19.8438 14.7057Z"
+          fill="currentColor"
+        />
       </svg>
     );
   }
@@ -204,7 +253,12 @@ export function ProviderMark({ provider, className }: { provider: string; classN
 
   if (kind === "kimi-coding") {
     return (
-      <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" role="img">
+      <svg
+        aria-label={label}
+        className={iconClassName}
+        viewBox="0 0 20 20"
+        role="img"
+      >
         <path
           fillRule="evenodd"
           clipRule="evenodd"
@@ -228,7 +282,12 @@ export function ProviderMark({ provider, className }: { provider: string; classN
   }
 
   return (
-    <svg aria-label={label} className={iconClassName} viewBox="0 0 20 20" role="img">
+    <svg
+      aria-label={label}
+      className={iconClassName}
+      viewBox="0 0 20 20"
+      role="img"
+    >
       <path
         d="M4.25 10C4.25 6.82436 6.82436 4.25 10 4.25C13.1756 4.25 15.75 6.82436 15.75 10C15.75 13.1756 13.1756 15.75 10 15.75C6.82436 15.75 4.25 13.1756 4.25 10Z"
         fill="currentColor"
@@ -251,14 +310,17 @@ function getToolSummary(message: MessageLike): string | null {
         ? (part as { name?: string }).name
         : null,
     )
-    .filter((value): value is string => typeof value === "string" && value.length > 0);
+    .filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
   if (!toolNames.length) return null;
   return toolNames.join(", ");
 }
 
 export function getMessageStructureKey(message: MessageLike): string {
   const content = (message as unknown as { content?: unknown }).content;
-  if (!Array.isArray(content)) return stringifyMessageContent(message).length.toString();
+  if (!Array.isArray(content))
+    return stringifyMessageContent(message).length.toString();
   return content
     .map((part, index) => {
       if (!part || typeof part !== "object") return `${index}:empty`;
@@ -301,7 +363,9 @@ export function groupConversationMessages(
       originalIndex: index,
       isStreaming: false,
     }))
-    .filter(({ message }) => message.role === "user" || message.role === "assistant");
+    .filter(
+      ({ message }) => message.role === "user" || message.role === "assistant",
+    );
 
   if (streamingMessage) {
     rawEntries.push({
@@ -378,9 +442,12 @@ function MessageBody({
           allTextParts.push(body);
         }
       } else if (Array.isArray(content)) {
-        const textParts = content.filter((part) => part && part.type === "text");
+        const textParts = content.filter(
+          (part) => part && part.type === "text",
+        );
         const traceParts = content.filter(
-          (part) => part && (part.type === "thinking" || part.type === "toolCall"),
+          (part) =>
+            part && (part.type === "thinking" || part.type === "toolCall"),
         );
 
         allTraceParts.push(...traceParts);
@@ -408,7 +475,9 @@ function MessageBody({
 
         {textBodyCombined.trim() && (
           <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-            <Streamdown mode={isStreaming ? "streaming" : "static"}>{textBodyCombined}</Streamdown>
+            <Streamdown mode={isStreaming ? "streaming" : "static"}>
+              {textBodyCombined}
+            </Streamdown>
           </div>
         )}
       </div>
@@ -420,7 +489,9 @@ function MessageBody({
     .filter(Boolean)
     .join("\n\n");
   return (
-    <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{combinedBody}</div>
+    <div className="whitespace-pre-wrap break-words text-[14px] leading-6">
+      {combinedBody}
+    </div>
   );
 }
 
@@ -431,7 +502,9 @@ function UiRequestDialog({
   request: AgentUiRequest;
   onClose: (value: string | boolean | undefined) => void;
 }) {
-  const [text, setText] = useState(() => ("prefill" in request ? (request.prefill ?? "") : ""));
+  const [text, setText] = useState(() =>
+    "prefill" in request ? (request.prefill ?? "") : "",
+  );
   useEffect(() => {
     setText("prefill" in request ? (request.prefill ?? "") : "");
   }, [request]);
@@ -440,9 +513,13 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
+          <div className="text-sm font-medium text-foreground">
+            {request.title}
+          </div>
           {request.message && (
-            <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              {request.message}
+            </div>
           )}
           <div className="mt-4 flex flex-col gap-2">
             {request.options.map((option) => (
@@ -465,8 +542,12 @@ function UiRequestDialog({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
         <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
-          <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
+          <div className="text-sm font-medium text-foreground">
+            {request.title}
+          </div>
+          <div className="mt-2 text-sm text-muted-foreground">
+            {request.message}
+          </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => onClose(false)}>
               No
@@ -481,7 +562,9 @@ function UiRequestDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
       <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-        <div className="text-sm font-medium text-foreground">{request.title}</div>
+        <div className="text-sm font-medium text-foreground">
+          {request.title}
+        </div>
         <textarea
           autoFocus
           value={text}
@@ -493,7 +576,9 @@ function UiRequestDialog({
           <Button variant="secondary" onClick={() => onClose(undefined)}>
             Cancel
           </Button>
-          <Button onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
+          <Button onClick={() => onClose(text.trim() || undefined)}>
+            Submit
+          </Button>
         </div>
       </div>
     </div>
@@ -502,12 +587,16 @@ function UiRequestDialog({
 
 const ANSI_PATTERN = new RegExp(String.raw`\u001B\[[0-?]*[ -/]*[@-~]`, "g");
 
-function cleanRuntimeStatusText(text: string | null | undefined): string | null {
+function cleanRuntimeStatusText(
+  text: string | null | undefined,
+): string | null {
   const cleaned = text?.replace(ANSI_PATTERN, "").trim();
   return cleaned ? cleaned : null;
 }
 
-export function getRuntimeStatusItems(snapshot: AgentRuntimeSnapshot | null): string[] {
+export function getRuntimeStatusItems(
+  snapshot: AgentRuntimeSnapshot | null,
+): string[] {
   if (!snapshot) return [];
 
   const items: string[] = [];
@@ -524,8 +613,11 @@ export function getRuntimeStatusItems(snapshot: AgentRuntimeSnapshot | null): st
     if (statusText) items.push(statusText);
   }
 
-  const hiddenThinkingLabel = cleanRuntimeStatusText(snapshot.hiddenThinkingLabel);
-  if (hiddenThinkingLabel && snapshot.isStreaming) items.push(`Thinking: ${hiddenThinkingLabel}`);
+  const hiddenThinkingLabel = cleanRuntimeStatusText(
+    snapshot.hiddenThinkingLabel,
+  );
+  if (hiddenThinkingLabel && snapshot.isStreaming)
+    items.push(`Thinking: ${hiddenThinkingLabel}`);
   const editorText = cleanRuntimeStatusText(snapshot.editorText);
   if (editorText) items.push(`Draft: ${editorText}`);
   if (snapshot.isCompacting) items.push("Compacting");
@@ -574,22 +666,31 @@ export function AgentPanel() {
   const [isAborting, setIsAborting] = useState(false);
   const [isRuntimeActionPending, setIsRuntimeActionPending] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
-  const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
+  const [streamingBehavior, setStreamingBehavior] = useState<
+    "followUp" | "steer"
+  >("followUp");
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [editState, setEditState] = useState<{
     targetEntryId: string;
     images: ChatImageAttachment[];
   } | null>(null);
-  const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
+  const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(
+    null,
+  );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
-  const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
-  const [dismissedAgentError, setDismissedAgentError] = useState<string | null>(null);
+  const [requestedThreadId, setRequestedThreadId] = useState<string | null>(
+    null,
+  );
+  const [dismissedAgentError, setDismissedAgentError] = useState<string | null>(
+    null,
+  );
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
-  const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
+  const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] =
+    useState("");
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
@@ -600,7 +701,9 @@ export function AgentPanel() {
   const scrollRafRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
+  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(
+    null,
+  );
   const ChevronDownIcon = useIcon("chevron-down");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const CopyIcon = useIcon("copy");
@@ -626,7 +729,13 @@ export function AgentPanel() {
   );
   usePrefetchRecentProjects(recentProjectsQuery.data ?? []);
 
-  function CopyButton({ msgId, bodyText }: { msgId: string; bodyText: string }) {
+  function CopyButton({
+    msgId,
+    bodyText,
+  }: {
+    msgId: string;
+    bodyText: string;
+  }) {
     const isCopied = copiedMessageId === msgId;
     return (
       <button
@@ -642,7 +751,8 @@ export function AgentPanel() {
 
   const formatMessageTime = (message: MessageLike): string | undefined => {
     const meta = message as { timestamp?: number; created_at?: string };
-    const timeVal = meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
+    const timeVal =
+      meta.timestamp ?? (meta.created_at ? Date.parse(meta.created_at) : null);
     if (!timeVal) return undefined;
     const date = new Date(timeVal);
     if (isNaN(date.getTime())) return undefined;
@@ -666,7 +776,8 @@ export function AgentPanel() {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Copy failed",
-        description: err instanceof Error ? err.message : "Clipboard access was denied.",
+        description:
+          err instanceof Error ? err.message : "Clipboard access was denied.",
       });
     }
   };
@@ -683,11 +794,13 @@ export function AgentPanel() {
               threadId: snapshot.threadId,
               targetUserEntryId: entryId,
               message: promptText,
-              images: extractGroupedMessageImages([msg]).map(({ type, data, mimeType }) => ({
-                type,
-                data,
-                mimeType,
-              })),
+              images: extractGroupedMessageImages([msg]).map(
+                ({ type, data, mimeType }) => ({
+                  type,
+                  data,
+                  mimeType,
+                }),
+              ),
             });
           break;
         }
@@ -696,7 +809,10 @@ export function AgentPanel() {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Regenerate failed",
-        description: err instanceof Error ? err.message : "The agent did not accept the request.",
+        description:
+          err instanceof Error
+            ? err.message
+            : "The agent did not accept the request.",
       });
     }
   };
@@ -729,7 +845,9 @@ export function AgentPanel() {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Rename failed",
-        description: useThreadStore.getState().error ?? "The thread title was not updated.",
+        description:
+          useThreadStore.getState().error ??
+          "The thread title was not updated.",
       });
       return false;
     }
@@ -781,7 +899,9 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (!hoveredProjectId) return;
-    const exists = projectsList.some((project) => project.id === hoveredProjectId);
+    const exists = projectsList.some(
+      (project) => project.id === hoveredProjectId,
+    );
     if (!exists) {
       setHoveredProjectId(projectsList[0]?.id ?? null);
     }
@@ -813,8 +933,11 @@ export function AgentPanel() {
       const gap = 8;
       const paneWidth = 320;
       const paneHeight = 420;
-      const canFitRight = rect.right + gap + paneWidth <= window.innerWidth - gap;
-      const left = canFitRight ? rect.right + gap : Math.max(gap, rect.left - paneWidth - gap);
+      const canFitRight =
+        rect.right + gap + paneWidth <= window.innerWidth - gap;
+      const left = canFitRight
+        ? rect.right + gap
+        : Math.max(gap, rect.left - paneWidth - gap);
       const top = Math.min(
         Math.max(gap, rect.top),
         Math.max(gap, window.innerHeight - paneHeight - gap),
@@ -919,10 +1042,14 @@ export function AgentPanel() {
 
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = activeTabId || snapshotThreadId;
-  const isSwitchingThread = Boolean(activeTabId && activeTabId !== snapshotThreadId);
+  const isSwitchingThread = Boolean(
+    activeTabId && activeTabId !== snapshotThreadId,
+  );
   const activeMessages = snapshot?.messages ?? [];
   const isStreaming = snapshot?.isStreaming ?? false;
-  const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
+  const streamingMessage = isStreaming
+    ? (snapshot?.streamingMessage ?? null)
+    : null;
   const slashMatches = useMemo(() => {
     const trimmed = inputValue.trimStart();
     if (!trimmed.startsWith("/")) return [];
@@ -958,10 +1085,13 @@ export function AgentPanel() {
 
     const threshold = 120;
     const isNearBottom =
-      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight <=
+      scrollContainer.scrollHeight -
+        scrollContainer.scrollTop -
+        scrollContainer.clientHeight <=
       threshold;
 
-    const shouldScroll = !isStreaming || isNearBottom || allMessages.length === 0;
+    const shouldScroll =
+      !isStreaming || isNearBottom || allMessages.length === 0;
     if (!shouldScroll) return;
 
     // Cancel any in-flight animation
@@ -1018,7 +1148,9 @@ export function AgentPanel() {
   };
 
   const handleCloseThreadTab = async (id: string) => {
-    const sortedThreads = [...openThreads].sort((a, b) => a.created_at - b.created_at);
+    const sortedThreads = [...openThreads].sort(
+      (a, b) => a.created_at - b.created_at,
+    );
     const currentIndex = sortedThreads.findIndex((t) => t.id === id);
     const nextState = await window.omni.tabs.close(id);
     await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
@@ -1026,7 +1158,9 @@ export function AgentPanel() {
     if (id === activeTabId) {
       const remainingThreads = sortedThreads.filter((t) => t.id !== id);
       const fallbackThread =
-        remainingThreads.find((thread) => thread.id === nextState.activeThreadId) ??
+        remainingThreads.find(
+          (thread) => thread.id === nextState.activeThreadId,
+        ) ??
         remainingThreads[currentIndex] ??
         remainingThreads[currentIndex - 1] ??
         remainingThreads[remainingThreads.length - 1] ??
@@ -1055,7 +1189,8 @@ export function AgentPanel() {
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
           title: "Abort failed",
-          description: err instanceof Error ? err.message : "The agent did not stop.",
+          description:
+            err instanceof Error ? err.message : "The agent did not stop.",
         });
       } finally {
         setIsSubmitting(false);
@@ -1072,7 +1207,9 @@ export function AgentPanel() {
           icon: <WarningIcon className="size-5 text-red-500" />,
           title: "Compaction failed",
           description:
-            err instanceof Error ? err.message : "The agent did not start compaction.",
+            err instanceof Error
+              ? err.message
+              : "The agent did not start compaction.",
         });
       } finally {
         setIsSubmitting(false);
@@ -1083,11 +1220,13 @@ export function AgentPanel() {
     setIsSubmitting(true);
     try {
       const newImages = await Promise.all(files.map(fileToPromptImage));
-      const retained = (editState?.images ?? []).map(({ type, data, mimeType }) => ({
-        type,
-        data,
-        mimeType,
-      }));
+      const retained = (editState?.images ?? []).map(
+        ({ type, data, mimeType }) => ({
+          type,
+          data,
+          mimeType,
+        }),
+      );
       const images = [...retained, ...newImages];
       if (images.length > MAX_AGENT_IMAGES) {
         toast({
@@ -1122,7 +1261,9 @@ export function AgentPanel() {
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: editState ? "Edit failed" : "Send failed",
         description:
-          err instanceof Error ? err.message : "The agent did not accept the message.",
+          err instanceof Error
+            ? err.message
+            : "The agent did not accept the message.",
       });
     } finally {
       setIsSubmitting(false);
@@ -1130,7 +1271,10 @@ export function AgentPanel() {
   };
 
   const handleFilesChange = (files: File[]) => {
-    const { valid, errors } = partitionValidImageFiles(files, editState?.images.length ?? 0);
+    const { valid, errors } = partitionValidImageFiles(
+      files,
+      editState?.images.length ?? 0,
+    );
     setAttachedFiles(valid);
     if (errors.length)
       toast({
@@ -1161,7 +1305,8 @@ export function AgentPanel() {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Stop failed",
-        description: err instanceof Error ? err.message : "The agent did not stop.",
+        description:
+          err instanceof Error ? err.message : "The agent did not stop.",
       });
     } finally {
       setIsAborting(false);
@@ -1170,7 +1315,12 @@ export function AgentPanel() {
 
   const handleDeleteThread = async (thread: Thread) => {
     if (thread.id === snapshot?.threadId && isStreaming) return;
-    if (!window.confirm(`Permanently delete “${thread.title}” and its session history?`)) return;
+    if (
+      !window.confirm(
+        `Permanently delete “${thread.title}” and its session history?`,
+      )
+    )
+      return;
     try {
       await deleteThread(thread.id);
       setIsDropdownOpen(false);
@@ -1185,7 +1335,8 @@ export function AgentPanel() {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Delete failed",
-        description: err instanceof Error ? err.message : "The thread was not deleted.",
+        description:
+          err instanceof Error ? err.message : "The thread was not deleted.",
       });
     }
   };
@@ -1208,7 +1359,8 @@ export function AgentPanel() {
     if (weeks < 5) return `${weeks} ${weeks === 1 ? "week" : "weeks"} ago`;
 
     const months = Math.floor(days / 30);
-    if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
+    if (months < 12)
+      return `${months} ${months === 1 ? "month" : "months"} ago`;
 
     const years = Math.floor(days / 365);
     return `${years} ${years === 1 ? "year" : "years"} ago`;
@@ -1228,7 +1380,10 @@ export function AgentPanel() {
     const created = Number(thread.created_at);
     if (Number.isFinite(created) && created > 0) return created;
 
-    const idSeed = Array.from(thread.id).reduce((total, char) => total + char.charCodeAt(0), 0);
+    const idSeed = Array.from(thread.id).reduce(
+      (total, char) => total + char.charCodeAt(0),
+      0,
+    );
     const fallbackDaysAgo = ((idSeed + index) % 6) + 1;
     return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
   };
@@ -1237,18 +1392,24 @@ export function AgentPanel() {
     const projectId = hoveredProjectId ?? activeProject?.id;
     if (!projectId || isCreatingThread) return;
     const project = projectsList.find((item) => item.id === projectId);
-    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
+    const nextCount =
+      threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
     setIsCreatingThread(true);
     try {
-      const thread = await createThread(projectId, title, snapshot?.threadId ?? null);
+      const thread = await createThread(
+        projectId,
+        title,
+        snapshot?.threadId ?? null,
+      );
       await loadProjectThreads(projectId, { reset: true });
       await handleSelectThread(thread.id);
     } catch (err) {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Create thread failed",
-        description: err instanceof Error ? err.message : "The thread was not created.",
+        description:
+          err instanceof Error ? err.message : "The thread was not created.",
       });
     } finally {
       setIsCreatingThread(false);
@@ -1262,20 +1423,28 @@ export function AgentPanel() {
     index: idx,
   }));
 
-  const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
+  const checkedIndex = projectItems.findIndex(
+    (item) => item.id === activeProject?.id,
+  );
   const addProjectIndex = projectItems.length;
   const hoveredProjectThreads = useMergedProjectThreads(
     hoveredProjectId,
     hoveredProjectThreadsQuery.data?.threads ?? [],
     threads,
   );
-  const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
+  const hoveredThreadPage = hoveredProjectId
+    ? pagesByProject[hoveredProjectId]
+    : undefined;
   const isHoveredThreadsLoading =
-    hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
+    hoveredProjectThreadsQuery.isLoading ||
+    Boolean(hoveredThreadPage?.isLoading);
   const hoveredThreadsHasMore = hoveredThreadPage
     ? hoveredThreadPage.hasMore
     : Boolean(hoveredProjectThreadsQuery.data?.hasMore);
-  const runtimeStatusItems = useMemo(() => getRuntimeStatusItems(snapshot), [snapshot]);
+  const runtimeStatusItems = useMemo(
+    () => getRuntimeStatusItems(snapshot),
+    [snapshot],
+  );
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     return models.filter(
@@ -1292,7 +1461,8 @@ export function AgentPanel() {
   }, [modelSearch, models]);
   const visibleModelCount = visibleModels.length;
   const selectedModelProvider = snapshot?.model?.provider;
-  const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
+  const currentProject =
+    projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const emptyStateSubject = currentProject?.name ?? "your project";
   const visibleAgentError =
     agentError && agentError !== dismissedAgentError ? agentError : null;
@@ -1353,10 +1523,15 @@ export function AgentPanel() {
             {[...openThreads]
               .sort((a, b) => a.created_at - b.created_at)
               .map((thread) => {
-                const project = projectsList.find((item) => item.id === thread.project_id);
+                const project = projectsList.find(
+                  (item) => item.id === thread.project_id,
+                );
                 const Icon = project
                   ? (((props: { className?: string }) => (
-                      <ProjectIcon name={project.icon} className={props.className} />
+                      <ProjectIcon
+                        name={project.icon}
+                        className={props.className}
+                      />
                     )) as any)
                   : undefined;
                 const isEditing = editingThreadId === thread.id;
@@ -1372,7 +1547,9 @@ export function AgentPanel() {
                     onEditValueChange={setEditingThreadTitle}
                     onEditCommit={commitRenameThread}
                     onEditCancel={cancelRenameThread}
-                    onDoubleClick={() => startRenameThread(thread.id, thread.title)}
+                    onDoubleClick={() =>
+                      startRenameThread(thread.id, thread.title)
+                    }
                   />
                 );
               })}
@@ -1389,7 +1566,9 @@ export function AgentPanel() {
                 setIsDropdownOpen((prev) => {
                   const next = !prev;
                   if (next) {
-                    setHoveredProjectId(activeProject?.id ?? projectItems[0]?.id ?? null);
+                    setHoveredProjectId(
+                      activeProject?.id ?? projectItems[0]?.id ?? null,
+                    );
                     setIsModelDropdownOpen(false);
                   }
                   return next;
@@ -1406,12 +1585,20 @@ export function AgentPanel() {
                 className="absolute right-0 top-full mt-1.5 z-[200]"
               >
                 <div ref={projectListRef} className="relative">
-                  <Dropdown checkedIndex={checkedIndex} className="w-72 max-h-[300px]">
+                  <Dropdown
+                    checkedIndex={checkedIndex}
+                    className="w-72 max-h-[300px]"
+                  >
                     {projectItems.map((item) => {
-                      const project = projectsList.find((p) => p.id === item.id);
+                      const project = projectsList.find(
+                        (p) => p.id === item.id,
+                      );
                       const ProjectIconItem = project
                         ? (((props: { className?: string }) => (
-                            <ProjectIcon name={project.icon} className={props.className} />
+                            <ProjectIcon
+                              name={project.icon}
+                              className={props.className}
+                            />
                           )) as any)
                         : undefined;
                       return (
@@ -1439,7 +1626,9 @@ export function AgentPanel() {
                     />
                   </Dropdown>
                 </div>
-                {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
+                {hoveredProjectId &&
+                threadPaneStyle &&
+                typeof document !== "undefined"
                   ? createPortal(
                       <div
                         data-pipper-id="thread-pane"
@@ -1491,8 +1680,13 @@ export function AgentPanel() {
                                   <button
                                     type="button"
                                     aria-label={`Delete ${thread.title}`}
-                                    disabled={thread.id === snapshot?.threadId && isStreaming}
-                                    onClick={() => void handleDeleteThread(thread)}
+                                    disabled={
+                                      thread.id === snapshot?.threadId &&
+                                      isStreaming
+                                    }
+                                    onClick={() =>
+                                      void handleDeleteThread(thread)
+                                    }
                                     className="text-muted-foreground hover:text-destructive disabled:opacity-30"
                                   >
                                     <TrashIcon size={14} />
@@ -1502,7 +1696,9 @@ export function AgentPanel() {
                             })
                           ) : (
                             <div className="px-2 py-3 text-[13px] text-muted-foreground">
-                              {isHoveredThreadsLoading ? "Loading threads..." : "No threads yet."}
+                              {isHoveredThreadsLoading
+                                ? "Loading threads..."
+                                : "No threads yet."}
                             </div>
                           )}
                         </div>
@@ -1512,19 +1708,26 @@ export function AgentPanel() {
                             className="mt-2 w-full rounded-lg px-2 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             disabled={isHoveredThreadsLoading}
                             onClick={() => {
-                              void loadProjectThreads(hoveredProjectId).then(() => {
-                                const nextError = useThreadStore.getState().error;
-                                if (nextError) {
-                                  toast({
-                                    icon: <WarningIcon className="size-5 text-red-500" />,
-                                    title: "Threads failed to load",
-                                    description: nextError,
-                                  });
-                                }
-                              });
+                              void loadProjectThreads(hoveredProjectId).then(
+                                () => {
+                                  const nextError =
+                                    useThreadStore.getState().error;
+                                  if (nextError) {
+                                    toast({
+                                      icon: (
+                                        <WarningIcon className="size-5 text-red-500" />
+                                      ),
+                                      title: "Threads failed to load",
+                                      description: nextError,
+                                    });
+                                  }
+                                },
+                              );
                             }}
                           >
-                            {isHoveredThreadsLoading ? "Loading..." : "Load more"}
+                            {isHoveredThreadsLoading
+                              ? "Loading..."
+                              : "Load more"}
                           </button>
                         ) : null}
                         <div className="mt-2 pt-2 border-t border-border/60">
@@ -1539,7 +1742,9 @@ export function AgentPanel() {
                               await handleCreateThread();
                             }}
                           >
-                            {isCreatingThread ? "Creating..." : "Create new thread"}
+                            {isCreatingThread
+                              ? "Creating..."
+                              : "Create new thread"}
                           </Button>
                         </div>
                       </div>,
@@ -1590,117 +1795,139 @@ export function AgentPanel() {
                     height: `${conversationVirtualizer.getTotalSize()}px`,
                   }}
                 >
-                  {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const entry = allMessages[virtualRow.index];
-                    if (!entry) return null;
-                    const { key, role, messages, originalIndex, isStreaming } = entry;
-                    const from = role;
-                    const msgId = key;
-                    const bodyText = messages
-                      .map((m) => stringifyMessageContent(m))
-                      .filter(Boolean)
-                      .join("\n\n");
-                    const timeStr = isStreaming
-                      ? undefined
-                      : formatMessageTime(messages[messages.length - 1]);
-                    const hasContent =
-                      bodyText.trim() !== "" ||
-                      extractGroupedMessageImages(messages).length > 0 ||
-                      (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
+                  {conversationVirtualizer
+                    .getVirtualItems()
+                    .map((virtualRow) => {
+                      const entry = allMessages[virtualRow.index];
+                      if (!entry) return null;
+                      const {
+                        key,
+                        role,
+                        messages,
+                        originalIndex,
+                        isStreaming,
+                      } = entry;
+                      const from = role;
+                      const msgId = key;
+                      const bodyText = messages
+                        .map((m) => stringifyMessageContent(m))
+                        .filter(Boolean)
+                        .join("\n\n");
+                      const timeStr = isStreaming
+                        ? undefined
+                        : formatMessageTime(messages[messages.length - 1]);
+                      const hasContent =
+                        bodyText.trim() !== "" ||
+                        extractGroupedMessageImages(messages).length > 0 ||
+                        (from === "assistant" &&
+                          messages.some((m) => getToolSummary(m) !== null));
 
-                    const actions =
-                      from === "user" ? (
-                        <div data-pipper-id="user-actions-buttons">
-                          <CopyButton msgId={msgId} bodyText={bodyText} />
-                          <button
-                            type="button"
-                            aria-label="Edit message"
-                            title={
-                              messages.length > 1
-                                ? "Grouped messages cannot be edited together"
-                                : "Edit message"
-                            }
-                            className={iconButtonClass}
-                            disabled={
-                              isStreaming ||
-                              isSubmitting ||
-                              messages.length > 1 ||
-                              !snapshot?.messageEntryRefs[originalIndex]
-                            }
-                            onClick={() => {
-                              setInputValue(bodyText);
-                              setAttachedFiles([]);
-                              setEditState({
-                                targetEntryId: snapshot!.messageEntryRefs[originalIndex]!.entryId,
-                                images: extractGroupedMessageImages(messages),
-                              });
-                              if (composerTextareaRef.current) {
-                                composerTextareaRef.current.focus();
-                              }
-                            }}
-                          >
-                            <PencilIcon size={13} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div data-pipper-id="agent-actions-buttons">
-                          <CopyButton msgId={msgId} bodyText={bodyText} />
-                          {!isStreaming && (
+                      const actions =
+                        from === "user" ? (
+                          <div data-pipper-id="user-actions-buttons">
+                            <CopyButton msgId={msgId} bodyText={bodyText} />
                             <button
                               type="button"
-                              aria-label="Regenerate response"
+                              aria-label="Edit message"
+                              title={
+                                messages.length > 1
+                                  ? "Grouped messages cannot be edited together"
+                                  : "Edit message"
+                              }
                               className={iconButtonClass}
                               disabled={
-                                isSubmitting || snapshot?.isCompacting || snapshot?.isRetrying
+                                isStreaming ||
+                                isSubmitting ||
+                                messages.length > 1 ||
+                                !snapshot?.messageEntryRefs[originalIndex]
                               }
-                              onClick={() => handleRegenerate(originalIndex)}
+                              onClick={() => {
+                                setInputValue(bodyText);
+                                setAttachedFiles([]);
+                                setEditState({
+                                  targetEntryId:
+                                    snapshot!.messageEntryRefs[originalIndex]!
+                                      .entryId,
+                                  images: extractGroupedMessageImages(messages),
+                                });
+                                if (composerTextareaRef.current) {
+                                  composerTextareaRef.current.focus();
+                                }
+                              }}
                             >
-                              <RotateCcwIcon size={13} />
+                              <PencilIcon size={13} />
                             </button>
-                          )}
+                          </div>
+                        ) : (
+                          <div data-pipper-id="agent-actions-buttons">
+                            <CopyButton msgId={msgId} bodyText={bodyText} />
+                            {!isStreaming && (
+                              <button
+                                type="button"
+                                aria-label="Regenerate response"
+                                className={iconButtonClass}
+                                disabled={
+                                  isSubmitting ||
+                                  snapshot?.isCompacting ||
+                                  snapshot?.isRetrying
+                                }
+                                onClick={() => handleRegenerate(originalIndex)}
+                              >
+                                <RotateCcwIcon size={13} />
+                              </button>
+                            )}
+                          </div>
+                        );
+
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          ref={conversationVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className="absolute left-0 top-0 w-full px-4 pb-3"
+                          style={{
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <ChatMessage
+                            from={from}
+                            time={timeStr}
+                            actions={actions}
+                          >
+                            {hasContent ? (
+                              <MessageBody
+                                messages={messages}
+                                isStreaming={isStreaming}
+                                activeMessages={activeMessages}
+                              />
+                            ) : undefined}
+                            {extractGroupedMessageImages(messages).length >
+                              0 && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {extractGroupedMessageImages(messages).map(
+                                  (image) => (
+                                    <button
+                                      key={image.id}
+                                      type="button"
+                                      onClick={() => setPreviewImage(image)}
+                                    >
+                                      <img
+                                        src={`data:${image.mimeType};base64,${image.data}`}
+                                        alt="Message attachment"
+                                        className="size-24 rounded-md object-cover border border-border"
+                                        onLoad={() =>
+                                          conversationVirtualizer.measure()
+                                        }
+                                      />
+                                    </button>
+                                  ),
+                                )}
+                              </div>
+                            )}
+                          </ChatMessage>
                         </div>
                       );
-
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        ref={conversationVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        className="absolute left-0 top-0 w-full px-4 pb-3"
-                        style={{
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        <ChatMessage from={from} time={timeStr} actions={actions}>
-                          {hasContent ? (
-                            <MessageBody
-                              messages={messages}
-                              isStreaming={isStreaming}
-                              activeMessages={activeMessages}
-                            />
-                          ) : undefined}
-                          {extractGroupedMessageImages(messages).length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {extractGroupedMessageImages(messages).map((image) => (
-                                <button
-                                  key={image.id}
-                                  type="button"
-                                  onClick={() => setPreviewImage(image)}
-                                >
-                                  <img
-                                    src={`data:${image.mimeType};base64,${image.data}`}
-                                    alt="Message attachment"
-                                    className="size-24 rounded-md object-cover border border-border"
-                                    onLoad={() => conversationVirtualizer.measure()}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </ChatMessage>
-                      </div>
-                    );
-                  })}
+                    })}
 
                   {isStreaming && !streamingMessage && (
                     <div
@@ -1745,7 +1972,8 @@ export function AgentPanel() {
                   Connecting to agent runtime...
                 </div>
               )}
-              {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
+              {snapshot?.queue.steering.length ||
+              snapshot?.queue.followUp.length ? (
                 <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
                   {snapshot.queue.steering.length > 0 && (
                     <div>
@@ -1779,7 +2007,10 @@ export function AgentPanel() {
               ) : null}
               {editState && (
                 <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
-                  <span>Editing message · {editState.images.length} retained image(s)</span>
+                  <span>
+                    Editing message · {editState.images.length} retained
+                    image(s)
+                  </span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1805,7 +2036,11 @@ export function AgentPanel() {
                   textareaRef={composerTextareaRef}
                   value={inputValue}
                   onValueChange={setInputValue}
-                  placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
+                  placeholder={
+                    isConnecting
+                      ? "Connecting to agent runtime..."
+                      : "Type here"
+                  }
                   onSend={handleSend}
                   disabled={composerDisabled}
                   canSendWhenEmpty={Boolean(editState?.images.length)}
@@ -1813,7 +2048,10 @@ export function AgentPanel() {
                   onFilesChange={handleFilesChange}
                   onFilesRejected={handleFilesRejected}
                   accept="image/png,image/jpeg,image/gif,image/webp"
-                  maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
+                  maxFiles={Math.max(
+                    0,
+                    MAX_AGENT_IMAGES - (editState?.images.length ?? 0),
+                  )}
                   isStreaming={isStreaming}
                   onStop={() => void handleAbort()}
                   isStopping={isAborting}
@@ -1824,7 +2062,11 @@ export function AgentPanel() {
                       variant="ghost"
                       size="icon-sm"
                       aria-label="Attach images"
-                      onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
+                      onClick={() =>
+                        openFilePicker(
+                          "image/png,image/jpeg,image/gif,image/webp",
+                        )
+                      }
                     >
                       <PaperclipIcon size={15} />
                     </Button>
@@ -1838,7 +2080,9 @@ export function AgentPanel() {
                         event.preventDefault();
                         setSelectedCommandIndex(
                           (current) =>
-                            (current + (event.key === "ArrowDown" ? 1 : -1) + slashMatches.length) %
+                            (current +
+                              (event.key === "ArrowDown" ? 1 : -1) +
+                              slashMatches.length) %
                             slashMatches.length,
                         );
                         return;
@@ -1846,11 +2090,13 @@ export function AgentPanel() {
                       if (
                         slashMatches.length &&
                         (event.key === "Tab" ||
-                          (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
+                          (event.key === "Enter" &&
+                            !/\s/.test(inputValue.trimStart())))
                       ) {
                         event.preventDefault();
                         applyCommand(
-                          slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
+                          slashMatches[selectedCommandIndex]?.name ??
+                            slashMatches[0]!.name,
                         );
                         return;
                       }
@@ -1860,22 +2106,11 @@ export function AgentPanel() {
                     },
                   }}
                   rightSlot={
-                    <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
-                      {isStreaming && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              setStreamingBehavior((value) =>
-                                value === "followUp" ? "steer" : "followUp",
-                              )
-                            }
-                          >
-                            {streamingBehavior === "followUp" ? "Next" : "Steer"}
-                          </Button>
-                        </>
-                      )}
+                    <div
+                      ref={modelDropdownRef}
+                      className="relative flex items-center gap-1.5"
+                    >
+                      {" "}
                       {snapshot?.thinkingLevel !== undefined &&
                         snapshot?.thinkingLevel !== null && (
                           <Button
@@ -1889,7 +2124,9 @@ export function AgentPanel() {
                                 await cycleThinkingLevel();
                               } catch (err) {
                                 toast({
-                                  icon: <WarningIcon className="size-5 text-red-500" />,
+                                  icon: (
+                                    <WarningIcon className="size-5 text-red-500" />
+                                  ),
                                   title: "Reasoning level failed",
                                   description:
                                     err instanceof Error
@@ -1910,7 +2147,9 @@ export function AgentPanel() {
                         size="sm"
                         trailingIcon={ChevronDownIcon}
                         active={isModelDropdownOpen}
-                        disabled={models.length === 0 || runtimeControlsDisabled}
+                        disabled={
+                          models.length === 0 || runtimeControlsDisabled
+                        }
                         onClick={() => {
                           setIsDropdownOpen(false);
                           setIsModelDropdownOpen((prev) => !prev);
@@ -1940,9 +2179,12 @@ export function AgentPanel() {
                               <MagnifyingGlassIcon size={14} />
                               <input
                                 value={modelSearch}
-                                onChange={(event) => setModelSearch(event.target.value)}
+                                onChange={(event) =>
+                                  setModelSearch(event.target.value)
+                                }
                                 onKeyDown={(event) => {
-                                  if (event.key === "Escape") setIsModelDropdownOpen(false);
+                                  if (event.key === "Escape")
+                                    setIsModelDropdownOpen(false);
                                 }}
                                 placeholder="Find a model"
                                 aria-label="Find a model"
@@ -1954,9 +2196,12 @@ export function AgentPanel() {
                             <div className="min-h-0 flex-1 overflow-y-auto py-1">
                               {visibleModels.map((model) => {
                                 const isSelected =
-                                  model.provider === snapshot?.model?.provider &&
+                                  model.provider ===
+                                    snapshot?.model?.provider &&
                                   model.modelId === snapshot?.model?.modelId;
-                                const providerLabel = formatProviderName(model.provider);
+                                const providerLabel = formatProviderName(
+                                  model.provider,
+                                );
                                 return (
                                   <button
                                     type="button"
@@ -1983,14 +2228,19 @@ export function AgentPanel() {
                                           setIsModelDropdownOpen(false);
                                         } else {
                                           toast({
-                                            icon: <WarningIcon className="size-5 text-red-500" />,
+                                            icon: (
+                                              <WarningIcon className="size-5 text-red-500" />
+                                            ),
                                             title: "Model change failed",
-                                            description: "The selected model was not applied.",
+                                            description:
+                                              "The selected model was not applied.",
                                           });
                                         }
                                       } catch (err) {
                                         toast({
-                                          icon: <WarningIcon className="size-5 text-red-500" />,
+                                          icon: (
+                                            <WarningIcon className="size-5 text-red-500" />
+                                          ),
                                           title: "Model change failed",
                                           description:
                                             err instanceof Error
@@ -2012,7 +2262,9 @@ export function AgentPanel() {
                                     >
                                       <ProviderMark provider={model.provider} />
                                     </span>
-                                    <span className="min-w-0 flex-1 truncate">{model.name}</span>
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {model.name}
+                                    </span>
                                     {isSelected && (
                                       <ModelCheckIcon
                                         className="shrink-0"
