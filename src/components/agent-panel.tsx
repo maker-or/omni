@@ -2053,7 +2053,7 @@ export function AgentPanel() {
                   ))}
                 </div>
                 {snapshot?.stats && (
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="ml-auto flex w-full items-center justify-between gap-2">
                     <ContextWindowRing
                       contextUsage={snapshot.stats.contextUsage}
                       contextWindowFallback={snapshot.model?.contextWindow}
