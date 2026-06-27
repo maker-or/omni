@@ -29,7 +29,7 @@ export default function App() {
     return null;
   });
 
-  const { activeProject, loadActiveProject, isLoading } = useProjectStore();
+  const { activeProject, loadActiveProject, isLoading, error: projectError } = useProjectStore();
   const { syncFromBroadcast } = usePipperStore();
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const checkForUpdates = useUpdateStore((state) => state.check);
@@ -75,7 +75,15 @@ export default function App() {
 
   useEffect(() => {
     if (updateState?.phase === "awaiting-health-check" && updateRun?.target_version) {
-      void window.omni.update.markActiveHealthy(updateRun.target_version);
+      void window.omni.update.markActiveHealthy(updateRun.target_version).then((success) => {
+        if (!success) {
+          toast({
+            icon: <Bell className="size-5 text-red-500" />,
+            title: "Update health check not accepted",
+            description: "The updater is waiting for a matching active version.",
+          });
+        }
+      });
     }
   }, [updateState?.phase, updateRun?.target_version]);
 
@@ -196,7 +204,18 @@ export default function App() {
                       onSelect={async () => {
                         setIsDropdownOpen(false);
                         if (window.omni?.projects?.setActive) {
-                          await window.omni.projects.setActive(project.id);
+                          try {
+                            await window.omni.projects.setActive(project.id);
+                          } catch (err) {
+                            toast({
+                              icon: <Bell className="size-5 text-red-500" />,
+                              title: "Project switch failed",
+                              description:
+                                err instanceof Error
+                                  ? err.message
+                                  : "Could not activate that project.",
+                            });
+                          }
                         }
                       }}
                     />
@@ -228,7 +247,14 @@ export default function App() {
             type="button"
             onClick={() => {
               if (window.omni?.companion?.open) {
-                void window.omni.companion.open();
+                window.omni.companion.open().catch((err) => {
+                  toast({
+                    icon: <Bell className="size-5 text-red-500" />,
+                    title: "Could not open companion",
+                    description:
+                      err instanceof Error ? err.message : "Edit mode is not available right now.",
+                  });
+                });
               }
             }}
             aria-label="Open Companion"
@@ -261,6 +287,11 @@ export default function App() {
 
       <LauncherUpdateBanner />
       <UpdateBanner />
+      {projectError && (
+        <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-[12px] text-red-500">
+          {projectError}
+        </div>
+      )}
 
       <Toaster />
 

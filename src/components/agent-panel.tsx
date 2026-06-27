@@ -33,11 +33,12 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
-import type { AgentUiRequest } from "../../contracts/agent.ts";
+import type { AgentRuntimeSnapshot, AgentUiRequest } from "../../contracts/agent.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import {
   extractGroupedMessageImages,
   fileToPromptImage,
+  MAX_AGENT_IMAGES,
   partitionValidImageFiles,
   type ChatImageAttachment,
 } from "@/lib/agent-message-images";
@@ -255,6 +256,105 @@ function getToolSummary(message: MessageLike): string | null {
   return toolNames.join(", ");
 }
 
+export function getMessageStructureKey(message: MessageLike): string {
+  const content = (message as unknown as { content?: unknown }).content;
+  if (!Array.isArray(content)) return stringifyMessageContent(message).length.toString();
+  return content
+    .map((part, index) => {
+      if (!part || typeof part !== "object") return `${index}:empty`;
+      const typed = part as {
+        type?: string;
+        id?: string;
+        name?: string;
+        toolCallId?: string;
+        text?: string;
+        thinking?: string;
+      };
+      return [
+        index,
+        typed.type ?? "unknown",
+        typed.id ?? "",
+        typed.toolCallId ?? "",
+        typed.name ?? "",
+        typed.text?.length ?? 0,
+        typed.thinking?.length ?? 0,
+      ].join("/");
+    })
+    .join("|");
+}
+
+export interface GroupedMessageEntry {
+  key: string;
+  role: "user" | "assistant";
+  messages: MessageLike[];
+  originalIndex: number;
+  isStreaming: boolean;
+}
+
+export function groupConversationMessages(
+  activeMessages: MessageLike[],
+  streamingMessage: MessageLike | null,
+): GroupedMessageEntry[] {
+  const rawEntries = activeMessages
+    .map((message, index) => ({
+      message,
+      originalIndex: index,
+      isStreaming: false,
+    }))
+    .filter(({ message }) => message.role === "user" || message.role === "assistant");
+
+  if (streamingMessage) {
+    rawEntries.push({
+      message: streamingMessage,
+      originalIndex: activeMessages.length,
+      isStreaming: true,
+    });
+  }
+
+  const grouped: GroupedMessageEntry[] = [];
+
+  for (const entry of rawEntries) {
+    const lastGroup = grouped[grouped.length - 1];
+    const role = entry.message.role === "user" ? "user" : "assistant";
+
+    if (lastGroup && lastGroup.role === role) {
+      lastGroup.messages.push(entry.message);
+      if (entry.isStreaming) {
+        lastGroup.isStreaming = true;
+      }
+    } else {
+      grouped.push({
+        key: entry.isStreaming ? "streaming" : `${role}-${entry.originalIndex}`,
+        role,
+        messages: [entry.message],
+        originalIndex: entry.originalIndex,
+        isStreaming: entry.isStreaming,
+      });
+    }
+  }
+
+  return grouped;
+}
+
+export function buildConversationScrollKey(
+  threadId: string,
+  allMessages: GroupedMessageEntry[],
+  isStreaming: boolean,
+): string {
+  const latest = allMessages[allMessages.length - 1];
+  if (!latest) return `${threadId}:empty:${isStreaming}`;
+
+  const lastMessage = latest.messages[latest.messages.length - 1];
+  return [
+    threadId,
+    allMessages.length,
+    isStreaming ? "streaming" : "settled",
+    latest.role ?? "unknown",
+    stringifyMessageContent(lastMessage).length,
+    latest.messages.map(getMessageStructureKey).join(","),
+  ].join(":");
+}
+
 function MessageBody({
   messages,
   isStreaming = false,
@@ -265,21 +365,6 @@ function MessageBody({
   activeMessages?: MessageLike[];
 }) {
   const role = messages[0]?.role;
-
-  if (role === "toolResult") {
-    const body = messages
-      .map((m) => stringifyMessageContent(m))
-      .filter(Boolean)
-      .join("\n\n");
-    return (
-      <div className="rounded-md border border-border/70 bg-surface-2 px-3 py-2 text-[13px] text-muted-foreground">
-        <div className="font-medium text-foreground/80">
-          {(messages[0] as { toolName?: string }).toolName ?? "Tool result"}
-        </div>
-        <div className="mt-1 whitespace-pre-wrap break-words">{body || "Completed"}</div>
-      </div>
-    );
-  }
 
   if (role === "assistant") {
     const allTraceParts: any[] = [];
@@ -415,15 +500,58 @@ function UiRequestDialog({
   );
 }
 
+const ANSI_PATTERN = new RegExp(String.raw`\u001B\[[0-?]*[ -/]*[@-~]`, "g");
+
+function cleanRuntimeStatusText(text: string | null | undefined): string | null {
+  const cleaned = text?.replace(ANSI_PATTERN, "").trim();
+  return cleaned ? cleaned : null;
+}
+
+export function getRuntimeStatusItems(snapshot: AgentRuntimeSnapshot | null): string[] {
+  if (!snapshot) return [];
+
+  const items: string[] = [];
+  const title = cleanRuntimeStatusText(snapshot.title);
+  if (title && title !== snapshot.sessionName) items.push(`Title: ${title}`);
+
+  if (snapshot.workingVisible) {
+    const workingMessage = cleanRuntimeStatusText(snapshot.workingMessage);
+    if (workingMessage) items.push(workingMessage);
+  }
+
+  for (const value of Object.values(snapshot.status)) {
+    const statusText = cleanRuntimeStatusText(value);
+    if (statusText) items.push(statusText);
+  }
+
+  const hiddenThinkingLabel = cleanRuntimeStatusText(snapshot.hiddenThinkingLabel);
+  if (hiddenThinkingLabel && snapshot.isStreaming) items.push(`Thinking: ${hiddenThinkingLabel}`);
+  const editorText = cleanRuntimeStatusText(snapshot.editorText);
+  if (editorText) items.push(`Draft: ${editorText}`);
+  if (snapshot.isCompacting) items.push("Compacting");
+  if (snapshot.isRetrying) items.push("Retrying");
+  if (!snapshot.autoCompactionEnabled) items.push("Auto-compaction off");
+  if (!snapshot.autoRetryEnabled) items.push("Auto-retry off");
+
+  return items.filter((item, index, all) => all.indexOf(item) === index);
+}
+
 export function AgentPanel() {
   "use no memo";
   const queryClient = useQueryClient();
   const { activeProject, loadActiveProject } = useProjectStore();
-  const { threads, pagesByProject, loadProjectThreads, renameThread, addThread, deleteThread } =
-    useThreadStore();
+  const {
+    threads,
+    pagesByProject,
+    loadProjectThreads,
+    renameThread,
+    deleteThread,
+    error: threadError,
+  } = useThreadStore();
   const {
     snapshot,
-    error,
+    error: agentError,
+    isConnecting,
     uiRequest,
     connect,
     refresh,
@@ -444,6 +572,8 @@ export function AgentPanel() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAborting, setIsAborting] = useState(false);
+  const [isRuntimeActionPending, setIsRuntimeActionPending] = useState(false);
+  const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [editState, setEditState] = useState<{
@@ -454,9 +584,9 @@ export function AgentPanel() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
-  const [mountTime] = useState(() => Date.now());
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
+  const [dismissedAgentError, setDismissedAgentError] = useState<string | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
@@ -503,7 +633,7 @@ export function AgentPanel() {
         type="button"
         aria-label="Copy message"
         className={iconButtonClass}
-        onClick={() => handleCopy(msgId, bodyText)}
+        onClick={() => void handleCopy(msgId, bodyText)}
       >
         {isCopied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
       </button>
@@ -525,33 +655,49 @@ export function AgentPanel() {
     }).format(date);
   };
 
-  const handleCopy = (msgId: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedMessageId(msgId);
-    setTimeout(() => {
-      setCopiedMessageId((prev) => (prev === msgId ? null : prev));
-    }, 2000);
+  const handleCopy = async (msgId: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageId(msgId);
+      setTimeout(() => {
+        setCopiedMessageId((prev) => (prev === msgId ? null : prev));
+      }, 2000);
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Copy failed",
+        description: err instanceof Error ? err.message : "Clipboard access was denied.",
+      });
+    }
   };
 
   const handleRegenerate = async (currentIndex: number) => {
-    for (let i = currentIndex - 1; i >= 0; i--) {
-      const msg = activeMessages[i] as MessageLike;
-      if (msg.role === "user") {
-        const promptText = stringifyMessageContent(msg);
-        const entryId = snapshot?.messageEntryRefs[i]?.entryId;
-        if (entryId && snapshot?.threadId)
-          await replacePrompt({
-            threadId: snapshot.threadId,
-            targetUserEntryId: entryId,
-            message: promptText,
-            images: extractGroupedMessageImages([msg]).map(({ type, data, mimeType }) => ({
-              type,
-              data,
-              mimeType,
-            })),
-          });
-        break;
+    try {
+      for (let i = currentIndex - 1; i >= 0; i--) {
+        const msg = activeMessages[i] as MessageLike;
+        if (msg.role === "user") {
+          const promptText = stringifyMessageContent(msg);
+          const entryId = snapshot?.messageEntryRefs[i]?.entryId;
+          if (entryId && snapshot?.threadId)
+            await replacePrompt({
+              threadId: snapshot.threadId,
+              targetUserEntryId: entryId,
+              message: promptText,
+              images: extractGroupedMessageImages([msg]).map(({ type, data, mimeType }) => ({
+                type,
+                data,
+                mimeType,
+              })),
+            });
+          break;
+        }
       }
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Regenerate failed",
+        description: err instanceof Error ? err.message : "The agent did not accept the request.",
+      });
     }
   };
 
@@ -580,6 +726,11 @@ export function AgentPanel() {
 
     const renamedThread = await renameThread(editingThreadId, nextTitle);
     if (!renamedThread) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Rename failed",
+        description: useThreadStore.getState().error ?? "The thread title was not updated.",
+      });
       return false;
     }
 
@@ -659,10 +810,19 @@ export function AgentPanel() {
     const updatePosition = () => {
       const rect = projectListRef.current?.getBoundingClientRect();
       if (!rect) return;
+      const gap = 8;
+      const paneWidth = 320;
+      const paneHeight = 420;
+      const canFitRight = rect.right + gap + paneWidth <= window.innerWidth - gap;
+      const left = canFitRight ? rect.right + gap : Math.max(gap, rect.left - paneWidth - gap);
+      const top = Math.min(
+        Math.max(gap, rect.top),
+        Math.max(gap, window.innerHeight - paneHeight - gap),
+      );
       setThreadPaneStyle({
         position: "fixed",
-        top: `${Math.round(rect.top)}px`,
-        left: `${Math.round(rect.right + 8)}px`,
+        top: `${Math.round(top)}px`,
+        left: `${Math.round(left)}px`,
         zIndex: 3000,
       });
     };
@@ -683,6 +843,17 @@ export function AgentPanel() {
   }, [activeProject?.id, refresh]);
 
   useEffect(() => {
+    if (!uiRequest?.timeoutMs) return;
+    const timeout = window.setTimeout(() => {
+      void respondToUiRequest({
+        requestId: uiRequest.id,
+        value: uiRequest.kind === "confirm" ? false : undefined,
+      });
+    }, uiRequest.timeoutMs + 250);
+    return () => window.clearTimeout(timeout);
+  }, [respondToUiRequest, uiRequest]);
+
+  useEffect(() => {
     const currentThreadId = snapshot?.threadId;
     if (currentThreadId) {
       setActiveTabId(currentThreadId);
@@ -698,10 +869,10 @@ export function AgentPanel() {
 
   // Revert activeTabId if thread switching fails
   useEffect(() => {
-    if (error && snapshot?.threadId) {
+    if (agentError && snapshot?.threadId) {
       setActiveTabId(snapshot.threadId);
     }
-  }, [error, snapshot?.threadId]);
+  }, [agentError, snapshot?.threadId]);
 
   useEffect(() => {
     if (requestedThreadId && snapshot?.threadId === requestedThreadId) {
@@ -710,10 +881,10 @@ export function AgentPanel() {
   }, [requestedThreadId, snapshot?.threadId]);
 
   useEffect(() => {
-    if (requestedThreadId && error) {
+    if (requestedThreadId && agentError) {
       setRequestedThreadId(null);
     }
-  }, [error, requestedThreadId]);
+  }, [agentError, requestedThreadId]);
 
   useEffect(() => {
     if (!editingThreadId) return;
@@ -759,55 +930,14 @@ export function AgentPanel() {
     return matchAgentCommands(commands, query);
   }, [commands, inputValue]);
 
-  interface GroupedMessageEntry {
-    key: string;
-    role: "user" | "assistant";
-    messages: MessageLike[];
-    originalIndex: number;
-    isStreaming: boolean;
-  }
-
-  const allMessages = useMemo(() => {
-    const rawEntries = activeMessages
-      .map((message, index) => ({
-        message: message as MessageLike,
-        originalIndex: index,
-        isStreaming: false,
-      }))
-      .filter(({ message }) => message.role === "user" || message.role === "assistant");
-
-    if (streamingMessage) {
-      rawEntries.push({
-        message: streamingMessage as MessageLike,
-        originalIndex: activeMessages.length,
-        isStreaming: true,
-      });
-    }
-
-    const grouped: GroupedMessageEntry[] = [];
-
-    for (const entry of rawEntries) {
-      const lastGroup = grouped[grouped.length - 1];
-      const role = entry.message.role === "user" ? "user" : "assistant";
-
-      if (lastGroup && lastGroup.role === role) {
-        lastGroup.messages.push(entry.message);
-        if (entry.isStreaming) {
-          lastGroup.isStreaming = true;
-        }
-      } else {
-        grouped.push({
-          key: entry.isStreaming ? "streaming" : `${role}-${entry.originalIndex}`,
-          role,
-          messages: [entry.message],
-          originalIndex: entry.originalIndex,
-          isStreaming: entry.isStreaming,
-        });
-      }
-    }
-
-    return grouped;
-  }, [activeMessages, streamingMessage]);
+  const allMessages = useMemo(
+    () =>
+      groupConversationMessages(
+        activeMessages as MessageLike[],
+        streamingMessage as MessageLike | null,
+      ),
+    [activeMessages, streamingMessage],
+  );
 
   const conversationVirtualizer = useVirtualizer({
     count: allMessages.length,
@@ -817,19 +947,10 @@ export function AgentPanel() {
     overscan: 6,
   });
 
-  const latestConversationScrollKey = useMemo(() => {
-    const latest = allMessages[allMessages.length - 1];
-    if (!latest) return `${threadId}:empty:${isStreaming}`;
-
-    const lastMessage = latest.messages[latest.messages.length - 1];
-    return [
-      threadId,
-      allMessages.length,
-      isStreaming ? "streaming" : "settled",
-      latest.role ?? "unknown",
-      stringifyMessageContent(lastMessage).length,
-    ].join(":");
-  }, [allMessages, isStreaming, threadId]);
+  const latestConversationScrollKey = useMemo(
+    () => buildConversationScrollKey(threadId, allMessages, isStreaming),
+    [allMessages, isStreaming, threadId],
+  );
 
   useEffect(() => {
     const scrollContainer = messagesScrollRef.current;
@@ -926,13 +1047,36 @@ export function AgentPanel() {
     if (!trimmed && !files.length && !editState?.images.length) return;
     const [token, ...args] = trimmed.split(/\s+/);
     if (token === "/abort" && args.length === 0) {
-      await abort();
-      setInputValue("");
+      setIsSubmitting(true);
+      try {
+        await abort();
+        setInputValue("");
+      } catch (err) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Abort failed",
+          description: err instanceof Error ? err.message : "The agent did not stop.",
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
     if (token === "/compact") {
-      await compact(args.join(" ") || undefined);
-      setInputValue("");
+      setIsSubmitting(true);
+      try {
+        await compact(args.join(" ") || undefined);
+        setInputValue("");
+      } catch (err) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Compaction failed",
+          description:
+            err instanceof Error ? err.message : "The agent did not start compaction.",
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
     const operationThreadId = snapshot?.threadId;
@@ -944,12 +1088,21 @@ export function AgentPanel() {
         data,
         mimeType,
       }));
+      const images = [...retained, ...newImages];
+      if (images.length > MAX_AGENT_IMAGES) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Attachment rejected",
+          description: `A prompt can contain at most ${MAX_AGENT_IMAGES} images.`,
+        });
+        return;
+      }
       if (editState && operationThreadId)
         await replacePrompt({
           threadId: operationThreadId,
           targetUserEntryId: editState.targetEntryId,
           message: trimmed,
-          images: [...retained, ...newImages],
+          images,
         });
       else
         await sendPrompt({
@@ -964,13 +1117,20 @@ export function AgentPanel() {
         setEditState(null);
       }
       setStreamingBehavior("followUp");
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: editState ? "Edit failed" : "Send failed",
+        description:
+          err instanceof Error ? err.message : "The agent did not accept the message.",
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleFilesChange = (files: File[]) => {
-    const { valid, errors } = partitionValidImageFiles(files);
+    const { valid, errors } = partitionValidImageFiles(files, editState?.images.length ?? 0);
     setAttachedFiles(valid);
     if (errors.length)
       toast({
@@ -980,11 +1140,29 @@ export function AgentPanel() {
       });
   };
 
+  const handleFilesRejected = (files: File[], reason: "type" | "limit") => {
+    const description =
+      reason === "type"
+        ? `${files.length} file${files.length === 1 ? "" : "s"} did not match the supported image types.`
+        : `A prompt can contain at most ${MAX_AGENT_IMAGES} images.`;
+    toast({
+      icon: <WarningIcon className="size-5 text-red-500" />,
+      title: "Attachment rejected",
+      description,
+    });
+  };
+
   const handleAbort = async () => {
     if (isAborting) return;
     setIsAborting(true);
     try {
       await abort();
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Stop failed",
+        description: err instanceof Error ? err.message : "The agent did not stop.",
+      });
     } finally {
       setIsAborting(false);
     }
@@ -993,15 +1171,23 @@ export function AgentPanel() {
   const handleDeleteThread = async (thread: Thread) => {
     if (thread.id === snapshot?.threadId && isStreaming) return;
     if (!window.confirm(`Permanently delete “${thread.title}” and its session history?`)) return;
-    await deleteThread(thread.id);
-    setIsDropdownOpen(false);
-    await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
-    await queryClient.invalidateQueries({
-      queryKey: ["threads", thread.project_id],
-    });
-    const state = await window.omni.tabs.listOpen();
-    if (state.activeThreadId) await handleSelectThread(state.activeThreadId);
-    else setActiveTabId(null);
+    try {
+      await deleteThread(thread.id);
+      setIsDropdownOpen(false);
+      await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+      await queryClient.invalidateQueries({
+        queryKey: ["threads", thread.project_id],
+      });
+      const state = await window.omni.tabs.listOpen();
+      if (state.activeThreadId) await handleSelectThread(state.activeThreadId);
+      else setActiveTabId(null);
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Delete failed",
+        description: err instanceof Error ? err.message : "The thread was not deleted.",
+      });
+    }
   };
 
   const applyCommand = (commandName: string) => {
@@ -1012,7 +1198,7 @@ export function AgentPanel() {
     const time = typeof timestamp === "number" ? timestamp : Number(timestamp);
     if (Number.isNaN(time)) return "Unknown";
 
-    const diffMs = Math.max(0, mountTime - time);
+    const diffMs = Math.max(0, Date.now() - time);
     if (diffMs < 60 * 60 * 1000) return "Recently opened";
 
     const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
@@ -1044,18 +1230,29 @@ export function AgentPanel() {
 
     const idSeed = Array.from(thread.id).reduce((total, char) => total + char.charCodeAt(0), 0);
     const fallbackDaysAgo = ((idSeed + index) % 6) + 1;
-    return mountTime - fallbackDaysAgo * 24 * 60 * 60 * 1000;
+    return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
   };
 
   const handleCreateThread = async () => {
     const projectId = hoveredProjectId ?? activeProject?.id;
-    if (!projectId) return;
+    if (!projectId || isCreatingThread) return;
     const project = projectsList.find((item) => item.id === projectId);
     const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
-    const thread = await createThread(projectId, title, snapshot?.threadId ?? null);
-    addThread(thread);
-    await handleSelectThread(thread.id);
+    setIsCreatingThread(true);
+    try {
+      const thread = await createThread(projectId, title, snapshot?.threadId ?? null);
+      await loadProjectThreads(projectId, { reset: true });
+      await handleSelectThread(thread.id);
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Create thread failed",
+        description: err instanceof Error ? err.message : "The thread was not created.",
+      });
+    } finally {
+      setIsCreatingThread(false);
+    }
   };
 
   const projectItems = projectsList.map((project, idx) => ({
@@ -1075,8 +1272,10 @@ export function AgentPanel() {
   const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
   const isHoveredThreadsLoading =
     hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
-  const hoveredThreadsHasMore =
-    hoveredProjectThreadsQuery.data?.hasMore || Boolean(hoveredThreadPage?.hasMore);
+  const hoveredThreadsHasMore = hoveredThreadPage
+    ? hoveredThreadPage.hasMore
+    : Boolean(hoveredProjectThreadsQuery.data?.hasMore);
+  const runtimeStatusItems = useMemo(() => getRuntimeStatusItems(snapshot), [snapshot]);
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     return models.filter(
@@ -1095,6 +1294,16 @@ export function AgentPanel() {
   const selectedModelProvider = snapshot?.model?.provider;
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const emptyStateSubject = currentProject?.name ?? "your project";
+  const visibleAgentError =
+    agentError && agentError !== dismissedAgentError ? agentError : null;
+  const runtimeControlsDisabled =
+    isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
+  const composerDisabled =
+    isSwitchingThread ||
+    isConnecting ||
+    !snapshot ||
+    isSubmitting ||
+    Boolean(editState && isStreaming);
 
   return (
     <section
@@ -1234,7 +1443,7 @@ export function AgentPanel() {
                   ? createPortal(
                       <div
                         data-pipper-id="thread-pane"
-                        className="w-80 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
+                        className="w-80 max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
                         ref={threadPaneRef}
                         style={threadPaneStyle}
                       >
@@ -1242,6 +1451,11 @@ export function AgentPanel() {
                           Threads
                         </div>
                         <div className="flex flex-col gap-1">
+                          {threadError && (
+                            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-2 text-[12px] text-red-500">
+                              {threadError}
+                            </div>
+                          )}
                           {hoveredProjectThreads.length > 0 ? (
                             hoveredProjectThreads.map((thread, index) => {
                               const isActive = thread.id === threadId;
@@ -1298,7 +1512,16 @@ export function AgentPanel() {
                             className="mt-2 w-full rounded-lg px-2 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             disabled={isHoveredThreadsLoading}
                             onClick={() => {
-                              void loadProjectThreads(hoveredProjectId);
+                              void loadProjectThreads(hoveredProjectId).then(() => {
+                                const nextError = useThreadStore.getState().error;
+                                if (nextError) {
+                                  toast({
+                                    icon: <WarningIcon className="size-5 text-red-500" />,
+                                    title: "Threads failed to load",
+                                    description: nextError,
+                                  });
+                                }
+                              });
                             }}
                           >
                             {isHoveredThreadsLoading ? "Loading..." : "Load more"}
@@ -1310,12 +1533,13 @@ export function AgentPanel() {
                             variant="ghost"
                             className="w-full justify-center"
                             leadingIcon={PlusIcon}
+                            disabled={isCreatingThread}
                             onClick={async () => {
                               setIsDropdownOpen(false);
                               await handleCreateThread();
                             }}
                           >
-                            Create new thread
+                            {isCreatingThread ? "Creating..." : "Create new thread"}
                           </Button>
                         </div>
                       </div>,
@@ -1391,10 +1615,16 @@ export function AgentPanel() {
                           <button
                             type="button"
                             aria-label="Edit message"
+                            title={
+                              messages.length > 1
+                                ? "Grouped messages cannot be edited together"
+                                : "Edit message"
+                            }
                             className={iconButtonClass}
                             disabled={
                               isStreaming ||
                               isSubmitting ||
+                              messages.length > 1 ||
                               !snapshot?.messageEntryRefs[originalIndex]
                             }
                             onClick={() => {
@@ -1497,6 +1727,24 @@ export function AgentPanel() {
             )}
           >
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+              {visibleAgentError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
+                  <WarningIcon className="mt-0.5 size-4 shrink-0" />
+                  <span className="min-w-0 flex-1">{visibleAgentError}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 text-red-500/80 hover:text-red-500"
+                    onClick={() => setDismissedAgentError(visibleAgentError)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+              {isConnecting && (
+                <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[12px] text-muted-foreground">
+                  Connecting to agent runtime...
+                </div>
+              )}
               {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
                 <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
                   {snapshot.queue.steering.length > 0 && (
@@ -1557,13 +1805,15 @@ export function AgentPanel() {
                   textareaRef={composerTextareaRef}
                   value={inputValue}
                   onValueChange={setInputValue}
-                  placeholder="Type here"
+                  placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
                   onSend={handleSend}
-                  disabled={isSwitchingThread || isSubmitting || Boolean(editState && isStreaming)}
+                  disabled={composerDisabled}
+                  canSendWhenEmpty={Boolean(editState?.images.length)}
                   files={attachedFiles}
                   onFilesChange={handleFilesChange}
+                  onFilesRejected={handleFilesRejected}
                   accept="image/png,image/jpeg,image/gif,image/webp"
-                  maxFiles={5}
+                  maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
                   isStreaming={isStreaming}
                   onStop={() => void handleAbort()}
                   isStopping={isAborting}
@@ -1631,8 +1881,24 @@ export function AgentPanel() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            disabled={runtimeControlsDisabled}
                             onClick={async () => {
-                              await cycleThinkingLevel();
+                              if (runtimeControlsDisabled) return;
+                              setIsRuntimeActionPending(true);
+                              try {
+                                await cycleThinkingLevel();
+                              } catch (err) {
+                                toast({
+                                  icon: <WarningIcon className="size-5 text-red-500" />,
+                                  title: "Reasoning level failed",
+                                  description:
+                                    err instanceof Error
+                                      ? err.message
+                                      : "The reasoning level was not changed.",
+                                });
+                              } finally {
+                                setIsRuntimeActionPending(false);
+                              }
                             }}
                           >
                             Reasoning: {snapshot.thinkingLevel}
@@ -1644,7 +1910,7 @@ export function AgentPanel() {
                         size="sm"
                         trailingIcon={ChevronDownIcon}
                         active={isModelDropdownOpen}
-                        disabled={models.length === 0}
+                        disabled={models.length === 0 || runtimeControlsDisabled}
                         onClick={() => {
                           setIsDropdownOpen(false);
                           setIsModelDropdownOpen((prev) => !prev);
@@ -1697,18 +1963,43 @@ export function AgentPanel() {
                                     key={`${model.provider}:${model.modelId}`}
                                     aria-label={`${model.name}, ${providerLabel}`}
                                     title={`${model.name} · ${providerLabel}`}
+                                    disabled={isRuntimeActionPending}
                                     className={cn(
                                       "group/model-row flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
                                       isSelected
                                         ? "bg-accent text-foreground"
                                         : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                                      isRuntimeActionPending && "opacity-50",
                                     )}
                                     onClick={async () => {
-                                      const success = await setModel({
-                                        provider: model.provider,
-                                        modelId: model.modelId,
-                                      });
-                                      if (success) setIsModelDropdownOpen(false);
+                                      if (isRuntimeActionPending) return;
+                                      setIsRuntimeActionPending(true);
+                                      try {
+                                        const success = await setModel({
+                                          provider: model.provider,
+                                          modelId: model.modelId,
+                                        });
+                                        if (success) {
+                                          setIsModelDropdownOpen(false);
+                                        } else {
+                                          toast({
+                                            icon: <WarningIcon className="size-5 text-red-500" />,
+                                            title: "Model change failed",
+                                            description: "The selected model was not applied.",
+                                          });
+                                        }
+                                      } catch (err) {
+                                        toast({
+                                          icon: <WarningIcon className="size-5 text-red-500" />,
+                                          title: "Model change failed",
+                                          description:
+                                            err instanceof Error
+                                              ? err.message
+                                              : "The selected model was not applied.",
+                                        });
+                                      } finally {
+                                        setIsRuntimeActionPending(false);
+                                      }
                                     }}
                                   >
                                     <span
@@ -1748,10 +2039,21 @@ export function AgentPanel() {
 
               <div
                 data-pipper-id="stats-bar"
-                className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground"
+                className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
               >
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  {runtimeStatusItems.map((item) => (
+                    <span
+                      key={item}
+                      className="max-w-[260px] truncate rounded-md border border-border/60 bg-surface-2 px-2 py-1"
+                      title={item}
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
                 {snapshot?.stats && (
-                  <>
+                  <div className="ml-auto flex items-center gap-2">
                     <ContextWindowRing
                       contextUsage={snapshot.stats.contextUsage}
                       contextWindowFallback={snapshot.model?.contextWindow}
@@ -1765,7 +2067,7 @@ export function AgentPanel() {
                         (${snapshot.stats.cost.toFixed(4)})
                       </span>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, forwardRef, type ReactNode, type HTMLAttributes } from "react";
+import { forwardRef, type ReactNode, type HTMLAttributes } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon-context";
@@ -99,7 +99,7 @@ ThinkingStepsContent.displayName = "ThinkingStepsContent";
 
 // ─── ThinkingStep ───────────────────────────────────────────────────────────
 
-type StepStatus = "complete" | "active" | "pending";
+type StepStatus = "complete" | "active" | "pending" | "error";
 
 interface ThinkingStepProps {
   icon?: IconName;
@@ -120,7 +120,7 @@ function ThinkingStep({
   label,
   description,
   status = "complete",
-  index,
+  index: _index,
   delay = 0,
   isLast = false,
   children,
@@ -131,6 +131,7 @@ function ThinkingStep({
   if (status === "pending") return null;
 
   const isActive = status === "active";
+  const isError = status === "error";
 
   return (
     /* Outer: animates height to create space smoothly */
@@ -138,13 +139,13 @@ function ThinkingStep({
       className={cn("relative z-10 overflow-hidden", className)}
       initial={{ height: 0 }}
       animate={{ height: "auto" }}
-      transition={springs.slow}
+      transition={{ ...springs.moderate, delay }}
     >
       {/* Inner: fades content in after space starts opening */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.24, delay: 0.08, ease: "easeOut" }}
+        transition={{ duration: 0.24, delay: 0.08 + delay, ease: "easeOut" }}
       >
         {/* Content row — this is the proximity hover target */}
         <div className={cn("flex gap-2.5 px-2 py-1.5", shape.item)}>
@@ -152,10 +153,20 @@ function ThinkingStep({
           <div className="flex flex-col items-center shrink-0 w-[14px]">
             <div className="pt-0.5">
               {showIcon ? (
-                <Icon name={icon} size={14} strokeWidth={1.5} className="text-muted-foreground" />
+                <Icon
+                  name={icon}
+                  size={14}
+                  strokeWidth={1.5}
+                  className={isError ? "text-red-500" : "text-muted-foreground"}
+                />
               ) : (
                 <div className="w-[14px] h-[14px] flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60" />
+                  <div
+                    className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      isError ? "bg-red-500" : "bg-muted-foreground/60",
+                    )}
+                  />
                 </div>
               )}
             </div>
@@ -169,6 +180,7 @@ function ThinkingStep({
               className={cn(
                 "text-[13px] leading-tight text-foreground",
                 isActive && "shimmer-text",
+                isError && "text-red-500",
               )}
               style={{ fontVariationSettings: fontWeights.medium }}
             >

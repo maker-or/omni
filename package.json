@@ -1,6 +1,6 @@
 {
   "name": "pipper-code-alpha",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -19,7 +19,9 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "doctor": "npx react-doctor@latest",
-    "test": "bun test"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -68,6 +70,7 @@
     "@types/react-dom": "^19.2.3",
     "@vercel/blob": "^2.4.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^42.3.3",
     "electron-builder": "^26.15.2",
@@ -78,10 +81,11 @@
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.9"
   },
   "pipper": {
-    "workspaceVersion": "0.0.6"
+    "workspaceVersion": "0.0.7"
   },
   "trustedDependencies": [
     "node-pty"

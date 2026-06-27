@@ -13,6 +13,7 @@ interface TerminalState {
   listenerInitialized: boolean;
   createSession: (cwd?: string) => void;
   closeSession: (id: string) => void;
+  clearSessions: () => void;
   setActiveSessionId: (id: string | null) => void;
   appendHistory: (id: string, data: string) => void;
   initializeGlobalListener: () => void;
@@ -53,6 +54,19 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({
       sessions: filteredSessions,
       activeSessionId: nextActiveId,
+    });
+  },
+
+  clearSessions: () => {
+    const { sessions } = get();
+    if (window.omni?.terminal?.kill) {
+      for (const session of sessions) {
+        window.omni.terminal.kill(session.id);
+      }
+    }
+    set({
+      sessions: [],
+      activeSessionId: null,
     });
   },
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { compareVersions, parseUpdateManifest } from "./update-manifest.ts";
 
 const repository = "https://github.com/company/pipper";

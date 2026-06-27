@@ -183,7 +183,11 @@ declare global {
       editor: {
         activate: () => Promise<void>;
         getState: () => Promise<AgentRuntimeSnapshot>;
-        sendPrompt: (input: { message: string }) => Promise<void>;
+        sendPrompt: (input: {
+          message: string;
+          streamingBehavior?: "followUp" | "steer";
+        }) => Promise<void>;
+        abort: () => Promise<void>;
         setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
         dispose: () => Promise<void>;
         onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
@@ -200,7 +204,7 @@ declare global {
         setProcessing: (processingId: string | null) => Promise<void>;
         setOverlayVisible: (visible: boolean) => Promise<void>;
         addComment: (pipperId: string, text: string) => Promise<void>;
-        acceptChanges: (intent?: string) => Promise<void>;
+        acceptChanges: (intent?: string) => Promise<{ committed: boolean; filesChanged: string[] }>;
         rejectChanges: () => Promise<void>;
         onStateChanged: (
           callback: (payload: {

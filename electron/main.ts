@@ -2,10 +2,10 @@ import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
-import { spawn, exec } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as pty from "node-pty";
 import { markLaunchComplete, readLaunchState } from "./launch-state";
@@ -58,6 +58,7 @@ import {
   getActiveDependenciesPath,
   getInstallationMetadataPath,
   getPipperLibraryPath,
+  usesLocalDevelopmentWorkspace,
 } from "./workspace-manager";
 import { UpdateManager } from "./update-manager";
 import { LauncherUpdateManager } from "./launcher-update-manager";
@@ -67,6 +68,7 @@ const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.j
 const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
 const ptyProcesses = new Map<string, pty.IPty>();
+const execFileAsync = promisify(execFile);
 let currentTheme: "light" | "dark" | "system" = "system";
 
 const isDev = !app.isPackaged;
@@ -85,12 +87,83 @@ function normalizeTheme(theme: string): "light" | "dark" | "system" {
   return theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
 }
 
+function dirtyFilesFromPorcelain(status: string): string[] {
+  const paths: string[] = [];
+  for (const line of status.split("\n")) {
+    if (!line.trim()) continue;
+    const body = line.slice(3);
+    if (!body) continue;
+    const renameParts = body.split(" -> ");
+    if (renameParts.length > 1) {
+      paths.push(renameParts[0], renameParts[renameParts.length - 1]);
+    } else {
+      paths.push(body);
+    }
+  }
+  return paths.filter(Boolean);
+}
+
+function isPatchMetadataFile(file: string): boolean {
+  return file.replace(/\\/g, "/") === "patch.md";
+}
+
+function workspaceFileFingerprint(root: string, file: string): string | null {
+  const filePath = join(root, file);
+  if (!fs.existsSync(filePath)) return null;
+  return fingerprintPath(filePath);
+}
+
+function fingerprintPath(filePath: string): string {
+  const stat = fs.lstatSync(filePath);
+  if (stat.isSymbolicLink()) return `symlink:${fs.readlinkSync(filePath)}`;
+  if (stat.isDirectory()) {
+    const entries = fs.readdirSync(filePath).sort();
+    const hash = createHash("sha256");
+    for (const entry of entries) {
+      hash.update(entry);
+      hash.update("\0");
+      hash.update(fingerprintPath(join(filePath, entry)));
+      hash.update("\0");
+    }
+    return `directory:${hash.digest("hex")}`;
+  }
+  return `file:${createHash("sha256").update(fs.readFileSync(filePath)).digest("hex")}`;
+}
+
+async function capturePipperEditBaseline(activePath: string): Promise<Map<string, string | null>> {
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd: activePath });
+  const files = dirtyFilesFromPorcelain(String(stdout)).filter((file) => !isPatchMetadataFile(file));
+  return new Map(files.map((file) => [file, workspaceFileFingerprint(activePath, file)]));
+}
+
+async function ensurePipperEditBaseline(): Promise<void> {
+  if (pipperEditBaseline) return;
+  pipperEditBaseline = await capturePipperEditBaseline(getActivePath());
+}
+
+function changedSincePipperEditBaseline(activePath: string, file: string): boolean {
+  if (!pipperEditBaseline) return false;
+  if (!pipperEditBaseline.has(file)) return true;
+  return pipperEditBaseline.get(file) !== workspaceFileFingerprint(activePath, file);
+}
+
+async function listPipperEditChangedFiles(activePath: string): Promise<string[]> {
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+    cwd: activePath,
+  });
+  return dirtyFilesFromPorcelain(String(stdout)).filter(
+    (file) => !isPatchMetadataFile(file) && changedSincePipperEditBaseline(activePath, file),
+  );
+}
+
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
 let updateManager: UpdateManager | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
+let pipperEditBaseline: Map<string, string | null> | null = null;
+let allowCompanionClose = false;
 let updateSubsystemReady = false;
 let quitAuthorized = false;
 let updateQuitInProgress = false;
@@ -150,6 +223,7 @@ function sendToCompanionWindow(channel: string, payload: unknown): void {
 
 function endCompanionSession(): void {
   broadcastToWindows("pipper:stateChanged", { editMode: false, processingId: null });
+  pipperEditBaseline = null;
   try {
     void requireAgentManager()
       .disposeEditor()
@@ -159,6 +233,45 @@ function endCompanionSession(): void {
   } catch (err) {
     console.error("[Main] Failed to find editor session manager:", err);
   }
+}
+
+async function hasPipperEditChanges(): Promise<boolean> {
+  if (!pipperEditBaseline) return false;
+  return (await listPipperEditChangedFiles(getActivePath())).length > 0;
+}
+
+async function rejectPipperEditChanges(): Promise<void> {
+  await restoreFromBackup();
+  pipperEditBaseline = null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.reload();
+  }
+}
+
+async function requestCompanionClose(): Promise<void> {
+  const win = companionWindow;
+  if (!win || win.isDestroyed()) return;
+
+  if (!allowCompanionClose && (await hasPipperEditChanges().catch(() => true))) {
+    const result = await dialog.showMessageBox(win, {
+      type: "warning",
+      buttons: ["Keep Editing", "Reject Changes", "Close Without Reverting"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Unaccepted edit changes",
+      message: "The edit session has workspace changes that have not been accepted or rejected.",
+      detail: "Reject changes to restore the last backup, or close without reverting to leave the files dirty.",
+    });
+
+    if (result.response === 0) return;
+    if (result.response === 1) {
+      await rejectPipperEditChanges();
+    }
+  }
+
+  allowCompanionClose = true;
+  endCompanionSession();
+  win.close();
 }
 
 function setMainWindowTitle(title: string): void {
@@ -177,6 +290,54 @@ function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
   const frontendUrl = import.meta.env.VITE_CLERK_FRONTEND_URL;
   if (frontendUrl) return frontendUrl;
   return "https://clerk.com";
+}
+
+function configuredExternalHosts(): Set<string> {
+  const hosts = new Set<string>(["clerk.com"]);
+  for (const inputUrl of [
+    process.env["PIPPER_CLERK_SIGN_UP_URL"],
+    process.env["PIPPER_CLERK_SIGN_IN_URL"],
+    import.meta.env.VITE_CLERK_SIGN_UP_URL,
+    import.meta.env.VITE_CLERK_SIGN_IN_URL,
+    import.meta.env.VITE_CLERK_FRONTEND_URL,
+    resolveExternalUrl("clerkSignUp"),
+    resolveExternalUrl("clerkSignIn"),
+  ]) {
+    if (!inputUrl) continue;
+    try {
+      hosts.add(new URL(inputUrl).hostname.toLowerCase());
+    } catch {
+      // Ignore invalid optional configuration here; the opener path validates the final URL.
+    }
+  }
+  return hosts;
+}
+
+function isAllowedExternalUrl(inputUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(inputUrl);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+
+  const hostname = parsed.hostname.toLowerCase();
+  const configuredHosts = configuredExternalHosts();
+  return (
+    configuredHosts.has(hostname) ||
+    hostname === "clerk.com" ||
+    hostname.endsWith(".clerk.com")
+  );
+}
+
+function assertAllowedExternalUrl(inputUrl: string): string {
+  const trimmed = inputUrl.trim();
+  if (!trimmed || !isAllowedExternalUrl(trimmed)) {
+    throw new Error("External URL is not allowed.");
+  }
+  return trimmed;
 }
 
 function parseAuthCallback(url: string): {
@@ -461,7 +622,7 @@ async function createMainWindow(): Promise<void> {
     titleBarStyle: "hidden",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -480,7 +641,11 @@ async function createMainWindow(): Promise<void> {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url);
+    } else {
+      console.warn(`[Main] Blocked external URL request: ${url}`);
+    }
     return { action: "deny" };
   });
 
@@ -517,7 +682,7 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
     backgroundColor: "#171717",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -567,7 +732,7 @@ async function createCompanionWindow(): Promise<void> {
     titleBarStyle: "hidden",
     webPreferences: {
       preload: join(mainDir, "../preload/index.js"),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -591,10 +756,18 @@ async function createCompanionWindow(): Promise<void> {
   companionWindow.on("resize", saveBounds);
   companionWindow.on("move", saveBounds);
 
+  companionWindow.on("close", (event) => {
+    if (allowCompanionClose) return;
+    event.preventDefault();
+    void requestCompanionClose().catch((err) => {
+      console.error("[Main] Failed to close companion safely:", err);
+    });
+  });
+
   companionWindow.on("closed", () => {
     console.log("[Main] companionWindow closed");
-    endCompanionSession();
     companionWindow = null;
+    allowCompanionClose = false;
   });
 
   void loadInto(companionWindow, "main", "companion");
@@ -617,6 +790,13 @@ function areDependenciesReady(deps: DependencyStatus): boolean {
 }
 
 function areWorkspacesInitialized(): boolean {
+  if (usesLocalDevelopmentWorkspace()) {
+    return (
+      fs.existsSync(join(getActivePath(), "package.json")) &&
+      fs.existsSync(join(getActivePath(), "node_modules"))
+    );
+  }
+
   return (
     fs.existsSync(getActivePath()) &&
     fs.existsSync(getBackupPath()) &&
@@ -917,10 +1097,7 @@ function registerIpc(): void {
           ? appendReturnTo(resolveExternalUrl("clerkSignIn"))
           : url;
 
-    if (typeof resolvedUrl !== "string" || resolvedUrl.trim().length === 0) {
-      throw new Error("Invalid URL.");
-    }
-    await shell.openExternal(resolvedUrl);
+    await shell.openExternal(assertAllowedExternalUrl(resolvedUrl));
   });
 
   ipcMain.handle("launch:complete", async (_event, projectId: string) => {
@@ -972,11 +1149,14 @@ function registerIpc(): void {
       throw new Error(`Project not found: ${projectId}`);
     }
     await ensureWorkspaceReady();
+    const previousProjectId = getActiveProjectId();
     setActiveProjectId(projectId);
     try {
       await requireAgentManager().activateProject(projectId);
     } catch (err) {
+      if (previousProjectId) setActiveProjectId(previousProjectId);
       console.error(`[Main] Failed to activate project ${projectId} in agent manager:`, err);
+      throw err;
     }
     broadcastToWindows("projects:activeChanged", projectId);
   });
@@ -995,8 +1175,9 @@ function registerIpc(): void {
   });
 
   ipcMain.on("companion:close", () => {
-    endCompanionSession();
-    companionWindow?.close();
+    void requestCompanionClose().catch((err) => {
+      console.error("[Main] Failed to close companion safely:", err);
+    });
   });
 
   ipcMain.handle("threads:list", () => {
@@ -1283,18 +1464,25 @@ function registerIpc(): void {
   });
 
   // ─── Editor IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle("editor:activate", () => {
+  ipcMain.handle("editor:activate", async () => {
     if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
+    await ensurePipperEditBaseline();
     return requireAgentManager().activateEditor();
   });
   ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
-  ipcMain.handle("editor:sendPrompt", (_event, input: { message: string }) =>
-    requireAgentManager().sendEditorPrompt(input),
+  ipcMain.handle(
+    "editor:sendPrompt",
+    (_event, input: { message: string; streamingBehavior?: "followUp" | "steer" }) =>
+      requireAgentManager().sendEditorPrompt(input),
   );
+  ipcMain.handle("editor:abort", () => requireAgentManager().abortEditor());
   ipcMain.handle("editor:setModel", (_event, model: { provider: string; modelId: string }) =>
     requireAgentManager().setEditorModel(model),
   );
-  ipcMain.handle("editor:dispose", () => requireAgentManager().disposeEditor());
+  ipcMain.handle("editor:dispose", () => {
+    pipperEditBaseline = null;
+    return requireAgentManager().disposeEditor();
+  });
 
   ipcMain.handle(
     "analytics:componentMutationRequested",
@@ -1319,8 +1507,9 @@ function registerIpc(): void {
   ipcMain.handle("pipper:setOverlayVisible", (_event, overlayVisible: boolean) => {
     broadcastToWindows("pipper:stateChanged", { overlayVisible });
   });
-  ipcMain.handle("pipper:enterEditMode", () => {
+  ipcMain.handle("pipper:enterEditMode", async () => {
     if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
+    await ensurePipperEditBaseline();
     broadcastToWindows("pipper:stateChanged", { editMode: true, overlayVisible: true });
   });
   ipcMain.handle("pipper:exitEditMode", () => {
@@ -1371,7 +1560,9 @@ function registerIpc(): void {
       }
 
       sendProgress(
-        "Initializing workspaces inside ~/Library/pipper...",
+        usesLocalDevelopmentWorkspace()
+          ? "Initializing local development workspace..."
+          : "Initializing workspaces inside ~/Library/pipper...",
         "running",
         undefined,
         true,
@@ -1390,25 +1581,32 @@ function registerIpc(): void {
     const activePath = getActivePath();
     const projectId = getActiveProjectId();
     try {
-      const { stdout } = await promisify(exec)("git status --porcelain", { cwd: activePath });
-      const filesChanged = stdout
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => line.slice(3).split(" -> ").at(-1) ?? "")
-        .filter((file) => file !== "patch.md");
-      if (filesChanged.length === 0) return;
+      if (!pipperEditBaseline) {
+        throw new Error("Edit session is still initializing. Try again in a moment.");
+      }
+      const filesChanged = await listPipperEditChangedFiles(activePath);
+      if (filesChanged.length === 0) return { committed: false, filesChanged };
       const patchPath = join(activePath, "patch.md");
       const existing = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
       const entry = {
         change_id: randomUUID(),
         files_changed: filesChanged,
+        metadata_files: ["patch.md"],
         intent: intent?.trim() || "Accepted visual customization",
       };
       fs.writeFileSync(patchPath, `${JSON.stringify(entry, null, 2)}\n\n${existing}`);
-      await promisify(exec)("git add -A && git commit -m 'Pipper Visual Edit Accept'", {
+      const filesToCommit = Array.from(new Set([...filesChanged, "patch.md"]));
+      await execFileAsync("git", ["add", "--", ...filesToCommit], {
         cwd: activePath,
       });
-      const { stdout: headOutput } = await promisify(exec)("git rev-parse HEAD", {
+      await execFileAsync(
+        "git",
+        ["commit", "--only", "-m", "Pipper Visual Edit Accept", "--", ...filesToCommit],
+        {
+          cwd: activePath,
+        },
+      );
+      const { stdout: headOutput } = await execFileAsync("git", ["rev-parse", "HEAD"], {
         cwd: activePath,
       });
       const installationPath = getInstallationMetadataPath();
@@ -1417,6 +1615,7 @@ function registerIpc(): void {
       installation.last_healthy_at = new Date().toISOString();
       fs.writeFileSync(installationPath, `${JSON.stringify(installation, null, 2)}\n`);
       await backupActiveWorkspace();
+      pipperEditBaseline = null;
       if (projectId) {
         captureAnalytics("mutation_accepted", {
           windowType: "companion",
@@ -1426,6 +1625,7 @@ function registerIpc(): void {
           },
         });
       }
+      return { committed: true, filesChanged };
     } catch (err: any) {
       if (projectId) {
         captureAnalytics("mutation_completed", {
@@ -1446,10 +1646,7 @@ function registerIpc(): void {
   ipcMain.handle("pipper:rejectChanges", async () => {
     const projectId = getActiveProjectId();
     try {
-      await restoreFromBackup();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.reload();
-      }
+      await rejectPipperEditChanges();
       if (projectId) {
         captureAnalytics("mutation_rejected", {
           windowType: "companion",
@@ -1570,7 +1767,7 @@ app.whenReady().then(async () => {
   launcherUpdateManager.startPeriodicChecks();
   void launcherUpdateManager.check();
 
-  if (isDev) {
+  if (isDev && !usesLocalDevelopmentWorkspace()) {
     startDevFileWatcher();
   }
 

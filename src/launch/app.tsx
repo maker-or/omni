@@ -88,7 +88,16 @@ export function LaunchApp() {
 
   useEffect(() => {
     if (updateState?.phase === "awaiting-health-check" && updateRun?.target_version) {
-      void window.omni.update.markActiveHealthy(updateRun.target_version);
+      void window.omni.update.markActiveHealthy(updateRun.target_version).then((success) => {
+        if (!success) {
+          toast({
+            title: "Update health check not accepted",
+            description: "The updater is waiting for a matching active version.",
+            icon: <Warning size={20} className="text-red-500" />,
+            duration: 5000,
+          });
+        }
+      });
     }
   }, [updateState?.phase, updateRun?.target_version]);
 
@@ -168,6 +177,12 @@ export function LaunchApp() {
       await window.omni.shell.openExternal(kind === "sign-in" ? "clerk:sign-in" : "clerk:sign-up");
     } catch (err) {
       console.error(`Failed to open Clerk ${kind}:`, err);
+      toast({
+        title: `Could not open ${kind}`,
+        description: err instanceof Error ? err.message : "The browser link was blocked.",
+        icon: <Warning size={20} className="text-red-500" />,
+        duration: 5000,
+      });
     } finally {
       setIsLaunchingAuth(false);
     }

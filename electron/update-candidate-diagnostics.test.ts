@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { dirtyFilesFromStatus } from "./update-candidate-diagnostics.ts";
 
 describe("update candidate diagnostics", () => {

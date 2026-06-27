@@ -287,8 +287,12 @@ const api = {
     activate: (): Promise<void> => ipcRenderer.invoke("editor:activate"),
     getState: (): Promise<import("../contracts/agent.ts").AgentRuntimeSnapshot> =>
       ipcRenderer.invoke("editor:getState"),
-    sendPrompt: (input: { message: string }): Promise<void> =>
+    sendPrompt: (input: {
+      message: string;
+      streamingBehavior?: "followUp" | "steer";
+    }): Promise<void> =>
       ipcRenderer.invoke("editor:sendPrompt", input),
+    abort: (): Promise<void> => ipcRenderer.invoke("editor:abort"),
     setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
       ipcRenderer.invoke("editor:setModel", model),
     dispose: (): Promise<void> => ipcRenderer.invoke("editor:dispose"),
@@ -314,7 +318,7 @@ const api = {
       ipcRenderer.invoke("pipper:setOverlayVisible", visible),
     addComment: (pipperId: string, text: string): Promise<void> =>
       ipcRenderer.invoke("pipper:addComment", pipperId, text),
-    acceptChanges: (intent?: string): Promise<void> =>
+    acceptChanges: (intent?: string): Promise<{ committed: boolean; filesChanged: string[] }> =>
       ipcRenderer.invoke("pipper:acceptChanges", intent),
     rejectChanges: (): Promise<void> => ipcRenderer.invoke("pipper:rejectChanges"),
     onStateChanged: (

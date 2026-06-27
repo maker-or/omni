@@ -1,13 +1,20 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UpdateRunRecord } from "../contracts/updates.ts";
 
-mock.module("electron", () => ({ app: { getPath: () => tmpdir() } }));
+vi.mock("electron", () => ({
+  app: { getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp" },
+}));
+
+let root: string | null = null;
 
 afterEach(() => {
+  delete process.env.PIPPER_LIBRARY_PATH;
+  if (root) rmSync(root, { recursive: true, force: true });
   rmSync(join(tmpdir(), "pipper"), { recursive: true, force: true });
+  root = null;
 });
 
 function record(runId: string): UpdateRunRecord {
@@ -28,6 +35,8 @@ function record(runId: string): UpdateRunRecord {
 
 describe("update run records", () => {
   test("writes, reads, and appends logs", async () => {
+    root = mkdtempSync(join(tmpdir(), "pipper-run-record-"));
+    process.env.PIPPER_LIBRARY_PATH = root;
     const {
       appendUpdateRunLog,
       getRunLogPath,
@@ -38,7 +47,7 @@ describe("update run records", () => {
     writeUpdateRunRecordAtomic("run-1", record("run-1"));
     appendUpdateRunLog("run-1", "phase=preparing");
     expect(readUpdateRunRecord("run-1")?.target_version).toBe("0.2.0");
-    expect(existsSync(getRunRecordPath("run-1"))).toBeTrue();
+    expect(existsSync(getRunRecordPath("run-1"))).toBe(true);
     expect(readFileSync(getRunLogPath("run-1"), "utf8")).toContain("phase=preparing");
   });
 });

@@ -12,8 +12,6 @@ interface ProjectThreadPageState {
 interface ThreadState {
   threads: Thread[];
   pagesByProject: Record<string, ProjectThreadPageState>;
-  /** IDs of threads that have been explicitly deleted — used to close open tabs. */
-  deletedThreadIds: Set<string>;
   isLoading: boolean;
   error: string | null;
   loadThreads: () => Promise<void>;
@@ -27,7 +25,6 @@ interface ThreadState {
 export const useThreadStore = create<ThreadState>((set) => ({
   threads: [],
   pagesByProject: {},
-  deletedThreadIds: new Set<string>(),
   isLoading: false,
   error: null,
   loadThreads: async () => {
@@ -80,11 +77,12 @@ export const useThreadStore = create<ThreadState>((set) => ({
       });
 
       set((state) => {
+        const pageThreads = page.threads as Thread[];
         const remainingThreads = reset
           ? state.threads.filter((thread) => thread.project_id !== projectId)
-          : state.threads.filter((thread) => !page.threads.some((item) => item.id === thread.id));
+          : state.threads.filter((thread) => !pageThreads.some((item) => item.id === thread.id));
         return {
-          threads: [...remainingThreads, ...page.threads],
+          threads: [...remainingThreads, ...pageThreads],
           pagesByProject: {
             ...state.pagesByProject,
             [projectId]: {
@@ -114,10 +112,11 @@ export const useThreadStore = create<ThreadState>((set) => ({
       const thread = await window.omni.threads.create(projectId, title);
       set((state) => ({
         threads: [thread, ...state.threads.filter((item) => item.id !== thread.id)],
+        error: null,
         pagesByProject: {
           ...state.pagesByProject,
           [projectId]: {
-            nextOffset: (state.pagesByProject[projectId]?.nextOffset ?? 0) + 1,
+            nextOffset: state.pagesByProject[projectId]?.nextOffset ?? 0,
             hasMore: state.pagesByProject[projectId]?.hasMore ?? false,
             isLoading: false,
           },
@@ -126,6 +125,9 @@ export const useThreadStore = create<ThreadState>((set) => ({
       return thread;
     } catch (err) {
       console.error("Failed to create thread:", err);
+      set({
+        error: err instanceof Error ? err.message : "Failed to create thread",
+      });
       return null;
     }
   },
@@ -134,10 +136,14 @@ export const useThreadStore = create<ThreadState>((set) => ({
       const thread = await window.omni.threads.rename(id, title);
       set((state) => ({
         threads: state.threads.map((item) => (item.id === id ? thread : item)),
+        error: null,
       }));
       return thread;
     } catch (err) {
       console.error("Failed to rename thread:", err);
+      set({
+        error: err instanceof Error ? err.message : "Failed to rename thread",
+      });
       return null;
     }
   },
@@ -146,11 +152,13 @@ export const useThreadStore = create<ThreadState>((set) => ({
       await window.omni.threads.delete(id);
       set((state) => ({
         threads: state.threads.filter((t) => t.id !== id),
-        // Track deleted IDs so open tabs can be closed correctly
-        deletedThreadIds: new Set([...state.deletedThreadIds, id]),
+        error: null,
       }));
     } catch (err) {
       console.error("Failed to delete thread:", err);
+      set({
+        error: err instanceof Error ? err.message : "Failed to delete thread",
+      });
       throw err;
     }
   },
@@ -160,7 +168,7 @@ export const useThreadStore = create<ThreadState>((set) => ({
       pagesByProject: {
         ...state.pagesByProject,
         [thread.project_id]: {
-          nextOffset: (state.pagesByProject[thread.project_id]?.nextOffset ?? 0) + 1,
+          nextOffset: state.pagesByProject[thread.project_id]?.nextOffset ?? 0,
           hasMore: state.pagesByProject[thread.project_id]?.hasMore ?? false,
           isLoading: false,
         },

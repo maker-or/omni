@@ -16,6 +16,7 @@ export function OthersView() {
     activeSessionId,
     createSession,
     closeSession,
+    clearSessions,
     setActiveSessionId,
     initializeGlobalListener,
   } = useTerminalStore();
@@ -23,10 +24,21 @@ export function OthersView() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const previousProjectKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     initializeGlobalListener();
   }, [initializeGlobalListener]);
+
+  useEffect(() => {
+    const projectKey = activeProject?.id ?? activeProject?.path ?? "";
+    const previousProjectKey = previousProjectKeyRef.current;
+    previousProjectKeyRef.current = projectKey;
+    if (previousProjectKey === null || previousProjectKey === projectKey) return;
+    if (sessions.length > 0) {
+      clearSessions();
+    }
+  }, [activeProject?.id, activeProject?.path, clearSessions, sessions.length]);
 
   // Sync activeTabId when the active terminal session changes or when a terminal is closed
   useEffect(() => {

@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UpdateState } from "../contracts/updates.ts";
 import { createIdleUpdateState, writeUpdateStateAtomic } from "./update-state.ts";
 
-mock.module("electron", () => ({ app: { getPath: () => tmpdir() } }));
+vi.mock("electron", () => ({
+  app: { getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp" },
+}));
 
 let root: string | null = null;
 const originalFetch = globalThis.fetch;
@@ -86,7 +88,7 @@ describe("update manager", () => {
     root = mkdtempSync(join(tmpdir(), "pipper-manager-"));
     mkdirSync(join(root, "updates"), { recursive: true });
     writeFailedState(root);
-    globalThis.fetch = mock(async () => ({
+    globalThis.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({
@@ -124,7 +126,7 @@ describe("update manager", () => {
     const manager = await createManager(root);
 
     const result = await manager.startNow();
-    expect(result.success).toBeFalse();
+    expect(result.success).toBe(false);
     expect(manager.getState().phase).toBe("failed");
     expect(result.error).toContain("failed");
   });
@@ -146,7 +148,7 @@ describe("update manager", () => {
     root = mkdtempSync(join(tmpdir(), "pipper-manager-"));
     mkdirSync(join(root, "updates"), { recursive: true });
     writeFailedState(root);
-    globalThis.fetch = mock(async () => ({ ok: true, status: 204 })) as any;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 204 })) as any;
     const manager = await createManager(root);
 
     const state = await manager.retryFailedUpdate();
@@ -159,7 +161,7 @@ describe("update manager", () => {
     root = mkdtempSync(join(tmpdir(), "pipper-manager-"));
     mkdirSync(join(root, "updates"), { recursive: true });
     writeFailedState(root);
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       throw new Error("offline");
     }) as any;
     const manager = await createManager(root);
@@ -182,9 +184,9 @@ describe("update manager", () => {
     const state = manager.getState();
     expect(state.phase).toBe("idle");
     expect(state.error).toContain("Recovered unreadable workspace update state");
-    expect(existsSync(join(root, "updates", "state.json"))).toBeTrue();
+    expect(existsSync(join(root, "updates", "state.json"))).toBe(true);
     expect(
       readdirSync(join(root, "updates")).some((entry) => entry.startsWith("state.corrupt-")),
-    ).toBeTrue();
+    ).toBe(true);
   });
 });

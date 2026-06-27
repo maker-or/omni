@@ -83,6 +83,8 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   rightSlot?: InputMessageSlot;
   /** Disables the textarea, send button, and drag-and-drop. */
   disabled?: boolean;
+  /** Allows submission when value/files are empty because the caller has retained content. */
+  canSendWhenEmpty?: boolean;
   /** Minimum visible rows before the textarea grows. */
   minRows?: number;
   /** Maximum visible rows before the textarea starts to scroll. */
@@ -105,6 +107,8 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   files?: File[];
   /** Called when files are added (drag-drop or picker) or removed. */
   onFilesChange?: (files: File[]) => void;
+  /** Called when files are rejected before they can be added to the controlled list. */
+  onFilesRejected?: (files: File[], reason: "type" | "limit") => void;
   /** Accepted MIME types as a comma-separated string. Defaults to PNG / JPEG / PDF. */
   accept?: string;
   /** Maximum number of files. Extra files are dropped when the limit is exceeded. */
@@ -181,6 +185,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       leftSlot,
       rightSlot,
       disabled,
+      canSendWhenEmpty = false,
       minRows = 1,
       maxRows = 8,
       clickToFocus = true,
@@ -192,6 +197,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       isStopping = false,
       files,
       onFilesChange,
+      onFilesRejected,
       accept = DEFAULT_ACCEPT,
       maxFiles,
       filePreviewSize = 80,
@@ -233,7 +239,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     }, [value, minRows, maxRows]);
 
     const trimmed = value.trim();
-    const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0);
+    const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0 || canSendWhenEmpty);
     const showActionButton = !hideSendButton || isStreaming;
     const actionLabel = isStreaming ? (isStopping ? "Stopping…" : stopLabel) : sendLabel;
     const actionDisabled = isStreaming ? isStopping : !canSend;
@@ -326,18 +332,30 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const fingerprint = (f: File) => `${f.name}-${f.size}-${f.lastModified}`;
         const existing = new Set(filesArr.map(fingerprint));
         const accepted: File[] = [];
+        const rejectedByType: File[] = [];
         for (const f of incoming) {
-          if (!matchesAccept(f)) continue;
+          if (!matchesAccept(f)) {
+            rejectedByType.push(f);
+            continue;
+          }
           const fp = fingerprint(f);
           if (existing.has(fp)) continue;
           existing.add(fp);
           accepted.push(f);
         }
+        if (rejectedByType.length) {
+          onFilesRejected?.(rejectedByType, "type");
+        }
         if (!accepted.length) return;
         const next = [...filesArr, ...accepted];
-        onFilesChange(maxFiles != null ? next.slice(0, maxFiles) : next);
+        if (maxFiles != null && next.length > maxFiles) {
+          onFilesRejected?.(next.slice(maxFiles), "limit");
+          onFilesChange(next.slice(0, maxFiles));
+          return;
+        }
+        onFilesChange(next);
       },
-      [onFilesChange, filesArr, matchesAccept, maxFiles],
+      [onFilesChange, onFilesRejected, filesArr, matchesAccept, maxFiles],
     );
 
     const removeFile = useCallback(

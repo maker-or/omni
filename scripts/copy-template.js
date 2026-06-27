@@ -16,6 +16,7 @@ const filesToCopy = [
   "package.json",
   ".gitignore",
   "vite.config.ts",
+  "vitest.config.ts",
   "components.json",
   "index.html",
   "tsconfig.json",

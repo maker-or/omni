@@ -19,10 +19,10 @@ function recentProjectsQueryKey(threadSwitchHistory: string[], openThreads: Thre
 }
 
 async function fetchOpenTabs(): Promise<OpenTabsState & { openThreads: Thread[] }> {
-  const state = await window.omni.tabs.listOpen();
+  const state = (await window.omni.tabs.listOpen()) as OpenTabsState;
   const openThreads = await window.omni.threads.listByIds(state.openThreadIds);
   const existingIds = new Set(openThreads.map((thread) => thread.id));
-  const openThreadIds = state.openThreadIds.filter((id) => existingIds.has(id));
+  const openThreadIds = state.openThreadIds.filter((id: string) => existingIds.has(id));
   return {
     ...state,
     openThreadIds,
@@ -45,7 +45,8 @@ export function useOpenTabsQuery() {
         }
       >(OPEN_TABS_QUERY_KEY, (current) => ({
         ...state,
-        openThreads: current?.openThreads ?? [],
+        openThreads:
+          current?.openThreads.filter((thread) => state.openThreadIds.includes(thread.id)) ?? [],
       }));
       void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
     });

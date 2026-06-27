@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-mock.module("electron", () => ({ app: { getPath: () => tmpdir() } }));
+vi.mock("electron", () => ({
+  app: { getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp" },
+}));
 
 let root: string | null = null;
 afterEach(() => {
@@ -29,12 +31,12 @@ describe("workspace copy policies", () => {
     writeFileSync(join(source, "blind.md"), "old investigation");
     writeFileSync(join(source, "node_modules", "dependency", "index.js"), "ignored");
     copyManagedWorkspace(source, destination);
-    expect(existsSync(join(destination, ".git", "HEAD"))).toBeTrue();
-    expect(existsSync(join(destination, "AGENT.md"))).toBeTrue();
-    expect(existsSync(join(destination, "DESIGN.md"))).toBeTrue();
-    expect(existsSync(join(destination, "patch.md"))).toBeTrue();
-    expect(existsSync(join(destination, "blind.md"))).toBeFalse();
-    expect(existsSync(join(destination, "node_modules"))).toBeFalse();
+    expect(existsSync(join(destination, ".git", "HEAD"))).toBe(true);
+    expect(existsSync(join(destination, "AGENT.md"))).toBe(true);
+    expect(existsSync(join(destination, "DESIGN.md"))).toBe(true);
+    expect(existsSync(join(destination, "patch.md"))).toBe(true);
+    expect(existsSync(join(destination, "blind.md"))).toBe(false);
+    expect(existsSync(join(destination, "node_modules"))).toBe(false);
   });
 
   test("packaged templates exclude launcher code without dropping markdown", async () => {
@@ -47,9 +49,9 @@ describe("workspace copy policies", () => {
     writeFileSync(join(source, ".gitignore"), "node_modules\n");
     writeFileSync(join(source, "patch.md"), "context");
     copyPackagedTemplate(source, destination);
-    expect(existsSync(join(destination, "electron"))).toBeFalse();
-    expect(existsSync(join(destination, ".gitignore"))).toBeTrue();
-    expect(existsSync(join(destination, "patch.md"))).toBeTrue();
+    expect(existsSync(join(destination, "electron"))).toBe(false);
+    expect(existsSync(join(destination, ".gitignore"))).toBe(true);
+    expect(existsSync(join(destination, "patch.md"))).toBe(true);
   });
 
   test("promotion returns a receipt with swap heads", async () => {
@@ -90,7 +92,7 @@ describe("workspace copy policies", () => {
     });
 
     const receipt = promoteCandidate();
-    expect(existsSync(getPreviousPath())).toBeTrue();
+    expect(existsSync(getPreviousPath())).toBe(true);
     expect(receipt.active_head_after).toBe(receipt.candidate_head);
     expect(receipt.previous_path).toBe(getPreviousPath());
   });

@@ -59,3 +59,4 @@ the base application the agentic core is build on top of pi-sdk[https://pi.dev/d
 - the example of the project-specific view can be like a plan view
 - the global view can be like a existing terminal view or something like a browser view
 - When you have added any new UI element then make sure you add `data-pipper-id` this is becuase based on this id , users can easily edit the UI element visually
+-

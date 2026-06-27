@@ -17,7 +17,6 @@ import React from "react";
 interface AgentState {
   snapshot: AgentRuntimeSnapshot | null;
   uiRequest: AgentUiRequest | null;
-  events: AgentBridgeEvent[];
   isConnecting: boolean;
   error: string | null;
   connect: () => Promise<void>;
@@ -60,19 +59,22 @@ function mergeSnapshot(
 }
 
 function applyBridgeEvent(
-  state: Pick<AgentState, "snapshot" | "uiRequest" | "events">,
+  state: Pick<AgentState, "snapshot" | "uiRequest" | "error">,
   payload: AgentBridgeEvent,
-): Pick<AgentState, "snapshot" | "uiRequest" | "events"> {
-  const events = [...state.events, payload].slice(-200);
-
-  if (pendingThreadTarget && payload.type !== "snapshot") {
-    return { ...state, events };
+): Pick<AgentState, "snapshot" | "uiRequest" | "error"> {
+  if (
+    pendingThreadTarget &&
+    payload.type !== "snapshot" &&
+    payload.type !== "ui-request" &&
+    payload.type !== "ui-response"
+  ) {
+    return state;
   }
 
   switch (payload.type) {
     case "snapshot":
       if (pendingThreadTarget && payload.snapshot.threadId !== pendingThreadTarget) {
-        return { ...state, events };
+        return state;
       }
       if (pendingThreadTarget && payload.snapshot.threadId === pendingThreadTarget) {
         pendingThreadTarget = null;
@@ -80,15 +82,14 @@ function applyBridgeEvent(
       return {
         snapshot: payload.snapshot,
         uiRequest: state.uiRequest,
-        events,
+        error: null,
       };
     case "ui-request":
-      return { ...state, uiRequest: payload.request, events };
+      return { ...state, uiRequest: payload.request };
     case "ui-response":
       return {
         ...state,
         uiRequest: state.uiRequest?.id === payload.requestId ? null : state.uiRequest,
-        events,
       };
     case "status":
       return {
@@ -96,43 +97,37 @@ function applyBridgeEvent(
         snapshot: mergeSnapshot(state.snapshot, {
           status: { ...state.snapshot?.status, [payload.key]: payload.text },
         }),
-        events,
       };
     case "working-message":
       return {
         ...state,
         snapshot: mergeSnapshot(state.snapshot, { workingMessage: payload.message ?? null }),
-        events,
       };
     case "working-visible":
       return {
         ...state,
         snapshot: mergeSnapshot(state.snapshot, { workingVisible: payload.visible }),
-        events,
       };
     case "title":
       return {
         ...state,
         snapshot: mergeSnapshot(state.snapshot, { title: payload.title ?? null }),
-        events,
       };
     case "editor-text":
       return {
         ...state,
         snapshot: mergeSnapshot(state.snapshot, { editorText: payload.text }),
-        events,
       };
     case "notification":
-      return { ...state, events };
+      return state;
     case "event":
-      return { ...state, events };
+      return state;
   }
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   snapshot: null,
   uiRequest: null,
-  events: [],
   isConnecting: false,
   error: null,
   connect: async () => {
@@ -179,7 +174,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   refresh: async () => {
     try {
       const snapshot = await window.omni.agent.getState();
-      set((state) => {
+      set(() => {
         if (pendingThreadTarget && snapshot.threadId !== pendingThreadTarget) {
           return {};
         }

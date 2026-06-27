@@ -12,12 +12,18 @@ import {
 } from "@/components/ui/thinking-steps";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
+import type { StepStatus } from "@/components/ui/thinking-steps";
 
 interface AssistantTraceDeckProps extends HTMLAttributes<HTMLDivElement> {
   traceParts: any[];
   isStreaming: boolean;
   activeMessages: MessageLike[];
 }
+
+type ToolResultMessage = MessageLike & {
+  toolCallId?: string;
+  isError?: boolean;
+};
 
 function compactText(value: string, maxLength = 96): string {
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -241,17 +247,20 @@ function AssistantTraceDeck({
             const toolName = part.name || "";
             const args = part.arguments ?? part.args ?? {};
 
-            const resultMsg = activeMessages.find(
-              (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
-            );
+            const resultMsg = activeMessages.find((m) => {
+              const candidate = m as ToolResultMessage;
+              return candidate.role === "toolResult" && candidate.toolCallId === toolCallId;
+            }) as ToolResultMessage | undefined;
 
             const isPartStreaming = isStreaming && isLast && !resultMsg;
+            const missingResult = !isStreaming && !resultMsg;
+            const resultIsError = Boolean(resultMsg?.isError);
 
-            let status: "active" | "complete" | "pending" = "complete";
+            let status: StepStatus = "complete";
             if (isPartStreaming) {
               status = "active";
-            } else if (!resultMsg && !isStreaming) {
-              status = "complete";
+            } else if (missingResult || resultIsError) {
+              status = "error";
             }
 
             const stepLabel = toolName;
@@ -324,7 +333,10 @@ function AssistantTraceDeck({
             }
 
             const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
-            const actionDescription = [actionCopy.description, actionCopy.resultSummary]
+            const actionDescription = [
+              actionCopy.description,
+              missingResult ? "No tool result was returned." : actionCopy.resultSummary,
+            ]
               .filter(Boolean)
               .join(" ");
 
@@ -364,6 +376,12 @@ function AssistantTraceDeck({
                 {resultMsg?.isError && (
                   <div className="mt-1.5 text-red-500 text-[12px] font-medium leading-snug">
                     Error: {resultText}
+                  </div>
+                )}
+
+                {missingResult && (
+                  <div className="mt-1.5 text-red-500 text-[12px] font-medium leading-snug">
+                    Missing tool result.
                   </div>
                 )}
 

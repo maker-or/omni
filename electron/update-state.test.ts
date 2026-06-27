@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,7 +67,7 @@ describe("update state", () => {
 
     const state = readUpdateState(path);
     expect(state.phase).toBe("failed");
-    expect(state.scheduled_for_quit).toBeFalse();
+    expect(state.scheduled_for_quit).toBe(false);
   });
 
   test("rejects structurally invalid persisted update state", () => {

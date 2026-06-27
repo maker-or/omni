@@ -52,6 +52,7 @@ import type { AnalyticsProperties, AnalyticsSource } from "./analytics-schema.ts
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type SetWindowTitle = (title: string) => void;
 type SendToFlyout = (channel: string, payload: unknown) => void;
+const MAX_AGENT_PROMPT_IMAGES = 5;
 
 interface ProjectRuntimeRecord {
   project: Project;
@@ -84,6 +85,12 @@ function modelToSummary(model: Model<any> | undefined): AgentModelSummary | null
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
   };
+}
+
+function validatePromptImages(input: Pick<AgentPromptInput, "images">): void {
+  if ((input.images?.length ?? 0) > MAX_AGENT_PROMPT_IMAGES) {
+    throw new Error(`A prompt can contain at most ${MAX_AGENT_PROMPT_IMAGES} images.`);
+  }
 }
 
 function modelsToSummary(models: Model<any>[]): AgentModelSummary[] {
@@ -286,6 +293,7 @@ export class AgentManager {
         const record = manager.getRecord(projectId);
         if (!record) return;
         record.hiddenThinkingLabel = label ?? null;
+        manager.pushSnapshot(projectId);
       },
       setWidget() {},
       setFooter() {},
@@ -522,7 +530,9 @@ export class AgentManager {
         "timeoutMs" in request && request.timeoutMs != null
           ? setTimeout(() => {
               this.pendingUi.delete(request.id);
-              resolve(request.kind === "confirm" ? false : undefined);
+              const value = request.kind === "confirm" ? false : undefined;
+              this.emit({ type: "ui-response", requestId: request.id, value });
+              resolve(value);
             }, request.timeoutMs)
           : undefined;
 
@@ -819,6 +829,7 @@ export class AgentManager {
   }
 
   async sendPrompt(input: AgentPromptInput): Promise<void> {
+    validatePromptImages(input);
     const projectId = input.threadId
       ? (getThread(input.threadId)?.project_id ?? null)
       : this.currentProjectId();
@@ -878,6 +889,7 @@ export class AgentManager {
   }
 
   async replacePrompt(input: AgentReplacePromptInput): Promise<void> {
+    validatePromptImages(input);
     const thread = getThread(input.threadId);
     if (!thread) throw new Error(`Thread not found: ${input.threadId}`);
     if (input.threadId !== this.activeThreadId) await this.switchThread(input.threadId);
@@ -1182,6 +1194,7 @@ export class AgentManager {
       setHiddenThinkingLabel(label?: string) {
         if (!manager.editorRecord) return;
         manager.editorRecord.hiddenThinkingLabel = label ?? null;
+        manager.pushEditorSnapshot();
       },
       setWidget() {},
       setFooter() {},
@@ -1381,29 +1394,44 @@ export class AgentManager {
     return this.resolveEditorSnapshot();
   }
 
-  async sendEditorPrompt(input: { message: string }): Promise<void> {
+  async sendEditorPrompt(input: {
+    message: string;
+    streamingBehavior?: "followUp" | "steer";
+  }): Promise<void> {
     if (!this.editorRecord) {
       await this.activateEditor();
     }
     const record = this.editorRecord;
     if (!record) throw new Error("Editor runtime is unavailable.");
     const activeProjectId = getActiveProjectId();
-    this.editorPendingMutation = {
-      startedAt: Date.now(),
-      properties: this.buildMutationProperties(input.message, {
-        projectId: activeProjectId ?? undefined,
-        source: input.message.startsWith("[Component:") ? "overlay_comment" : "companion_prompt",
-        model: modelToSummary(record.runtime.session.model),
-      }),
-    };
-    this.captureAnalytics?.("mutation_started", this.editorPendingMutation.properties);
+    if (!record.runtime.session.isStreaming || !this.editorPendingMutation) {
+      this.editorPendingMutation = {
+        startedAt: Date.now(),
+        properties: this.buildMutationProperties(input.message, {
+          projectId: activeProjectId ?? undefined,
+          source: input.message.startsWith("[Component:") ? "overlay_comment" : "companion_prompt",
+          model: modelToSummary(record.runtime.session.model),
+        }),
+      };
+      this.captureAnalytics?.("mutation_started", this.editorPendingMutation.properties);
+    }
 
-    void record.runtime.session.prompt(input.message).catch((error: unknown) => {
-      this.completeEditorMutation("error", error);
-      const message = error instanceof Error ? error.message : "Editor prompt failed.";
-      this.emitEditor({ type: "notification", message, level: "error" });
-    });
+    void record.runtime.session
+      .prompt(input.message, { streamingBehavior: input.streamingBehavior })
+      .catch((error: unknown) => {
+        this.completeEditorMutation("error", error);
+        const message = error instanceof Error ? error.message : "Editor prompt failed.";
+        this.emitEditor({ type: "notification", message, level: "error" });
+      });
 
+    this.pushEditorSnapshot();
+  }
+
+  async abortEditor(): Promise<void> {
+    const record = this.editorRecord;
+    if (!record) return;
+    await record.runtime.session.abort();
+    this.completeEditorMutation("cancelled");
     this.pushEditorSnapshot();
   }
 

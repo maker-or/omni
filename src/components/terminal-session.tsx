@@ -65,6 +65,7 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
   const [isReady, setIsReady] = useState(false);
   const createdRef = useRef(false);
   const writtenLengthRef = useRef(0);
+  const closeSession = useTerminalStore((state) => state.closeSession);
 
   const history = useTerminalStore((state) => {
     const session = state.sessions.find((s) => s.id === sessionId);
@@ -127,6 +128,7 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
           write(
             `\r\nError: Failed to connect to shell backend. ${err instanceof Error ? err.message : String(err)}\r\n`,
           );
+          window.setTimeout(() => closeSession(sessionId), 1200);
         });
     }
 
@@ -141,7 +143,7 @@ function TerminalInner({ sessionId, cwd }: TerminalInnerProps) {
     return () => {
       unsubscribeExit();
     };
-  }, [core, isReady, sessionId, cwd, write]);
+  }, [closeSession, core, isReady, sessionId, cwd, write]);
 
   // Handle keyboard inputs
   const handleData = (data: string) => {

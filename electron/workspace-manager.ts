@@ -44,7 +44,13 @@ export function getPipperLibraryPath(): string {
   }
 }
 
+export function usesLocalDevelopmentWorkspace(): boolean {
+  return app.isPackaged === false && !process.env.PIPPER_LIBRARY_PATH;
+}
+
 export function getActivePath(): string {
+  if (process.env.PIPPER_ACTIVE_PATH) return process.env.PIPPER_ACTIVE_PATH;
+  if (usesLocalDevelopmentWorkspace()) return process.cwd();
   return join(getPipperLibraryPath(), "active");
 }
 
@@ -355,6 +361,7 @@ export async function initializeWorkspaces(
     const activeDir = getActivePath();
     const backupDir = getBackupPath();
     const sharedDir = getSharedPath();
+    const useLocalActiveWorkspace = isDev && activeDir === process.cwd();
 
     mkdirSync(libRoot, { recursive: true });
     mkdirSync(sharedDir, { recursive: true });
@@ -366,9 +373,10 @@ export async function initializeWorkspaces(
 
     // 1. Copy source files to active if not present or incomplete
     if (
-      !existsSync(activeDir) ||
-      readdirSync(activeDir).length === 0 ||
-      !existsSync(join(activeDir, "package.json"))
+      !useLocalActiveWorkspace &&
+      (!existsSync(activeDir) ||
+        readdirSync(activeDir).length === 0 ||
+        !existsSync(join(activeDir, "package.json")))
     ) {
       console.log("[WorkspaceManager] Copying files to active workspace...");
       copyPackagedTemplate(templatePath, activeDir);
@@ -376,7 +384,7 @@ export async function initializeWorkspaces(
 
     // Initialize Git in active workspace if not present
     const activeGitDir = join(activeDir, ".git");
-    if (!existsSync(activeGitDir)) {
+    if (!useLocalActiveWorkspace && !existsSync(activeGitDir)) {
       console.log("[WorkspaceManager] Initializing git repository in active workspace...");
       try {
         await execAsync("git init", { cwd: activeDir });
@@ -395,7 +403,7 @@ export async function initializeWorkspaces(
       } catch (err) {
         console.warn("[WorkspaceManager] Failed to initialize git in active workspace:", err);
       }
-    } else {
+    } else if (!useLocalActiveWorkspace) {
       ensureWorkspaceGitExcludes(activeDir);
     }
 
@@ -450,6 +458,13 @@ export async function initializeWorkspaces(
     const sharedPkgJson = join(activeDependenciesDir, "package.json");
     let dependencyManifestChanged = false;
     const packageSource = existsSync(activePkgJson) ? activePkgJson : templatePkgJson;
+    if (useLocalActiveWorkspace) {
+      console.log("[WorkspaceManager] Using local development workspace dependencies.");
+      await repairInstallationHeadIfActiveClean(installationPath, activeDir);
+      console.log("[WorkspaceManager] Workspace initialization complete.");
+      return;
+    }
+
     if (existsSync(packageSource)) {
       try {
         const pkg = JSON.parse(readFileSync(packageSource, "utf8"));

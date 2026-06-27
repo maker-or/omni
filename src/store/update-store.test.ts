@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, vi, test } from "vitest";
 import type { InstallationMetadata, UpdateManifest, UpdateState } from "../../contracts/updates.ts";
 
 const installation: InstallationMetadata = {
@@ -46,22 +46,22 @@ function installUpdateApi({
   retryState?: UpdateState;
 }) {
   const api = {
-    check: mock(async () => checkState),
-    getState: mock(async () => currentState),
-    getManifest: mock(async () => currentManifest),
-    getInstallation: mock(async () => installation),
-    getRun: mock(async () => null),
-    getUpdaterSnapshot: mock(async () => null),
-    scheduleForQuit: mock(async () => currentState),
-    startNow: mock(async () => ({ success: true })),
-    retryFailedUpdate: mock(async () => retryState),
-    dismiss: mock(async () => currentState),
-    cancel: mock(async () => ({ success: false, cancelled: true })),
-    quitWithoutUpdating: mock(async () => {}),
-    markActiveHealthy: mock(async () => true),
-    onStateChanged: mock(() => () => {}),
-    onProgress: mock(() => () => {}),
-    onUpdaterEvent: mock(() => () => {}),
+    check: vi.fn(async () => checkState),
+    getState: vi.fn(async () => currentState),
+    getManifest: vi.fn(async () => currentManifest),
+    getInstallation: vi.fn(async () => installation),
+    getRun: vi.fn(async () => null),
+    getUpdaterSnapshot: vi.fn(async () => null),
+    scheduleForQuit: vi.fn(async () => currentState),
+    startNow: vi.fn(async () => ({ success: true })),
+    retryFailedUpdate: vi.fn(async () => retryState),
+    dismiss: vi.fn(async () => currentState),
+    cancel: vi.fn(async () => ({ success: false, cancelled: true })),
+    quitWithoutUpdating: vi.fn(async () => {}),
+    markActiveHealthy: vi.fn(async () => true),
+    onStateChanged: vi.fn(() => () => {}),
+    onProgress: vi.fn(() => () => {}),
+    onUpdaterEvent: vi.fn(() => () => {}),
   };
   (globalThis as any).window = { omni: { update: api } };
   return api;
@@ -83,11 +83,11 @@ describe("update store", () => {
     await store.getState().initialize();
 
     await store.getState().dismiss();
-    expect(store.getState().dismissedForSession).toBeTrue();
+    expect(store.getState().dismissedForSession).toBe(true);
 
     updateApi.getManifest.mockImplementation(async () => manifest("0.3.0"));
     await store.getState().check();
-    expect(store.getState().dismissedForSession).toBeFalse();
+    expect(store.getState().dismissedForSession).toBe(false);
   });
 
   test("retrying failed update recovers state and starts the update", async () => {
@@ -106,6 +106,6 @@ describe("update store", () => {
     expect(updateApi.retryFailedUpdate).toHaveBeenCalled();
     expect(updateApi.startNow).toHaveBeenCalled();
     expect(store.getState().state?.phase).toBe("available");
-    expect(store.getState().detailsOpen).toBeTrue();
+    expect(store.getState().detailsOpen).toBe(true);
   });
 });
