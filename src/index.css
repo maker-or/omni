@@ -5,7 +5,6 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
-@import "streamdown/styles.css";
 
 /* =============================================================================
  * Dark mode variant (class-based: toggle `.dark` on <html>)
@@ -310,6 +309,45 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+}
+
+/* =============================================================================
+ * Markdown code highlighting
+ * ========================================================================== */
+.markdown-shiki .shiki {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  background: transparent !important;
+  padding: 0.75rem;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-shiki .shiki code {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  background: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-shiki .shiki .line {
+  display: block;
+  min-height: 1.25rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-shiki .shiki span {
+  color: var(--shiki-light);
+  background: transparent !important;
+}
+
+.dark .markdown-shiki .shiki span {
+  color: var(--shiki-dark);
 }
 
 /* =============================================================================

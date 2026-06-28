@@ -39,8 +39,10 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           style={{ transformOrigin: isUser ? "bottom right" : "bottom left" }}
           data-pipper-id={pipperId}
           className={cn(
-            "group flex max-w-[80%] flex-col gap-1.5",
-            isUser ? "items-end self-end" : "items-start self-start",
+            "group flex min-w-0 flex-col gap-1.5",
+            isUser
+              ? "max-w-[92%] items-end self-end"
+              : "w-full max-w-full items-start self-start",
             className,
           )}
           {...props}
@@ -59,7 +61,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           {children != null && children !== "" && (
             <div
               className={cn(
-                "py-2 text-[14px] whitespace-pre-wrap break-words text-pretty",
+                "max-w-full py-2 text-[14px] whitespace-pre-wrap break-words text-pretty",
                 isUser
                   ? cn(
                       shape.bg,

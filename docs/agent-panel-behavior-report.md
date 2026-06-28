@@ -51,7 +51,7 @@ The key behavioral principle is that many visible changes are not caused by dire
 - `messages`: source of the visible conversation after filtering/grouping.
 - `messageEntryRefs`: enables user-message edit and regenerate target lookup.
 - `streamingMessage`: appended to `messages` only while `isStreaming` is true.
-- `isStreaming`: changes send button to stop, shows streaming behavior toggle, hides regenerate, disables editing, blocks current-thread deletion, changes Streamdown mode, opens trace deck, changes scroll behavior.
+- `isStreaming`: changes send button to stop, shows streaming behavior toggle, hides regenerate, disables editing, blocks current-thread deletion, updates markdown rendering, opens trace deck, changes scroll behavior.
 - `isCompacting` and `isRetrying`: disable assistant regenerate.
 - `queue.steering` and `queue.followUp`: render the queue banner above the composer.
 - `commands`: merged with built-in slash commands and drives slash menu.
@@ -333,7 +333,7 @@ Image behavior:
 
 - `assistant` messages split content array parts into trace parts (`thinking`, `toolCall`) and text parts.
 - Trace parts render through `AssistantTraceDeck`.
-- Text parts render through `Streamdown` in `streaming` mode for streaming groups and `static` mode otherwise.
+- Text parts render through `MarkdownRenderer`; settled messages are memoized by markdown content.
 - Plain user text and fallback content render whitespace-preserved.
 - `toolResult` body rendering exists in `MessageBody`, but `AgentPanel` filters toolResult messages out of `allMessages`, so this branch is not reached from the current message list.
 

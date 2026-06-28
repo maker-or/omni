@@ -31,7 +31,7 @@ import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
-import { Streamdown } from "streamdown";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { ContextWindowRing } from "@/components/ui/context-window-ring";
@@ -505,9 +505,7 @@ function MessageBody({
 
         {textBodyCombined.trim() && (
           <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
-            <Streamdown mode={isStreaming ? "streaming" : "static"}>
-              {textBodyCombined}
-            </Streamdown>
+            <MarkdownRenderer isStreaming={isStreaming}>{textBodyCombined}</MarkdownRenderer>
           </div>
         )}
       </div>

@@ -268,13 +268,13 @@ User message parsing:
 
 Assistant messages:
 
-- Render through `Streamdown` in static mode.
+- Render through `MarkdownRenderer`.
 - Empty text messages are skipped.
 
 Streaming message:
 
 - If `isStreaming` and `!isProcessingAccept`, companion renders `snapshot.streamingMessage`.
-- Streaming text is rendered through `Streamdown` in streaming mode.
+- Streaming text is rendered through `MarkdownRenderer`.
 
 Thinking indicator:
 

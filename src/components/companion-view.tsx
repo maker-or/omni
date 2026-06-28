@@ -10,7 +10,7 @@ import {
 import { usePipperStore } from "@/store/pipper-store";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { InputMessage } from "@/components/ui/input-message";
-import { Streamdown } from "streamdown";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
@@ -616,11 +616,9 @@ export function CompanionView() {
                     >
                       {from === "assistant" ? (
                         <div className="prose prose-sm max-w-none dark:prose-invert text-[13px] leading-relaxed">
-                          <Streamdown
-                            mode={entry.isStreaming ? "streaming" : "static"}
-                          >
+                          <MarkdownRenderer isStreaming={entry.isStreaming}>
                             {bodyText}
-                          </Streamdown>
+                          </MarkdownRenderer>
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1">
