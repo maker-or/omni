@@ -20,7 +20,7 @@ This plan targets at most 15 internal and external alpha users for approximately
 The following are requirements, not implementation choices left to the coding agent:
 
 1. Builds are produced locally on an Apple Silicon Mac.
-2. Release artifacts and the launcher manifest are distributed through the existing Vercel Blob account using `BLOB_READ_WRITE_TOKEN`.
+2. Release artifacts and the launcher manifest are distributed through public GitHub Releases. Vercel Blob is only an optional bridge for the old `latest.json` manifest URL.
 3. Only macOS ARM64 is supported.
 4. The launcher and personalized workspace have independent versions.
 5. The launcher manifest contains only `schema_version`, `version`, `url`, and `sha256`.
@@ -32,7 +32,7 @@ The following are requirements, not implementation choices left to the coding ag
 11. Launcher checks initialize independently of authentication, workspace initialization, Git, Mise, Bun, and the personalized updater.
 12. `Later` dismisses the launcher notice only for the current Electron process. The notice returns on the next launch.
 13. The marketing download page reads the same launcher manifest at runtime. Publishing a launcher release updates the website download without changing a DMG environment variable or rebuilding the marketing site.
-14. Release storage contains only the latest launcher DMG at steady state. The previous DMG may remain temporarily between publication and smoke-test completion, then is pruned explicitly.
+14. Release assets are immutable. Do not overwrite or prune published GitHub release assets; publish a higher patch version for fixes.
 15. Signing, notarization, `electron-updater`, x64 artifacts, delta downloads, silent replacement, and rollback automation are out of scope.
 
 ## 3. Verified current state
@@ -51,7 +51,7 @@ Verified against the repository on 2026-06-22.
 | Launch window               | Initializes personalized update state and renders only its progress dialog                               | `src/launch/app.tsx`, `src/launch/update-stage.tsx`            | Launcher notice must also be visible before entering a project       |
 | IPC                         | Only `window.omni.update` exists                                                                         | `electron/preload.ts`, `src/electron.d.ts`, `electron/main.ts` | Needs a separate `window.omni.launcherUpdate` API                    |
 | Version coupling            | `scripts/copy-template.js` uses root `package.json.version` as initial workspace version                 | `scripts/copy-template.js`                                     | Launcher-only version bumps would corrupt workspace version metadata |
-| Release upload              | Finds local DMGs, deletes previous DMGs before upload, then overwrites a stable blob path                | `scripts/upload-desktop-blob.ts`                               | Has availability and cache/hash race windows                         |
+| Release upload              | Publishes local DMGs and manifests through GitHub Releases                                               | `scripts/publish-launcher-github-release.ts`                   | Must verify public assets and never overwrite a published version    |
 | Marketing download          | Compiles `PUBLIC_PIPPER_MAC_ARM64_DMG_URL` into the page                                                 | `marketing/src/pages/download.astro`                           | Would point to a deleted versioned artifact                          |
 | Persistent application data | Customized workspace and update state live under `~/Library/pipper`                                      | `electron/workspace-manager.ts`                                | Full `.app` replacement preserves this data                          |
 | Quit interception           | A personalized update scheduled for quit intercepts `before-quit` unless `quitAuthorized` is true        | `electron/main.ts`                                             | Launcher installation must intentionally bypass this once            |
@@ -72,7 +72,7 @@ Verified against the repository on 2026-06-22.
 - `Install and quit` behavior that opens the DMG before authorizing quit.
 - Coordination with the personalized updater and existing quit interception.
 - Runtime marketing-page resolution of the latest DMG URL.
-- Safe local build, publish, smoke-test, prune, and repair runbooks.
+- Safe local build, publish, smoke-test, bridge, and repair runbooks.
 - Unit and integration tests plus a real two-version macOS manual test.
 
 ### 4.2 Out of scope
@@ -178,7 +178,7 @@ Existing users are unaffected because `~/Library/pipper/installation.json` is on
 {
   "schema_version": 1,
   "version": "0.2.0",
-  "url": "https://<blob-host>/desktop/launcher/pipper-0.2.0-arm64.dmg",
+  "url": "https://github.com/<owner>/<repo>/releases/download/v0.2.0/pipper-0.2.0-arm64.dmg",
   "sha256": "64-lowercase-hex-characters"
 }
 ```
@@ -216,8 +216,8 @@ The parser must not accept optional fields. This prevents the temporary schema f
 Add:
 
 ```text
-VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://<blob-host>/desktop/launcher/latest.json
-PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://<blob-host>/desktop/launcher/latest.json
+VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://github.com/<owner>/<repo>/releases/latest/download/latest.json
+PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://github.com/<owner>/<repo>/releases/latest/download/latest.json
 ```
 
 - The Electron main process reads `PIPPER_LAUNCHER_UPDATE_MANIFEST_URL`, falling back to `import.meta.env.VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL`.
@@ -730,55 +730,45 @@ release/pipper-0.2.0-arm64.dmg
 
 Ignore generated `.blockmap` and `latest-mac.yml` for this temporary updater. Do not upload them.
 
-### 14.2 Blob paths
+### 14.2 GitHub release assets
+
+Each launcher version uses a GitHub release tag:
 
 ```text
-desktop/launcher/latest.json
-desktop/launcher/pipper-0.2.0-arm64.dmg
+v0.2.0
 ```
 
-During controlled publication of `0.3.0`, storage temporarily contains:
+Attach exactly these assets:
 
 ```text
-desktop/launcher/pipper-0.2.0-arm64.dmg
-desktop/launcher/pipper-0.3.0-arm64.dmg
-desktop/launcher/latest.json -> 0.3.0
+pipper-0.2.0-arm64.dmg
+latest.json
 ```
 
-After smoke testing, prune `0.2.0`. Steady state contains `latest.json` and one DMG.
+The manifest URL configured in launcher builds and marketing should be:
 
-### 14.3 Upload script responsibilities
+```text
+https://github.com/<owner>/<repo>/releases/latest/download/latest.json
+```
 
-Refactor `scripts/upload-desktop-blob.ts` to ARM64 launcher publication only, or introduce `scripts/publish-launcher-release.ts` and leave the old script as a thin compatibility wrapper. Preferred: rename behavior through package scripts while keeping the existing filename to minimize operator confusion.
+The manifest's `url` field must point to the immutable versioned DMG asset, not a `/latest/` URL.
 
-Publish mode must:
+### 14.3 Publish script responsibilities
 
-1. Require `BLOB_READ_WRITE_TOKEN`.
-2. Read and validate root `package.json.version`.
-3. Require exactly one DMG matching `pipper-<version>-arm64.dmg`.
-4. Refuse ambiguous or differently versioned DMGs.
-5. Calculate local SHA-256 and size.
-6. Build the versioned pathname.
-7. Refuse to overwrite an existing versioned artifact. If the blob API cannot atomically enforce this, call `head()` first and fail if it exists.
-8. Upload the DMG with public access, no random suffix, immutable long cache, and `application/x-apple-diskimage`.
-9. Verify remote pathname, size, and content type using `head()`.
-10. Generate the exact four-field manifest in memory.
-11. Upload `latest.json` only after DMG verification, with overwrite enabled and a short cache lifetime such as 60 seconds.
-12. Read back/verify the remote manifest.
-13. Print version, DMG URL, manifest URL, size, and SHA-256.
-14. Never delete the previous DMG in publish mode.
+`scripts/publish-launcher-github-release.ts` publishes the GitHub release. It must:
 
-Prune-only mode must:
+1. Read and validate root `package.json.version`.
+2. Require exactly one DMG matching `pipper-<version>-arm64.dmg`.
+3. Refuse ambiguous or differently versioned DMGs.
+4. Calculate local SHA-256 and size.
+5. Generate the exact four-field manifest in `release/latest.json`.
+6. Refuse to overwrite a completed GitHub release.
+7. Create release `v<version>` with the DMG and manifest assets.
+8. Mark the release as latest.
+9. Fetch and validate both the tag manifest and `/releases/latest/download/latest.json`.
+10. Download the public GitHub DMG and verify SHA-256 before reporting success.
 
-1. Be invoked explicitly with `--prune-old`.
-2. Fetch and validate remote `latest.json`.
-3. List `desktop/launcher/` blobs.
-4. Delete only `.dmg` files that are not exactly the manifest's current URL/pathname.
-5. Never delete `latest.json`.
-6. Print every deletion and final retained artifact.
-7. Refuse to prune if manifest validation or blob listing fails.
-
-Publication order prevents clients from seeing a manifest before its artifact exists. Deferred pruning preserves a short repair window.
+`scripts/publish-launcher-blob-bridge.ts` is bridge-only. It may overwrite the old Vercel Blob `desktop/launcher/latest.json` with the GitHub manifest, but it must never upload a DMG to Blob.
 
 ## 15. Package scripts
 
@@ -789,13 +779,13 @@ Add or normalize these scripts:
   "scripts": {
     "build": "node scripts/build.js",
     "dist": "electron-builder --mac --arm64",
-    "release:launcher:publish": "bun scripts/upload-desktop-blob.ts",
-    "release:launcher:prune": "bun scripts/upload-desktop-blob.ts --prune-old"
+    "release:launcher:publish": "bun scripts/publish-launcher-github-release.ts",
+    "release:launcher:bridge": "bun scripts/publish-launcher-blob-bridge.ts"
   }
 }
 ```
 
-Do not create one command that builds, publishes, and prunes without human inspection. Publication is externally visible and pruning removes the repair artifact.
+Do not create one command that builds and publishes without human inspection. Publication is externally visible.
 
 ## 16. Exact release runbook
 
@@ -803,27 +793,27 @@ This runbook is part of the deliverable. Add it to `docs/launcher-release-runboo
 
 ### 16.1 One-time bootstrap
 
-1. Ensure the Vercel Blob token is available without committing it:
+1. Set the public GitHub release repository without committing secrets:
 
    ```bash
-   export BLOB_READ_WRITE_TOKEN='...'
+   export PIPPER_RELEASE_REPOSITORY='<owner>/<repo>'
    ```
 
 2. Establish the fixed manifest URL in root and marketing environment configuration:
 
    ```text
-   VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://<blob-host>/desktop/launcher/latest.json
-   PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://<blob-host>/desktop/launcher/latest.json
+   VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://github.com/<owner>/<repo>/releases/latest/download/latest.json
+   PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL=https://github.com/<owner>/<repo>/releases/latest/download/latest.json
    ```
 
 3. Confirm no secret is committed:
 
    ```bash
    git status --short
-   rg -n "BLOB_READ_WRITE_TOKEN" .env* package.json marketing --hidden
+   rg -n "BLOB_READ_WRITE_TOKEN|GITHUB_TOKEN" .env* package.json marketing --hidden
    ```
 
-4. Publish the first manifest/artifact. The first updater-enabled build cannot update itself until a later version is published. Test the complete flow using two launcher versions, for example `0.1.0` installed and `0.1.1` published.
+4. Publish the first GitHub release. The first updater-enabled build cannot update itself until a later version is published. Test the complete flow using two launcher versions, for example `0.1.0` installed and `0.1.1` published.
 
 ### 16.2 Prepare a launcher release
 
@@ -861,7 +851,7 @@ This runbook is part of the deliverable. Add it to `docs/launcher-release-runboo
    ```bash
    bun run fmt:check
    bun run lint
-   bun test
+   bun run test
    bun run build
    ```
 
@@ -916,13 +906,13 @@ This runbook is part of the deliverable. Add it to `docs/launcher-release-runboo
 
 ### 16.5 Publish
 
-1. Confirm the token exists in the current shell:
+1. Confirm the release repository is set or can be inferred from `origin`:
 
    ```bash
-   test -n "$BLOB_READ_WRITE_TOKEN" && echo "Blob token is set"
+   test -n "$PIPPER_RELEASE_REPOSITORY" && echo "$PIPPER_RELEASE_REPOSITORY"
    ```
 
-2. Publish the versioned DMG and then `latest.json`:
+2. Publish the GitHub release with the versioned DMG and `latest.json`:
 
    ```bash
    bun run release:launcher:publish
@@ -931,7 +921,7 @@ This runbook is part of the deliverable. Add it to `docs/launcher-release-runboo
 3. Copy the printed manifest URL and verify it independently:
 
    ```bash
-   export LAUNCHER_MANIFEST_URL='https://<blob-host>/desktop/launcher/latest.json'
+   export LAUNCHER_MANIFEST_URL='https://github.com/<owner>/<repo>/releases/latest/download/latest.json'
    curl -fsSL "$LAUNCHER_MANIFEST_URL" | jq .
    ```
 
@@ -942,7 +932,7 @@ This runbook is part of the deliverable. Add it to `docs/launcher-release-runboo
    curl -I -L "$LAUNCHER_DMG_URL"
    ```
 
-5. Do not prune the previous DMG yet.
+5. Do not overwrite or delete published release assets.
 
 ### 16.6 End-to-end update smoke test
 
@@ -966,15 +956,16 @@ Use an installed previous-version Pipper build:
     - projects, threads, customizations, and personalized update state remain intact;
     - the marketing download page points to the same new DMG.
 
-### 16.7 Prune the previous artifact
+### 16.7 Bridge the old manifest URL
 
-Only after the end-to-end smoke test succeeds:
+Only if already installed launchers still read the old Vercel Blob manifest URL, publish the bridge manifest after the GitHub release succeeds:
 
 ```bash
-bun run release:launcher:prune
+export BLOB_READ_WRITE_TOKEN='...'
+bun run release:launcher:bridge
 ```
 
-Then list the prefix using the script's output or Vercel dashboard and verify that only `latest.json` and the current DMG remain.
+Then verify the old Blob `latest.json` points at the GitHub DMG. No DMG should be uploaded to Blob.
 
 ### 16.8 Commit and distribute
 
@@ -1044,10 +1035,9 @@ Do not ask a tester to delete `~/Library/pipper`. That directory contains their 
 | User installs new launcher                       | Startup version comparison clears pending state and DMG                                                  |
 | Newer release appears while older DMG downloaded | Remove stale older DMG and offer new release                                                             |
 | Corrupt state JSON                               | Preserve renamed corrupt file for support; recover idle; never block startup                             |
-| Vercel publish fails before manifest             | Existing clients still see old manifest/artifact                                                         |
-| Vercel publish fails after manifest              | Publication script must have already verified artifact; old DMG remains until explicit prune             |
-| Bad release discovered before prune              | Restore previous manifest only if no client installed newer; preferred fix is publish higher patch       |
-| Bad release discovered after prune               | Rebuild/fix and publish a higher patch version                                                           |
+| GitHub publish fails before release publication  | Existing clients still see the previous latest release                                                   |
+| GitHub publish leaves a partial release          | Inspect assets and rerun publish with `--resume` only to upload missing assets                           |
+| Bad release discovered after publication         | Rebuild/fix and publish a higher patch version; do not overwrite existing assets                         |
 
 ## 19. Testing plan
 
@@ -1100,16 +1090,16 @@ Add `electron/launcher-update-manager.test.ts` with injected fetch, paths, clock
 15. Duplicate download calls share work.
 16. Pre-install rehash detects modification.
 
-Extract pure artifact-discovery, manifest-generation, and prune-selection functions from the upload script and test:
+Extract pure artifact-discovery, manifest-generation, and release-publication functions from the upload script and test:
 
 1. Exact expected DMG selected.
 2. No DMG fails.
 3. Multiple DMGs fail.
 4. Version mismatch fails.
 5. Manifest fields generated exactly.
-6. Current artifact is never selected for pruning.
-7. `latest.json` is never selected for pruning.
-8. Non-DMG blobs are never deleted.
+6. Existing completed release is not overwritten.
+7. Partial release resume uploads only missing assets.
+8. Blob bridge manifest points to the GitHub DMG.
 
 ### 19.2 Renderer tests
 
@@ -1193,7 +1183,7 @@ Files:
 Verification:
 
 ```bash
-bun test electron/launcher-update-manifest.test.ts electron/launcher-update-state.test.ts
+bun run test electron/launcher-update-manifest.test.ts electron/launcher-update-state.test.ts
 ```
 
 ### Step 3: Implement the manager
@@ -1243,16 +1233,18 @@ Verification:
 Files:
 
 - `electron-builder.yml`
-- `scripts/upload-desktop-blob.ts`
+- `scripts/publish-launcher-github-release.ts`
+- `scripts/publish-launcher-blob-bridge.ts`
 - upload-script tests
 - `package.json` scripts
 
 Verification:
 
 - Exact versioned artifact.
-- Artifact upload precedes manifest.
-- Previous artifact retained until explicit prune.
-- prune retains current artifact.
+- GitHub release upload includes DMG and manifest.
+- Published latest manifest is verified.
+- Public DMG download matches SHA-256.
+- Blob bridge publishes only `latest.json`.
 
 ### Step 7: Update marketing
 
@@ -1274,7 +1266,7 @@ Commands:
 ```bash
 bun run fmt:check
 bun run lint
-bun test
+bun run test
 bun run build
 rm -rf release
 bun run dist
@@ -1290,7 +1282,8 @@ Then execute Sections 16.4 through 16.7 with two actual launcher versions.
 | `bun.lock`                                    | Refresh only if package metadata/dependencies require it                          |
 | `electron-builder.yml`                        | Versioned ARM64 DMG artifact name; keep unsigned identity                         |
 | `scripts/copy-template.js`                    | Rewrite copied template package to workspace version                              |
-| `scripts/upload-desktop-blob.ts`              | Safe versioned publish and explicit prune modes                                   |
+| `scripts/publish-launcher-github-release.ts`  | Safe GitHub release publication and verification                                  |
+| `scripts/publish-launcher-blob-bridge.ts`     | Optional old-manifest bridge to GitHub-hosted DMGs                                |
 | `contracts/launcher-updates.ts`               | New launcher manifest, state, progress, diagnostics contracts                     |
 | `electron/launcher-update-manifest.ts`        | Strict four-field parser and version comparison                                   |
 | `electron/launcher-update-state.ts`           | Atomic state persistence and transition validation                                |
@@ -1333,13 +1326,13 @@ Then execute Sections 16.4 through 16.7 with two actual launcher versions.
 20. Reopening the installed target-or-newer launcher clears pending state and removes the downloaded installer.
 21. Launcher updater operations never modify `active`, `backup`, `candidate`, `previous`, shared dependencies, or `installation.json`.
 22. Diagnostics contain the agreed support fields, redact the home prefix, and exclude tokens, auth data, project data, prompts, terminal output, and workspace content.
-23. Publisher uploads and verifies the versioned DMG before replacing `latest.json`.
-24. Publisher never overwrites an existing versioned DMG.
-25. Publishing retains the previous DMG until an explicit prune command.
-26. Pruning never deletes `latest.json` or its referenced DMG and leaves one DMG at steady state.
+23. Publisher uploads and verifies the versioned GitHub DMG and `latest.json`.
+24. Publisher never overwrites an existing completed GitHub release.
+25. Publishing marks the release latest so `/releases/latest/download/latest.json` resolves.
+26. The optional Blob bridge never uploads a DMG to Blob.
 27. Marketing obtains version and DMG URL from `latest.json` at runtime and fails safely when it cannot.
 28. The complete two-version packaged-app smoke test in Section 16.6 passes on Apple Silicon.
-29. `bun run fmt:check`, `bun run lint`, `bun test`, `bun run build`, and `bun run dist` pass.
+29. `bun run fmt:check`, `bun run lint`, `bun run test`, `bun run build`, and `bun run dist` pass.
 30. Existing personalized update tests and behavior remain passing and unchanged except for the intentional launcher-install quit priority.
 
 ## 23. Rollback and fix-forward policy

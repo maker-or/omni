@@ -90,7 +90,7 @@ That lets the app always fetch the manifest from the latest release.
 bun install
 bun run fmt:check
 bun run lint
-bun test
+bun run test
 bun run build
 ```
 
@@ -249,14 +249,14 @@ GitHub may redirect the actual download to `release-assets.githubusercontent.com
 
 ## Cons / risks
 
-| Risk | Mitigation |
-| --- | --- |
+| Risk                                         | Mitigation                                                      |
+| -------------------------------------------- | --------------------------------------------------------------- |
 | Existing apps still point at Vercel manifest | Publish one tiny bridge manifest to old Vercel path if possible |
-| Private GitHub release assets require auth | Use a public release-only repo |
-| `/latest` ignores prereleases | Use normal releases, not prereleases |
-| Manual local publishing can make mistakes | Use a small publish script or checklist |
-| Reusing a version can break update semantics | Enforce one version per release |
-| GitHub outage affects downloads | Acceptable for alpha; add mirror later if needed |
+| Private GitHub release assets require auth   | Use a public release-only repo                                  |
+| `/latest` ignores prereleases                | Use normal releases, not prereleases                            |
+| Manual local publishing can make mistakes    | Use a small publish script or checklist                         |
+| Reusing a version can break update semantics | Enforce one version per release                                 |
+| GitHub outage affects downloads              | Acceptable for alpha; add mirror later if needed                |
 
 ## Recommended final plan
 
