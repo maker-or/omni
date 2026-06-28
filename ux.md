@@ -2,66 +2,10 @@
 
 Pipper already has a strong base: layered surfaces, fast agent interaction, terminal views, project switching, update flows, and an interesting “agent harness” identity. The biggest opportunity is making the app feel less like a functional shell and more like a calm, responsive workspace where every interaction confirms the user is in control.
 
-## 1. Make state transitions feel intentional
 
-### Current feeling
-Some flows likely feel abrupt: switching projects, opening terminal views, changing threads, update banners appearing, dropdowns opening, agent status changes.
 
-### Improvement
-Add small, consistent transitions to major state changes:
 
-- Project switch: soft crossfade between project contexts.
-- Thread switch: preserve panel layout, fade/skeleton only the message area.
-- Terminal creation: animate tab insertion and terminal panel reveal.
-- Dropdowns/popovers: spring-based entrance with slight `y: -4 → 0`, opacity, and scale.
-- Update dialogs/banners: avoid sudden appearance; slide/fade in.
 
-### Why it matters
-Users trust the app more when transitions explain “what just changed.”
-
----
-
-## 2. Improve first-run and empty states
-
-### Current feeling
-The empty “Click + to add new views” screen is functional, but could become more guiding and delightful.
-
-### Improvement
-Make empty states contextual:
-
-- In agent panel: show “Start by asking Pipper to inspect this repo.”
-- In terminal panel: show “Open a terminal in this project.”
-- In project-less state: show a focused onboarding path.
-- In no-thread state: offer starter prompts:
-  - “Summarize this codebase”
-  - “Find risky files”
-  - “Run tests”
-  - “Plan a refactor”
-
-### Why it matters
-Empty states should reduce decision fatigue, not just indicate absence.
-
----
-
-## 3. Add stronger interaction feedback
-
-### Current feeling
-Buttons/dropdowns/tabs mostly use hover and active styling, but the app can feel more tactile.
-
-### Improvement
-Use consistent micro-feedback:
-
-- Buttons press to `scale(0.96)`.
-- Tabs animate active underline/background.
-- Icons crossfade/rotate instead of swapping instantly.
-- Project selector chevron rotation should feel springy.
-- Disabled/loading buttons should show tiny progress or shimmer.
-- Terminal tab close buttons should reveal on hover/focus.
-
-### Why it matters
-Small physical responses make the app feel faster and more polished even without changing actual performance.
-
----
 
 ## 4. Make the agent feel more alive and understandable
 

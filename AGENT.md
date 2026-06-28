@@ -12,6 +12,7 @@ Before marking any task complete, run and fix issues from:
 - `bun run lint`
 - `bun run build`
 - `bun run fmt`
+- `bun run test`
 
 ## Core priorities
 
@@ -54,9 +55,9 @@ the base application the agentic core is build on top of pi-sdk[https://pi.dev/d
 
 ## Things to know
 
-- If a user want to adding a new view , first check whether the view can i be added to the other-views , if yes , then you need to descibe whether that view is going to be like thread-specific , project-specific, or global-specific
+- If a user want to adding a new view , first check whether the view can i be added to the other-views , if yes , then you need to  decide by yourself. whether that view is going to be like thread-specific , project-specific, or global-specific
 - the example of the thread-specific view can be like a diff view
 - the example of the project-specific view can be like a plan view
 - the global view can be like a existing terminal view or something like a browser view
-- When you have added any new UI element then make sure you add `data-pipper-id` this is becuase based on this id , users can easily edit the UI element visually
+- When you have added any new UI element then make sure you add `data-pipper-id` this is becuase based on this id , users can easily edit the UI element visually,  You don't need to add this for every `<div>` block that you have created.
 -
