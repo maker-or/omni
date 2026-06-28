@@ -18,6 +18,9 @@ interface AssistantTraceDeckProps extends HTMLAttributes<HTMLDivElement> {
   traceParts: any[];
   isStreaming: boolean;
   activeMessages: MessageLike[];
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 type ToolResultMessage = MessageLike & {
@@ -171,14 +174,22 @@ function AssistantTraceDeck({
   traceParts,
   isStreaming,
   activeMessages,
+  open: controlledOpen,
+  defaultOpen,
+  onOpenChange,
   className,
   ...props
 }: AssistantTraceDeckProps) {
-  const [open, setOpen] = useState(isStreaming);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? isStreaming);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
 
   useEffect(() => {
-    setOpen(isStreaming);
-  }, [isStreaming]);
+    if (isStreaming && controlledOpen === undefined) setUncontrolledOpen(true);
+  }, [controlledOpen, isStreaming]);
 
   const getToolIcon = (toolName: string): IconName => {
     const name = toolName.toLowerCase();

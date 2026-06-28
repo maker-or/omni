@@ -153,4 +153,30 @@ describe("thread store pagination behavior", () => {
     expect(useThreadStore.getState().threads.map((item) => item.id)).toEqual(["thread-2"]);
     expect(useThreadStore.getState().error).toBe("cannot delete");
   });
+
+  test("delete advances pagination back one slot so load more does not skip a thread", async () => {
+    const deleteThread = vi.fn(async () => undefined);
+    (globalThis as any).window = { omni: { threads: { delete: deleteThread } } };
+    useThreadStore.setState({
+      threads: [thread("thread-1"), thread("thread-2", "project-2")],
+      pagesByProject: {
+        "project-1": { nextOffset: 10, hasMore: true, isLoading: false },
+        "project-2": { nextOffset: 5, hasMore: true, isLoading: false },
+      },
+    });
+
+    await useThreadStore.getState().deleteThread("thread-1");
+
+    expect(useThreadStore.getState().threads.map((item) => item.id)).toEqual(["thread-2"]);
+    expect(useThreadStore.getState().pagesByProject["project-1"]).toEqual({
+      nextOffset: 9,
+      hasMore: true,
+      isLoading: false,
+    });
+    expect(useThreadStore.getState().pagesByProject["project-2"]).toEqual({
+      nextOffset: 5,
+      hasMore: true,
+      isLoading: false,
+    });
+  });
 });

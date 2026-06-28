@@ -60,7 +60,7 @@ import {
   useProjectThreadsQuery,
   useRecentProjectsQuery,
 } from "@/lib/thread-queries";
-import type { Thread } from "../../contracts/threads.ts";
+import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -298,6 +298,18 @@ export function ProviderMark({
   );
 }
 
+function hasTraceParts(messages: MessageLike[]): boolean {
+  return messages.some((message) => {
+    const content = (message as unknown as { content?: unknown }).content;
+    return (
+      Array.isArray(content) &&
+      content.some(
+        (part) => part && (part.type === "thinking" || part.type === "toolCall"),
+      )
+    );
+  });
+}
+
 function getToolSummary(message: MessageLike): string | null {
   const content = (message as unknown as { content?: unknown }).content;
   if (!Array.isArray(content)) return null;
@@ -376,10 +388,17 @@ export function groupConversationMessages(
   }
 
   const grouped: GroupedMessageEntry[] = [];
+  let lastUserIndex: number | null = null;
 
   for (const entry of rawEntries) {
     const lastGroup = grouped[grouped.length - 1];
     const role = entry.message.role === "user" ? "user" : "assistant";
+    const groupKey =
+      role === "user"
+        ? `user-${entry.originalIndex}`
+        : lastUserIndex == null
+          ? "assistant-start"
+          : `assistant-after-${lastUserIndex}`;
 
     if (lastGroup && lastGroup.role === role) {
       lastGroup.messages.push(entry.message);
@@ -388,12 +407,16 @@ export function groupConversationMessages(
       }
     } else {
       grouped.push({
-        key: entry.isStreaming ? "streaming" : `${role}-${entry.originalIndex}`,
+        key: groupKey,
         role,
         messages: [entry.message],
         originalIndex: entry.originalIndex,
         isStreaming: entry.isStreaming,
       });
+    }
+
+    if (role === "user") {
+      lastUserIndex = entry.originalIndex;
     }
   }
 
@@ -423,10 +446,14 @@ function MessageBody({
   messages,
   isStreaming = false,
   activeMessages = [],
+  traceDeckOpen,
+  onTraceDeckOpenChange,
 }: {
   messages: MessageLike[];
   isStreaming?: boolean;
   activeMessages?: MessageLike[];
+  traceDeckOpen?: boolean;
+  onTraceDeckOpenChange?: (open: boolean) => void;
 }) {
   const role = messages[0]?.role;
 
@@ -470,6 +497,9 @@ function MessageBody({
             traceParts={allTraceParts}
             isStreaming={isStreaming}
             activeMessages={activeMessages}
+            open={traceDeckOpen}
+            defaultOpen={isStreaming}
+            onOpenChange={onTraceDeckOpenChange}
           />
         )}
 
@@ -600,9 +630,6 @@ export function getRuntimeStatusItems(
   if (!snapshot) return [];
 
   const items: string[] = [];
-  const title = cleanRuntimeStatusText(snapshot.title);
-  if (title && title !== snapshot.sessionName) items.push(`Title: ${title}`);
-
   if (snapshot.workingVisible) {
     const workingMessage = cleanRuntimeStatusText(snapshot.workingMessage);
     if (workingMessage) items.push(workingMessage);
@@ -692,6 +719,7 @@ export function AgentPanel() {
   const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] =
     useState("");
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [traceDeckOpenByKey, setTraceDeckOpenByKey] = useState<Record<string, boolean>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectListRef = useRef<HTMLDivElement>(null);
   const threadPaneRef = useRef<HTMLDivElement>(null);
@@ -699,6 +727,7 @@ export function AgentPanel() {
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const scrollRafRef = useRef<number | null>(null);
+  const autoScrollPinnedRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(
@@ -1066,6 +1095,24 @@ export function AgentPanel() {
     [activeMessages, streamingMessage],
   );
 
+  const streamingTraceKey = useMemo(
+    () =>
+      allMessages.find(
+        (entry) =>
+          entry.role === "assistant" && entry.isStreaming && hasTraceParts(entry.messages),
+      )?.key ?? null,
+    [allMessages],
+  );
+
+  useEffect(() => {
+    if (!streamingTraceKey) return;
+    setTraceDeckOpenByKey((current) =>
+      current[streamingTraceKey] === undefined
+        ? { ...current, [streamingTraceKey]: true }
+        : current,
+    );
+  }, [streamingTraceKey]);
+
   const conversationVirtualizer = useVirtualizer({
     count: allMessages.length,
     getScrollElement: () => messagesScrollRef.current,
@@ -1083,58 +1130,85 @@ export function AgentPanel() {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
 
-    const threshold = 120;
-    const isNearBottom =
-      scrollContainer.scrollHeight -
+    const updatePinnedState = () => {
+      const distanceFromBottom =
+        scrollContainer.scrollHeight -
         scrollContainer.scrollTop -
-        scrollContainer.clientHeight <=
-      threshold;
+        scrollContainer.clientHeight;
+      autoScrollPinnedRef.current = distanceFromBottom <= 120;
+    };
 
-    const shouldScroll =
-      !isStreaming || isNearBottom || allMessages.length === 0;
-    if (!shouldScroll) return;
+    updatePinnedState();
+    scrollContainer.addEventListener("scroll", updatePinnedState, {
+      passive: true,
+    });
+    return () => scrollContainer.removeEventListener("scroll", updatePinnedState);
+  }, [threadId]);
 
-    // Cancel any in-flight animation
-    if (scrollRafRef.current !== null) {
-      cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = null;
-    }
+  useEffect(() => {
+    autoScrollPinnedRef.current = true;
+  }, [threadId]);
 
-    if (!isStreaming) {
-      // Instant jump when not streaming (e.g. switching threads)
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      return;
-    }
-
-    // Spring-based smooth scroll to bottom
-    const target = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-    let current = scrollContainer.scrollTop;
-    const stiffness = 0.12; // spring strength — higher = snappier
-
-    function tick() {
-      const el = messagesScrollRef.current;
-      if (!el) return;
-      const dest = el.scrollHeight - el.clientHeight;
-      current += (dest - current) * stiffness;
-      el.scrollTop = current;
-      if (Math.abs(dest - current) > 0.5) {
-        scrollRafRef.current = requestAnimationFrame(tick);
-      } else {
-        el.scrollTop = dest;
-        scrollRafRef.current = null;
-      }
-    }
-
-    // Suppress unused-variable warning from initial target calc
-    void target;
-    scrollRafRef.current = requestAnimationFrame(tick);
-
+  useEffect(() => {
     return () => {
       if (scrollRafRef.current !== null) {
         cancelAnimationFrame(scrollRafRef.current);
         scrollRafRef.current = null;
       }
     };
+  }, [threadId]);
+
+  useEffect(() => {
+    const scrollContainer = messagesScrollRef.current;
+    if (!scrollContainer) return;
+
+    const distanceFromBottom =
+      scrollContainer.scrollHeight -
+      scrollContainer.scrollTop -
+      scrollContainer.clientHeight;
+    const shouldScroll =
+      !isStreaming ||
+      autoScrollPinnedRef.current ||
+      distanceFromBottom <= 120 ||
+      allMessages.length === 0;
+    if (!shouldScroll) return;
+
+    if (!isStreaming) {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+      requestAnimationFrame(() => {
+        const el = messagesScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+        autoScrollPinnedRef.current = true;
+      });
+      return;
+    }
+
+    if (scrollRafRef.current !== null) return;
+
+    function tick() {
+      const el = messagesScrollRef.current;
+      if (!el || !autoScrollPinnedRef.current) {
+        scrollRafRef.current = null;
+        return;
+      }
+
+      const dest = el.scrollHeight - el.clientHeight;
+      const delta = dest - el.scrollTop;
+      if (Math.abs(delta) <= 0.5) {
+        el.scrollTop = dest;
+        scrollRafRef.current = null;
+        return;
+      }
+
+      el.scrollTop += delta * 0.2;
+      scrollRafRef.current = requestAnimationFrame(tick);
+    }
+
+    scrollRafRef.current = requestAnimationFrame(tick);
   }, [latestConversationScrollKey, isStreaming, allMessages.length]);
 
   const handleSelectThread = async (id: string) => {
@@ -1323,10 +1397,39 @@ export function AgentPanel() {
       return;
     try {
       await deleteThread(thread.id);
+      queryClient.setQueriesData<ThreadPage>(
+        { queryKey: ["project-threads", thread.project_id] },
+        (current) => {
+          if (!current) return current;
+          const hadThread = current.threads.some((item) => item.id === thread.id);
+          return {
+            ...current,
+            threads: current.threads.filter((item) => item.id !== thread.id),
+            nextOffset: hadThread ? Math.max(0, current.nextOffset - 1) : current.nextOffset,
+          };
+        },
+      );
+      queryClient.setQueryData<OpenTabsState & { openThreads: Thread[] }>(
+        OPEN_TABS_QUERY_KEY,
+        (current) => {
+          if (!current) return current;
+          const openThreadIds = current.openThreadIds.filter((id) => id !== thread.id);
+          const openThreads = current.openThreads.filter((item) => item.id !== thread.id);
+          return {
+            ...current,
+            openThreadIds,
+            openThreads,
+            activeThreadId:
+              current.activeThreadId === thread.id
+                ? (openThreadIds[0] ?? null)
+                : current.activeThreadId,
+          };
+        },
+      );
       setIsDropdownOpen(false);
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       await queryClient.invalidateQueries({
-        queryKey: ["threads", thread.project_id],
+        queryKey: ["project-threads", thread.project_id],
       });
       const state = await window.omni.tabs.listOpen();
       if (state.activeThreadId) await handleSelectThread(state.activeThreadId);
@@ -1899,6 +2002,13 @@ export function AgentPanel() {
                                 messages={messages}
                                 isStreaming={isStreaming}
                                 activeMessages={activeMessages}
+                                traceDeckOpen={traceDeckOpenByKey[msgId] ?? isStreaming}
+                                onTraceDeckOpenChange={(open) =>
+                                  setTraceDeckOpenByKey((current) => ({
+                                    ...current,
+                                    [msgId]: open,
+                                  }))
+                                }
                               />
                             ) : undefined}
                             {extractGroupedMessageImages(messages).length >

@@ -64,7 +64,7 @@ describe("agent panel behavior helpers", () => {
       "second user",
     ]);
     expect(grouped[1]).toMatchObject({
-      key: "assistant-3",
+      key: "assistant-after-1",
       role: "assistant",
       originalIndex: 3,
       isStreaming: true,
@@ -73,6 +73,21 @@ describe("agent panel behavior helpers", () => {
       "assistant text",
       "streaming continuation",
     ]);
+  });
+
+  test("keeps the assistant turn key stable when a streaming message becomes settled", () => {
+    const firstSnapshot = groupConversationMessages(
+      [user("make it smoother")],
+      assistant("Reading files"),
+    );
+    const nextSnapshot = groupConversationMessages(
+      [user("make it smoother"), assistant("Reading files")],
+      assistant("Applying fix"),
+    );
+
+    expect(firstSnapshot[1]?.key).toBe("assistant-after-0");
+    expect(nextSnapshot[1]?.key).toBe(firstSnapshot[1]?.key);
+    expect(nextSnapshot[1]?.isStreaming).toBe(true);
   });
 
   test("scroll key changes for trace-only structural changes with identical visible text", () => {
@@ -93,7 +108,7 @@ describe("agent panel behavior helpers", () => {
     );
   });
 
-  test("runtime status items reflect title, draft, hidden thinking, and background flags", () => {
+  test("runtime status items reflect draft, hidden thinking, and background flags", () => {
     const items = getRuntimeStatusItems(
       runtimeSnapshot({
         title: "Edited title",
@@ -112,7 +127,6 @@ describe("agent panel behavior helpers", () => {
     );
 
     expect(items).toEqual([
-      "Title: Edited title",
       "Applying",
       "Testing",
       "Thinking: reasoning",

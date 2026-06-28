@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
   type HTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -53,6 +54,27 @@ function useMergeRefs<T>(
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const DEFAULT_ACCEPT = "image/png,image/jpeg,application/pdf";
+
+function clipboardHtmlToText(html: string): string {
+  if (!html) return "";
+
+  const mailtoMatch = html.match(/mailto:([^"'?>\s]+)/i);
+  if (mailtoMatch?.[1]) {
+    return decodeURIComponent(mailtoMatch[1].split("?")[0] ?? "").trim();
+  }
+
+  if (typeof DOMParser !== "undefined") {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.body.textContent?.trim();
+    if (text) return text;
+  }
+
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+}
 
 interface InputMessageSlotContext {
   /** Opens the native file picker via the hidden `<input type="file">`.
@@ -222,7 +244,11 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
 
     const filesArr = useMemo(() => files ?? [], [files]);
     const supportsFiles = onFilesChange !== undefined;
-    const { onKeyDown: textareaOnKeyDown, ...forwardedTextareaProps } = textareaProps ?? {};
+    const {
+      onKeyDown: textareaOnKeyDown,
+      onPaste: textareaOnPaste,
+      ...forwardedTextareaProps
+    } = textareaProps ?? {};
 
     useIsoLayoutEffect(() => {
       const el = internalTextareaRef.current;
@@ -356,6 +382,46 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         onFilesChange(next);
       },
       [onFilesChange, onFilesRejected, filesArr, matchesAccept, maxFiles],
+    );
+
+    const handlePaste = useCallback(
+      (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+        textareaOnPaste?.(e);
+        if (e.defaultPrevented) return;
+
+        const clipboard = e.clipboardData;
+        if (supportsFiles) {
+          const itemFiles = Array.from(clipboard.items)
+            .filter((item) => item.kind === "file")
+            .map((item) => item.getAsFile())
+            .filter((file): file is File => Boolean(file));
+          const clipboardFiles = itemFiles.length ? itemFiles : Array.from(clipboard.files);
+          if (clipboardFiles.length) {
+            e.preventDefault();
+            addFiles(clipboardFiles);
+            return;
+          }
+        }
+
+        const plainText = clipboard.getData("text/plain");
+        const htmlText = clipboard.getData("text/html");
+        const uriText = clipboard.getData("text/uri-list");
+        const pastedText = plainText || clipboardHtmlToText(htmlText) || uriText;
+        if (!pastedText) return;
+
+        e.preventDefault();
+        const target = e.currentTarget;
+        const selectionStart = target.selectionStart ?? value.length;
+        const selectionEnd = target.selectionEnd ?? selectionStart;
+        const nextValue = `${value.slice(0, selectionStart)}${pastedText}${value.slice(selectionEnd)}`;
+        onValueChange(nextValue);
+
+        requestAnimationFrame(() => {
+          const nextCursor = selectionStart + pastedText.length;
+          target.setSelectionRange(nextCursor, nextCursor);
+        });
+      },
+      [addFiles, onValueChange, supportsFiles, textareaOnPaste, value],
     );
 
     const removeFile = useCallback(
@@ -509,6 +575,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               onFocus={(e) => {
                 if (e.target.matches(":focus-visible")) setFocusVisible(true);
               }}

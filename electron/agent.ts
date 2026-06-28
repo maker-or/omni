@@ -771,9 +771,10 @@ export class AgentManager {
 
     const projectId = thread.project_id;
     const record = this.getRecord(projectId);
-    const nextThread = listThreads().find(
-      (row) => row.project_id === projectId && row.id !== threadId,
-    );
+    const wasActiveThread = this.activeProjectId === projectId && this.activeThreadId === threadId;
+    const nextThread = wasActiveThread
+      ? listThreads().find((row) => row.project_id === projectId && row.id !== threadId)
+      : null;
 
     if (thread.session_file && existsSync(thread.session_file)) {
       await rm(thread.session_file, { force: true });
@@ -783,6 +784,11 @@ export class AgentManager {
 
     if (nextThread) {
       await this.switchThread(nextThread.id);
+      return;
+    }
+
+    if (!wasActiveThread) {
+      this.pushSnapshot(projectId);
       return;
     }
 

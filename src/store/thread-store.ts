@@ -22,7 +22,7 @@ interface ThreadState {
   addThread: (thread: Thread) => void;
 }
 
-export const useThreadStore = create<ThreadState>((set) => ({
+export const useThreadStore = create<ThreadState>((set, get) => ({
   threads: [],
   pagesByProject: {},
   isLoading: false,
@@ -148,10 +148,27 @@ export const useThreadStore = create<ThreadState>((set) => ({
     }
   },
   deleteThread: async (id) => {
+    const existingThread = get().threads.find((thread) => thread.id === id);
     try {
       await window.omni.threads.delete(id);
       set((state) => ({
         threads: state.threads.filter((t) => t.id !== id),
+        pagesByProject: existingThread
+          ? {
+              ...state.pagesByProject,
+              [existingThread.project_id]: {
+                ...(state.pagesByProject[existingThread.project_id] ?? {
+                  nextOffset: 0,
+                  hasMore: false,
+                  isLoading: false,
+                }),
+                nextOffset: Math.max(
+                  0,
+                  (state.pagesByProject[existingThread.project_id]?.nextOffset ?? 0) - 1,
+                ),
+              },
+            }
+          : state.pagesByProject,
         error: null,
       }));
     } catch (err) {
