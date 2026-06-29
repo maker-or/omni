@@ -29,6 +29,8 @@ import { SurfaceProvider } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PipperBeam } from "@/components/ui/pipper-beam";
+import { Dropdown, DropdownLabel } from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 
 function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
   if (typeof ref === "function") {
@@ -51,9 +53,30 @@ function useMergeRefs<T>(
   }, [ref1, ref2]);
 }
 
-const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const DEFAULT_ACCEPT = "image/png,image/jpeg,application/pdf";
+const MAX_FILE_MENTION_RESULTS = 80;
+
+interface FileMentionState {
+  start: number;
+  query: string;
+}
+
+function getFileMentionState(
+  value: string,
+  cursor: number,
+): FileMentionState | null {
+  const beforeCursor = value.slice(0, cursor);
+  const start = beforeCursor.lastIndexOf("@");
+  if (start < 0) return null;
+  const token = beforeCursor.slice(start + 1);
+  if (/\s/.test(token)) return null;
+  const previous = start > 0 ? beforeCursor[start - 1] : "";
+  if (previous && !/[\s([{]/.test(previous)) return null;
+  return { start, query: token };
+}
 
 function clipboardHtmlToText(html: string): string {
   if (!html) return "";
@@ -85,9 +108,13 @@ interface InputMessageSlotContext {
   files: File[];
 }
 
-type InputMessageSlot = ReactNode | ((ctx: InputMessageSlotContext) => ReactNode);
+type InputMessageSlot =
+  ReactNode | ((ctx: InputMessageSlotContext) => ReactNode);
 
-interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
+interface InputMessageProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "onChange"
+> {
   /** Controlled textarea value. */
   value: string;
   /** Called with the new value on every textarea change. */
@@ -241,6 +268,12 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const [focusVisible, setFocusVisible] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [hovered, setHovered] = useState(false);
+    const [projectFiles, setProjectFiles] = useState<string[]>([]);
+    const [fileMention, setFileMention] = useState<FileMentionState | null>(
+      null,
+    );
+    const [activeFileMentionIndex, setActiveFileMentionIndex] = useState(0);
+    const activeFileMentionRef = useRef<HTMLDivElement | null>(null);
 
     const filesArr = useMemo(() => files ?? [], [files]);
     const supportsFiles = onFilesChange !== undefined;
@@ -265,9 +298,30 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     }, [value, minRows, maxRows]);
 
     const trimmed = value.trim();
-    const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0 || canSendWhenEmpty);
+    const canSend =
+      !disabled &&
+      (trimmed.length > 0 || filesArr.length > 0 || canSendWhenEmpty);
     const showActionButton = !hideSendButton || isStreaming;
-    const actionLabel = isStreaming ? (isStopping ? "Stopping…" : stopLabel) : sendLabel;
+    const fileMentionResults = useMemo(() => {
+      if (!fileMention) return [];
+      const q = fileMention.query.toLowerCase();
+      return projectFiles
+        .filter((file) => !q || file.toLowerCase().includes(q))
+        .slice(0, MAX_FILE_MENTION_RESULTS);
+    }, [fileMention, projectFiles]);
+    const showFileMentionMenu = Boolean(
+      fileMention && fileMentionResults.length > 0 && !disabled,
+    );
+    const actionLabel = isStreaming
+      ? isStopping
+        ? "Stopping…"
+        : stopLabel
+      : sendLabel;
+
+    useEffect(() => {
+      if (!showFileMentionMenu) return;
+      activeFileMentionRef.current?.scrollIntoView({ block: "nearest" });
+    }, [activeFileMentionIndex, showFileMentionMenu]);
     const actionDisabled = isStreaming ? isStopping : !canSend;
 
     // Edge = the box-shadow's 1px ring, recoloured in place per state so the
@@ -300,17 +354,97 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       handleSend();
     }, [handleSend, isStreaming, isStopping, onStop]);
 
+    const insertFileMention = useCallback(
+      (file: string) => {
+        const el = internalTextareaRef.current;
+        const cursor = el?.selectionStart ?? value.length;
+        const mention = fileMention ?? getFileMentionState(value, cursor);
+        if (!mention) return;
+        const suffix = value.slice(cursor).startsWith(" ") ? "" : " ";
+        const nextValue = `${value.slice(0, mention.start)}@${file}${suffix}${value.slice(cursor)}`;
+        onValueChange(nextValue);
+        setFileMention(null);
+        requestAnimationFrame(() => {
+          const nextCursor = mention.start + file.length + 1 + suffix.length;
+          internalTextareaRef.current?.focus();
+          internalTextareaRef.current?.setSelectionRange(
+            nextCursor,
+            nextCursor,
+          );
+        });
+      },
+      [fileMention, onValueChange, value],
+    );
+
+    const refreshFileMention = useCallback(
+      (nextValue: string, cursor: number) => {
+        const nextMention = getFileMentionState(nextValue, cursor);
+        setFileMention(nextMention);
+        setActiveFileMentionIndex(0);
+        if (nextMention && projectFiles.length === 0) {
+          void window.omni?.projects
+            ?.listFiles?.()
+            .then(setProjectFiles)
+            .catch(() => setProjectFiles([]));
+        }
+      },
+      [projectFiles.length],
+    );
+
+    const handleTextareaChange = useCallback(
+      (e: ChangeEvent<HTMLTextAreaElement>) => {
+        onValueChange(e.target.value);
+        refreshFileMention(
+          e.target.value,
+          e.target.selectionStart ?? e.target.value.length,
+        );
+      },
+      [onValueChange, refreshFileMention],
+    );
+
     const handleKeyDown = useCallback(
       (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
         textareaOnKeyDown?.(e);
         if (e.defaultPrevented) return;
         if (e.nativeEvent.isComposing) return;
+        if (showFileMentionMenu) {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActiveFileMentionIndex((idx) =>
+              Math.min(idx + 1, fileMentionResults.length - 1),
+            );
+            return;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveFileMentionIndex((idx) => Math.max(idx - 1, 0));
+            return;
+          }
+          if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            const selected = fileMentionResults[activeFileMentionIndex];
+            if (selected) insertFileMention(selected);
+            return;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setFileMention(null);
+            return;
+          }
+        }
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           handleSend();
         }
       },
-      [handleSend, textareaOnKeyDown],
+      [
+        activeFileMentionIndex,
+        fileMentionResults,
+        handleSend,
+        insertFileMention,
+        showFileMentionMenu,
+        textareaOnKeyDown,
+      ],
     );
 
     const handleContainerMouseDown = useCallback(
@@ -319,7 +453,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const target = e.target as HTMLElement;
         if (target === internalTextareaRef.current) return;
         if (
-          target.closest('button, a, input, select, textarea, [contenteditable], [role="button"]')
+          target.closest(
+            'button, a, input, select, textarea, [contenteditable], [role="button"]',
+          )
         ) {
           return;
         }
@@ -342,8 +478,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const matchesAccept = useCallback(
       (file: File) =>
         acceptTokens.some((token) => {
-          if (token.endsWith("/*")) return file.type.startsWith(token.slice(0, -1));
-          if (token.startsWith(".")) return file.name.toLowerCase().endsWith(token.toLowerCase());
+          if (token.endsWith("/*"))
+            return file.type.startsWith(token.slice(0, -1));
+          if (token.startsWith("."))
+            return file.name.toLowerCase().endsWith(token.toLowerCase());
           return file.type === token;
         }),
       [acceptTokens],
@@ -355,7 +493,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         // Identity key for dedup: name + size + lastModified is unique enough
         // to catch "user dropped the same file twice" without false positives
         // on legitimately distinct files (different bytes ⇒ different size).
-        const fingerprint = (f: File) => `${f.name}-${f.size}-${f.lastModified}`;
+        const fingerprint = (f: File) =>
+          `${f.name}-${f.size}-${f.lastModified}`;
         const existing = new Set(filesArr.map(fingerprint));
         const accepted: File[] = [];
         const rejectedByType: File[] = [];
@@ -395,7 +534,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
             .filter((item) => item.kind === "file")
             .map((item) => item.getAsFile())
             .filter((file): file is File => Boolean(file));
-          const clipboardFiles = itemFiles.length ? itemFiles : Array.from(clipboard.files);
+          const clipboardFiles = itemFiles.length
+            ? itemFiles
+            : Array.from(clipboard.files);
           if (clipboardFiles.length) {
             e.preventDefault();
             addFiles(clipboardFiles);
@@ -406,7 +547,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const plainText = clipboard.getData("text/plain");
         const htmlText = clipboard.getData("text/html");
         const uriText = clipboard.getData("text/uri-list");
-        const pastedText = plainText || clipboardHtmlToText(htmlText) || uriText;
+        const pastedText =
+          plainText || clipboardHtmlToText(htmlText) || uriText;
         if (!pastedText) return;
 
         e.preventDefault();
@@ -458,8 +600,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       () => ({ openFilePicker, files: filesArr }),
       [openFilePicker, filesArr],
     );
-    const leftContent = typeof leftSlot === "function" ? leftSlot(slotCtx) : leftSlot;
-    const rightContent = typeof rightSlot === "function" ? rightSlot(slotCtx) : rightSlot;
+    const leftContent =
+      typeof leftSlot === "function" ? leftSlot(slotCtx) : leftSlot;
+    const rightContent =
+      typeof rightSlot === "function" ? rightSlot(slotCtx) : rightSlot;
 
     // ── Drag-and-drop ────────────────────────────────────────────────
     const handleDragOver = useCallback(
@@ -570,10 +714,52 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               )}
             </AnimatePresence>
 
+            <AnimatePresence initial={false}>
+              {showFileMentionMenu && (
+                <motion.div
+                  key="file-mention-menu"
+                  initial={{ opacity: 0, y: 4, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{
+                    opacity: 0,
+                    y: 4,
+                    scale: 0.98,
+                    transition: { duration: 0.06 },
+                  }}
+                  transition={springs.fast}
+                  className="mb-1"
+                >
+                  <Dropdown
+                    checkedIndex={activeFileMentionIndex}
+                    className="w-full max-h-56"
+                    role="listbox"
+                    aria-label="Project files"
+                  >
+                    {fileMentionResults.map((file, index) => (
+                      <MenuItem
+                        key={file}
+                        ref={
+                          index === activeFileMentionIndex
+                            ? activeFileMentionRef
+                            : undefined
+                        }
+                        index={index}
+                        label={`@${file}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseEnter={() => setActiveFileMentionIndex(index)}
+                        onSelect={() => insertFileMention(file)}
+                        className="py-1.5"
+                      />
+                    ))}
+                  </Dropdown>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <textarea
               ref={mergedTextareaRef}
               value={value}
-              onChange={(e) => onValueChange(e.target.value)}
+              onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               onFocus={(e) => {
@@ -581,7 +767,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               }}
               onBlur={() => setFocusVisible(false)}
               placeholder={
-                dragOver && supportsFiles ? "Drop files here to add to chat" : placeholder
+                dragOver && supportsFiles
+                  ? "Drop files here to add to chat"
+                  : placeholder
               }
               disabled={disabled}
               rows={minRows}
@@ -595,7 +783,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               {...forwardedTextareaProps}
             />
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                {leftContent}
+              </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {rightContent}
                 {showActionButton && (
@@ -628,7 +818,11 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                               key="stop"
                               initial={{ opacity: 0, scale: 0.85 }}
                               animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.06 } }}
+                              exit={{
+                                opacity: 0,
+                                scale: 0.85,
+                                transition: { duration: 0.06 },
+                              }}
                               transition={springs.fast}
                               className="col-start-1 row-start-1 flex items-center justify-center"
                             >
@@ -643,7 +837,11 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                               key="send"
                               initial={{ opacity: 0, scale: 0.85 }}
                               animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.06 } }}
+                              exit={{
+                                opacity: 0,
+                                scale: 0.85,
+                                transition: { duration: 0.06 },
+                              }}
                               transition={springs.fast}
                               className="col-start-1 row-start-1 flex items-center justify-center"
                             >

@@ -69,6 +69,43 @@ const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
 const ptyProcesses = new Map<string, pty.IPty>();
 const execFileAsync = promisify(execFile);
+
+const FILE_MENTION_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  "out",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+]);
+
+async function listProjectFiles(projectPath: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+      cwd: projectPath,
+      maxBuffer: 1024 * 1024 * 4,
+    });
+    return Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
+  } catch {
+    const results: string[] = [];
+    const walk = (dir: string, prefix = "") => {
+      if (results.length >= 5000) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name.startsWith(".") && entry.name !== ".env") continue;
+        if (FILE_MENTION_IGNORED_DIRS.has(entry.name)) continue;
+        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+        const absolute = join(dir, entry.name);
+        if (entry.isDirectory()) walk(absolute, relative);
+        else if (entry.isFile()) results.push(relative);
+      }
+    };
+    walk(projectPath);
+    return results.sort();
+  }
+}
 let currentTheme: "light" | "dark" | "system" = "system";
 
 const isDev = !app.isPackaged;
@@ -1060,6 +1097,13 @@ function registerIpc(): void {
   ipcMain.handle("projects:getActive", () => {
     const id = getActiveProjectId();
     return id ? getProject(id) : null;
+  });
+
+  ipcMain.handle("projects:listFiles", async () => {
+    const id = getActiveProjectId();
+    const project = id ? getProject(id) : null;
+    if (!project) return [];
+    return listProjectFiles(project.path);
   });
 
   ipcMain.handle(

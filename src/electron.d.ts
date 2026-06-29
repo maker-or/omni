@@ -90,6 +90,7 @@ declare global {
         list: () => Promise<Project[]>;
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
+        listFiles: () => Promise<string[]>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
       };

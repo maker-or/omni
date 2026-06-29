@@ -148,6 +148,7 @@ const api = {
     create: (input: CreateProjectInput): Promise<Project> =>
       ipcRenderer.invoke("projects:create", input),
     getActive: (): Promise<Project | null> => ipcRenderer.invoke("projects:getActive"),
+    listFiles: (): Promise<string[]> => ipcRenderer.invoke("projects:listFiles"),
     setActive: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("projects:setActive", projectId),
     onActiveChanged: (callback: (projectId: string) => void) => {
