@@ -291,8 +291,7 @@ const api = {
     sendPrompt: (input: {
       message: string;
       streamingBehavior?: "followUp" | "steer";
-    }): Promise<void> =>
-      ipcRenderer.invoke("editor:sendPrompt", input),
+    }): Promise<void> => ipcRenderer.invoke("editor:sendPrompt", input),
     abort: (): Promise<void> => ipcRenderer.invoke("editor:abort"),
     setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
       ipcRenderer.invoke("editor:setModel", model),

@@ -53,8 +53,7 @@ function useMergeRefs<T>(
   }, [ref1, ref2]);
 }
 
-const useIsoLayoutEffect =
-  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const DEFAULT_ACCEPT = "image/png,image/jpeg,application/pdf";
 const MAX_FILE_MENTION_RESULTS = 80;
@@ -64,10 +63,7 @@ interface FileMentionState {
   query: string;
 }
 
-function getFileMentionState(
-  value: string,
-  cursor: number,
-): FileMentionState | null {
+function getFileMentionState(value: string, cursor: number): FileMentionState | null {
   const beforeCursor = value.slice(0, cursor);
   const start = beforeCursor.lastIndexOf("@");
   if (start < 0) return null;
@@ -108,13 +104,9 @@ interface InputMessageSlotContext {
   files: File[];
 }
 
-type InputMessageSlot =
-  ReactNode | ((ctx: InputMessageSlotContext) => ReactNode);
+type InputMessageSlot = ReactNode | ((ctx: InputMessageSlotContext) => ReactNode);
 
-interface InputMessageProps extends Omit<
-  HTMLAttributes<HTMLDivElement>,
-  "onChange"
-> {
+interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
   /** Controlled textarea value. */
   value: string;
   /** Called with the new value on every textarea change. */
@@ -269,9 +261,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const [dragOver, setDragOver] = useState(false);
     const [hovered, setHovered] = useState(false);
     const [projectFiles, setProjectFiles] = useState<string[]>([]);
-    const [fileMention, setFileMention] = useState<FileMentionState | null>(
-      null,
-    );
+    const [fileMention, setFileMention] = useState<FileMentionState | null>(null);
     const [activeFileMentionIndex, setActiveFileMentionIndex] = useState(0);
     const activeFileMentionRef = useRef<HTMLDivElement | null>(null);
 
@@ -298,9 +288,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     }, [value, minRows, maxRows]);
 
     const trimmed = value.trim();
-    const canSend =
-      !disabled &&
-      (trimmed.length > 0 || filesArr.length > 0 || canSendWhenEmpty);
+    const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0 || canSendWhenEmpty);
     const showActionButton = !hideSendButton || isStreaming;
     const fileMentionResults = useMemo(() => {
       if (!fileMention) return [];
@@ -309,14 +297,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         .filter((file) => !q || file.toLowerCase().includes(q))
         .slice(0, MAX_FILE_MENTION_RESULTS);
     }, [fileMention, projectFiles]);
-    const showFileMentionMenu = Boolean(
-      fileMention && fileMentionResults.length > 0 && !disabled,
-    );
-    const actionLabel = isStreaming
-      ? isStopping
-        ? "Stopping…"
-        : stopLabel
-      : sendLabel;
+    const showFileMentionMenu = Boolean(fileMention && fileMentionResults.length > 0 && !disabled);
+    const actionLabel = isStreaming ? (isStopping ? "Stopping…" : stopLabel) : sendLabel;
 
     useEffect(() => {
       if (!showFileMentionMenu) return;
@@ -367,10 +349,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         requestAnimationFrame(() => {
           const nextCursor = mention.start + file.length + 1 + suffix.length;
           internalTextareaRef.current?.focus();
-          internalTextareaRef.current?.setSelectionRange(
-            nextCursor,
-            nextCursor,
-          );
+          internalTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
         });
       },
       [fileMention, onValueChange, value],
@@ -394,10 +373,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const handleTextareaChange = useCallback(
       (e: ChangeEvent<HTMLTextAreaElement>) => {
         onValueChange(e.target.value);
-        refreshFileMention(
-          e.target.value,
-          e.target.selectionStart ?? e.target.value.length,
-        );
+        refreshFileMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
       },
       [onValueChange, refreshFileMention],
     );
@@ -410,9 +386,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         if (showFileMentionMenu) {
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            setActiveFileMentionIndex((idx) =>
-              Math.min(idx + 1, fileMentionResults.length - 1),
-            );
+            setActiveFileMentionIndex((idx) => Math.min(idx + 1, fileMentionResults.length - 1));
             return;
           }
           if (e.key === "ArrowUp") {
@@ -453,9 +427,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const target = e.target as HTMLElement;
         if (target === internalTextareaRef.current) return;
         if (
-          target.closest(
-            'button, a, input, select, textarea, [contenteditable], [role="button"]',
-          )
+          target.closest('button, a, input, select, textarea, [contenteditable], [role="button"]')
         ) {
           return;
         }
@@ -478,10 +450,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const matchesAccept = useCallback(
       (file: File) =>
         acceptTokens.some((token) => {
-          if (token.endsWith("/*"))
-            return file.type.startsWith(token.slice(0, -1));
-          if (token.startsWith("."))
-            return file.name.toLowerCase().endsWith(token.toLowerCase());
+          if (token.endsWith("/*")) return file.type.startsWith(token.slice(0, -1));
+          if (token.startsWith(".")) return file.name.toLowerCase().endsWith(token.toLowerCase());
           return file.type === token;
         }),
       [acceptTokens],
@@ -493,8 +463,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         // Identity key for dedup: name + size + lastModified is unique enough
         // to catch "user dropped the same file twice" without false positives
         // on legitimately distinct files (different bytes ⇒ different size).
-        const fingerprint = (f: File) =>
-          `${f.name}-${f.size}-${f.lastModified}`;
+        const fingerprint = (f: File) => `${f.name}-${f.size}-${f.lastModified}`;
         const existing = new Set(filesArr.map(fingerprint));
         const accepted: File[] = [];
         const rejectedByType: File[] = [];
@@ -534,9 +503,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
             .filter((item) => item.kind === "file")
             .map((item) => item.getAsFile())
             .filter((file): file is File => Boolean(file));
-          const clipboardFiles = itemFiles.length
-            ? itemFiles
-            : Array.from(clipboard.files);
+          const clipboardFiles = itemFiles.length ? itemFiles : Array.from(clipboard.files);
           if (clipboardFiles.length) {
             e.preventDefault();
             addFiles(clipboardFiles);
@@ -547,8 +514,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const plainText = clipboard.getData("text/plain");
         const htmlText = clipboard.getData("text/html");
         const uriText = clipboard.getData("text/uri-list");
-        const pastedText =
-          plainText || clipboardHtmlToText(htmlText) || uriText;
+        const pastedText = plainText || clipboardHtmlToText(htmlText) || uriText;
         if (!pastedText) return;
 
         e.preventDefault();
@@ -600,10 +566,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       () => ({ openFilePicker, files: filesArr }),
       [openFilePicker, filesArr],
     );
-    const leftContent =
-      typeof leftSlot === "function" ? leftSlot(slotCtx) : leftSlot;
-    const rightContent =
-      typeof rightSlot === "function" ? rightSlot(slotCtx) : rightSlot;
+    const leftContent = typeof leftSlot === "function" ? leftSlot(slotCtx) : leftSlot;
+    const rightContent = typeof rightSlot === "function" ? rightSlot(slotCtx) : rightSlot;
 
     // ── Drag-and-drop ────────────────────────────────────────────────
     const handleDragOver = useCallback(
@@ -738,11 +702,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                     {fileMentionResults.map((file, index) => (
                       <MenuItem
                         key={file}
-                        ref={
-                          index === activeFileMentionIndex
-                            ? activeFileMentionRef
-                            : undefined
-                        }
+                        ref={index === activeFileMentionIndex ? activeFileMentionRef : undefined}
                         index={index}
                         label={`@${file}`}
                         onMouseDown={(e) => e.preventDefault()}
@@ -767,9 +727,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               }}
               onBlur={() => setFocusVisible(false)}
               placeholder={
-                dragOver && supportsFiles
-                  ? "Drop files here to add to chat"
-                  : placeholder
+                dragOver && supportsFiles ? "Drop files here to add to chat" : placeholder
               }
               disabled={disabled}
               rows={minRows}
@@ -783,9 +741,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               {...forwardedTextareaProps}
             />
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                {leftContent}
-              </div>
+              <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {rightContent}
                 {showActionButton && (

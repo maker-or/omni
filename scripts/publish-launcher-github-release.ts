@@ -43,11 +43,7 @@ async function main(): Promise<void> {
   const version = await readPackageVersion();
   const tag = launcherTagName(version);
   const dmg = await resolveReleaseDmg(version);
-  const manifest = createGithubLauncherManifest(
-    repository,
-    version,
-    dmg.sha256,
-  );
+  const manifest = createGithubLauncherManifest(repository, version, dmg.sha256);
   const manifestPath = path.join("release", LATEST_MANIFEST_NAME);
 
   await mkdir(path.dirname(manifestPath), { recursive: true });
@@ -114,8 +110,7 @@ async function main(): Promise<void> {
     manifest,
   );
   await verifyRemoteManifest(githubLatestManifestUrl(repository), manifest);
-  if (!options.skipDownloadVerification)
-    await verifyRemoteDmg(manifest.url, dmg.sha256, dmg.size);
+  if (!options.skipDownloadVerification) await verifyRemoteDmg(manifest.url, dmg.sha256, dmg.size);
 
   console.log(JSON.stringify(summary, null, 2));
 }
@@ -131,16 +126,13 @@ async function resumeRelease(
   skipDownloadVerification: boolean,
 ): Promise<void> {
   if (release.isPrerelease) {
-    throw new Error(
-      `${tag} is marked as a prerelease and cannot back /releases/latest/.`,
-    );
+    throw new Error(`${tag} is marked as a prerelease and cannot back /releases/latest/.`);
   }
 
   const assetNames = new Set(release.assets.map((asset) => asset.name));
   const missingAssets: string[] = [];
   if (!assetNames.has(path.basename(dmgPath))) missingAssets.push(dmgPath);
-  if (!assetNames.has(path.basename(manifestPath)))
-    missingAssets.push(manifestPath);
+  if (!assetNames.has(path.basename(manifestPath))) missingAssets.push(manifestPath);
 
   if (missingAssets.length === 0) {
     throw new Error(
@@ -158,15 +150,7 @@ async function resumeRelease(
 
   run("gh", ["release", "upload", tag, ...missingAssets, "--repo", repository]);
   if (release.isDraft) {
-    run("gh", [
-      "release",
-      "edit",
-      tag,
-      "--repo",
-      repository,
-      "--draft=false",
-      "--latest",
-    ]);
+    run("gh", ["release", "edit", tag, "--repo", repository, "--draft=false", "--latest"]);
   } else {
     run("gh", ["release", "edit", tag, "--repo", repository, "--latest"]);
   }
@@ -212,11 +196,7 @@ function resolveRepository(option: string | null): string {
   if (process.env.GITHUB_REPOSITORY)
     return normalizeGithubRepository(process.env.GITHUB_REPOSITORY);
 
-  const remote = runCapture(
-    "git",
-    ["config", "--get", "remote.origin.url"],
-    true,
-  ).stdout.trim();
+  const remote = runCapture("git", ["config", "--get", "remote.origin.url"], true).stdout.trim();
   const inferred = remote ? inferGithubRepositoryFromRemote(remote) : null;
   if (inferred) return inferred;
 
@@ -227,17 +207,11 @@ function resolveRepository(option: string | null): string {
   ).stdout.trim();
   if (ghRepo) return normalizeGithubRepository(ghRepo);
 
-  throw new Error(
-    "Unable to infer GitHub release repository. Set PIPPER_RELEASE_REPOSITORY.",
-  );
+  throw new Error("Unable to infer GitHub release repository. Set PIPPER_RELEASE_REPOSITORY.");
 }
 
 function assertCleanGitTree(): void {
-  const status = runCapture(
-    "git",
-    ["status", "--porcelain=v1"],
-    false,
-  ).stdout.trim();
+  const status = runCapture("git", ["status", "--porcelain=v1"], false).stdout.trim();
   if (status) {
     throw new Error(
       "Working tree is not clean. Commit or stash source changes before publishing a launcher release.",
@@ -248,15 +222,7 @@ function assertCleanGitTree(): void {
 function getReleaseView(repository: string, tag: string): ReleaseView | null {
   const result = runCapture(
     "gh",
-    [
-      "release",
-      "view",
-      tag,
-      "--repo",
-      repository,
-      "--json",
-      "assets,isDraft,isPrerelease,url",
-    ],
+    ["release", "view", tag, "--repo", repository, "--json", "assets,isDraft,isPrerelease,url"],
     true,
   );
   if (result.status !== 0) return null;
@@ -267,17 +233,11 @@ function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(
-      `${command} ${args.join(" ")} failed with exit ${result.status ?? 1}.`,
-    );
+    throw new Error(`${command} ${args.join(" ")} failed with exit ${result.status ?? 1}.`);
   }
 }
 
-function runCapture(
-  command: string,
-  args: string[],
-  allowFailure: boolean,
-): CommandResult {
+function runCapture(command: string, args: string[], allowFailure: boolean): CommandResult {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -297,8 +257,6 @@ function runCapture(
 }
 
 main().catch((error) => {
-  console.error(
-    `Error: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });

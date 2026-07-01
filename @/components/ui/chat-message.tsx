@@ -40,9 +40,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           data-pipper-id={pipperId}
           className={cn(
             "group flex min-w-0 flex-col gap-1.5",
-            isUser
-              ? "max-w-[92%] items-end self-end"
-              : "w-full max-w-full items-start self-start",
+            isUser ? "max-w-[92%] items-end self-end" : "w-full max-w-full items-start self-start",
             className,
           )}
           {...props}

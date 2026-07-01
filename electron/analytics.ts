@@ -55,17 +55,33 @@ function buildBaseProperties(windowType: AnalyticsWindowType) {
   };
 }
 
-export function identifyAnalyticsUser(providerUserId: string): void {
-  const trimmed = providerUserId.trim();
+export interface AnalyticsUserIdentity {
+  providerUserId: string;
+  email?: string | null;
+  name?: string | null;
+  avatarUrl?: string | null;
+}
+
+function buildPersonProperties(identity: AnalyticsUserIdentity): Record<string, string> {
+  const properties: Record<string, string> = {};
+  const email = identity.email?.trim();
+  const name = identity.name?.trim();
+  const avatar = identity.avatarUrl?.trim();
+  if (email) properties.$email = email;
+  if (name) properties.$name = name;
+  if (avatar) properties.$avatar = avatar;
+  return properties;
+}
+
+export function identifyAnalyticsUser(identity: AnalyticsUserIdentity): void {
+  const trimmed = identity.providerUserId.trim();
   if (!trimmed) return;
   distinctId = trimmed;
   const posthog = getClient();
   if (!posthog) return;
   posthog.identify({
     distinctId,
-    properties: {
-      auth_provider: "clerk",
-    },
+    properties: buildPersonProperties(identity),
   });
   if (!appOpenedSent) {
     appOpenedSent = true;

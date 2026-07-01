@@ -84,10 +84,14 @@ const FILE_MENTION_IGNORED_DIRS = new Set([
 
 async function listProjectFiles(projectPath: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-      cwd: projectPath,
-      maxBuffer: 1024 * 1024 * 4,
-    });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard"],
+      {
+        cwd: projectPath,
+        maxBuffer: 1024 * 1024 * 4,
+      },
+    );
     return Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
   } catch {
     const results: string[] = [];
@@ -176,7 +180,9 @@ function fingerprintPath(filePath: string): string {
 
 async function capturePipperEditBaseline(activePath: string): Promise<Map<string, string | null>> {
   const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd: activePath });
-  const files = dirtyFilesFromPorcelain(String(stdout)).filter((file) => !isPatchMetadataFile(file));
+  const files = dirtyFilesFromPorcelain(String(stdout)).filter(
+    (file) => !isPatchMetadataFile(file),
+  );
   return new Map(files.map((file) => [file, workspaceFileFingerprint(activePath, file)]));
 }
 
@@ -304,7 +310,8 @@ async function requestCompanionClose(): Promise<void> {
       cancelId: 0,
       title: "Unaccepted edit changes",
       message: "The edit session has workspace changes that have not been accepted or rejected.",
-      detail: "Reject changes to restore the last backup, or close without reverting to leave the files dirty.",
+      detail:
+        "Reject changes to restore the last backup, or close without reverting to leave the files dirty.",
     });
 
     if (result.response === 0) return;
@@ -370,9 +377,7 @@ function isAllowedExternalUrl(inputUrl: string): boolean {
   const hostname = parsed.hostname.toLowerCase();
   const configuredHosts = configuredExternalHosts();
   return (
-    configuredHosts.has(hostname) ||
-    hostname === "clerk.com" ||
-    hostname.endsWith(".clerk.com")
+    configuredHosts.has(hostname) || hostname === "clerk.com" || hostname.endsWith(".clerk.com")
   );
 }
 
@@ -421,7 +426,12 @@ async function handleAuthCallback(url: string): Promise<void> {
   });
 
   console.log("[Main] Authenticated user stored:", record.provider_user_id);
-  identifyAnalyticsUser(record.provider_user_id);
+  identifyAnalyticsUser({
+    providerUserId: record.provider_user_id,
+    email: record.email,
+    name: record.name,
+    avatarUrl: record.avatar_url,
+  });
 
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send("launch:authComplete", record);
@@ -1747,7 +1757,12 @@ app.whenReady().then(async () => {
   getDb();
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {
-    identifyAnalyticsUser(authUser.provider_user_id);
+    identifyAnalyticsUser({
+      providerUserId: authUser.provider_user_id,
+      email: authUser.email,
+      name: authUser.name,
+      avatarUrl: authUser.avatar_url,
+    });
   }
   agentManager = new AgentManager({
     sendToRenderer: sendToMainWindow,

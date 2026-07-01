@@ -1,7 +1,7 @@
 # Blind Spots Investigation Report
 
 **Date:** 2026-06-26  
-**Scope:** Companion edit mode, Pipper overlay, agent panel, runtime/stores, terminal, update flow, and Electron shell  
+**Scope:** Companion edit mode, Pipper overlay, agent panel, runtime/stores, terminal, update flow, and Electron shell
 
 Open and partially-addressed blind spots verified against the current codebase. Initial pass covered companion and agent panel; a second pass searched `electron/`, `src/store/`, `src/App.tsx`, `src/lib/thread-queries.ts`, and terminal components for similar failure modes.
 
@@ -11,13 +11,13 @@ For each item: **status**, **what the code actually does**, **user-visible impac
 
 ## Summary
 
-| Area | Open | Partially addressed |
-|------|------|---------------------|
-| Companion / overlay | 12 | 1 |
-| Agent panel | 8 | 4 |
-| Runtime / stores / IPC | 10 | 1 |
-| Terminal | 2 | 0 |
-| Electron shell / security | 2 | 0 |
+| Area                      | Open | Partially addressed |
+| ------------------------- | ---- | ------------------- |
+| Companion / overlay       | 12   | 1                   |
+| Agent panel               | 8    | 4                   |
+| Runtime / stores / IPC    | 10   | 1                   |
+| Terminal                  | 2    | 0                   |
+| Electron shell / security | 2    | 0                   |
 
 ---
 
@@ -694,33 +694,33 @@ Companion surfaces accept/reject/send/abort failures in a red status area above 
 
 ## Prioritized fix backlog (suggested)
 
-| Priority | Item | Effort |
-|----------|------|--------|
-| P0 | Overlay `addComment` / `setProcessing` failure UX (#14) | Small |
-| P0 | Accept with zero files still closes (#3) | Small |
-| P0 | Companion close without dirty-workspace guard (#38) | Medium |
-| P0 | `handleSend` / `handleRegenerate` silent IPC failures (#31, #32) | Small |
-| P1 | Agent `error` never displayed (#30) | Small |
-| P1 | Project switch swallows activation failure (#37) | Medium |
-| P1 | Activation loading/error state (#1, #43) | Small |
-| P1 | UI dialog stale during thread switch (#19) | Small |
-| P1 | Trace missing tool result status (#22) | Small |
-| P1 | Accept before edit baseline ready (#39) | Small |
-| P1 | `shell:openExternal` allowlist (#48) | Medium |
-| P2 | Edit grouped consecutive user messages (#20) | Medium |
-| P2 | `handleCreateThread` / pagination offset (#33) | Small |
-| P2 | Terminal stale cwd on project switch (#46) | Medium |
-| P2 | Terminal zombie tab on PTY failure (#47) | Small |
-| P2 | `activePipperIdRef` or remove (#2) | Small |
-| P2 | Model pending guard + failure toast (#13, #27, #44) | Small |
-| P2 | Store errors never surfaced (#35, #36) | Small |
-| P2 | `deletedThreadIds` dead state (#34) | Small |
-| P2 | `markActiveHealthy` invisible failure (#40) | Small |
-| P3 | Companion virtualization (#10) | Medium |
-| P3 | Thread pane viewport collision (#25) | Small |
-| P3 | Mount-time recency labels (#24) | Small |
-| P3 | `agent-store.events` dead state (#42) | Small |
-| P3 | Electron sandbox evaluation (#49) | Large |
+| Priority | Item                                                             | Effort |
+| -------- | ---------------------------------------------------------------- | ------ |
+| P0       | Overlay `addComment` / `setProcessing` failure UX (#14)          | Small  |
+| P0       | Accept with zero files still closes (#3)                         | Small  |
+| P0       | Companion close without dirty-workspace guard (#38)              | Medium |
+| P0       | `handleSend` / `handleRegenerate` silent IPC failures (#31, #32) | Small  |
+| P1       | Agent `error` never displayed (#30)                              | Small  |
+| P1       | Project switch swallows activation failure (#37)                 | Medium |
+| P1       | Activation loading/error state (#1, #43)                         | Small  |
+| P1       | UI dialog stale during thread switch (#19)                       | Small  |
+| P1       | Trace missing tool result status (#22)                           | Small  |
+| P1       | Accept before edit baseline ready (#39)                          | Small  |
+| P1       | `shell:openExternal` allowlist (#48)                             | Medium |
+| P2       | Edit grouped consecutive user messages (#20)                     | Medium |
+| P2       | `handleCreateThread` / pagination offset (#33)                   | Small  |
+| P2       | Terminal stale cwd on project switch (#46)                       | Medium |
+| P2       | Terminal zombie tab on PTY failure (#47)                         | Small  |
+| P2       | `activePipperIdRef` or remove (#2)                               | Small  |
+| P2       | Model pending guard + failure toast (#13, #27, #44)              | Small  |
+| P2       | Store errors never surfaced (#35, #36)                           | Small  |
+| P2       | `deletedThreadIds` dead state (#34)                              | Small  |
+| P2       | `markActiveHealthy` invisible failure (#40)                      | Small  |
+| P3       | Companion virtualization (#10)                                   | Medium |
+| P3       | Thread pane viewport collision (#25)                             | Small  |
+| P3       | Mount-time recency labels (#24)                                  | Small  |
+| P3       | `agent-store.events` dead state (#42)                            | Small  |
+| P3       | Electron sandbox evaluation (#49)                                | Large  |
 
 ---
 

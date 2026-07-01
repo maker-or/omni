@@ -93,8 +93,7 @@ export function PipperOverlay() {
       const pipper = candidates.reduce((smallest, candidate) => {
         const smallestRect = smallest.getBoundingClientRect();
         const candidateRect = candidate.getBoundingClientRect();
-        return candidateRect.width * candidateRect.height <
-          smallestRect.width * smallestRect.height
+        return candidateRect.width * candidateRect.height < smallestRect.width * smallestRect.height
           ? candidate
           : smallest;
       });
@@ -240,9 +239,7 @@ export function PipperOverlay() {
     const updateLockedGeometry = () => {
       const element = getPipperElementById(lockedPipperId);
       if (!element) {
-        setHighlight((current) =>
-          current?.pipperId === lockedPipperId ? null : current,
-        );
+        setHighlight((current) => (current?.pipperId === lockedPipperId ? null : current));
         frame = requestAnimationFrame(updateLockedGeometry);
         return;
       }

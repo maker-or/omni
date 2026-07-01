@@ -697,4 +697,3 @@ Minimum scenarios to measure for this component:
 - Thinking level cycling under rapid clicks.
 - Context ring unknown usage, low usage, amber threshold, destructive threshold, cost zero/non-zero.
 - UI request select, confirm, input submit, input cancel, and timeout.
-

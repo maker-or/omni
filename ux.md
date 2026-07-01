@@ -2,17 +2,14 @@
 
 Pipper already has a strong base: layered surfaces, fast agent interaction, terminal views, project switching, update flows, and an interesting “agent harness” identity. The biggest opportunity is making the app feel less like a functional shell and more like a calm, responsive workspace where every interaction confirms the user is in control.
 
-
-
-
-
-
 ## 4. Make the agent feel more alive and understandable
 
 ### Current feeling
+
 Agent state exists: streaming, working messages, status, hidden thinking label, queue. The UX opportunity is to expose this state more elegantly.
 
 ### Improvement
+
 Create a clearer agent activity model:
 
 - “Thinking…” should have stages:
@@ -32,6 +29,7 @@ Create a clearer agent activity model:
 - Let users collapse/expand tool traces smoothly.
 
 ### Why it matters
+
 Agent apps feel magical but can also feel unpredictable. Clear agent state makes users feel safe.
 
 ---
@@ -39,9 +37,11 @@ Agent apps feel magical but can also feel unpredictable. Clear agent state makes
 ## 5. Improve perceived performance
 
 ### Current feeling
+
 Project/thread/agent loading likely depends on IPC and runtime initialization, which can produce waiting moments.
 
 ### Improvement
+
 Use progressive loading:
 
 - Keep previous content visible while loading new context.
@@ -52,6 +52,7 @@ Use progressive loading:
 - Optimistically create tabs/terminals before backend confirmation.
 
 ### Why it matters
+
 Users judge speed by continuity, not only raw latency.
 
 ---
@@ -59,6 +60,7 @@ Users judge speed by continuity, not only raw latency.
 ## 6. Polish the split-pane workspace
 
 ### Current feeling
+
 The app uses resizable panels. These can feel mechanical unless handles and layout persistence are polished.
 
 ### Improvement
@@ -74,6 +76,7 @@ The app uses resizable panels. These can feel mechanical unless handles and layo
 - Add focus ring clarity for keyboard users.
 
 ### Why it matters
+
 Pipper is a workspace. Layout memory and smooth focus movement make it feel professional.
 
 ---
@@ -81,6 +84,7 @@ Pipper is a workspace. Layout memory and smooth focus movement make it feel prof
 ## 7. Improve project switching
 
 ### Current feeling
+
 Project switching exists in the header dropdown, but could become a richer control center.
 
 ### Improvement
@@ -97,6 +101,7 @@ Project switching exists in the header dropdown, but could become a richer contr
   - Dependency status maybe later
 
 ### Why it matters
+
 Projects are the app’s top-level context. Switching should feel fast and confident.
 
 ---
@@ -104,6 +109,7 @@ Projects are the app’s top-level context. Switching should feel fast and confi
 ## 8. Make terminal views more integrated
 
 ### Current feeling
+
 Terminal is available under “Others” as tabs. It works, but may feel separate from agent work.
 
 ### Improvement
@@ -119,6 +125,7 @@ Terminal is available under “Others” as tabs. It works, but may feel separat
 - Add “New terminal in repo root” as one-click empty state action.
 
 ### Why it matters
+
 The agent + terminal loop is central for coding workflows.
 
 ---
@@ -126,6 +133,7 @@ The agent + terminal loop is central for coding workflows.
 ## 9. Strengthen visual hierarchy
 
 ### Current feeling
+
 The app has good surface tokens, but some UI may look flat because many areas use similar surface levels.
 
 ### Improvement
@@ -143,6 +151,7 @@ The app has good surface tokens, but some UI may look flat because many areas us
   - timestamps/status in muted tabular text
 
 ### Why it matters
+
 Visual hierarchy reduces cognitive load.
 
 ---

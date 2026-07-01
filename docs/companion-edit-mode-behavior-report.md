@@ -697,4 +697,3 @@ Minimum scenarios to measure:
 - Reject success.
 - Reject restore failure.
 - Bounds persistence across companion close/reopen.
-
