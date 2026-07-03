@@ -2,8 +2,10 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 function run(args) {
-  const command = process.platform === "win32" ? "bunx.cmd" : "bunx";
-  const result = spawnSync(command, ["--bun", ...args], { stdio: "inherit" });
+  const result = spawnSync("bun", ["x", "--bun", ...args], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
