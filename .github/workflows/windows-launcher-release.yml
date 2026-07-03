@@ -6,6 +6,9 @@ on:
       version:
         description: "Launcher version (must match package.json)"
         required: true
+      release_repository:
+        description: "Target repo for launcher releases (owner/repo)"
+        required: false
   push:
     tags:
       - "win/v*"
@@ -22,7 +25,7 @@ jobs:
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ secrets.PIPPER_RELEASE_TOKEN || github.token }}
-      PIPPER_RELEASE_REPOSITORY: ${{ vars.PIPPER_RELEASE_REPOSITORY }}
+      PIPPER_RELEASE_REPOSITORY: ${{ github.event.inputs.release_repository || vars.PIPPER_RELEASE_REPOSITORY || github.repository }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -34,7 +37,8 @@ jobs:
         shell: bash
         run: |
           if [[ -z "${PIPPER_RELEASE_REPOSITORY}" ]]; then
-            echo "Set the PIPPER_RELEASE_REPOSITORY repository variable (for example maker-or/pipper-code-releases)."
+            echo "Set the PIPPER_RELEASE_REPOSITORY repository variable (for example maker-or/pipper-code-releases),"
+            echo "or provide release_repository when running this workflow manually."
             exit 1
           fi
 
@@ -65,7 +69,7 @@ jobs:
 
       - name: Build application
         env:
-          VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL: https://github.com/${{ vars.PIPPER_RELEASE_REPOSITORY }}/releases/latest/download/latest-windows.json
+          VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL: https://github.com/${{ github.event.inputs.release_repository || vars.PIPPER_RELEASE_REPOSITORY || github.repository }}/releases/latest/download/latest-windows.json
         run: bun run build
 
       - name: Build Windows installer
