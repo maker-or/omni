@@ -4,11 +4,16 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   createGithubLauncherManifest,
+  createGithubLauncherWindowsManifest,
   githubLatestManifestUrl,
+  githubLatestWindowsManifestUrl,
   launcherDmgName,
+  launcherWindowsExeName,
   normalizeGithubRepository,
   resolveReleaseDmg,
+  resolveReleaseWindowsExe,
   validateManifest,
+  validateWindowsManifest,
 } from "./launcher-release.ts";
 
 describe("launcher release helpers", () => {
@@ -39,6 +44,30 @@ describe("launcher release helpers", () => {
     expect(() => validateManifest({ ...manifest, sha256: "short" })).toThrow();
   });
 
+  test("builds a strict GitHub Windows launcher manifest", () => {
+    const manifest = createGithubLauncherWindowsManifest("maker-or/omni", "0.0.16", "B".repeat(64));
+    expect(validateWindowsManifest(manifest)).toEqual({
+      schema_version: 1,
+      version: "0.0.16",
+      url: "https://github.com/maker-or/omni/releases/download/v0.0.16/pipper-0.0.16-win-x64.exe",
+      sha256: "b".repeat(64),
+    });
+    expect(githubLatestWindowsManifestUrl("maker-or/omni")).toBe(
+      "https://github.com/maker-or/omni/releases/latest/download/latest-windows.json",
+    );
+    expect(launcherWindowsExeName("0.0.16")).toBe("pipper-0.0.16-win-x64.exe");
+  });
+
+  test("rejects unsafe Windows manifests", () => {
+    const manifest = createGithubLauncherWindowsManifest("maker-or/omni", "0.0.16", "a".repeat(64));
+    expect(() =>
+      validateWindowsManifest({ ...manifest, url: "http://example.com/pipper.exe" }),
+    ).toThrow();
+    expect(() =>
+      validateWindowsManifest({ ...manifest, url: "https://example.com/pipper.dmg" }),
+    ).toThrow();
+  });
+
   test("requires exactly the expected release DMG", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "launcher-release-"));
     try {
@@ -52,6 +81,19 @@ describe("launcher release helpers", () => {
       await expect(resolveReleaseDmg("0.0.16", dir)).rejects.toThrow(
         "must contain exactly pipper-0.0.16-arm64.dmg",
       );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("requires exactly the expected release Windows installer", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "launcher-release-win-"));
+    try {
+      const expected = launcherWindowsExeName("0.0.16");
+      await writeFile(path.join(dir, expected), "installer bytes");
+      const resolved = await resolveReleaseWindowsExe("0.0.16", dir);
+      expect(resolved.name).toBe(expected);
+      expect(resolved.size).toBe("installer bytes".length);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

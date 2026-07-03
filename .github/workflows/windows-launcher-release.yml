@@ -1,0 +1,76 @@
+name: Release Windows Launcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Launcher version (must match package.json)"
+        required: true
+  push:
+    tags:
+      - "win/v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-launcher-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.PIPPER_RELEASE_TOKEN || github.token }}
+      PIPPER_RELEASE_REPOSITORY: ${{ vars.PIPPER_RELEASE_REPOSITORY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Validate release repository
+        shell: bash
+        run: |
+          if [[ -z "${PIPPER_RELEASE_REPOSITORY}" ]]; then
+            echo "Set the PIPPER_RELEASE_REPOSITORY repository variable (for example maker-or/pipper-code-releases)."
+            exit 1
+          fi
+
+      - name: Resolve launcher version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#win/v}"
+          fi
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "Requested version $VERSION does not match package.json version $PACKAGE_VERSION."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate
+        run: |
+          bun run fmt:check
+          bun run lint
+          bun run test
+
+      - name: Build application
+        run: bun run build
+
+      - name: Build Windows installer
+        run: |
+          if (Test-Path release) { Remove-Item -Recurse -Force release }
+          bun run dist:win
+
+      - name: Publish Windows launcher release
+        shell: bash
+        run: bun run release:launcher:publish:win -- --skip-git-check --version "${{ steps.version.outputs.version }}"

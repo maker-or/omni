@@ -24,4 +24,9 @@ mac:
   entitlementsInherit: build/entitlements.mac.inherit.plist
 
 win:
+  artifactName: pipper-${version}-win-${arch}.${ext}
   icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64

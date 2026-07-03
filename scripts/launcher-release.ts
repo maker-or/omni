@@ -17,7 +17,10 @@ export type ReleaseDmg = {
   size: number;
 };
 
+export type ReleaseArtifact = ReleaseDmg;
+
 export const LATEST_MANIFEST_NAME = "latest.json";
+export const LATEST_WINDOWS_MANIFEST_NAME = "latest-windows.json";
 export const SEMVER =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -29,6 +32,11 @@ export function launcherTagName(version: string): string {
 export function launcherDmgName(version: string): string {
   assertVersion(version);
   return `pipper-${version}-arm64.dmg`;
+}
+
+export function launcherWindowsExeName(version: string): string {
+  assertVersion(version);
+  return `pipper-${version}-win-x64.exe`;
 }
 
 export function normalizeGithubRepository(repository: string): string {
@@ -64,6 +72,11 @@ export function githubLatestManifestUrl(repository: string): string {
   return `https://github.com/${repo}/releases/latest/download/${LATEST_MANIFEST_NAME}`;
 }
 
+export function githubLatestWindowsManifestUrl(repository: string): string {
+  const repo = normalizeGithubRepository(repository);
+  return `https://github.com/${repo}/releases/latest/download/${LATEST_WINDOWS_MANIFEST_NAME}`;
+}
+
 export function createGithubLauncherManifest(
   repository: string,
   version: string,
@@ -79,51 +92,39 @@ export function createGithubLauncherManifest(
   };
 }
 
+export function createGithubLauncherWindowsManifest(
+  repository: string,
+  version: string,
+  sha256: string,
+): LauncherManifest {
+  assertVersion(version);
+  assertSha256(sha256);
+  return {
+    schema_version: 1,
+    version,
+    url: githubReleaseAssetUrl(
+      repository,
+      launcherTagName(version),
+      launcherWindowsExeName(version),
+    ),
+    sha256: sha256.toLowerCase(),
+  };
+}
+
 export function serializeManifest(manifest: LauncherManifest): string {
   return `${JSON.stringify(validateManifest(manifest), null, 2)}\n`;
 }
 
+export function serializeWindowsManifest(manifest: LauncherManifest): string {
+  return `${JSON.stringify(validateWindowsManifest(manifest), null, 2)}\n`;
+}
+
 export function validateManifest(value: unknown): LauncherManifest {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
-    throw new Error("Launcher manifest is invalid.");
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    JSON.stringify(Object.keys(record).sort()) !==
-    JSON.stringify(["schema_version", "sha256", "url", "version"])
-  ) {
-    throw new Error(
-      "Launcher manifest must contain exactly schema_version, version, url, and sha256.",
-    );
-  }
-  if (record.schema_version !== 1) throw new Error("Unsupported launcher manifest schema.");
-  if (typeof record.version !== "string" || !SEMVER.test(record.version)) {
-    throw new Error("Launcher manifest version is invalid.");
-  }
-  if (typeof record.url !== "string") throw new Error("Launcher artifact URL is invalid.");
-  let url: URL;
-  try {
-    url = new URL(record.url);
-  } catch {
-    throw new Error("Launcher artifact URL is invalid.");
-  }
-  if (url.protocol !== "https:" || !url.pathname.toLowerCase().endsWith(".dmg")) {
-    throw new Error("Launcher artifact must be an HTTPS DMG URL.");
-  }
-  if (typeof record.sha256 !== "string" || !/^[0-9a-fA-F]{64}$/.test(record.sha256)) {
-    throw new Error("Launcher artifact SHA-256 is invalid.");
-  }
-  return {
-    schema_version: 1,
-    version: record.version,
-    url: url.toString(),
-    sha256: record.sha256.toLowerCase(),
-  };
+  return validateLauncherManifest(value, ".dmg", "DMG");
+}
+
+export function validateWindowsManifest(value: unknown): LauncherManifest {
+  return validateLauncherManifest(value, ".exe", "Windows installer");
 }
 
 export function manifestsMatch(left: LauncherManifest, right: LauncherManifest): boolean {
@@ -153,7 +154,23 @@ export async function resolveReleaseDmg(
   version: string,
   releaseDir = "release",
 ): Promise<ReleaseDmg> {
-  const expected = launcherDmgName(version);
+  return resolveReleaseArtifact(version, launcherDmgName(version), ".dmg", releaseDir);
+}
+
+export async function resolveReleaseWindowsExe(
+  version: string,
+  releaseDir = "release",
+): Promise<ReleaseArtifact> {
+  return resolveReleaseArtifact(version, launcherWindowsExeName(version), ".exe", releaseDir);
+}
+
+export async function resolveReleaseArtifact(
+  version: string,
+  expectedName: string,
+  extension: string,
+  releaseDir = "release",
+): Promise<ReleaseArtifact> {
+  assertVersion(version);
   let entries: string[];
   try {
     entries = await readdir(releaseDir);
@@ -162,18 +179,18 @@ export async function resolveReleaseDmg(
       `Unable to read ${releaseDir}/: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const dmgs = entries.filter((name) => name.toLowerCase().endsWith(".dmg"));
-  if (dmgs.length !== 1 || dmgs[0] !== expected) {
+  const matches = entries.filter((name) => name.toLowerCase().endsWith(extension));
+  if (matches.length !== 1 || matches[0] !== expectedName) {
     throw new Error(
-      `${releaseDir}/ must contain exactly ${expected}; found: ${dmgs.join(", ") || "none"}`,
+      `${releaseDir}/ must contain exactly ${expectedName}; found: ${matches.join(", ") || "none"}`,
     );
   }
-  const file = path.join(releaseDir, expected);
+  const file = path.join(releaseDir, expectedName);
   const stats = await stat(file);
   if (!stats.isFile()) throw new Error(`${file} is not a file.`);
   return {
     file,
-    name: expected,
+    name: expectedName,
     size: stats.size,
     sha256: await hashFile(file),
   };
@@ -182,6 +199,68 @@ export async function resolveReleaseDmg(
 export async function verifyRemoteManifest(
   manifestUrl: string,
   expected: LauncherManifest,
+): Promise<void> {
+  return verifyRemoteLauncherManifest(manifestUrl, expected, validateManifest);
+}
+
+export async function verifyRemoteWindowsManifest(
+  manifestUrl: string,
+  expected: LauncherManifest,
+): Promise<void> {
+  return verifyRemoteLauncherManifest(manifestUrl, expected, validateWindowsManifest);
+}
+
+export async function verifyRemoteDmg(
+  dmgUrl: string,
+  expectedSha256: string,
+  expectedSize: number,
+): Promise<{ finalUrl: string; sha256: string; size: number }> {
+  return verifyRemoteArtifact(dmgUrl, expectedSha256, expectedSize, "launcher DMG");
+}
+
+export async function verifyRemoteWindowsExe(
+  exeUrl: string,
+  expectedSha256: string,
+  expectedSize: number,
+): Promise<{ finalUrl: string; sha256: string; size: number }> {
+  return verifyRemoteArtifact(exeUrl, expectedSha256, expectedSize, "launcher Windows installer");
+}
+
+export async function verifyRemoteArtifact(
+  artifactUrl: string,
+  expectedSha256: string,
+  expectedSize: number,
+  label: string,
+): Promise<{ finalUrl: string; sha256: string; size: number }> {
+  assertSha256(expectedSha256);
+  const response = await fetch(artifactUrl, { cache: "no-store", redirect: "follow" });
+  if (!response.ok) throw new Error(`Unable to download ${label}: HTTP ${response.status}`);
+  if (!response.body) throw new Error(`Unable to download ${label}: response body is empty.`);
+
+  const hash = createHash("sha256");
+  let size = 0;
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    size += chunk.byteLength;
+    hash.update(chunk);
+  }
+  const sha256 = hash.digest("hex");
+  if (size !== expectedSize) {
+    throw new Error(
+      `Downloaded ${label} size mismatch: expected ${expectedSize}, received ${size}.`,
+    );
+  }
+  if (sha256 !== expectedSha256.toLowerCase()) {
+    throw new Error(
+      `Downloaded ${label} SHA-256 mismatch: expected ${expectedSha256}, received ${sha256}.`,
+    );
+  }
+  return { finalUrl: response.url, sha256, size };
+}
+
+async function verifyRemoteLauncherManifest(
+  manifestUrl: string,
+  expected: LauncherManifest,
+  parse: (value: unknown) => LauncherManifest,
 ): Promise<void> {
   let lastProblem = "verification did not run";
   for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -192,7 +271,7 @@ export async function verifyRemoteManifest(
       if (!response.ok) {
         lastProblem = `HTTP ${response.status}`;
       } else {
-        const actual = validateManifest(await response.json());
+        const actual = parse(await response.json());
         if (manifestsMatch(actual, expected)) return;
         lastProblem = `received manifest version ${actual.version}`;
       }
@@ -204,32 +283,51 @@ export async function verifyRemoteManifest(
   throw new Error(`Remote manifest verification failed after retries: ${lastProblem}.`);
 }
 
-export async function verifyRemoteDmg(
-  dmgUrl: string,
-  expectedSha256: string,
-  expectedSize: number,
-): Promise<{ finalUrl: string; sha256: string; size: number }> {
-  assertSha256(expectedSha256);
-  const response = await fetch(dmgUrl, { cache: "no-store", redirect: "follow" });
-  if (!response.ok) throw new Error(`Unable to download launcher DMG: HTTP ${response.status}`);
-  if (!response.body) throw new Error("Unable to download launcher DMG: response body is empty.");
-
-  const hash = createHash("sha256");
-  let size = 0;
-  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    size += chunk.byteLength;
-    hash.update(chunk);
+function validateLauncherManifest(
+  value: unknown,
+  extension: string,
+  artifactLabel: string,
+): LauncherManifest {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    throw new Error("Launcher manifest is invalid.");
   }
-  const sha256 = hash.digest("hex");
-  if (size !== expectedSize) {
-    throw new Error(`Downloaded DMG size mismatch: expected ${expectedSize}, received ${size}.`);
-  }
-  if (sha256 !== expectedSha256.toLowerCase()) {
+  const record = value as Record<string, unknown>;
+  if (
+    JSON.stringify(Object.keys(record).sort()) !==
+    JSON.stringify(["schema_version", "sha256", "url", "version"])
+  ) {
     throw new Error(
-      `Downloaded DMG SHA-256 mismatch: expected ${expectedSha256}, received ${sha256}.`,
+      "Launcher manifest must contain exactly schema_version, version, url, and sha256.",
     );
   }
-  return { finalUrl: response.url, sha256, size };
+  if (record.schema_version !== 1) throw new Error("Unsupported launcher manifest schema.");
+  if (typeof record.version !== "string" || !SEMVER.test(record.version)) {
+    throw new Error("Launcher manifest version is invalid.");
+  }
+  if (typeof record.url !== "string") throw new Error("Launcher artifact URL is invalid.");
+  let url: URL;
+  try {
+    url = new URL(record.url);
+  } catch {
+    throw new Error("Launcher artifact URL is invalid.");
+  }
+  if (url.protocol !== "https:" || !url.pathname.toLowerCase().endsWith(extension)) {
+    throw new Error(`Launcher artifact must be an HTTPS ${artifactLabel} URL.`);
+  }
+  if (typeof record.sha256 !== "string" || !/^[0-9a-fA-F]{64}$/.test(record.sha256)) {
+    throw new Error("Launcher artifact SHA-256 is invalid.");
+  }
+  return {
+    schema_version: 1,
+    version: record.version,
+    url: url.toString(),
+    sha256: record.sha256.toLowerCase(),
+  };
 }
 
 function assertVersion(version: string): void {
