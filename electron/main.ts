@@ -82,6 +82,19 @@ const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 const ptyProcesses = new Map<string, pty.IPty>();
 const execFileAsync = promisify(execFile);
 
+function resolveWindowsShell(): string {
+  const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
+  const candidates = [
+    join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    join(systemRoot, "Sysnative", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    "powershell.exe",
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return "powershell.exe";
+}
+
 const FILE_MENTION_IGNORED_DIRS = new Set([
   ".git",
   "node_modules",
@@ -1396,7 +1409,7 @@ function registerIpc(): void {
     }
 
     const defaultShell =
-      process.env["SHELL"] || (process.platform === "win32" ? "powershell.exe" : "bash");
+      process.env["SHELL"] || (process.platform === "win32" ? resolveWindowsShell() : "bash");
     const shellArgs: string[] = [];
     if (
       process.platform !== "win32" &&
@@ -1418,6 +1431,7 @@ function registerIpc(): void {
       console.log(
         `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
       );
+      prependStandardPaths();
       ptyProcess = pty.spawn(defaultShell, shellArgs, {
         name: "xterm-256color",
         cols: 80,

@@ -30,6 +30,8 @@ describe("dependency installer platform behavior", () => {
     expect(process.env.PATH).toContain(";");
     expect(process.env.PATH?.split(";")).toContain("C:\\Windows\\System32");
     expect(process.env.PATH).toContain(join(process.env.USERPROFILE ?? "", ".local", "bin"));
+    const localAppData = process.env.LOCALAPPDATA ?? join(os.homedir(), "AppData", "Local");
+    expect(process.env.PATH).toContain(join(localAppData, "mise", "shims"));
   });
 
   test("prependStandardPaths uses colons on macOS", async () => {
@@ -44,6 +46,15 @@ describe("dependency installer platform behavior", () => {
   test("getMisePath resolves mise.exe candidates on Windows", async () => {
     Object.defineProperty(process, "platform", { value: "win32" });
     const misePath = join(os.homedir(), ".local", "bin", "mise.exe");
+    vi.mocked(existsSync).mockImplementation((path) => path === misePath);
+    const { getMisePath } = await import("./dependency-installer.ts");
+    expect(getMisePath()).toBe(misePath);
+  });
+
+  test("getMisePath resolves WinGet-linked mise.exe on Windows", async () => {
+    Object.defineProperty(process, "platform", { value: "win32" });
+    const localAppData = process.env.LOCALAPPDATA ?? join(os.homedir(), "AppData", "Local");
+    const misePath = join(localAppData, "Microsoft", "WinGet", "Links", "mise.exe");
     vi.mocked(existsSync).mockImplementation((path) => path === misePath);
     const { getMisePath } = await import("./dependency-installer.ts");
     expect(getMisePath()).toBe(misePath);

@@ -9,6 +9,7 @@ import {
   rmSync,
 } from "node:fs";
 import { open } from "node:fs/promises";
+import os from "node:os";
 import { basename, join, resolve } from "node:path";
 import { clipboard, shell } from "electron";
 import type {
@@ -430,7 +431,7 @@ export class LauncherUpdateManager {
   }
 
   getDiagnostics(): LauncherUpdateDiagnostics {
-    const home = process.env.HOME;
+    const home = os.homedir();
     const redact = (value: string | null) => (value && home ? value.replace(home, "~") : value);
     const redactUrl = (value: string | null) => {
       if (!value) return null;
