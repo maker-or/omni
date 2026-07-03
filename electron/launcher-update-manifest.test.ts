@@ -19,27 +19,37 @@ describe("launcher update manifest", () => {
   });
 
   test("accepts and normalizes the exact four-field schema", () => {
-    expect(parseLauncherUpdateManifest(manifest, "0.1.0")).toEqual({
+    expect(parseLauncherUpdateManifest(manifest, "0.1.0", "darwin")).toEqual({
       ...manifest,
       sha256: "a".repeat(64),
     });
   });
 
   test("returns no update for equal or older releases", () => {
-    expect(parseLauncherUpdateManifest(manifest, "0.2.0")).toBeNull();
-    expect(parseLauncherUpdateManifest(manifest, "0.3.0")).toBeNull();
+    expect(parseLauncherUpdateManifest(manifest, "0.2.0", "darwin")).toBeNull();
+    expect(parseLauncherUpdateManifest(manifest, "0.3.0", "darwin")).toBeNull();
   });
 
   test("rejects unknown fields and unsafe artifacts", () => {
-    expect(() => parseLauncherUpdateManifest({ ...manifest, notes: "no" }, "0.1.0")).toThrow();
     expect(() =>
-      parseLauncherUpdateManifest({ ...manifest, url: "http://example.com/a.dmg" }, "0.1.0"),
+      parseLauncherUpdateManifest({ ...manifest, notes: "no" }, "0.1.0", "darwin"),
     ).toThrow();
     expect(() =>
-      parseLauncherUpdateManifest({ ...manifest, url: "https://example.com/a.zip" }, "0.1.0"),
+      parseLauncherUpdateManifest(
+        { ...manifest, url: "http://example.com/a.dmg" },
+        "0.1.0",
+        "darwin",
+      ),
     ).toThrow();
     expect(() =>
-      parseLauncherUpdateManifest(Object.assign(Object.create(null), manifest), "0.1.0"),
+      parseLauncherUpdateManifest(
+        { ...manifest, url: "https://example.com/a.zip" },
+        "0.1.0",
+        "darwin",
+      ),
+    ).toThrow();
+    expect(() =>
+      parseLauncherUpdateManifest(Object.assign(Object.create(null), manifest), "0.1.0", "darwin"),
     ).toThrow();
   });
 
