@@ -42,4 +42,18 @@ describe("launcher update manifest", () => {
       parseLauncherUpdateManifest(Object.assign(Object.create(null), manifest), "0.1.0"),
     ).toThrow();
   });
+
+  test("accepts Windows installer manifests on win32", () => {
+    const windowsManifest = {
+      schema_version: 1,
+      version: "0.2.0",
+      url: "https://example.com/desktop/pipper-0.2.0-win-x64.exe",
+      sha256: "B".repeat(64),
+    } as const;
+    expect(parseLauncherUpdateManifest(windowsManifest, "0.1.0", "win32")).toEqual({
+      ...windowsManifest,
+      sha256: "b".repeat(64),
+    });
+    expect(() => parseLauncherUpdateManifest(windowsManifest, "0.1.0", "darwin")).toThrow();
+  });
 });

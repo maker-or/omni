@@ -9,6 +9,13 @@ function bytes(value: number): string {
     : `${(value / 1024 ** 2).toFixed(1)} MB`;
 }
 
+function launcherInstallInstructions(platform: "darwin" | "win32" | "linux" | undefined): string {
+  if (platform === "win32") {
+    return "The installer will open and Pipper will quit. Complete the setup wizard, then reopen Pipper. Your projects and customizations are stored separately and will remain unchanged.";
+  }
+  return "The installer will open and Pipper will quit. Drag Pipper Code (Alpha) into Applications and choose Replace. Then reopen Pipper. Your projects and customizations are stored separately and will remain unchanged.";
+}
+
 function UpdateContent() {
   const store = useLauncherUpdateStore();
   const { state, progress } = store;
@@ -137,9 +144,7 @@ export function LauncherUpdateDialog() {
         <h2 className="text-lg font-semibold">Application update details</h2>
         {(store.state?.phase === "downloaded" || store.state?.downloaded_sha256) && (
           <p className="mt-2 text-sm text-muted-foreground">
-            The installer will open and Pipper will quit. Drag Pipper Code (Alpha) into Applications
-            and choose Replace. Then reopen Pipper. Your projects and customizations are stored
-            separately and will remain unchanged.
+            {launcherInstallInstructions(d?.platform)}
           </p>
         )}
         <dl className="mt-4 grid grid-cols-[140px_1fr] gap-x-3 gap-y-2 text-sm">

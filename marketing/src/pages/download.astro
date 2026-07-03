@@ -1,12 +1,13 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
-const launcherManifestUrl = "/api/launcher/latest.json";
+const macLauncherManifestUrl = "/api/launcher/latest.json";
+const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
 ---
 
 <Layout
     title="Download — polarish"
-    description="Download polarish for macOS."
+    description="Download pipper code for macOS and Windows."
     pageClass="download-page"
 >
     <section
@@ -32,14 +33,27 @@ const launcherManifestUrl = "/api/launcher/latest.json";
             </header>
 
             <aside
+                id="mac-launch-note"
                 class="launch-note"
-                aria-label="Unsigned launch build notice"
+                aria-label="Unsigned macOS launch build notice"
             >
-                <strong>Note:</strong> Make sure that you have pi.dev installed, then
-                run the following command in the terminal:
+                <strong>macOS note:</strong> Make sure that you have pi.dev installed,
+                then run the following command in the terminal:
                 <code class="launch-command"
                     >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
                 >
+            </aside>
+
+            <aside
+                id="windows-launch-note"
+                class="launch-note"
+                aria-label="Unsigned Windows launch build notice"
+                style="display:none"
+            >
+                <strong>Windows note:</strong> This build is unsigned. If SmartScreen
+                warns you, choose <strong>More info</strong> and then
+                <strong>Run anyway</strong>, or right-click the installer and choose
+                <strong>Run as administrator</strong> if installation is blocked.
             </aside>
 
             <div class="platforms" id="platforms">
@@ -71,7 +85,42 @@ const launcherManifestUrl = "/api/launcher/latest.json";
                         </a>
                     </div>
                     <button
-                        id="download-retry"
+                        id="mac-download-retry"
+                        class="download-retry"
+                        type="button"
+                        style="display:none">Retry</button
+                    >
+                </section>
+
+                <section class="platform-section">
+                    <div class="platform-header">
+                        <svg
+                            class="platform-icon"
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 88 88"
+                            aria-hidden="true"
+                            ><path
+                                fill="currentColor"
+                                d="M0 12.402l35.687-4.86v34.423H0V12.402zm0 63.137L35.687 75.4V44.68H0v30.859zm39.321 4.86 48.378 6.62V44.68H39.321v35.719zm0-67.063 48.378 7.088V44.68H39.321V13.336z"
+                            ></path></svg
+                        >
+                        <h2 class="platform-name">Windows</h2>
+                    </div>
+                    <div class="download-cards">
+                        <a
+                            id="win64-download"
+                            class="download-card download-card-disabled"
+                            data-asset="win-x64.exe"
+                            aria-disabled="true"
+                        >
+                            <span class="card-arch"
+                                >Checking latest version…</span
+                            >
+                            <span class="card-format">.exe</span>
+                        </a>
+                    </div>
+                    <button
+                        id="windows-download-retry"
                         class="download-retry"
                         type="button"
                         style="display:none">Retry</button
@@ -82,14 +131,14 @@ const launcherManifestUrl = "/api/launcher/latest.json";
     </section>
 </Layout>
 
-<script define:vars={{ launcherManifestUrl }}>
-    const card = document.querySelector("#arm64-download");
-    const label = document.querySelector("#version-label");
-    const retry = document.querySelector("#download-retry");
-    const arch = card?.querySelector(".card-arch");
+<script define:vars={{ macLauncherManifestUrl, windowsLauncherManifestUrl }}>
+    const versionLabel = document.querySelector("#version-label");
+    const macLaunchNote = document.querySelector("#mac-launch-note");
+    const windowsLaunchNote = document.querySelector("#windows-launch-note");
     const semver =
         /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-    function valid(value) {
+
+    function validManifest(value, extension) {
         if (!value || typeof value !== "object" || Array.isArray(value))
             return false;
         if (
@@ -103,43 +152,105 @@ const launcherManifestUrl = "/api/launcher/latest.json";
                 value.schema_version === 1 &&
                 semver.test(value.version) &&
                 url.protocol === "https:" &&
-                url.pathname.toLowerCase().endsWith(".dmg") &&
+                url.pathname.toLowerCase().endsWith(extension) &&
                 /^[0-9a-fA-F]{64}$/.test(value.sha256)
             );
         } catch {
             return false;
         }
     }
-    async function resolveDownload() {
+
+    function updateVersionLabel(version) {
+        if (!versionLabel) return;
+        const current = versionLabel.textContent?.trim() ?? "";
+        if (!current.startsWith("Version ")) {
+            versionLabel.textContent = `Version ${version}`;
+            return;
+        }
+        const existing = current.slice("Version ".length);
+        if (existing === version) return;
+        versionLabel.textContent = `Versions macOS ${existing} / Windows ${version}`;
+    }
+
+    async function resolvePlatformDownload({
+        cardId,
+        retryId,
+        manifestUrl,
+        extension,
+        readyLabel,
+        launchNote,
+    }) {
+        const card = document.querySelector(cardId);
+        const retry = document.querySelector(retryId);
+        const arch = card?.querySelector(".card-arch");
         card?.classList.add("download-card-disabled");
         card?.setAttribute("aria-disabled", "true");
         card?.removeAttribute("href");
-        retry.style.display = "none";
+        if (retry) retry.style.display = "none";
         if (arch) arch.textContent = "Checking latest version…";
         try {
-            if (!launcherManifestUrl)
-                throw new Error("Manifest URL is not configured");
-            const response = await fetch(launcherManifestUrl, {
-                cache: "no-store",
-            });
+            if (!manifestUrl) throw new Error("Manifest URL is not configured");
+            const response = await fetch(manifestUrl, { cache: "no-store" });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const manifest = await response.json();
-            if (!valid(manifest)) throw new Error("Invalid manifest");
+            if (!validManifest(manifest, extension))
+                throw new Error("Invalid manifest");
             card.href = manifest.url;
             card.setAttribute("download", "");
             card.classList.remove("download-card-disabled");
             card.removeAttribute("aria-disabled");
-            if (arch) arch.textContent = "Apple Silicon (arm64)";
-            if (label) label.textContent = `Version ${manifest.version}`;
+            if (arch) arch.textContent = readyLabel;
+            updateVersionLabel(manifest.version);
+            if (launchNote) launchNote.style.display = "";
         } catch {
             if (arch)
                 arch.textContent =
                     "Download temporarily unavailable. Try again.";
-            retry.style.display = "inline-flex";
+            if (retry) retry.style.display = "inline-flex";
         }
     }
-    retry?.addEventListener("click", resolveDownload);
-    void resolveDownload();
+
+    void resolvePlatformDownload({
+        cardId: "#arm64-download",
+        retryId: "#mac-download-retry",
+        manifestUrl: macLauncherManifestUrl,
+        extension: ".dmg",
+        readyLabel: "Apple Silicon (arm64)",
+        launchNote: macLaunchNote,
+    });
+    void resolvePlatformDownload({
+        cardId: "#win64-download",
+        retryId: "#windows-download-retry",
+        manifestUrl: windowsLauncherManifestUrl,
+        extension: ".exe",
+        readyLabel: "64-bit (x64)",
+        launchNote: windowsLaunchNote,
+    });
+
+    document
+        .querySelector("#mac-download-retry")
+        ?.addEventListener("click", () =>
+            void resolvePlatformDownload({
+                cardId: "#arm64-download",
+                retryId: "#mac-download-retry",
+                manifestUrl: macLauncherManifestUrl,
+                extension: ".dmg",
+                readyLabel: "Apple Silicon (arm64)",
+                launchNote: macLaunchNote,
+            }),
+        );
+    document
+        .querySelector("#windows-download-retry")
+        ?.addEventListener("click", () =>
+            void resolvePlatformDownload({
+                cardId: "#win64-download",
+                retryId: "#windows-download-retry",
+                manifestUrl: windowsLauncherManifestUrl,
+                extension: ".exe",
+                readyLabel: "64-bit (x64)",
+                launchNote: windowsLaunchNote,
+            }),
+        );
 </script>
 
 <style>

@@ -16,6 +16,16 @@ afterEach(() => {
   root = null;
 });
 
+describe("pipper library paths", () => {
+  test("uses the Windows display label for packaged installs", async () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    const { getPipperLibraryDisplayPath } = await import("./workspace-manager.ts");
+    expect(getPipperLibraryDisplayPath()).toBe("%APPDATA%\\pipper");
+    Object.defineProperty(process, "platform", { value: originalPlatform });
+  });
+});
+
 describe("workspace copy policies", () => {
   test("managed candidates preserve git and patch context but exclude build products", async () => {
     const { copyManagedWorkspace } = await import("./workspace-manager.ts");

@@ -1,31 +1,56 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-// Prepend standard macOS search paths to process.env.PATH.
-// This ensures that GUI Electron apps can resolve binaries like git, node, bun, and mise.
-const homeDir = os.homedir();
-const standardPaths = [
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  join(homeDir, ".local/bin"),
-  join(homeDir, ".bun/bin"),
-  join(homeDir, ".local/share/mise/shims"),
-  join(homeDir, ".local/share/mise/bin"),
-];
+function isWindows(): boolean {
+  return process.platform === "win32";
+}
 
+function pathDelimiter(): string {
+  return isWindows() ? ";" : ":";
+}
+
+function miseExecutableName(): string {
+  return isWindows() ? "mise.exe" : "mise";
+}
+
+function getStandardPaths(): string[] {
+  const homeDir = os.homedir();
+  const shared = [
+    join(homeDir, ".local", "bin"),
+    join(homeDir, ".bun", "bin"),
+    join(homeDir, ".local", "share", "mise", "shims"),
+    join(homeDir, ".local", "share", "mise", "bin"),
+  ];
+
+  if (isWindows()) {
+    const localAppData = process.env.LOCALAPPDATA ?? join(homeDir, "AppData", "Local");
+    return [
+      join(localAppData, "Programs", "Git", "cmd"),
+      join(localAppData, "Programs", "Git", "bin"),
+      join(homeDir, "scoop", "shims"),
+      ...shared,
+    ];
+  }
+
+  return ["/opt/homebrew/bin", "/usr/local/bin", ...shared];
+}
+
+// Prepend standard search paths to process.env.PATH so GUI Electron apps can resolve git, mise, and bun.
 export function prependStandardPaths(): void {
-  const currentPaths = process.env.PATH ? process.env.PATH.split(":") : [];
-  for (const p of standardPaths) {
-    if (!currentPaths.includes(p)) {
-      currentPaths.unshift(p); // Prepend so standard paths take precedence
+  const delimiter = pathDelimiter();
+  const currentPaths = process.env.PATH ? process.env.PATH.split(delimiter) : [];
+  for (const candidate of getStandardPaths()) {
+    if (!currentPaths.includes(candidate)) {
+      currentPaths.unshift(candidate);
     }
   }
-  process.env.PATH = currentPaths.join(":");
+  process.env.PATH = currentPaths.join(delimiter);
 }
 
 export interface DependencyStatus {
@@ -39,6 +64,15 @@ export const REQUIRED_NODE_VERSION = "24.13.1";
 export const REQUIRED_BUN_VERSION = "1.3.11";
 
 let isMiseGlobal = false;
+
+function getMiseCandidatePaths(): string[] {
+  const homeDir = os.homedir();
+  const executable = miseExecutableName();
+  return [
+    join(homeDir, ".local", "bin", executable),
+    join(homeDir, ".local", "share", "mise", "bin", executable),
+  ];
+}
 
 export async function checkMiseGlobal(): Promise<boolean> {
   try {
@@ -56,10 +90,9 @@ export async function checkMiseGlobal(): Promise<boolean> {
 
 function resolveMisePath(): string | null {
   if (isMiseGlobal) return "mise";
-  const localMise = join(os.homedir(), ".local/bin/mise");
-  if (existsSync(localMise)) return localMise;
-  const alternateMise = join(os.homedir(), ".local/share/mise/bin/mise");
-  if (existsSync(alternateMise)) return alternateMise;
+  for (const candidate of getMiseCandidatePaths()) {
+    if (existsSync(candidate)) return candidate;
+  }
   return null;
 }
 
@@ -85,10 +118,7 @@ export function getMiseExecCommand(command: string): string {
 export async function checkMise(): Promise<boolean> {
   const globalOk = await checkMiseGlobal();
   if (globalOk) return true;
-  return (
-    existsSync(join(os.homedir(), ".local/bin/mise")) ||
-    existsSync(join(os.homedir(), ".local/share/mise/bin/mise"))
-  );
+  return getMiseCandidatePaths().some((candidate) => existsSync(candidate));
 }
 
 function parseSemver(versionStr: string): { major: number; minor: number } | null {
@@ -108,6 +138,75 @@ export async function checkGit(): Promise<boolean> {
     console.log("[DependencyInstaller] Git version check failed:", err.message || err);
     return false;
   }
+}
+
+async function installGitWithHomebrew(): Promise<boolean> {
+  try {
+    await execAsync("brew --version");
+    console.log("[DependencyInstaller] Installing Git via Homebrew...");
+    await execAsync("brew install git");
+    prependStandardPaths();
+    return checkGit();
+  } catch (err: any) {
+    console.log("[DependencyInstaller] Homebrew Git install unavailable:", err.message || err);
+    return false;
+  }
+}
+
+async function installGitWithWinget(): Promise<boolean> {
+  try {
+    console.log("[DependencyInstaller] Installing Git via winget...");
+    await execFileAsync(
+      "winget",
+      [
+        "install",
+        "--id",
+        "Git.Git",
+        "-e",
+        "--source",
+        "winget",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+        "--silent",
+      ],
+      { windowsHide: true },
+    );
+    prependStandardPaths();
+    return checkGit();
+  } catch (err: any) {
+    console.log("[DependencyInstaller] winget Git install failed:", err.message || err);
+    return false;
+  }
+}
+
+async function installGitWithMise(): Promise<boolean> {
+  await installMise();
+  const mise = getMisePath();
+  console.log("[DependencyInstaller] Installing Git via Mise...");
+  await execAsync(`"${mise}" install git`);
+  prependStandardPaths();
+  return checkGit();
+}
+
+export async function installGit(): Promise<void> {
+  if (await checkGit()) return;
+
+  if (!isWindows() && (await installGitWithHomebrew())) {
+    console.log("[DependencyInstaller] Git installed successfully via Homebrew.");
+    return;
+  }
+
+  if (isWindows() && (await installGitWithWinget())) {
+    console.log("[DependencyInstaller] Git installed successfully via winget.");
+    return;
+  }
+
+  if (await installGitWithMise()) {
+    console.log("[DependencyInstaller] Git installed successfully via Mise.");
+    return;
+  }
+
+  throw new Error("Git installation failed. Restart Pipper after installing Git manually.");
 }
 
 export async function checkNode(): Promise<boolean> {
@@ -164,17 +263,37 @@ export async function checkAllDependencies(): Promise<DependencyStatus> {
   };
 }
 
+async function installMiseUnix(): Promise<void> {
+  console.log("[DependencyInstaller] Installing Mise via curl...");
+  await execAsync("curl https://mise.run | sh");
+}
+
+async function installMiseWindows(): Promise<void> {
+  console.log("[DependencyInstaller] Installing Mise via PowerShell...");
+  await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://mise.run | iex"],
+    { windowsHide: true },
+  );
+}
+
 export async function installMise(): Promise<void> {
   const ok = await checkMise();
   if (ok) return;
-  console.log("[DependencyInstaller] Installing Mise via curl...");
+
   try {
-    // Run the official Mise installer sh script
-    await execAsync("curl https://mise.run | sh");
+    if (isWindows()) {
+      await installMiseWindows();
+    } else {
+      await installMiseUnix();
+    }
   } catch (err: any) {
-    console.error("[DependencyInstaller] Error running curl installation for Mise:", err);
+    console.error("[DependencyInstaller] Error installing Mise:", err);
     throw err;
   }
+
+  prependStandardPaths();
+
   const verified = await checkMise();
   if (!verified) {
     throw new Error("Mise installation failed or executable was not found at standard path.");

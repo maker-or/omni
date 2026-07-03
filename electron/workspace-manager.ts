@@ -12,7 +12,7 @@ import {
   renameSync,
   watch,
 } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import { exec, execFileSync } from "node:child_process";
@@ -46,6 +46,13 @@ export function getPipperLibraryPath(): string {
 
 export function usesLocalDevelopmentWorkspace(): boolean {
   return app.isPackaged === false && !process.env.PIPPER_LIBRARY_PATH;
+}
+
+export function getPipperLibraryDisplayPath(): string {
+  if (usesLocalDevelopmentWorkspace()) return "local development workspace";
+  if (process.platform === "darwin") return "~/Library/pipper";
+  if (process.platform === "win32") return "%APPDATA%\\pipper";
+  return join(os.homedir(), ".config", "pipper");
 }
 
 export function getActivePath(): string {
@@ -121,11 +128,26 @@ function shouldExclude(name: string, policy: CopyPolicy): boolean {
   return policy === "packaged-template" && TEMPLATE_EXCLUSIONS.has(name);
 }
 
+function linkNodeModulesDirectory(linkPath: string, targetPath: string): void {
+  const absoluteTarget = resolve(targetPath);
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  symlinkSync(absoluteTarget, linkPath, linkType);
+}
+
+function linkTargetsMatch(currentTarget: string, expectedTarget: string): boolean {
+  return resolve(currentTarget) === resolve(expectedTarget);
+}
+
 function copyRecursive(src: string, dest: string, policy: CopyPolicy = "recovery-snapshot"): void {
   const stat = lstatSync(src);
   if (stat.isSymbolicLink()) {
     mkdirSync(dirname(dest), { recursive: true });
-    symlinkSync(readlinkSync(src), dest);
+    const linkTarget = readlinkSync(src);
+    if (process.platform === "win32") {
+      linkNodeModulesDirectory(dest, linkTarget);
+    } else {
+      symlinkSync(linkTarget, dest);
+    }
     return;
   }
   if (stat.isDirectory()) {
@@ -535,7 +557,7 @@ function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void
     const stat = lstatSync(symlinkPath);
     if (stat.isSymbolicLink()) {
       const currentTarget = readlinkSync(symlinkPath);
-      if (currentTarget === targetPath) {
+      if (linkTargetsMatch(currentTarget, targetPath)) {
         needsSymlink = false;
       } else {
         rmSync(symlinkPath, { force: true });
@@ -553,7 +575,7 @@ function ensureNodeModulesSymlink(symlinkPath: string, targetPath: string): void
   }
 
   if (needsSymlink) {
-    symlinkSync(targetPath, symlinkPath, "dir");
+    linkNodeModulesDirectory(symlinkPath, targetPath);
   }
 }
 

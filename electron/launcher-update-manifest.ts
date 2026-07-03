@@ -1,4 +1,10 @@
 import type { LauncherUpdateManifest } from "../contracts/launcher-updates.ts";
+import {
+  launcherArtifactExtension,
+  launcherArtifactLabel,
+  resolveLauncherUpdatePlatform,
+  type LauncherUpdatePlatform,
+} from "./launcher-update-artifact.ts";
 
 const SEMVER =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
@@ -36,6 +42,7 @@ export function compareLauncherVersions(a: string, b: string): number {
 export function parseLauncherUpdateManifest(
   input: unknown,
   installedVersion: string,
+  platform: LauncherUpdatePlatform = resolveLauncherUpdatePlatform(process.platform),
 ): LauncherUpdateManifest | null {
   if (
     !input ||
@@ -62,8 +69,9 @@ export function parseLauncherUpdateManifest(
   } catch {
     throw new Error("Launcher artifact URL is invalid.");
   }
-  if (url.protocol !== "https:" || !url.pathname.toLowerCase().endsWith(".dmg")) {
-    throw new Error("Launcher artifact must be an HTTPS DMG URL.");
+  const extension = launcherArtifactExtension(platform);
+  if (url.protocol !== "https:" || !url.pathname.toLowerCase().endsWith(extension)) {
+    throw new Error(`Launcher artifact must be an HTTPS ${launcherArtifactLabel(platform)} URL.`);
   }
   if (typeof record.sha256 !== "string" || !/^[0-9a-fA-F]{64}$/.test(record.sha256)) {
     throw new Error("Launcher artifact SHA-256 is invalid.");

@@ -37,6 +37,7 @@ export interface LauncherUpdateDiagnostics {
   current_version: string;
   pending_version: string | null;
   phase: LauncherUpdatePhase;
+  platform: "darwin" | "win32" | "linux";
   manifest_url: string | null;
   artifact_url: string | null;
   download_path: string | null;

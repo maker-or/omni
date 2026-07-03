@@ -33,6 +33,7 @@ import {
 import {
   checkAllDependencies,
   checkGit,
+  installGit,
   installMise,
   installNodeAndBunWithMise,
   getMisePath,
@@ -58,10 +59,12 @@ import {
   getActiveDependenciesPath,
   getInstallationMetadataPath,
   getPipperLibraryPath,
+  getPipperLibraryDisplayPath,
   usesLocalDevelopmentWorkspace,
 } from "./workspace-manager";
 import { UpdateManager } from "./update-manager";
 import { LauncherUpdateManager } from "./launcher-update-manager";
+import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.json";
@@ -861,7 +864,9 @@ function areWorkspacesInitialized(): boolean {
 async function ensureDependencyRuntime(): Promise<DependencyStatus> {
   let deps = await checkAllDependencies();
   if (!deps.gitInstalled) {
-    throw new Error("Git is required. Please install Git and restart setup.");
+    console.log("[Main] Installing missing Git...");
+    await installGit();
+    deps = await checkAllDependencies();
   }
 
   if (!deps.miseInstalled || !deps.nodeMatch || !deps.bunMatch) {
@@ -1598,10 +1603,9 @@ function registerIpc(): void {
 
     try {
       sendProgress("Checking Git installation...", "running");
-      const gitOk = await checkGit();
-      if (!gitOk) {
-        sendProgress("Git is required. Please install Git.", "failed", undefined, false);
-        return;
+      if (!(await checkGit())) {
+        sendProgress("Installing Git...", "running", undefined, false);
+        await installGit();
       }
 
       sendProgress("Checking Mise, Node, and Bun versions...", "running", undefined, true);
@@ -1623,7 +1627,7 @@ function registerIpc(): void {
       sendProgress(
         usesLocalDevelopmentWorkspace()
           ? "Initializing local development workspace..."
-          : "Initializing workspaces inside ~/Library/pipper...",
+          : `Initializing workspaces inside ${getPipperLibraryDisplayPath()}...`,
         "running",
         undefined,
         true,
@@ -1811,10 +1815,17 @@ app.whenReady().then(async () => {
     prepareForUpdate: prepareProcessesForUpdate,
     restartPromotedApp: restartAfterPromotion,
   });
-  const launcherManifestUrl =
-    process.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-    import.meta.env.VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-    null;
+  const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
+    platform: process.platform,
+    macManifestUrl:
+      process.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+      import.meta.env.VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+      null,
+    windowsManifestUrl:
+      process.env.PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
+      import.meta.env.VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
+      null,
+  });
   const launcherUpdatesEnabled =
     app.isPackaged ||
     (process.env.PIPPER_ENABLE_LAUNCHER_UPDATES_IN_DEV === "1" && launcherManifestUrl != null);

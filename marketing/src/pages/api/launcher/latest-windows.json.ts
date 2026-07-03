@@ -4,10 +4,10 @@ import { isLauncherManifest, launcherManifestHeaders } from "../../../lib/launch
 export const prerender = false;
 
 const DEFAULT_MANIFEST_URL =
-  "https://github.com/maker-or/omni/releases/latest/download/latest.json";
+  "https://github.com/maker-or/omni/releases/latest/download/latest-windows.json";
 const MANIFEST_URL =
-  import.meta.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-  import.meta.env.PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+  import.meta.env.PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
+  import.meta.env.PUBLIC_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
   DEFAULT_MANIFEST_URL;
 
 export const GET: APIRoute = async () => {
@@ -15,13 +15,15 @@ export const GET: APIRoute = async () => {
     const response = await fetch(MANIFEST_URL, { cache: "no-store", redirect: "follow" });
     if (!response.ok) {
       return new Response(
-        JSON.stringify({ error: `Launcher manifest fetch failed with HTTP ${response.status}.` }),
+        JSON.stringify({
+          error: `Windows launcher manifest fetch failed with HTTP ${response.status}.`,
+        }),
         { status: 502, headers: launcherManifestHeaders },
       );
     }
     const manifest = await response.json();
-    if (!isLauncherManifest(manifest, ".dmg")) {
-      return new Response(JSON.stringify({ error: "Launcher manifest is invalid." }), {
+    if (!isLauncherManifest(manifest, ".exe")) {
+      return new Response(JSON.stringify({ error: "Windows launcher manifest is invalid." }), {
         status: 502,
         headers: launcherManifestHeaders,
       });
@@ -31,7 +33,7 @@ export const GET: APIRoute = async () => {
       headers: launcherManifestHeaders,
     });
   } catch {
-    return new Response(JSON.stringify({ error: "Launcher manifest fetch failed." }), {
+    return new Response(JSON.stringify({ error: "Windows launcher manifest fetch failed." }), {
       status: 502,
       headers: launcherManifestHeaders,
     });

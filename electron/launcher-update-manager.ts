@@ -18,6 +18,12 @@ import type {
   LauncherUpdateState,
 } from "../contracts/launcher-updates.ts";
 import {
+  launcherArtifactFileName,
+  launcherManagedDownloadPattern,
+  resolveLauncherUpdatePlatform,
+  type LauncherUpdatePlatform,
+} from "./launcher-update-artifact.ts";
+import {
   compareLauncherVersions,
   parseLauncherUpdateManifest,
 } from "./launcher-update-manifest.ts";
@@ -52,6 +58,7 @@ function hashesMatch(a: string, b: string): boolean {
 }
 
 export class LauncherUpdateManager {
+  private readonly platform: LauncherUpdatePlatform;
   private readonly options: {
     currentVersion: string;
     manifestUrl: string | null;
@@ -73,11 +80,13 @@ export class LauncherUpdateManager {
     manifestUrl: string | null;
     rootPath: string;
     enabled: boolean;
+    platform?: LauncherUpdatePlatform;
     broadcastState: (state: LauncherUpdateState) => void;
     broadcastProgress: (progress: LauncherDownloadProgress) => void;
     fetchImpl?: typeof fetch;
   }) {
     this.options = options;
+    this.platform = options.platform ?? resolveLauncherUpdatePlatform(process.platform);
     this.state = createIdleLauncherUpdateState(options.currentVersion);
   }
 
@@ -95,7 +104,7 @@ export class LauncherUpdateManager {
     const resolved = resolve(path);
     return (
       resolved.startsWith(root) &&
-      /^pipper-[0-9A-Za-z.-]+-arm64\.dmg(?:\.partial)?$/.test(basename(resolved))
+      launcherManagedDownloadPattern(this.platform).test(basename(resolved))
     );
   }
 
@@ -136,6 +145,7 @@ export class LauncherUpdateManager {
         const normalized = parseLauncherUpdateManifest(
           this.state.manifest,
           this.options.currentVersion,
+          this.platform,
         );
         if (normalized) this.state.manifest = normalized;
       }
@@ -209,6 +219,7 @@ export class LauncherUpdateManager {
       const manifest = parseLauncherUpdateManifest(
         await response.json(),
         this.options.currentVersion,
+        this.platform,
       );
       const checkedAt = new Date().toISOString();
       if (!manifest) {
@@ -278,7 +289,10 @@ export class LauncherUpdateManager {
       () => this.abortController?.abort(new Error("Download timed out.")),
       DOWNLOAD_TIMEOUT,
     );
-    const partial = join(this.downloadsPath, `pipper-${manifest.version}-arm64.dmg.partial`);
+    const partial = join(
+      this.downloadsPath,
+      `${launcherArtifactFileName(manifest.version, this.platform)}.partial`,
+    );
     const final = partial.slice(0, -8);
     rmSync(partial, { force: true });
     rmSync(final, { force: true });
@@ -435,6 +449,7 @@ export class LauncherUpdateManager {
       current_version: this.options.currentVersion,
       pending_version: this.state.manifest?.version ?? null,
       phase: this.state.phase,
+      platform: this.platform,
       manifest_url: redactUrl(this.options.manifestUrl),
       artifact_url: redactUrl(this.state.manifest?.url ?? null),
       download_path: redact(this.state.downloaded_path),
