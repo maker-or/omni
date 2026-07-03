@@ -130,26 +130,22 @@ async function resumeRelease(
     throw new Error(`${tag} is marked as a prerelease and cannot back /releases/latest/.`);
   }
 
+  const dmgName = path.basename(dmgPath);
   const assetNames = new Set(release.assets.map((asset) => asset.name));
-  const missingAssets: string[] = [];
-  if (!assetNames.has(path.basename(dmgPath))) missingAssets.push(dmgPath);
-  if (!assetNames.has(path.basename(manifestPath))) missingAssets.push(manifestPath);
+  const hasExistingDmg = assetNames.has(dmgName);
+  const hasExistingManifest = assetNames.has(LATEST_MANIFEST_NAME);
 
-  if (missingAssets.length === 0) {
-    throw new Error(
-      `Release ${tag} already has ${path.basename(dmgPath)} and ${LATEST_MANIFEST_NAME}.`,
+  if (hasExistingDmg && hasExistingManifest) {
+    console.log(
+      `Release ${tag} already has ${dmgName} and ${LATEST_MANIFEST_NAME}; replacing with rebuilt artifacts.`,
     );
   }
 
-  if (
-    !skipDownloadVerification &&
-    assetNames.has(path.basename(dmgPath)) &&
-    missingAssets.includes(manifestPath)
-  ) {
+  if (!skipDownloadVerification && hasExistingDmg && !hasExistingManifest) {
     await verifyRemoteDmg(manifest.url, manifest.sha256, dmgSize);
   }
 
-  run("gh", ["release", "upload", tag, ...missingAssets, "--repo", repository]);
+  run("gh", ["release", "upload", tag, dmgPath, manifestPath, "--clobber", "--repo", repository]);
   if (release.isDraft) {
     run("gh", ["release", "edit", tag, "--repo", repository, "--draft=false", "--latest"]);
   } else {

@@ -136,25 +136,29 @@ async function publishToExistingRelease(
 
   const installerName = path.basename(installerPath);
   const assetNames = new Set(release.assets.map((asset) => asset.name));
-  const missingAssets: string[] = [];
-  if (!assetNames.has(installerName)) missingAssets.push(installerPath);
-  if (!assetNames.has(LATEST_WINDOWS_MANIFEST_NAME)) missingAssets.push(manifestPath);
+  const hasExistingInstaller = assetNames.has(installerName);
+  const hasExistingManifest = assetNames.has(LATEST_WINDOWS_MANIFEST_NAME);
 
-  if (missingAssets.length === 0) {
-    throw new Error(
-      `Release ${tag} already has ${installerName} and ${LATEST_WINDOWS_MANIFEST_NAME}.`,
+  if (hasExistingInstaller && hasExistingManifest) {
+    console.log(
+      `Release ${tag} already has ${installerName} and ${LATEST_WINDOWS_MANIFEST_NAME}; replacing with rebuilt artifacts.`,
     );
   }
 
-  if (
-    !skipDownloadVerification &&
-    assetNames.has(installerName) &&
-    missingAssets.includes(manifestPath)
-  ) {
+  if (!skipDownloadVerification && hasExistingInstaller && !hasExistingManifest) {
     await verifyRemoteWindowsExe(manifest.url, manifest.sha256, installerSize);
   }
 
-  run("gh", ["release", "upload", tag, ...missingAssets, "--repo", repository]);
+  run("gh", [
+    "release",
+    "upload",
+    tag,
+    installerPath,
+    manifestPath,
+    "--clobber",
+    "--repo",
+    repository,
+  ]);
   if (release.isDraft) {
     run("gh", ["release", "edit", tag, "--repo", repository, "--draft=false", "--latest"]);
   } else {
