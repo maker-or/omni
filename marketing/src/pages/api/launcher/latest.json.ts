@@ -1,18 +1,15 @@
 import type { APIRoute } from "astro";
+import { PIPPER_LAUNCHER_MAC_MANIFEST_URL } from "../../../../../contracts/launcher-release-urls.ts";
 import { isLauncherManifest, launcherManifestHeaders } from "../../../lib/launcher-manifest.ts";
 
 export const prerender = false;
 
-const DEFAULT_MANIFEST_URL =
-  "https://github.com/maker-or/omni/releases/latest/download/latest.json";
-const MANIFEST_URL =
-  import.meta.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-  import.meta.env.PUBLIC_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-  DEFAULT_MANIFEST_URL;
-
 export const GET: APIRoute = async () => {
   try {
-    const response = await fetch(MANIFEST_URL, { cache: "no-store", redirect: "follow" });
+    const response = await fetch(PIPPER_LAUNCHER_MAC_MANIFEST_URL, {
+      cache: "no-store",
+      redirect: "follow",
+    });
     if (!response.ok) {
       return new Response(
         JSON.stringify({ error: `Launcher manifest fetch failed with HTTP ${response.status}.` }),

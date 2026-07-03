@@ -1,5 +1,6 @@
 import { put } from "@vercel/blob";
 import { spawnSync } from "node:child_process";
+import { PIPPER_RELEASE_REPOSITORY } from "../contracts/launcher-release-urls.ts";
 import {
   createGithubLauncherManifest,
   githubLatestManifestUrl,
@@ -109,20 +110,7 @@ function parseOptions(argv: string[]): Options {
 
 function resolveRepository(option: string | null): string {
   if (option) return normalizeGithubRepository(option);
-  if (process.env.PIPPER_RELEASE_REPOSITORY)
-    return normalizeGithubRepository(process.env.PIPPER_RELEASE_REPOSITORY);
-  if (process.env.GITHUB_REPOSITORY)
-    return normalizeGithubRepository(process.env.GITHUB_REPOSITORY);
-
-  const remote = spawnSync("git", ["config", "--get", "remote.origin.url"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  const remoteUrl = remote.status === 0 ? remote.stdout.trim() : "";
-  const inferred = remoteUrl ? inferGithubRepositoryFromRemote(remoteUrl) : null;
-  if (inferred) return inferred;
-
-  throw new Error("Unable to infer GitHub release repository. Set PIPPER_RELEASE_REPOSITORY.");
+  return normalizeGithubRepository(PIPPER_RELEASE_REPOSITORY);
 }
 
 main().catch((error) => {

@@ -13,6 +13,11 @@ import { readCompanionState, writeCompanionState } from "./companion-state";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
+import {
+  isAllowedClerkAuthUrl,
+  resolveClerkSignInUrl,
+  resolveClerkSignUpUrl,
+} from "./clerk-auth-config";
 import { getDb, getMostRecentAuthUser, upsertAuthUser } from "./db";
 import {
   listThreads,
@@ -65,6 +70,10 @@ import {
 import { UpdateManager } from "./update-manager";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
+import {
+  PIPPER_LAUNCHER_MAC_MANIFEST_URL,
+  PIPPER_LAUNCHER_WINDOWS_MANIFEST_URL,
+} from "../contracts/launcher-release-urls.ts";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.json";
@@ -335,53 +344,11 @@ function setMainWindowTitle(title: string): void {
 }
 
 function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
-  const url =
-    kind === "clerkSignUp"
-      ? (process.env["PIPPER_CLERK_SIGN_UP_URL"] ?? import.meta.env.VITE_CLERK_SIGN_UP_URL)
-      : (process.env["PIPPER_CLERK_SIGN_IN_URL"] ?? import.meta.env.VITE_CLERK_SIGN_IN_URL);
-
-  if (url) return url;
-  const frontendUrl = import.meta.env.VITE_CLERK_FRONTEND_URL;
-  if (frontendUrl) return frontendUrl;
-  return "https://clerk.com";
-}
-
-function configuredExternalHosts(): Set<string> {
-  const hosts = new Set<string>(["clerk.com"]);
-  for (const inputUrl of [
-    process.env["PIPPER_CLERK_SIGN_UP_URL"],
-    process.env["PIPPER_CLERK_SIGN_IN_URL"],
-    import.meta.env.VITE_CLERK_SIGN_UP_URL,
-    import.meta.env.VITE_CLERK_SIGN_IN_URL,
-    import.meta.env.VITE_CLERK_FRONTEND_URL,
-    resolveExternalUrl("clerkSignUp"),
-    resolveExternalUrl("clerkSignIn"),
-  ]) {
-    if (!inputUrl) continue;
-    try {
-      hosts.add(new URL(inputUrl).hostname.toLowerCase());
-    } catch {
-      // Ignore invalid optional configuration here; the opener path validates the final URL.
-    }
-  }
-  return hosts;
+  return kind === "clerkSignUp" ? resolveClerkSignUpUrl() : resolveClerkSignInUrl();
 }
 
 function isAllowedExternalUrl(inputUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(inputUrl);
-  } catch {
-    return false;
-  }
-
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-
-  const hostname = parsed.hostname.toLowerCase();
-  const configuredHosts = configuredExternalHosts();
-  return (
-    configuredHosts.has(hostname) || hostname === "clerk.com" || hostname.endsWith(".clerk.com")
-  );
+  return isAllowedClerkAuthUrl(inputUrl);
 }
 
 function assertAllowedExternalUrl(inputUrl: string): string {
@@ -1817,14 +1784,8 @@ app.whenReady().then(async () => {
   });
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
     platform: process.platform,
-    macManifestUrl:
-      process.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-      import.meta.env.VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
-      null,
-    windowsManifestUrl:
-      process.env.PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
-      import.meta.env.VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
-      null,
+    macManifestUrl: PIPPER_LAUNCHER_MAC_MANIFEST_URL,
+    windowsManifestUrl: PIPPER_LAUNCHER_WINDOWS_MANIFEST_URL,
   });
   const launcherUpdatesEnabled =
     app.isPackaged ||

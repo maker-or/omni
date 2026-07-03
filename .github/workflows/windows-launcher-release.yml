@@ -68,8 +68,6 @@ jobs:
           bun run test
 
       - name: Build application
-        env:
-          VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL: https://github.com/${{ github.event.inputs.release_repository || vars.PIPPER_RELEASE_REPOSITORY || github.repository }}/releases/latest/download/latest-windows.json
         run: bun run build
 
       - name: Build Windows installer

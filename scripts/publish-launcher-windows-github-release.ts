@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { PIPPER_RELEASE_REPOSITORY } from "../contracts/launcher-release-urls.ts";
 import {
   LATEST_WINDOWS_MANIFEST_NAME,
   createGithubLauncherWindowsManifest,
@@ -200,25 +201,7 @@ function parseOptions(argv: string[]): Options {
 
 function resolveRepository(option: string | null): string {
   if (option) return normalizeGithubRepository(option);
-  if (process.env.PIPPER_RELEASE_REPOSITORY) {
-    return normalizeGithubRepository(process.env.PIPPER_RELEASE_REPOSITORY);
-  }
-  if (process.env.GITHUB_REPOSITORY) {
-    return normalizeGithubRepository(process.env.GITHUB_REPOSITORY);
-  }
-
-  const remote = runCapture("git", ["config", "--get", "remote.origin.url"], true).stdout.trim();
-  const inferred = remote ? inferGithubRepositoryFromRemote(remote) : null;
-  if (inferred) return inferred;
-
-  const ghRepo = runCapture(
-    "gh",
-    ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
-    true,
-  ).stdout.trim();
-  if (ghRepo) return normalizeGithubRepository(ghRepo);
-
-  throw new Error("Unable to infer GitHub release repository. Set PIPPER_RELEASE_REPOSITORY.");
+  return normalizeGithubRepository(PIPPER_RELEASE_REPOSITORY);
 }
 
 function assertCleanGitTree(): void {
