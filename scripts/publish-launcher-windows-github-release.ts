@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PIPPER_RELEASE_REPOSITORY } from "../contracts/launcher-release-urls.ts";
 import {
+  LATEST_MANIFEST_NAME,
   LATEST_WINDOWS_MANIFEST_NAME,
   createGithubLauncherWindowsManifest,
   githubLatestWindowsManifestUrl,
@@ -147,6 +148,12 @@ async function publishToExistingRelease(
 
   if (!skipDownloadVerification && hasExistingInstaller && !hasExistingManifest) {
     await verifyRemoteWindowsExe(manifest.url, manifest.sha256, installerSize);
+  }
+
+  if (!assetNames.has(LATEST_MANIFEST_NAME)) {
+    console.warn(
+      `Release ${tag} is missing ${LATEST_MANIFEST_NAME}. macOS downloads stay unavailable until Mac publish uploads the DMG and manifest to this tag.`,
+    );
   }
 
   run("gh", [
