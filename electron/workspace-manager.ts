@@ -15,7 +15,7 @@ import {
 import { join, dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import os from "node:os";
-import { exec, execFileSync } from "node:child_process";
+import { exec, execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { app } from "electron";
 import type { FSWatcher } from "node:fs";
@@ -23,6 +23,18 @@ import { getMiseExecCommand } from "./dependency-installer";
 import type { PromotionReceipt } from "../contracts/updates.ts";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+const GIT_COMMIT_ENV = {
+  GIT_AUTHOR_NAME: "Pipper",
+  GIT_AUTHOR_EMAIL: "pipper@internal",
+  GIT_COMMITTER_NAME: "Pipper",
+  GIT_COMMITTER_EMAIL: "pipper@internal",
+} as const;
+
+function gitCommitEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, ...GIT_COMMIT_ENV };
+}
 
 export function getPipperLibraryPath(): string {
   if (process.env.PIPPER_LIBRARY_PATH) return process.env.PIPPER_LIBRARY_PATH;
@@ -199,8 +211,47 @@ export interface CandidateSnapshot {
   critical_checksums: Record<string, string>;
 }
 
+async function hasGitHead(path: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: path });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureActiveWorkspaceGitHistory(activeDir: string): Promise<void> {
+  const gitDir = join(activeDir, ".git");
+  if (!existsSync(gitDir)) {
+    console.log("[WorkspaceManager] Initializing git repository in active workspace...");
+    await execFileAsync("git", ["init"], { cwd: activeDir });
+  } else if (!(await hasGitHead(activeDir))) {
+    console.log("[WorkspaceManager] Repairing active workspace Git history...");
+  }
+
+  ensureWorkspaceGitExcludes(activeDir);
+  if (await hasGitHead(activeDir)) return;
+
+  await execFileAsync("git", ["add", "-A"], { cwd: activeDir });
+  try {
+    await execFileAsync("git", ["commit", "-m", "Initial commit"], {
+      cwd: activeDir,
+      env: gitCommitEnv(),
+    });
+  } catch {
+    await execFileAsync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+      cwd: activeDir,
+      env: gitCommitEnv(),
+    });
+  }
+
+  if (!(await hasGitHead(activeDir))) {
+    throw new Error("Failed to create initial Git commit in active workspace.");
+  }
+}
+
 async function gitHead(path: string): Promise<string> {
-  const { stdout } = await execAsync("git rev-parse HEAD", { cwd: path });
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: path });
   return stdout.trim();
 }
 
@@ -404,29 +455,8 @@ export async function initializeWorkspaces(
       copyPackagedTemplate(templatePath, activeDir);
     }
 
-    // Initialize Git in active workspace if not present
-    const activeGitDir = join(activeDir, ".git");
-    if (!useLocalActiveWorkspace && !existsSync(activeGitDir)) {
-      console.log("[WorkspaceManager] Initializing git repository in active workspace...");
-      try {
-        await execAsync("git init", { cwd: activeDir });
-        ensureWorkspaceGitExcludes(activeDir);
-        await execAsync("git add .", { cwd: activeDir });
-        await execAsync("git commit -m 'Initial commit'", {
-          cwd: activeDir,
-          env: {
-            ...process.env,
-            GIT_AUTHOR_NAME: "Pipper",
-            GIT_AUTHOR_EMAIL: "pipper@internal",
-            GIT_COMMITTER_NAME: "Pipper",
-            GIT_COMMITTER_EMAIL: "pipper@internal",
-          },
-        });
-      } catch (err) {
-        console.warn("[WorkspaceManager] Failed to initialize git in active workspace:", err);
-      }
-    } else if (!useLocalActiveWorkspace) {
-      ensureWorkspaceGitExcludes(activeDir);
+    if (!useLocalActiveWorkspace) {
+      await ensureActiveWorkspaceGitHistory(activeDir);
     }
 
     // 2. Copy source files to backup if not present or incomplete

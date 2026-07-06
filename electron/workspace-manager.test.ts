@@ -64,6 +64,30 @@ describe("workspace copy policies", () => {
     expect(existsSync(join(destination, "patch.md"))).toBe(true);
   });
 
+  test("initializeWorkspaces repairs git repos that have no initial commit", async () => {
+    const { getActivePath, initializeWorkspaces } = await import("./workspace-manager.ts");
+    root = mkdtempSync(join(tmpdir(), "pipper-git-repair-"));
+    process.env.PIPPER_LIBRARY_PATH = root;
+    const active = getActivePath();
+    const templateRoot = join(root, "template");
+    const template = join(templateRoot, "app-template");
+    mkdirSync(active, { recursive: true });
+    mkdirSync(template, { recursive: true });
+    writeFileSync(
+      join(template, "package.json"),
+      JSON.stringify({ name: "template", version: "0.0.0" }),
+    );
+    writeFileSync(join(template, "AGENT.md"), "rules");
+    execFileSync("git", ["init"], { cwd: active });
+
+    await initializeWorkspaces(templateRoot, false);
+
+    expect(
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: active, encoding: "utf8" }).trim(),
+    ).toMatch(/^[0-9a-f]{40}$/);
+    expect(existsSync(join(active, "package.json"))).toBe(true);
+  });
+
   test("promotion returns a receipt with swap heads", async () => {
     const { getActivePath, getCandidatePath, getPreviousPath, promoteCandidate } =
       await import("./workspace-manager.ts");

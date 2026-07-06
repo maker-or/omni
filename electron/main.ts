@@ -69,6 +69,7 @@ import {
 } from "./workspace-manager";
 import { UpdateManager } from "./update-manager";
 import { LauncherUpdateManager } from "./launcher-update-manager";
+import { launchLauncherInstaller } from "./launcher-update-install.ts";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
 import {
   PIPPER_LAUNCHER_MAC_MANIFEST_URL,
@@ -1056,8 +1057,7 @@ function registerIpc(): void {
       return { success: false, error: "Wait for the personalized update to finish." };
     try {
       const path = await manager.verifyDownloadedInstaller();
-      const openError = await shell.openPath(path);
-      if (openError) throw new Error(openError);
+      await launchLauncherInstaller(path);
       quitAuthorized = true;
       app.quit();
       return { success: true };
@@ -1798,8 +1798,14 @@ app.whenReady().then(async () => {
   });
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
     platform: process.platform,
-    macManifestUrl: PIPPER_LAUNCHER_MAC_MANIFEST_URL,
-    windowsManifestUrl: PIPPER_LAUNCHER_WINDOWS_MANIFEST_URL,
+    macManifestUrl:
+      process.env.PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+      import.meta.env.VITE_PIPPER_LAUNCHER_UPDATE_MANIFEST_URL ??
+      PIPPER_LAUNCHER_MAC_MANIFEST_URL,
+    windowsManifestUrl:
+      process.env.PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
+      import.meta.env.VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL ??
+      PIPPER_LAUNCHER_WINDOWS_MANIFEST_URL,
   });
   const launcherUpdatesEnabled =
     app.isPackaged ||
