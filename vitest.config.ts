@@ -15,12 +15,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: [
-      "src/**/*.test.{ts,tsx}",
-      "electron/**/*.test.{ts,tsx}",
-      "marketing/src/**/*.test.ts",
-      "scripts/**/*.test.ts",
-    ],
+    include: ["src/**/*.test.{ts,tsx}", "electron/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
     clearMocks: true,
     restoreMocks: true,
     unstubGlobals: true,

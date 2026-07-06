@@ -65,19 +65,24 @@ describe("workspace copy policies", () => {
   });
 
   test("initializeWorkspaces repairs git repos that have no initial commit", async () => {
-    const { getActivePath, initializeWorkspaces } = await import("./workspace-manager.ts");
+    const { getActiveDependenciesPath, getActivePath, initializeWorkspaces } =
+      await import("./workspace-manager.ts");
     root = mkdtempSync(join(tmpdir(), "pipper-git-repair-"));
     process.env.PIPPER_LIBRARY_PATH = root;
     const active = getActivePath();
     const templateRoot = join(root, "template");
     const template = join(templateRoot, "app-template");
+    const packageJson = { name: "template", version: "0.0.0" };
     mkdirSync(active, { recursive: true });
     mkdirSync(template, { recursive: true });
-    writeFileSync(
-      join(template, "package.json"),
-      JSON.stringify({ name: "template", version: "0.0.0" }),
-    );
+    writeFileSync(join(template, "package.json"), JSON.stringify(packageJson));
     writeFileSync(join(template, "AGENT.md"), "rules");
+    const activeDependencies = getActiveDependenciesPath();
+    mkdirSync(join(activeDependencies, "node_modules"), { recursive: true });
+    writeFileSync(
+      join(activeDependencies, "package.json"),
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
     execFileSync("git", ["init"], { cwd: active });
 
     await initializeWorkspaces(templateRoot, false);
