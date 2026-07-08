@@ -4,33 +4,17 @@ import Layout from "../layouts/Layout.astro";
 
 <Layout>
     <section
-        class="page-container pt-16 md:pt-28 flex flex-col items-center flex-1 min-h-0 select-none"
+        class="w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-16 md:pt-28 flex flex-col items-center flex-1 min-h-0 select-none"
     >
         <div class="h-12 md:h-24 flex-shrink-0"></div>
         <div
             class="text-center max-w-5xl mx-auto flex flex-col items-center flex-shrink-0"
         >
             <h1
-                class="font-['Averia_Serif_Libre'] text-[#0C3A8F] text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-normal leading-[0.92] tracking-[-0.05em] animate-fade-in"
+                class="font-['Averia_Serif_Libre'] text-[#D1E1FF] text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-normal leading-[0.92] tracking-[-0.05em] animate-fade-in"
             >
-                Agentic IDE<br />that improves itself
+                AI Harness<br />that improves itself
             </h1>
-        </div>
-
-        <div
-            class="w-full flex justify-center mt-4 md:mt-8 flex-1 min-h-0 pb-6 md:pb-10 items-end"
-        >
-            <img
-                src="/com.svg"
-                alt="pipper retro computer interface"
-                class="w-full max-w-[520px] h-full max-h-[48svh] object-contain pointer-events-none animate-fade-in"
-            />
         </div>
     </section>
 </Layout>
-
-<style>
-    .animate-fade-in {
-        animation: fade-in 1s ease-out forwards;
-    }
-</style>

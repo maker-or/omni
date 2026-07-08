@@ -21,13 +21,13 @@ const payload = user
 ---
 
 <Layout title="Completing sign in">
-  <main class="shell">
+  <main class="relative z-10 min-h-screen grid place-items-center p-8">
     <section>
       {
         payload ? (
-          <p class="text-[#0C3A8F] m-0">Returning you to Pipper Code (Alpha).</p>
+          <p class="text-[#D1E1FF] m-0">Authentication successful. Return to Pipper Code (Alpha)</p>
         ) : (
-          <p class="text-[#0C3A8F] m-0">Unable to read the Clerk session.</p>
+          <p class="text-[#D1E1FF] m-0">Unable to read the Clerk session.</p>
         )
       }
     </section>

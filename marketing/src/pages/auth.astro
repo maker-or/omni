@@ -10,9 +10,11 @@ if (returnTo) {
 ---
 
 <Layout title="Pipper Code (Alpha) auth">
-    <main class="shell">
+    <main class="relative z-10 min-h-screen grid place-items-center p-8">
         <section class="flex justify-center items-center">
-            <div class="flex gap-4 [&_button]:py-3 [&_button]:px-6 [&_button]:text-[15px] [&_button]:font-semibold [&_button]:rounded-xl [&_button]:bg-white/6 [&_button]:text-[#0C3A8F] [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button]:hover:bg-white/12 [&_button]:hover:-translate-y-0.5">
+            <div
+                class="flex gap-4 [&_button]:py-3 [&_button]:px-6 [&_button]:text-[15px] [&_button]:font-semibold [&_button]:rounded-xl [&_button]:bg-[#D1E1FF] [&_button]:text-[#0C3A8F] [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button]:hover:bg-white/12 [&_button]:hover:-translate-y-0.5"
+            >
                 <SignInButton
                     mode="redirect"
                     forceRedirectUrl={callbackUrl.toString()}

@@ -14,7 +14,7 @@ const pageName =
 const showDownloadNavLink = pageClass !== "download-page";
 ---
 
-<html lang="en">
+<html lang="en" class="h-svh overflow-hidden [color-scheme:light]">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -26,17 +26,25 @@ const showDownloadNavLink = pageClass !== "download-page";
             href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap"
             rel="stylesheet"
         />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap"
+            rel="stylesheet"
+        />
         <link rel="icon" href="/favicon.ico" sizes="48x48" />
         <title>{title}</title>
     </head>
-    <body class={pageClass} data-page={pageName}>
-        <div class="page">
+    <body
+        class={`${pageClass} antialiased`}
+        data-page={pageName}
+        style="background:#15408f;color:#d1e1ff"
+    >
+        <div class="h-svh flex flex-col overflow-hidden">
             <header
-                class="page-container pt-6 md:pt-10 flex flex-nowrap justify-between items-center flex-shrink-0 gap-6"
+                class="w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-6 md:pt-10 flex flex-nowrap justify-between items-center flex-shrink-0 gap-6"
             >
                 <a
                     href="/"
-                    class="font-['Averia_Serif_Libre'] italic text-3xl md:text-4xl tracking-tight text-[#5474AF] hover:opacity-80 transition-opacity shrink-0"
+                    class="font-['Averia_Serif_Libre'] italic text-3xl md:text-4xl tracking-tight text-[#5474AF] hover:text-[#D1E1FF] transition-opacity shrink-0"
                 >
                     pipper
                 </a>
@@ -48,14 +56,14 @@ const showDownloadNavLink = pageClass !== "download-page";
                         href="https://discord.gg/S928NjYv"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="hover:text-[#0C3A8F] transition-colors whitespace-nowrap"
+                        class="hover:text-[#D1E1FF] transition-colors whitespace-nowrap"
                         >Discord</a
                     >
                     {
                         showDownloadNavLink ? (
                             <a
                                 href="/download"
-                                class="hover:text-[#0C3A8F] transition-colors whitespace-nowrap"
+                                class="hover:text-[#D1E1FF] transition-colors whitespace-nowrap"
                             >
                                 Download
                             </a>
@@ -69,78 +77,3 @@ const showDownloadNavLink = pageClass !== "download-page";
         </div>
     </body>
 </html>
-
-<style is:global>
-    @import url("https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap");
-
-    :root {
-        --bg: #fffdf4;
-        --fg: #0c3a8f;
-        --fg-muted: #5474af;
-        --fg-dim: rgba(84, 116, 175, 0.72);
-        --border: rgba(12, 58, 143, 0.15);
-        --surface: rgba(12, 58, 143, 0.04);
-        --surface-strong: rgba(12, 58, 143, 0.08);
-        --page-max-width: 80rem;
-        --page-gutter: clamp(1.5rem, 5vw, 2.5rem);
-    }
-
-    .page-container {
-        width: 100%;
-        max-width: var(--page-max-width);
-        margin-inline: auto;
-        padding-inline: var(--page-gutter);
-    }
-
-    * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-    }
-
-    html {
-        color-scheme: light;
-        height: 100svh;
-        overflow: hidden;
-    }
-
-    body {
-        background: var(--bg);
-        color: var(--fg);
-        font-family: "Averia Serif Libre", serif;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        height: 100svh;
-        overflow: hidden;
-    }
-
-    a {
-        color: inherit;
-        text-decoration: none;
-    }
-
-    img {
-        display: block;
-        max-width: 100%;
-    }
-
-    @keyframes fade-in {
-        from {
-            opacity: 0;
-            transform: translateY(8px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-</style>
-
-<style>
-    .page {
-        height: 100svh;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-</style>
