@@ -1244,8 +1244,19 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "threads:create",
-    (_event, projectId: string, title: string | null, afterThreadId?: string | null, agentId?: string | null) => {
-      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null, agentId ?? null);
+    (
+      _event,
+      projectId: string,
+      title: string | null,
+      afterThreadId?: string | null,
+      agentId?: string | null,
+    ) => {
+      return requireAgentManager().createThread(
+        projectId,
+        title,
+        afterThreadId ?? null,
+        agentId ?? null,
+      );
     },
   );
 
@@ -1336,7 +1347,12 @@ function registerIpc(): void {
       agentId?: string | null,
     ) => {
       try {
-        return requireAgentManager().createThread(projectId, title, afterThreadId ?? null, agentId ?? null);
+        return requireAgentManager().createThread(
+          projectId,
+          title,
+          afterThreadId ?? null,
+          agentId ?? null,
+        );
       } catch (e: any) {
         console.error("[IPC] agent:createThread error:", e);
         throw e;

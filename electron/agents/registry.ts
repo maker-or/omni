@@ -13,12 +13,13 @@ interface RegistryFile {
 
 /** Directory of this module (avoid naming `__dirname` — electron-vite injects that). */
 const registryDir = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
+/** Avoid naming `require` — electron-vite injects a top-level CJS shim. */
+const nodeRequire = createRequire(import.meta.url);
 
 /** Adapter is an app dependency, not an on-demand npx download. */
 function bundledCodexAcpPath(): string | null {
   try {
-    return require.resolve("@agentclientprotocol/codex-acp");
+    return nodeRequire.resolve("@agentclientprotocol/codex-acp");
   } catch {
     return null;
   }

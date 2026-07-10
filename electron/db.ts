@@ -249,7 +249,9 @@ export function setSelectedAgentIds(agentIds: string[]): void {
   db.exec("BEGIN IMMEDIATE;");
   try {
     db.prepare("DELETE FROM user_agent_selections").run();
-    const stmt = db.prepare("INSERT INTO user_agent_selections (agent_id, selected_at) VALUES (?, ?)");
+    const stmt = db.prepare(
+      "INSERT INTO user_agent_selections (agent_id, selected_at) VALUES (?, ?)",
+    );
     const now = Date.now();
     for (const id of agentIds) {
       stmt.run(id, now);

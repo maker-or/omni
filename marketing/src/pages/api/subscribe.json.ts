@@ -10,10 +10,10 @@ export const POST: APIRoute = async ({ request }) => {
     const { email } = await request.json();
 
     if (!email || typeof email !== "string" || !EMAIL_RE.test(email.trim())) {
-      return new Response(
-        JSON.stringify({ error: "Please provide a valid email address." }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Please provide a valid email address." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const apiKey = import.meta.env.MAILCHIMP_API_KEY || process.env.MAILCHIMP_API_KEY;
@@ -25,7 +25,7 @@ export const POST: APIRoute = async ({ request }) => {
       console.error("Missing Mailchimp configuration environment variables.");
       return new Response(
         JSON.stringify({ error: "Newsletter subscription is temporarily unavailable." }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
 
@@ -54,7 +54,7 @@ export const POST: APIRoute = async ({ request }) => {
       console.error("Mailchimp Member API error:", errorData);
       return new Response(
         JSON.stringify({ error: errorData.detail || "Failed to subscribe to the newsletter." }),
-        { status: memberResponse.status, headers: { "Content-Type": "application/json" } }
+        { status: memberResponse.status, headers: { "Content-Type": "application/json" } },
       );
     }
 
@@ -84,15 +84,15 @@ export const POST: APIRoute = async ({ request }) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("Subscription API endpoint error:", error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error occurred." }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: "Internal server error occurred." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 };

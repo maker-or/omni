@@ -1,10 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import {
-  motion,
-  AnimatePresence,
-  useAnimation,
-  useReducedMotion,
-} from "framer-motion";
+import { motion, AnimatePresence, useAnimation, useReducedMotion } from "framer-motion";
 import { PostboxSvg } from "./PostboxSvg";
 const stampSrc = "/sam.svg";
 
@@ -26,29 +21,12 @@ const EnvelopeBack = () => (
     preserveAspectRatio="none"
   >
     {/* Side flaps */}
-    <path
-      d="M 0,0 L 576,340 L 0,680 Z"
-      fill="#5A79B0"
-      opacity="0.8"
-    />
-    <path
-      d="M 1200,0 L 624,340 L 1200,680 Z"
-      fill="#5A79B0"
-      opacity="0.8"
-    />
+    <path d="M 0,0 L 576,340 L 0,680 Z" fill="#5A79B0" opacity="0.8" />
+    <path d="M 1200,0 L 624,340 L 1200,680 Z" fill="#5A79B0" opacity="0.8" />
     {/* Bottom flap */}
-    <path
-      d="M 0,680 L 600,326.4 L 1200,680 Z"
-      fill="#4F6A9B"
-      opacity="0.95"
-    />
+    <path d="M 0,680 L 600,326.4 L 1200,680 Z" fill="#4F6A9B" opacity="0.95" />
     {/* Top flap */}
-    <path
-      d="M 0,0 L 600,306 L 1200,0 Z"
-      fill="#6A89C1"
-      stroke="#15408F"
-      strokeWidth="2"
-    />
+    <path d="M 0,0 L 600,306 L 1200,0 Z" fill="#6A89C1" stroke="#15408F" strokeWidth="2" />
     {/* Seam outlines */}
     <path
       d="M 0,0 L 600,326.4 L 1200,0 M 0,680 L 600,326.4 L 1200,680"
@@ -120,7 +98,7 @@ const FinaleCard = ({
         boxShadow: [
           "0 14px 32px rgba(21, 64, 143, 0.3)",
           "0 8px 20px rgba(21, 64, 143, 0.28)",
-          "0 0px 0px rgba(21, 64, 143, 0)"
+          "0 0px 0px rgba(21, 64, 143, 0)",
         ],
         transition: {
           duration: flightDuration,
@@ -128,23 +106,23 @@ const FinaleCard = ({
           y: {
             duration: flightDuration,
             times: [0, 0.38, 1],
-            ease: ["easeOut", "easeIn"] // Accelerates continuously down into the slot
+            ease: ["easeOut", "easeIn"], // Accelerates continuously down into the slot
           },
           scale: {
             duration: flightDuration,
             times: [0, 0.45, 1],
-            ease: "easeInOut"
+            ease: "easeInOut",
           },
           rotate: {
             duration: flightDuration,
             times: [0, 0.38, 0.72, 1],
-            ease: "easeInOut"
+            ease: "easeInOut",
           },
           boxShadow: {
             duration: flightDuration,
             times: [0, 0.72, 1],
-            ease: "easeInOut"
-          }
+            ease: "easeInOut",
+          },
         },
       });
       if (cancelled) return;
@@ -161,12 +139,10 @@ const FinaleCard = ({
   return (
     <div
       className="fixed inset-0 z-40 pointer-events-none"
-      style={
-        clipBottom !== null
-          ? { clipPath: `inset(0px 0px ${clipBottom}px 0px)` }
-          : undefined
-      }
-    >      {/*this is the shape of  crad that goes into the postbig*/}
+      style={clipBottom !== null ? { clipPath: `inset(0px 0px ${clipBottom}px 0px)` } : undefined}
+    >
+      {" "}
+      {/*this is the shape of  crad that goes into the postbig*/}
       <motion.div
         data-testid="finale-blank-card"
         className="absolute rounded-lg bg-[#6A89C1] border border-[#15408F]/20 overflow-hidden"
@@ -187,14 +163,25 @@ const FinaleCard = ({
           transition={{ duration: 0.38, ease: "easeInOut" }}
         >
           <div className="absolute top-6 right-6 sm:top-10 sm:right-10 md:top-12 md:right-14">
-            <img src={stampSrc} alt="" aria-hidden="true" className="w-[72px] sm:w-[104px] md:w-[132px] h-auto drop-shadow-[0_3px_8px_rgba(21,54,143,0.25)]" />
+            <img
+              src={stampSrc}
+              alt=""
+              aria-hidden="true"
+              className="w-[72px] sm:w-[104px] md:w-[132px] h-auto drop-shadow-[0_3px_8px_rgba(21,54,143,0.25)]"
+            />
           </div>
 
           <p className="font-editorial text-[#15408F] text-lg sm:text-2xl md:text-[1.75rem] leading-[1.5] max-w-[62%] sm:max-w-[58%]">
-            <span className="font-devanagari text-xl sm:text-3xl md:text-4xl mr-2">
-              संदेश
-            </span>
-            {LETTER_COPY.intro} <a href="https://pipper.dev" className="underline decoration-[#15408F]/60 underline-offset-4" onClick={(e) => e.preventDefault()}>pipper.dev</a>{LETTER_COPY.rest}
+            <span className="font-devanagari text-xl sm:text-3xl md:text-4xl mr-2">संदेश</span>
+            {LETTER_COPY.intro}{" "}
+            <a
+              href="https://pipper.dev"
+              className="underline decoration-[#15408F]/60 underline-offset-4"
+              onClick={(e) => e.preventDefault()}
+            >
+              pipper.dev
+            </a>
+            {LETTER_COPY.rest}
           </p>
 
           <div className="mt-auto w-full sm:w-[64%] md:w-[52%]">
@@ -222,11 +209,9 @@ const MiniLetterContent = () => (
   <div className="flex h-full w-full gap-2.5 p-3.5 text-left overflow-hidden">
     <div className="flex-1 flex flex-col min-w-0">
       <p className="font-editorial text-[9px] leading-[1.45] text-[#15408F]/85 overflow-hidden">
-        <span className="font-devanagari text-[12px] text-[#15408F] font-medium">
-          संदेश
-        </span>{" "}
-        is a new weekly publication started by pipper.dev, bringing together
-        the latest AI breakthroughs, startup stories, research…
+        <span className="font-devanagari text-[12px] text-[#15408F] font-medium">संदेश</span> is a new
+        weekly publication started by pipper.dev, bringing together the latest AI breakthroughs,
+        startup stories, research…
       </p>
       <div className="mt-auto pt-1.5">
         <p className="font-editorial text-[9px] text-[#15408F]/60 border-b border-[#15408F]/45 pb-px w-[85%]">
@@ -274,12 +259,7 @@ export default function SandeshApp() {
   }, [phase]);
 
   const handleClose = useCallback(() => {
-    if (
-      phase !== "expanded" ||
-      status === "loading" ||
-      status === "success" ||
-      closingRef.current
-    )
+    if (phase !== "expanded" || status === "loading" || status === "success" || closingRef.current)
       return;
     closingRef.current = true;
     setReturning(true);
@@ -372,7 +352,17 @@ export default function SandeshApp() {
       className="relative min-h-screen w-full overflow-hidden bg-[#15408F] selection:bg-[#DCE7F8]/28"
     >
       {/* Font Preloader Hack to prevent mid-animation font swap layout stutters */}
-      <div style={{ opacity: 0, position: "absolute", pointerEvents: "none", zIndex: -9999, top: 0, left: 0 }} aria-hidden="true">
+      <div
+        style={{
+          opacity: 0,
+          position: "absolute",
+          pointerEvents: "none",
+          zIndex: -9999,
+          top: 0,
+          left: 0,
+        }}
+        aria-hidden="true"
+      >
         <span style={{ fontFamily: "var(--font-serif)" }}>preload</span>
         <span style={{ fontFamily: "var(--font-geist)" }}>preload</span>
         <span style={{ fontFamily: "var(--font-devanagari)" }}>preload</span>
@@ -400,9 +390,20 @@ export default function SandeshApp() {
             exit={{ opacity: 0, transition: { duration: 0.16 } }}
           >
             <div className="relative -translate-y-[3vh]">
-              <svg width="919" height="453" viewBox="0 0 919 453" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-[clamp(220px,55vw,600px)] h-auto">
-                <path d="M251 23.166L286 58.166L251 93.166L216 58.166L251 23.166Z" fill="#D1E1FF"/>
-                <path d="M241.244 389.534H237.06L163.002 299.159C135.388 265.268 128.275 250.206 128.275 238.072C128.275 228.867 134.551 224.683 149.614 224.683C157.563 224.683 175.555 225.938 185.596 227.194C188.525 213.386 188.943 193.303 188.943 179.496C188.943 167.362 188.525 159.831 188.107 153.136H111.539L97.3131 125.94V121.756H390.614L404.84 148.952V153.136H355.886L356.723 385.35H352.539L319.067 363.593L319.485 281.168C308.188 285.352 295.636 287.444 283.503 287.444C268.022 287.444 242.918 284.096 211.119 258.574C204.006 271.126 193.128 278.657 175.555 282.004L262.582 371.961L241.244 389.534ZM319.904 239.746L320.741 153.136H221.997C222.834 163.596 223.253 179.077 223.253 184.098C223.253 208.784 221.161 229.286 217.813 241.838C228.273 248.114 253.796 255.227 272.624 255.227C292.289 255.227 310.699 247.277 319.904 239.746ZM250.573 34.728L279.861 64.0162L250.573 92.4677L221.703 64.0162L250.573 34.728ZM546.557 422.17H542.792L504.299 354.807C496.767 356.899 488.399 358.154 477.939 358.154C420.2 358.154 365.807 305.435 365.807 248.951C365.807 205.437 400.953 193.303 453.672 193.303H485.052V153.136H345.305L331.08 125.94V121.756H560.783L575.009 148.952V153.136H519.361C519.361 176.567 519.78 203.345 519.78 221.336L514.759 224.683H455.764C420.2 224.683 397.187 238.49 397.187 266.942C397.187 306.69 426.476 329.284 455.764 329.284C465.806 329.284 478.358 327.61 486.726 322.59C480.031 309.201 475.429 297.904 475.429 289.954C475.429 280.749 481.287 276.565 490.073 276.565C508.901 276.565 541.537 294.975 541.537 314.64C541.537 320.498 537.353 335.142 523.127 345.602L568.314 408.362L546.557 422.17ZM326.798 7.53177L327.216 4.60296C348.973 0.837326 365.709 0.000504692 370.73 0.000504692C413.407 0.000504692 444.369 51.4641 488.72 126.777H466.126C425.541 57.7402 409.641 38.4936 386.211 38.4936C377.006 38.4936 359.015 40.5857 346.044 43.0961L326.798 7.53177ZM580.174 307.109C551.304 307.109 529.965 281.168 529.965 265.268C529.965 258.992 533.731 254.808 544.191 254.808C559.672 254.808 576.826 264.013 591.47 273.636C606.951 269.452 620.34 263.176 631.219 254.39C578.918 234.306 552.977 207.947 552.977 177.822C552.977 168.617 555.488 160.249 560.09 153.136H515.739L501.514 125.94V121.756H806.948L821.174 148.952V153.136H772.221L773.058 387.442H768.873L735.401 365.685L737.075 153.136H671.385C683.938 166.943 692.724 184.935 692.724 206.692C692.724 253.553 653.394 285.77 616.993 299.577L688.122 371.961L666.783 389.534H662.599L594.818 305.853C589.378 306.69 584.776 307.109 580.174 307.109ZM644.189 241.419C654.649 228.449 660.507 212.131 660.507 193.721C660.507 158.575 637.913 150.207 621.595 150.207C597.328 150.207 588.542 168.199 588.542 184.098C588.542 205.018 604.859 223.846 644.189 241.419Z" fill="#D1E1FF" fill-opacity="0.45"/>
+              <svg
+                width="919"
+                height="453"
+                viewBox="0 0 919 453"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-[clamp(220px,55vw,600px)] h-auto"
+              >
+                <path d="M251 23.166L286 58.166L251 93.166L216 58.166L251 23.166Z" fill="#D1E1FF" />
+                <path
+                  d="M241.244 389.534H237.06L163.002 299.159C135.388 265.268 128.275 250.206 128.275 238.072C128.275 228.867 134.551 224.683 149.614 224.683C157.563 224.683 175.555 225.938 185.596 227.194C188.525 213.386 188.943 193.303 188.943 179.496C188.943 167.362 188.525 159.831 188.107 153.136H111.539L97.3131 125.94V121.756H390.614L404.84 148.952V153.136H355.886L356.723 385.35H352.539L319.067 363.593L319.485 281.168C308.188 285.352 295.636 287.444 283.503 287.444C268.022 287.444 242.918 284.096 211.119 258.574C204.006 271.126 193.128 278.657 175.555 282.004L262.582 371.961L241.244 389.534ZM319.904 239.746L320.741 153.136H221.997C222.834 163.596 223.253 179.077 223.253 184.098C223.253 208.784 221.161 229.286 217.813 241.838C228.273 248.114 253.796 255.227 272.624 255.227C292.289 255.227 310.699 247.277 319.904 239.746ZM250.573 34.728L279.861 64.0162L250.573 92.4677L221.703 64.0162L250.573 34.728ZM546.557 422.17H542.792L504.299 354.807C496.767 356.899 488.399 358.154 477.939 358.154C420.2 358.154 365.807 305.435 365.807 248.951C365.807 205.437 400.953 193.303 453.672 193.303H485.052V153.136H345.305L331.08 125.94V121.756H560.783L575.009 148.952V153.136H519.361C519.361 176.567 519.78 203.345 519.78 221.336L514.759 224.683H455.764C420.2 224.683 397.187 238.49 397.187 266.942C397.187 306.69 426.476 329.284 455.764 329.284C465.806 329.284 478.358 327.61 486.726 322.59C480.031 309.201 475.429 297.904 475.429 289.954C475.429 280.749 481.287 276.565 490.073 276.565C508.901 276.565 541.537 294.975 541.537 314.64C541.537 320.498 537.353 335.142 523.127 345.602L568.314 408.362L546.557 422.17ZM326.798 7.53177L327.216 4.60296C348.973 0.837326 365.709 0.000504692 370.73 0.000504692C413.407 0.000504692 444.369 51.4641 488.72 126.777H466.126C425.541 57.7402 409.641 38.4936 386.211 38.4936C377.006 38.4936 359.015 40.5857 346.044 43.0961L326.798 7.53177ZM580.174 307.109C551.304 307.109 529.965 281.168 529.965 265.268C529.965 258.992 533.731 254.808 544.191 254.808C559.672 254.808 576.826 264.013 591.47 273.636C606.951 269.452 620.34 263.176 631.219 254.39C578.918 234.306 552.977 207.947 552.977 177.822C552.977 168.617 555.488 160.249 560.09 153.136H515.739L501.514 125.94V121.756H806.948L821.174 148.952V153.136H772.221L773.058 387.442H768.873L735.401 365.685L737.075 153.136H671.385C683.938 166.943 692.724 184.935 692.724 206.692C692.724 253.553 653.394 285.77 616.993 299.577L688.122 371.961L666.783 389.534H662.599L594.818 305.853C589.378 306.69 584.776 307.109 580.174 307.109ZM644.189 241.419C654.649 228.449 660.507 212.131 660.507 193.721C660.507 158.575 637.913 150.207 621.595 150.207C597.328 150.207 588.542 168.199 588.542 184.098C588.542 205.018 604.859 223.846 644.189 241.419Z"
+                  fill="#D1E1FF"
+                  fill-opacity="0.45"
+                />
               </svg>
             </div>
           </motion.div>
@@ -506,7 +507,12 @@ export default function SandeshApp() {
                     aria-busy={status === "loading"}
                   >
                     <div className="absolute top-6 right-6 sm:top-10 sm:right-10 md:top-12 md:right-14">
-                      <img src={stampSrc} alt="" aria-hidden="true" className="w-[72px] sm:w-[104px] md:w-[132px] h-auto drop-shadow-[0_3px_8px_rgba(21,64,143,0.25)]" />
+                      <img
+                        src={stampSrc}
+                        alt=""
+                        aria-hidden="true"
+                        className="w-[72px] sm:w-[104px] md:w-[132px] h-auto drop-shadow-[0_3px_8px_rgba(21,64,143,0.25)]"
+                      />
                     </div>
 
                     <p
@@ -530,10 +536,7 @@ export default function SandeshApp() {
                       {LETTER_COPY.rest}
                     </p>
 
-                    <form
-                      onSubmit={handleSubmit}
-                      className="mt-auto w-full sm:w-[64%] md:w-[52%]"
-                    >
+                    <form onSubmit={handleSubmit} className="mt-auto w-full sm:w-[64%] md:w-[52%]">
                       <input
                         ref={inputRef}
                         data-testid="waitlist-email-input"

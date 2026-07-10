@@ -183,7 +183,8 @@ const api = {
       title: string | null,
       afterThreadId?: string | null,
       agentId?: string | null,
-    ): Promise<Thread> => ipcRenderer.invoke("threads:create", projectId, title, afterThreadId, agentId),
+    ): Promise<Thread> =>
+      ipcRenderer.invoke("threads:create", projectId, title, afterThreadId, agentId),
     rename: (id: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
@@ -227,7 +228,8 @@ const api = {
       title: string | null,
       afterThreadId?: string | null,
       agentId?: string | null,
-    ): Promise<Thread> => ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId, agentId),
+    ): Promise<Thread> =>
+      ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId, agentId),
     getSelectedAgentIds: (): Promise<string[]> => ipcRenderer.invoke("agent:getSelectedAgentIds"),
     setSelectedAgentIds: (agentIds: string[]): Promise<void> =>
       ipcRenderer.invoke("agent:setSelectedAgentIds", agentIds),

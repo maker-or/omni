@@ -16,7 +16,11 @@ interface ThreadState {
   error: string | null;
   loadThreads: () => Promise<void>;
   loadProjectThreads: (projectId: string, options?: { reset?: boolean }) => Promise<void>;
-  createThread: (projectId: string, title: string, agentId?: string | null) => Promise<Thread | null>;
+  createThread: (
+    projectId: string,
+    title: string,
+    agentId?: string | null,
+  ) => Promise<Thread | null>;
   renameThread: (id: string, title: string) => Promise<Thread | null>;
   deleteThread: (id: string) => Promise<void>;
   addThread: (thread: Thread) => void;
