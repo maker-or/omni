@@ -1,0 +1,61 @@
+{
+  "agents": [
+    {
+      "id": "cursor-acp",
+      "name": "cursor",
+      "displayName": "Cursor",
+      "description": "Cursor CLI agent over ACP (stdio JSON-RPC).",
+      "command": "agent",
+      "args": ["acp"],
+      "icon": "cursor",
+      "docsUrl": "https://cursor.com/docs/cli/acp",
+      "authHint": "Run `agent login` in your terminal (or set CURSOR_API_KEY) before connecting.",
+      "installHint": "Install Cursor CLI, then ensure `agent` is on your PATH (often ~/.local/bin/agent).",
+      "installKind": "binary",
+      "detectCommands": ["agent"]
+    },
+    {
+      "id": "codex-acp",
+      "name": "codex-cli",
+      "displayName": "Codex",
+      "description": "OpenAI Codex via the official ACP adapter.",
+      "command": "codex-acp",
+      "args": [],
+      "icon": "openai-codex",
+      "docsUrl": "https://github.com/agentclientprotocol/codex-acp",
+      "authHint": "Sign in with ChatGPT or provide CODEX_API_KEY / OPENAI_API_KEY.",
+      "installHint": "Bundled with Pipper Code.",
+      "installKind": "binary",
+      "npmPackage": "@agentclientprotocol/codex-acp"
+    },
+    {
+      "id": "claude-agent-acp",
+      "name": "claude-code",
+      "displayName": "Claude",
+      "description": "Claude Agent SDK via the official ACP adapter.",
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/claude-agent-acp"],
+      "icon": "anthropic",
+      "docsUrl": "https://github.com/agentclientprotocol/claude-agent-acp",
+      "authHint": "Authenticate Claude Code / set ANTHROPIC_API_KEY before connecting.",
+      "installHint": "npm install -g @agentclientprotocol/claude-agent-acp  (or use npx on first launch)",
+      "installKind": "npx",
+      "npmPackage": "@agentclientprotocol/claude-agent-acp",
+      "detectCommands": ["claude-agent-acp"]
+    },
+    {
+      "id": "pipper-mock",
+      "name": "pipper-mock",
+      "displayName": "Pipper Mock",
+      "description": "Local mock ACP agent for development and tests.",
+      "command": "node",
+      "args": [],
+      "icon": "robot",
+      "installKind": "mock",
+      "docsUrl": "",
+      "authHint": "",
+      "installHint": "Bundled with Pipper — always available."
+    }
+  ],
+  "defaultAgentId": "codex-acp"
+}

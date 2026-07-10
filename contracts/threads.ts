@@ -1,8 +1,13 @@
 export interface Thread {
   id: string;
   project_id: string;
-  title: string;
-  session_file: string | null;
+  /** Which ACP agent owns this thread (e.g. "cursor-acp@1.0"). */
+  agent_id: string;
+  /** ACP session.id from session/new (or session/resume). */
+  agent_session_id: string;
+  /** Nullable until agent sends session_info_update. */
+  title: string | null;
+  sort_order?: number | null;
   created_at: number;
   last_used_at: number;
 }

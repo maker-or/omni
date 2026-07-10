@@ -18,14 +18,15 @@ import {
   resolveClerkSignInUrl,
   resolveClerkSignUpUrl,
 } from "./clerk-auth-config";
-import { getDb, getMostRecentAuthUser, upsertAuthUser } from "./db";
 import {
-  listThreads,
-  listThreadsByIds,
-  listProjectThreads,
-  getMessages,
-  createMessage,
-} from "./threads";
+  getDb,
+  getMostRecentAuthUser,
+  upsertAuthUser,
+  getSelectedAgentIds,
+  setSelectedAgentIds,
+} from "./db";
+import { listThreads, listThreadsByIds, listProjectThreads } from "./threads";
+import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
 import {
   broadcastOpenTabsChanged,
@@ -1243,8 +1244,8 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "threads:create",
-    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
-      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+    (_event, projectId: string, title: string | null, afterThreadId?: string | null, agentId?: string | null) => {
+      return requireAgentManager().createThread(projectId, title, afterThreadId ?? null, agentId ?? null);
     },
   );
 
@@ -1267,6 +1268,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("tabs:close", async (_event, threadId: string) => {
+    try {
+      await requireAgentManager().closeThreadSession(threadId);
+    } catch (err) {
+      console.warn("[IPC] closeThreadSession failed:", err);
+    }
     const next = await closeThreadTab(threadId);
     broadcastOpenTabsChanged(mainWindow, next);
     return next;
@@ -1282,17 +1288,6 @@ function registerIpc(): void {
     return (await readOpenTabsState()).activeThreadId;
   });
 
-  ipcMain.handle("messages:list", (_event, threadId: string) => {
-    return getMessages(threadId);
-  });
-
-  ipcMain.handle(
-    "messages:create",
-    (_event, input: { thread_id: string; role: string; content: string }) => {
-      return createMessage(input);
-    },
-  );
-
   ipcMain.handle("agent:getState", () => {
     try {
       const state = requireAgentManager().getState();
@@ -1305,20 +1300,11 @@ function registerIpc(): void {
       throw e;
     }
   });
-  ipcMain.handle("agent:getCommands", () => {
-    console.log("[IPC] agent:getCommands called");
-    return requireAgentManager().getCommands();
-  });
-  ipcMain.handle("agent:getModels", () => {
-    console.log("[IPC] agent:getModels called");
-    return requireAgentManager().getModels();
-  });
-  ipcMain.handle("agent:getStats", () => {
-    console.log("[IPC] agent:getStats called");
-    return requireAgentManager().getStats();
-  });
+  ipcMain.handle("agent:getCommands", () => requireAgentManager().getCommands());
+  ipcMain.handle("agent:getConfigOptions", () => requireAgentManager().getConfigOptions());
+  ipcMain.handle("agent:getCapabilities", () => requireAgentManager().getCapabilities());
+  ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
   ipcMain.handle("agent:sendPrompt", (_event, input) => {
-    console.log("[IPC] agent:sendPrompt called with:", JSON.stringify(input));
     try {
       return requireAgentManager().sendPrompt(input);
     } catch (e: any) {
@@ -1329,12 +1315,8 @@ function registerIpc(): void {
   ipcMain.handle("agent:replacePrompt", (_event, input) =>
     requireAgentManager().replacePrompt(input),
   );
-  ipcMain.handle("agent:abort", () => {
-    console.log("[IPC] agent:abort called");
-    return requireAgentManager().abort();
-  });
+  ipcMain.handle("agent:abort", () => requireAgentManager().abort());
   ipcMain.handle("agent:switchThread", async (_event, threadId: string) => {
-    console.log("[IPC] agent:switchThread called with threadId:", threadId);
     try {
       await requireAgentManager().switchThread(threadId);
       const next = await recordThreadSwitch(threadId);
@@ -1346,59 +1328,58 @@ function registerIpc(): void {
   });
   ipcMain.handle(
     "agent:createThread",
-    (_event, projectId: string, title: string, afterThreadId?: string | null) => {
-      console.log("[IPC] agent:createThread called with:", {
-        projectId,
-        title,
-        afterThreadId,
-      });
+    (
+      _event,
+      projectId: string,
+      title: string | null,
+      afterThreadId?: string | null,
+      agentId?: string | null,
+    ) => {
       try {
-        return requireAgentManager().createThread(projectId, title, afterThreadId ?? null);
+        return requireAgentManager().createThread(projectId, title, afterThreadId ?? null, agentId ?? null);
       } catch (e: any) {
         console.error("[IPC] agent:createThread error:", e);
         throw e;
       }
     },
   );
-  ipcMain.handle("agent:cycleModel", (_event, direction?: "forward" | "backward") => {
-    console.log("[IPC] agent:cycleModel called, direction:", direction);
-    return requireAgentManager().cycleModel(direction);
+  ipcMain.handle("agent:setConfigOption", (_event, configId: string, value: string | boolean) =>
+    requireAgentManager().setConfigOption(configId, value),
+  );
+  ipcMain.handle("agent:respondToPermission", (_event, response) =>
+    requireAgentManager().respondToPermission(response),
+  );
+  ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
+  ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
+    requireAgentManager().switchAgent(agentId),
+  );
+  ipcMain.handle("agent:getPreferredAgentId", () => requireAgentManager().getPreferredAgentId());
+  ipcMain.handle("agent:setPreferredAgentId", (_event, agentId: string) => {
+    requireAgentManager().setPreferredAgentId(agentId);
   });
-  ipcMain.handle("agent:setModel", (_event, model: { provider: string; modelId: string }) => {
-    console.log("[IPC] agent:setModel called with model:", model);
-    return requireAgentManager().setModel(model);
+  ipcMain.handle("agent:getSelectedAgentIds", () => getSelectedAgentIds());
+  ipcMain.handle("agent:setSelectedAgentIds", (_event, agentIds: string[]) => {
+    setSelectedAgentIds(agentIds);
   });
-  ipcMain.handle("agent:setThinkingLevel", (_event, level: any) => {
-    console.log("[IPC] agent:setThinkingLevel called with level:", level);
-    return requireAgentManager().setThinkingLevel(level);
-  });
-  ipcMain.handle("agent:cycleThinkingLevel", () => {
-    console.log("[IPC] agent:cycleThinkingLevel called");
-    return requireAgentManager().cycleThinkingLevel();
-  });
-  ipcMain.handle("agent:compact", (_event, customInstructions?: string) => {
-    console.log("[IPC] agent:compact called with customInstructions:", customInstructions);
-    return requireAgentManager().compact(customInstructions);
-  });
-  ipcMain.handle("agent:respondToUiRequest", (_event, response) => {
-    console.log("[IPC] agent:respondToUiRequest called with response:", response);
-    return requireAgentManager().respondToUiRequest(response);
-  });
-  ipcMain.handle("agent:setEditorText", (_event, text: string) => {
-    console.log("[IPC] agent:setEditorText called");
-    return requireAgentManager().setEditorText(text);
-  });
-  ipcMain.handle("agent:getEditorText", () => {
-    console.log("[IPC] agent:getEditorText called");
-    return requireAgentManager().getEditorText();
-  });
-  ipcMain.handle("agent:pasteToEditor", (_event, text: string) => {
-    console.log("[IPC] agent:pasteToEditor called");
-    return requireAgentManager().pasteToEditor(text);
-  });
+  ipcMain.handle("agent:closeThreadSession", (_event, threadId: string) =>
+    requireAgentManager().closeThreadSession(threadId),
+  );
+  ipcMain.handle("agent:setEditorText", (_event, text: string) =>
+    requireAgentManager().setEditorText(text),
+  );
+  ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
+  ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
+    requireAgentManager().pasteToEditor(text),
+  );
   ipcMain.on("agent:reportEditorText", (_event, text: string) => {
-    console.log("[IPC] agent:reportEditorText received");
     requireAgentManager().reportEditorText(text);
+  });
+
+  ipcMain.handle("mcp:list", () => listMcpServers());
+  ipcMain.handle("mcp:create", (_event, input) => createMcpServer(input));
+  ipcMain.handle("mcp:update", (_event, id: string, input) => updateMcpServer(id, input));
+  ipcMain.handle("mcp:delete", (_event, id: string) => {
+    deleteMcpServer(id);
   });
 
   ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {

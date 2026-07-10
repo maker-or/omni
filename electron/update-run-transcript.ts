@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { AgentBridgeEvent } from "../contracts/agent.ts";
+import type { AcpBridgeEvent as AgentBridgeEvent } from "../contracts/acp.ts";
 import { getUpdatesPath } from "./workspace-manager.ts";
 
 const MAX_STRING_CHARS = 16_000;
@@ -49,17 +49,23 @@ export function appendUpdateRunTranscript(runId: string, entry: TranscriptEntry)
 }
 
 export function serializeBridgeEvent(payload: AgentBridgeEvent): unknown {
-  if (payload.type === "snapshot") {
+  if (payload.type === "session-state") {
     return {
-      type: "snapshot",
-      sessionId: payload.snapshot.sessionId,
-      isStreaming: payload.snapshot.isStreaming,
-      model: payload.snapshot.model,
-      messages: payload.snapshot.messages,
-      streamingMessage: payload.snapshot.streamingMessage,
-      stats: payload.snapshot.stats,
-      status: payload.snapshot.status,
-      workingMessage: payload.snapshot.workingMessage,
+      type: "session-state",
+      sessionId: payload.state.agentSessionId,
+      threadId: payload.state.threadId,
+      isStreaming: payload.state.isStreaming,
+      messages: payload.state.messages,
+      usage: payload.state.usage,
+      plan: payload.state.plan,
+    };
+  }
+  if (payload.type === "session-update") {
+    return {
+      type: "session-update",
+      sessionId: payload.sessionId,
+      threadId: payload.threadId,
+      update: payload.update.sessionUpdate,
     };
   }
   return payload;
@@ -86,7 +92,10 @@ export function extractAssistantSummaryFromMessages(messages: unknown[]): string
     if (!message || typeof message !== "object") continue;
     const record = message as Record<string, unknown>;
     if (record.role !== "assistant") continue;
-    const text = textFromMessageContent(record.content);
+    const text =
+      typeof record.text === "string" && record.text
+        ? record.text
+        : textFromMessageContent(record.content);
     if (text) return text;
   }
   return "";

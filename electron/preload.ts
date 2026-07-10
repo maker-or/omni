@@ -1,16 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
-import type { Message } from "../contracts/messages.ts";
 import type {
-  AgentBridgeEvent,
-  AgentModelSummary,
-  AgentPromptInput,
-  AgentReplacePromptInput,
-  AgentRuntimeSnapshot,
-  AgentUiResponse,
-} from "../contracts/agent.ts";
-import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+  AcpBridgeEvent,
+  AcpPromptInput,
+  AcpReplacePromptInput,
+  AcpSessionState,
+  AgentCapabilities,
+  AvailableCommand,
+  SessionConfigOption,
+  AcpAgentDescriptor,
+} from "../contracts/acp.ts";
 import type {
   InstallationMetadata,
   UpdateManifest,
@@ -70,7 +70,7 @@ const api = {
       ipcRenderer.invoke("update:getInstallation"),
     getRun: (runId: string): Promise<UpdateRunRecord | null> =>
       ipcRenderer.invoke("update:getRun", runId),
-    getUpdaterSnapshot: (): Promise<AgentRuntimeSnapshot> =>
+    getUpdaterSnapshot: (): Promise<AcpSessionState> =>
       ipcRenderer.invoke("update:getUpdaterSnapshot"),
     scheduleForQuit: (): Promise<UpdateState> => ipcRenderer.invoke("update:scheduleForQuit"),
     startNow: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:startNow"),
@@ -91,8 +91,8 @@ const api = {
       ipcRenderer.on("update:progress", listener);
       return () => ipcRenderer.removeListener("update:progress", listener);
     },
-    onUpdaterEvent: (callback: (payload: AgentBridgeEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: AgentBridgeEvent) =>
+    onUpdaterEvent: (callback: (payload: AcpBridgeEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: AcpBridgeEvent) =>
         callback(payload);
       ipcRenderer.on("updater:event", listener);
       return () => ipcRenderer.removeListener("updater:event", listener);
@@ -178,8 +178,12 @@ const api = {
       limit?: number;
       offset?: number;
     }): Promise<ThreadPage> => ipcRenderer.invoke("threads:listProject", input),
-    create: (projectId: string, title: string, afterThreadId?: string | null): Promise<Thread> =>
-      ipcRenderer.invoke("threads:create", projectId, title, afterThreadId),
+    create: (
+      projectId: string,
+      title: string | null,
+      afterThreadId?: string | null,
+      agentId?: string | null,
+    ): Promise<Thread> => ipcRenderer.invoke("threads:create", projectId, title, afterThreadId, agentId),
     rename: (id: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
@@ -199,53 +203,68 @@ const api = {
       };
     },
   },
-  messages: {
-    list: (threadId: string): Promise<Message[]> => ipcRenderer.invoke("messages:list", threadId),
-    create: (input: { thread_id: string; role: string; content: string }): Promise<Message> =>
-      ipcRenderer.invoke("messages:create", input),
-  },
   agent: {
-    getState: (): Promise<AgentRuntimeSnapshot> => ipcRenderer.invoke("agent:getState"),
-    getCommands: (): Promise<SlashCommandInfo[]> => ipcRenderer.invoke("agent:getCommands"),
-    getModels: (): Promise<AgentModelSummary[]> => ipcRenderer.invoke("agent:getModels"),
-    getStats: (): Promise<SessionStats | null> => ipcRenderer.invoke("agent:getStats"),
-    sendPrompt: (input: AgentPromptInput): Promise<void> =>
+    getState: (): Promise<AcpSessionState> => ipcRenderer.invoke("agent:getState"),
+    getCommands: (): Promise<AvailableCommand[]> => ipcRenderer.invoke("agent:getCommands"),
+    getConfigOptions: (): Promise<SessionConfigOption[]> =>
+      ipcRenderer.invoke("agent:getConfigOptions"),
+    getCapabilities: (): Promise<AgentCapabilities | null> =>
+      ipcRenderer.invoke("agent:getCapabilities"),
+    getStats: (): Promise<{
+      used: number;
+      size: number;
+      cost?: { amount: number; currency: string };
+    } | null> => ipcRenderer.invoke("agent:getStats"),
+    sendPrompt: (input: AcpPromptInput): Promise<void> =>
       ipcRenderer.invoke("agent:sendPrompt", input),
-    replacePrompt: (input: AgentReplacePromptInput): Promise<void> =>
+    replacePrompt: (input: AcpReplacePromptInput): Promise<void> =>
       ipcRenderer.invoke("agent:replacePrompt", input),
     abort: (): Promise<void> => ipcRenderer.invoke("agent:abort"),
     switchThread: (threadId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchThread", threadId),
     createThread: (
       projectId: string,
-      title: string,
+      title: string | null,
       afterThreadId?: string | null,
-    ): Promise<Thread> => ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId),
-    cycleModel: (direction?: "forward" | "backward"): Promise<AgentModelSummary | null> =>
-      ipcRenderer.invoke("agent:cycleModel", direction),
-    setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
-      ipcRenderer.invoke("agent:setModel", model),
-    setThinkingLevel: (level: ThinkingLevel): Promise<void> =>
-      ipcRenderer.invoke("agent:setThinkingLevel", level),
-    cycleThinkingLevel: (): Promise<string | null> =>
-      ipcRenderer.invoke("agent:cycleThinkingLevel"),
-    compact: (customInstructions?: string): Promise<void> =>
-      ipcRenderer.invoke("agent:compact", customInstructions),
-    respondToUiRequest: (response: AgentUiResponse): Promise<void> =>
-      ipcRenderer.invoke("agent:respondToUiRequest", response),
+      agentId?: string | null,
+    ): Promise<Thread> => ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId, agentId),
+    getSelectedAgentIds: (): Promise<string[]> => ipcRenderer.invoke("agent:getSelectedAgentIds"),
+    setSelectedAgentIds: (agentIds: string[]): Promise<void> =>
+      ipcRenderer.invoke("agent:setSelectedAgentIds", agentIds),
+    setConfigOption: (configId: string, value: string | boolean): Promise<SessionConfigOption[]> =>
+      ipcRenderer.invoke("agent:setConfigOption", configId, value),
+    respondToPermission: (response: {
+      sessionId: string;
+      optionId?: string;
+      cancelled?: boolean;
+    }): Promise<void> => ipcRenderer.invoke("agent:respondToPermission", response),
+    listAgents: (): Promise<AcpAgentDescriptor[]> => ipcRenderer.invoke("agent:listAgents"),
+    switchAgent: (agentId: string): Promise<void> =>
+      ipcRenderer.invoke("agent:switchAgent", agentId),
+    getPreferredAgentId: (): Promise<string> => ipcRenderer.invoke("agent:getPreferredAgentId"),
+    setPreferredAgentId: (agentId: string): Promise<void> =>
+      ipcRenderer.invoke("agent:setPreferredAgentId", agentId),
+    closeThreadSession: (threadId: string): Promise<void> =>
+      ipcRenderer.invoke("agent:closeThreadSession", threadId),
     setEditorText: (text: string): Promise<void> => ipcRenderer.invoke("agent:setEditorText", text),
     getEditorText: (): Promise<string> => ipcRenderer.invoke("agent:getEditorText"),
     pasteToEditor: (text: string): Promise<void> => ipcRenderer.invoke("agent:pasteToEditor", text),
     reportEditorText: (text: string): void => {
       ipcRenderer.send("agent:reportEditorText", text);
     },
-    onEvent: (callback: (payload: AgentBridgeEvent) => void) => {
-      const listener = (_event: any, payload: AgentBridgeEvent) => callback(payload);
+    onEvent: (callback: (payload: AcpBridgeEvent) => void) => {
+      const listener = (_event: any, payload: AcpBridgeEvent) => callback(payload);
       ipcRenderer.on("agent:event", listener);
       return () => {
         ipcRenderer.removeListener("agent:event", listener);
       };
     },
+  },
+  mcp: {
+    list: () => ipcRenderer.invoke("mcp:list"),
+    create: (input: unknown) => ipcRenderer.invoke("mcp:create", input),
+    update: (id: string, input: unknown) => ipcRenderer.invoke("mcp:update", id, input),
+    delete: (id: string) => ipcRenderer.invoke("mcp:delete", id),
   },
   dialog: {
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("dialog:pickDirectory"),
@@ -286,19 +305,17 @@ const api = {
   },
   editor: {
     activate: (): Promise<void> => ipcRenderer.invoke("editor:activate"),
-    getState: (): Promise<import("../contracts/agent.ts").AgentRuntimeSnapshot> =>
-      ipcRenderer.invoke("editor:getState"),
+    getState: (): Promise<AcpSessionState> => ipcRenderer.invoke("editor:getState"),
     sendPrompt: (input: {
       message: string;
-      streamingBehavior?: "followUp" | "steer";
+      images?: Array<{ data: string; mimeType: string }>;
     }): Promise<void> => ipcRenderer.invoke("editor:sendPrompt", input),
     abort: (): Promise<void> => ipcRenderer.invoke("editor:abort"),
-    setModel: (model: { provider: string; modelId: string }): Promise<boolean> =>
+    setModel: (model: { provider?: string; modelId: string }): Promise<boolean> =>
       ipcRenderer.invoke("editor:setModel", model),
     dispose: (): Promise<void> => ipcRenderer.invoke("editor:dispose"),
-    onEvent: (callback: (payload: import("../contracts/agent.ts").AgentBridgeEvent) => void) => {
-      const listener = (_event: any, payload: import("../contracts/agent.ts").AgentBridgeEvent) =>
-        callback(payload);
+    onEvent: (callback: (payload: AcpBridgeEvent) => void) => {
+      const listener = (_event: any, payload: AcpBridgeEvent) => callback(payload);
       ipcRenderer.on("editor:event", listener);
       return () => ipcRenderer.removeListener("editor:event", listener);
     },

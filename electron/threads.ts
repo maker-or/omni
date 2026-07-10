@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { Thread, ThreadPage } from "../contracts/threads.ts";
-import type { Message } from "../contracts/messages.ts";
 import { getDb } from "./db.ts";
 
 export function listThreads(): Thread[] {
@@ -59,14 +58,15 @@ export function getMaxThreadSortOrder(): number {
 export function getThreadSortOrder(id: string): number | null {
   const thread = getThread(id);
   if (!thread) return null;
-  const order = (thread as Thread & { sort_order?: number | null }).sort_order;
+  const order = thread.sort_order;
   return typeof order === "number" ? order : null;
 }
 
 export function createThread(
   projectId: string,
-  title: string,
-  sessionFile: string | null = null,
+  title: string | null,
+  agentId: string,
+  agentSessionId: string,
   sortOrder?: number,
 ): Thread {
   const db = getDb();
@@ -81,20 +81,23 @@ export function createThread(
   const row: Thread = {
     id: randomUUID(),
     project_id: projectId,
-    title: title.trim(),
-    session_file: sessionFile,
+    agent_id: agentId,
+    agent_session_id: agentSessionId,
+    title: title?.trim() || null,
     created_at: now,
     last_used_at: now,
   };
   const stmt = db.prepare(
-    "INSERT INTO threads (id, project_id, title, sort_order, session_file, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO threads (id, project_id, agent_id, agent_session_id, title, sort_order, created_at, last_used_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   stmt.run(
     row.id,
     row.project_id,
+    row.agent_id,
+    row.agent_session_id,
     row.title,
     nextSortOrder,
-    row.session_file,
     row.created_at,
     row.last_used_at,
   );
@@ -106,57 +109,26 @@ export function deleteThread(id: string): void {
   const thread = getThread(id);
   const stmt = db.prepare("DELETE FROM threads WHERE id = ?");
   stmt.run(id);
-  const sortOrder =
-    thread && typeof (thread as Thread & { sort_order?: number | null }).sort_order === "number"
-      ? (thread as Thread & { sort_order?: number | null }).sort_order
-      : null;
+  const sortOrder = thread && typeof thread.sort_order === "number" ? thread.sort_order : null;
   if (sortOrder != null) {
     const shift = db.prepare("UPDATE threads SET sort_order = sort_order - 1 WHERE sort_order > ?");
     shift.run(sortOrder);
   }
 }
 
-export function updateThreadSessionFile(id: string, sessionFile: string | null): void {
+export function updateThreadAgentSessionId(id: string, agentSessionId: string): void {
   const db = getDb();
-  const stmt = db.prepare("UPDATE threads SET session_file = ? WHERE id = ?");
-  stmt.run(sessionFile, id);
+  db.prepare("UPDATE threads SET agent_session_id = ? WHERE id = ?").run(agentSessionId, id);
 }
 
-export function updateThreadTitle(id: string, title: string): void {
+export function updateThreadTitle(id: string, title: string | null): void {
   const db = getDb();
   const stmt = db.prepare("UPDATE threads SET title = ? WHERE id = ?");
-  stmt.run(title.trim(), id);
+  stmt.run(title?.trim() || null, id);
 }
 
 export function touchThread(id: string, timestamp = Date.now()): void {
   const db = getDb();
   const stmt = db.prepare("UPDATE threads SET last_used_at = ? WHERE id = ?");
   stmt.run(timestamp, id);
-}
-
-export function getMessages(threadId: string): Message[] {
-  const db = getDb();
-  const query = db.prepare("SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC");
-  return query.all(threadId) as unknown as Message[];
-}
-
-export function createMessage(input: {
-  thread_id: string;
-  role: string;
-  content: string;
-}): Message {
-  const db = getDb();
-  const row: Message = {
-    id: randomUUID(),
-    thread_id: input.thread_id,
-    role: input.role as any,
-    content: input.content,
-    created_at: Date.now(),
-  };
-  const stmt = db.prepare(
-    "INSERT INTO messages (id, thread_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
-  );
-  stmt.run(row.id, row.thread_id, row.role, row.content, row.created_at);
-  touchThread(row.thread_id, row.created_at);
-  return row;
 }

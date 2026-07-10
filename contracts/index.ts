@@ -1,15 +1,22 @@
 export { type Project, type NewProject } from "./projects.ts";
-export { type Thread, type NewThread } from "./threads.ts";
-export { messageRoles, type Message, type MessageRole, type NewMessage } from "./messages.ts";
+export { type Thread, type NewThread, type ThreadPage, type OpenTabsState } from "./threads.ts";
 export {
-  type AgentBridgeEvent,
-  type AgentModelSummary,
-  type AgentPromptInput,
-  type AgentPromptImage,
-  type AgentReplacePromptInput,
-  type AgentMessageEntryRef,
-  type AgentQueueState,
-  type AgentRuntimeSnapshot,
-  type AgentUiRequest,
-  type AgentUiResponse,
-} from "./agent.ts";
+  type AcpAgentDescriptor,
+  type AcpBridgeEvent,
+  type AcpChatMessage,
+  type AcpPermissionRequest,
+  type AcpPermissionResponse,
+  type AcpPromptInput,
+  type AcpReplacePromptInput,
+  type AcpSessionState,
+  type AcpToolCallState,
+  type AcpUsageState,
+  type AgentCapabilities,
+  type AvailableCommand,
+  type ContentBlock,
+  type McpServerInput,
+  type McpServerRecord,
+  type PlanEntry,
+  type SessionConfigOption,
+  type SessionUpdate,
+} from "./acp.ts";

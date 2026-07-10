@@ -1,4 +1,8 @@
-import type { AgentPromptImage } from "../../contracts/agent.ts";
+export interface AgentPromptImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
 import type { MessageLike } from "./message-utils";
 
 const AGENT_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;

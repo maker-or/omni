@@ -1,15 +1,17 @@
 import type { Project } from "../../contracts/projects.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
-import type { Message } from "../../contracts/messages.ts";
 import type {
-  AgentBridgeEvent,
-  AgentModelSummary,
-  AgentPromptInput,
-  AgentReplacePromptInput,
-  AgentRuntimeSnapshot,
-  AgentUiResponse,
-} from "../../contracts/agent.ts";
-import type { SessionStats, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+  AcpAgentDescriptor,
+  AcpBridgeEvent,
+  AcpPromptInput,
+  AcpReplacePromptInput,
+  AcpSessionState,
+  AgentCapabilities,
+  AvailableCommand,
+  McpServerInput,
+  McpServerRecord,
+  SessionConfigOption,
+} from "../../contracts/acp.ts";
 import type {
   InstallationMetadata,
   UpdateManifest,
@@ -31,8 +33,6 @@ export interface CreateProjectInput {
 }
 
 declare global {
-  type ThinkingLevel = "low" | "medium" | "high";
-
   interface Window {
     omni: {
       launch: {
@@ -55,7 +55,7 @@ declare global {
         getManifest: () => Promise<UpdateManifest | null>;
         getInstallation: () => Promise<InstallationMetadata>;
         getRun: (runId: string) => Promise<UpdateRunRecord | null>;
-        getUpdaterSnapshot: () => Promise<AgentRuntimeSnapshot>;
+        getUpdaterSnapshot: () => Promise<AcpSessionState>;
         scheduleForQuit: () => Promise<UpdateState>;
         startNow: () => Promise<UpdateRunResult>;
         retryFailedUpdate: () => Promise<UpdateState>;
@@ -65,7 +65,7 @@ declare global {
         markActiveHealthy: (version: string) => Promise<boolean>;
         onStateChanged: (callback: (state: UpdateState) => void) => () => void;
         onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
-        onUpdaterEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
+        onUpdaterEvent: (callback: (payload: AcpBridgeEvent) => void) => () => void;
       };
       launcherUpdate: {
         check: () => Promise<LauncherUpdateState>;
@@ -119,8 +119,9 @@ declare global {
         }) => Promise<ThreadPage>;
         create: (
           projectId: string,
-          title: string,
+          title: string | null,
           afterThreadId?: string | null,
+          agentId?: string | null,
         ) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
@@ -133,35 +134,53 @@ declare global {
         getActive: () => Promise<string | null>;
         onChanged: (callback: (state: OpenTabsState) => void) => () => void;
       };
-      messages: {
-        list: (threadId: string) => Promise<Message[]>;
-        create: (input: { thread_id: string; role: string; content: string }) => Promise<Message>;
-      };
       agent: {
-        getState: () => Promise<AgentRuntimeSnapshot>;
-        getCommands: () => Promise<SlashCommandInfo[]>;
-        getModels: () => Promise<AgentModelSummary[]>;
-        getStats: () => Promise<SessionStats | null>;
-        sendPrompt: (input: AgentPromptInput) => Promise<void>;
-        replacePrompt: (input: AgentReplacePromptInput) => Promise<void>;
+        getState: () => Promise<AcpSessionState>;
+        getCommands: () => Promise<AvailableCommand[]>;
+        getConfigOptions: () => Promise<SessionConfigOption[]>;
+        getCapabilities: () => Promise<AgentCapabilities | null>;
+        getStats: () => Promise<{
+          used: number;
+          size: number;
+          cost?: { amount: number; currency: string };
+        } | null>;
+        sendPrompt: (input: AcpPromptInput) => Promise<void>;
+        replacePrompt: (input: AcpReplacePromptInput) => Promise<void>;
         abort: () => Promise<void>;
         switchThread: (threadId: string) => Promise<void>;
         createThread: (
           projectId: string,
-          title: string,
+          title: string | null,
           afterThreadId?: string | null,
+          agentId?: string | null,
         ) => Promise<Thread>;
-        cycleModel: (direction?: "forward" | "backward") => Promise<AgentModelSummary | null>;
-        setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
-        setThinkingLevel: (level: ThinkingLevel) => Promise<void>;
-        cycleThinkingLevel: () => Promise<string | null>;
-        compact: (customInstructions?: string) => Promise<void>;
-        respondToUiRequest: (response: AgentUiResponse) => Promise<void>;
+        getSelectedAgentIds: () => Promise<string[]>;
+        setSelectedAgentIds: (agentIds: string[]) => Promise<void>;
+        setConfigOption: (
+          configId: string,
+          value: string | boolean,
+        ) => Promise<SessionConfigOption[]>;
+        respondToPermission: (response: {
+          sessionId: string;
+          optionId?: string;
+          cancelled?: boolean;
+        }) => Promise<void>;
+        listAgents: () => Promise<AcpAgentDescriptor[]>;
+        switchAgent: (agentId: string) => Promise<void>;
+        getPreferredAgentId: () => Promise<string>;
+        setPreferredAgentId: (agentId: string) => Promise<void>;
+        closeThreadSession: (threadId: string) => Promise<void>;
         setEditorText: (text: string) => Promise<void>;
         getEditorText: () => Promise<string>;
         pasteToEditor: (text: string) => Promise<void>;
         reportEditorText: (text: string) => void;
-        onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
+        onEvent: (callback: (payload: AcpBridgeEvent) => void) => () => void;
+      };
+      mcp: {
+        list: () => Promise<McpServerRecord[]>;
+        create: (input: McpServerInput) => Promise<McpServerRecord>;
+        update: (id: string, input: Partial<McpServerInput>) => Promise<McpServerRecord | null>;
+        delete: (id: string) => Promise<void>;
       };
       dialog: {
         pickDirectory: () => Promise<string | null>;
@@ -183,15 +202,15 @@ declare global {
       };
       editor: {
         activate: () => Promise<void>;
-        getState: () => Promise<AgentRuntimeSnapshot>;
+        getState: () => Promise<AcpSessionState>;
         sendPrompt: (input: {
           message: string;
-          streamingBehavior?: "followUp" | "steer";
+          images?: Array<{ data: string; mimeType: string }>;
         }) => Promise<void>;
         abort: () => Promise<void>;
-        setModel: (model: { provider: string; modelId: string }) => Promise<boolean>;
+        setModel: (model: { provider?: string; modelId: string }) => Promise<boolean>;
         dispose: () => Promise<void>;
-        onEvent: (callback: (payload: AgentBridgeEvent) => void) => () => void;
+        onEvent: (callback: (payload: AcpBridgeEvent) => void) => () => void;
       };
       analytics: {
         componentMutationRequested: (input: {
@@ -224,3 +243,5 @@ declare global {
     };
   }
 }
+
+

@@ -7,7 +7,8 @@ function thread(id: string, projectId = "project-1"): Thread {
     id,
     project_id: projectId,
     title: id,
-    session_file: null,
+    agent_id: "pipper-mock",
+    agent_session_id: "session-1",
     created_at: Number(id.replace(/\D/g, "")) || 1,
     last_used_at: Number(id.replace(/\D/g, "")) || 1,
   };

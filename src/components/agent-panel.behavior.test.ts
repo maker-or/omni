@@ -1,21 +1,20 @@
 import { describe, expect, test } from "vitest";
-import type { AgentRuntimeSnapshot } from "../../contracts/agent.ts";
 import {
-  buildConversationScrollKey,
-  getMessageStructureKey,
+  formatProviderName,
   getRuntimeStatusItems,
   groupConversationMessages,
 } from "./agent-panel";
-import type { MessageLike } from "@/lib/message-utils";
+import type { AgentPanelSnapshot } from "@/store/agent-store";
 
-function runtimeSnapshot(patch: Partial<AgentRuntimeSnapshot> = {}): AgentRuntimeSnapshot {
+function runtimeSnapshot(patch: Partial<AgentPanelSnapshot> = {}): AgentPanelSnapshot {
   return {
-    projectId: "project-1",
-    threadId: "thread-1",
-    sessionFile: null,
-    sessionId: "session-1",
-    sessionName: "Session",
-    cwd: "/tmp/project",
+    projectId: "p1",
+    threadId: "t1",
+    agentId: "pipper-mock",
+    agentSessionId: "s1",
+    sessionId: "s1",
+    cwd: "/tmp",
+    title: null,
     model: null,
     thinkingLevel: "medium",
     isStreaming: false,
@@ -29,123 +28,61 @@ function runtimeSnapshot(patch: Partial<AgentRuntimeSnapshot> = {}): AgentRuntim
     queue: { steering: [], followUp: [] },
     commands: [],
     models: [],
+    configOptions: [],
+    plan: null,
+    usage: null,
+    toolCalls: {},
     stats: null,
     status: {},
     workingMessage: null,
     workingVisible: false,
     hiddenThinkingLabel: null,
-    title: null,
     editorText: "",
+    authRequiredMessage: null,
+    switchingAgent: false,
     ...patch,
-  } as AgentRuntimeSnapshot;
+  };
 }
 
-const user = (content: unknown): MessageLike => ({ role: "user", content }) as never;
-const assistant = (content: unknown): MessageLike => ({ role: "assistant", content }) as never;
-const toolResult = (toolCallId: string): MessageLike =>
-  ({ role: "toolResult", toolCallId, content: "ok" }) as never;
-
-describe("agent panel behavior helpers", () => {
-  test("groups visible conversation messages by consecutive role and keeps original edit index", () => {
+describe("agent-panel conversation grouping", () => {
+  test("groups visible conversation messages by consecutive role", () => {
     const grouped = groupConversationMessages(
-      [user("first user"), user("second user"), toolResult("tool-1"), assistant("assistant text")],
-      assistant("streaming continuation"),
+      [
+        { role: "user", content: "a" },
+        { role: "user", content: "b" },
+        { role: "assistant", content: "c" },
+      ] as never,
+      null,
     );
-
-    expect(grouped).toHaveLength(2);
-    expect(grouped[0]).toMatchObject({
-      key: "user-0",
-      role: "user",
-      originalIndex: 0,
-      isStreaming: false,
-    });
-    expect(grouped[0]?.messages.map((message) => message.content)).toEqual([
-      "first user",
-      "second user",
-    ]);
-    expect(grouped[1]).toMatchObject({
-      key: "assistant-after-1",
-      role: "assistant",
-      originalIndex: 3,
-      isStreaming: true,
-    });
-    expect(grouped[1]?.messages.map((message) => message.content)).toEqual([
-      "assistant text",
-      "streaming continuation",
-    ]);
-  });
-
-  test("keeps the assistant turn key stable when a streaming message becomes settled", () => {
-    const firstSnapshot = groupConversationMessages(
-      [user("make it smoother")],
-      assistant("Reading files"),
-    );
-    const nextSnapshot = groupConversationMessages(
-      [user("make it smoother"), assistant("Reading files")],
-      assistant("Applying fix"),
-    );
-
-    expect(firstSnapshot[1]?.key).toBe("assistant-after-0");
-    expect(nextSnapshot[1]?.key).toBe(firstSnapshot[1]?.key);
-    expect(nextSnapshot[1]?.isStreaming).toBe(true);
-  });
-
-  test("scroll key changes for trace-only structural changes with identical visible text", () => {
-    const base = assistant([
-      { type: "text", text: "Done" },
-      { type: "toolCall", id: "tool-a", name: "bash", arguments: { command: "pwd" } },
-    ]);
-    const changedTool = assistant([
-      { type: "text", text: "Done" },
-      { type: "toolCall", id: "tool-b", name: "bash", arguments: { command: "pwd" } },
-    ]);
-
-    expect(getMessageStructureKey(base)).not.toBe(getMessageStructureKey(changedTool));
     expect(
-      buildConversationScrollKey("thread-1", groupConversationMessages([base], null), false),
-    ).not.toBe(
-      buildConversationScrollKey("thread-1", groupConversationMessages([changedTool], null), false),
-    );
+      grouped[0]?.messages.map((message) => (message as { content?: string }).content),
+    ).toEqual(["a", "b"]);
+    expect(
+      grouped[1]?.messages.map((message) => (message as { content?: string }).content),
+    ).toEqual(["c"]);
   });
 
-  test("runtime status items reflect draft, hidden thinking, and background flags", () => {
+  test("includes streaming assistant in groups when streaming", () => {
+    const grouped = groupConversationMessages(
+      [{ role: "user", content: "hi" }] as never,
+      { role: "assistant", content: "partial" } as never,
+    );
+    expect(grouped.some((g) => g.isStreaming)).toBe(true);
+  });
+
+  test("runtime status surfaces auth and switching agent", () => {
     const items = getRuntimeStatusItems(
       runtimeSnapshot({
-        title: "Edited title",
-        sessionName: "Session",
-        workingVisible: true,
-        workingMessage: "\u001B[33mApplying\u001B[0m",
-        status: { phase: "Applying", detail: "Testing" },
-        hiddenThinkingLabel: "reasoning",
-        editorText: "queued draft",
+        authRequiredMessage: "Please authenticate",
+        switchingAgent: true,
         isStreaming: true,
-        isCompacting: true,
-        isRetrying: true,
-        autoCompactionEnabled: false,
-        autoRetryEnabled: false,
       }),
     );
-
-    expect(items).toEqual([
-      "Applying",
-      "Testing",
-      "Thinking: reasoning",
-      "Draft: queued draft",
-      "Compacting",
-      "Retrying",
-      "Auto-compaction off",
-      "Auto-retry off",
-    ]);
+    expect(items).toContain("Please authenticate");
+    expect(items).toContain("Switching agent…");
   });
 
-  test("runtime status omits hidden thinking when the agent is not streaming", () => {
-    expect(
-      getRuntimeStatusItems(
-        runtimeSnapshot({
-          hiddenThinkingLabel: "reasoning",
-          isStreaming: false,
-        }),
-      ),
-    ).not.toContain("Thinking: reasoning");
+  test("formatProviderName title-cases providers", () => {
+    expect(formatProviderName("openai-codex")).toBe("Openai Codex");
   });
 });

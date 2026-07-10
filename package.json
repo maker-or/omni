@@ -26,6 +26,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@agentclientprotocol/codex-acp": "1.1.2",
+    "@agentclientprotocol/sdk": "^1.2.1",
     "@base-ui/react": "^1.6.0",
     "@earendil-works/pi-coding-agent": "^0.79.0",
     "@fontsource-variable/inter": "^5.2.8",

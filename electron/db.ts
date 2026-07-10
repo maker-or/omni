@@ -27,6 +27,54 @@ function ensureColumn(table: string, column: string, ddl: string): void {
   }
 }
 
+function columnExists(table: string, column: string): boolean {
+  const current = db?.prepare(`PRAGMA table_info(${table})`).all() as
+    | Array<{ name: string }>
+    | undefined;
+  return Boolean(current?.some((row) => row.name === column));
+}
+
+function migrateThreadsTable(): void {
+  if (!db) return;
+
+  // New columns for ACP
+  ensureColumn("threads", "agent_id", "ALTER TABLE threads ADD COLUMN agent_id TEXT;");
+  ensureColumn(
+    "threads",
+    "agent_session_id",
+    "ALTER TABLE threads ADD COLUMN agent_session_id TEXT;",
+  );
+
+  // Backfill from legacy session_file when present
+  if (columnExists("threads", "session_file")) {
+    db.exec(`
+      UPDATE threads
+      SET agent_session_id = COALESCE(agent_session_id, session_file, id),
+          agent_id = COALESCE(agent_id, 'legacy-pi')
+      WHERE agent_session_id IS NULL OR agent_id IS NULL;
+    `);
+  } else {
+    db.exec(`
+      UPDATE threads
+      SET agent_session_id = COALESCE(agent_session_id, id),
+          agent_id = COALESCE(agent_id, 'pipper-mock')
+      WHERE agent_session_id IS NULL OR agent_id IS NULL;
+    `);
+  }
+
+  // Title may be null in ACP model
+  db.exec(`UPDATE threads SET title = NULL WHERE title = '';`);
+
+  // Drop messages table (agent is source of truth)
+  db.exec(`DROP TABLE IF EXISTS messages;`);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_threads_project ON threads(project_id);
+    CREATE INDEX IF NOT EXISTS idx_threads_project_last_used
+      ON threads(project_id, last_used_at DESC, created_at DESC);
+  `);
+}
+
 export function getDb(): DatabaseSync {
   if (db) return db;
 
@@ -34,86 +82,88 @@ export function getDb(): DatabaseSync {
   db = new DatabaseSync(filePath);
   db.exec("PRAGMA foreign_keys = ON;");
 
-  // Create tables manually on startup if they don'texist;
   db.exec(`
-        CREATE TABLE IF NOT EXISTS projects (
-          id TEXT PRIMARY KEY,
-          path TEXT NOT NULL UNIQUE,
-          name TEXT NOT NULL,
-          icon TEXT
-        );
-      `);
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      icon TEXT
+    );
+  `);
 
   db.exec(`
-        CREATE TABLE IF NOT EXISTS threads (
-          id TEXT PRIMARY KEY,
-          project_id TEXT NOT NULL,
-          title TEXT NOT NULL,
-          sort_order INTEGER,
-          session_file TEXT,
-          created_at INTEGER,
-          last_used_at INTEGER,
-          FOREIGN KEY (project_id) REFERENCES
-  projects(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_threads_project_id
-  ON threads(project_id);
-      `);
+    CREATE TABLE IF NOT EXISTS threads (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL,
+      agent_session_id TEXT NOT NULL,
+      title TEXT,
+      sort_order INTEGER,
+      created_at INTEGER,
+      last_used_at INTEGER,
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_threads_project ON threads(project_id);
+    CREATE INDEX IF NOT EXISTS idx_threads_project_last_used
+      ON threads(project_id, last_used_at DESC, created_at DESC);
+  `);
 
+  // Legacy installs may still have old schema; migrate columns
   ensureColumn("threads", "sort_order", "ALTER TABLE threads ADD COLUMN sort_order INTEGER;");
   ensureColumn("threads", "session_file", "ALTER TABLE threads ADD COLUMN session_file TEXT;");
   ensureColumn("threads", "created_at", "ALTER TABLE threads ADD COLUMN created_at INTEGER;");
   ensureColumn("threads", "last_used_at", "ALTER TABLE threads ADD COLUMN last_used_at INTEGER;");
   db.exec("UPDATE threads SET sort_order = rowid WHERE sort_order IS NULL;");
+  migrateThreadsTable();
 
   db.exec(`
-        CREATE TABLE IF NOT EXISTS messages (
-          id TEXT PRIMARY KEY,
-          thread_id TEXT NOT NULL,
-          role TEXT NOT NULL,
-          content TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          FOREIGN KEY (thread_id) REFERENCES threads(id)
-  ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_messages_thread_id
-  ON messages(thread_id);
-        CREATE INDEX IF NOT EXISTS
-  idx_messages_thread_created ON messages(thread_id,
-  created_at);
-      `);
+    CREATE TABLE IF NOT EXISTS user_agent_selections (
+      agent_id TEXT PRIMARY KEY,
+      selected_at INTEGER NOT NULL
+    );
+  `);
 
   db.exec(`
-        CREATE TABLE IF NOT EXISTS auth_users (
-          provider TEXT NOT NULL,
-          provider_user_id TEXT PRIMARY KEY,
-          email TEXT,
-          name TEXT,
-          avatar_url TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          last_seen_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_auth_users_last_seen
-  ON auth_users(last_seen_at DESC);
-      `);
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      transport_type TEXT NOT NULL,
+      url TEXT,
+      command TEXT,
+      args TEXT,
+      env TEXT,
+      created_at INTEGER,
+      updated_at INTEGER
+    );
+  `);
 
   db.exec(`
-        UPDATE threads
-        SET created_at = COALESCE(
-          created_at,
-          (SELECT MIN(messages.created_at) FROM messages WHERE messages.thread_id = threads.id),
-          CAST(strftime('%s', 'now') AS INTEGER) * 1000
-        ),
-        last_used_at = COALESCE(
-          last_used_at,
-          (SELECT MAX(messages.created_at) FROM messages WHERE messages.thread_id = threads.id),
-          created_at,
-          CAST(strftime('%s', 'now') AS INTEGER) * 1000
-        );
-        CREATE INDEX IF NOT EXISTS idx_threads_project_last_used
-  ON threads(project_id, last_used_at DESC, created_at DESC);
-      `);
+    CREATE TABLE IF NOT EXISTS auth_users (
+      provider TEXT NOT NULL,
+      provider_user_id TEXT PRIMARY KEY,
+      email TEXT,
+      name TEXT,
+      avatar_url TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_users_last_seen
+      ON auth_users(last_seen_at DESC);
+  `);
+
+  db.exec(`
+    UPDATE threads
+    SET created_at = COALESCE(
+      created_at,
+      CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    ),
+    last_used_at = COALESCE(
+      last_used_at,
+      created_at,
+      CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    );
+  `);
 
   return db;
 }
@@ -185,6 +235,34 @@ export function getAuthUser(providerUserId: string): AuthUserRecord | null {
     .prepare("SELECT * FROM auth_users WHERE provider_user_id = ?")
     .get(providerUserId) as AuthUserRecord | undefined;
   return row ?? null;
+}
+
+export function getSelectedAgentIds(): string[] {
+  const rows = getDb()
+    .prepare("SELECT agent_id FROM user_agent_selections ORDER BY selected_at ASC")
+    .all() as Array<{ agent_id: string }>;
+  return rows.map((r) => r.agent_id);
+}
+
+export function setSelectedAgentIds(agentIds: string[]): void {
+  const db = getDb();
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    db.prepare("DELETE FROM user_agent_selections").run();
+    const stmt = db.prepare("INSERT INTO user_agent_selections (agent_id, selected_at) VALUES (?, ?)");
+    const now = Date.now();
+    for (const id of agentIds) {
+      stmt.run(id, now);
+    }
+    db.exec("COMMIT;");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // Transaction may already have been rolled back by SQLite.
+    }
+    throw error;
+  }
 }
 
 export function getMostRecentAuthUser(): AuthUserRecord | null {

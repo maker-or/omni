@@ -16,7 +16,7 @@ interface ThreadState {
   error: string | null;
   loadThreads: () => Promise<void>;
   loadProjectThreads: (projectId: string, options?: { reset?: boolean }) => Promise<void>;
-  createThread: (projectId: string, title: string) => Promise<Thread | null>;
+  createThread: (projectId: string, title: string, agentId?: string | null) => Promise<Thread | null>;
   renameThread: (id: string, title: string) => Promise<Thread | null>;
   deleteThread: (id: string) => Promise<void>;
   addThread: (thread: Thread) => void;
@@ -107,9 +107,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }));
     }
   },
-  createThread: async (projectId, title) => {
+  createThread: async (projectId, title, agentId) => {
     try {
-      const thread = await window.omni.threads.create(projectId, title);
+      const thread = await window.omni.threads.create(projectId, title, null, agentId);
       set((state) => ({
         threads: [thread, ...state.threads.filter((item) => item.id !== thread.id)],
         error: null,

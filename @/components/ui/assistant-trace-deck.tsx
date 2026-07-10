@@ -13,6 +13,43 @@ import {
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import type { StepStatus } from "@/components/ui/thinking-steps";
+import { useAgentTerminalStore } from "@/store/agent-terminal-store";
+
+function AgentTerminalOutput({ terminalId }: { terminalId: string }) {
+  const output = useAgentTerminalStore((s) => s.outputs[terminalId] ?? "");
+  return (
+    <div
+      data-pipper-id={`agent-terminal-${terminalId}`}
+      className="mt-1.5 rounded-md border border-border/60 bg-black/95"
+    >
+      <div className="flex items-center justify-between border-b border-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+        <span>Terminal</span>
+        <span className="font-mono normal-case tracking-normal text-zinc-500">
+          {terminalId.slice(0, 8)}
+        </span>
+      </div>
+      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-[11px] text-zinc-100">
+        {output || "…"}
+      </pre>
+    </div>
+  );
+}
+
+function extractTerminalIdsFromPart(part: { content?: unknown; status?: string }): string[] {
+  const ids: string[] = [];
+  if (!Array.isArray(part.content)) return ids;
+  for (const block of part.content) {
+    if (
+      block &&
+      typeof block === "object" &&
+      (block as { type?: string }).type === "terminal" &&
+      typeof (block as { terminalId?: string }).terminalId === "string"
+    ) {
+      ids.push((block as { terminalId: string }).terminalId);
+    }
+  }
+  return ids;
+}
 
 interface AssistantTraceDeckProps extends HTMLAttributes<HTMLDivElement> {
   traceParts: any[];
@@ -257,15 +294,31 @@ function AssistantTraceDeck({
             const toolCallId = part.id;
             const toolName = part.name || "";
             const args = part.arguments ?? part.args ?? {};
+            const partStatus = part.status as string | undefined;
+            const terminalIds = [
+              ...extractTerminalIdsFromPart(part),
+              ...((
+                activeMessages.find((m) => {
+                  const candidate = m as ToolResultMessage & { terminalIds?: string[] };
+                  return candidate.role === "toolResult" && candidate.toolCallId === toolCallId;
+                }) as (ToolResultMessage & { terminalIds?: string[] }) | undefined
+              )?.terminalIds ?? []),
+            ].filter((id, i, all) => all.indexOf(id) === i);
 
             const resultMsg = activeMessages.find((m) => {
               const candidate = m as ToolResultMessage;
               return candidate.role === "toolResult" && candidate.toolCallId === toolCallId;
             }) as ToolResultMessage | undefined;
 
-            const isPartStreaming = isStreaming && isLast && !resultMsg;
-            const missingResult = !isStreaming && !resultMsg;
-            const resultIsError = Boolean(resultMsg?.isError);
+            const completedViaPart =
+              partStatus === "completed" || partStatus === "failed" || partStatus === "cancelled";
+            const hasResult = Boolean(resultMsg) || completedViaPart;
+            const isPartStreaming =
+              (isStreaming && isLast && !hasResult) ||
+              partStatus === "pending" ||
+              partStatus === "in_progress";
+            const missingResult = !isStreaming && !hasResult;
+            const resultIsError = Boolean(resultMsg?.isError) || partStatus === "failed";
 
             let status: StepStatus = "complete";
             if (isPartStreaming) {
@@ -341,6 +394,11 @@ function AssistantTraceDeck({
                   .filter(Boolean)
                   .slice(0, 10);
               }
+            } else if (completedViaPart && part.rawOutput != null) {
+              resultText =
+                typeof part.rawOutput === "string"
+                  ? part.rawOutput
+                  : JSON.stringify(part.rawOutput);
             }
 
             const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
@@ -378,7 +436,11 @@ function AssistantTraceDeck({
                   />
                 )}
 
-                {resultMsg && toolName === "bash" && (
+                {terminalIds.map((terminalId) => (
+                  <AgentTerminalOutput key={terminalId} terminalId={terminalId} />
+                ))}
+
+                {resultMsg && toolName === "bash" && terminalIds.length === 0 && (
                   <div className="mt-1.5 rounded bg-black/95 p-2 font-mono text-[11px] text-zinc-100 max-h-48 overflow-y-auto whitespace-pre-wrap">
                     {resultText}
                   </div>

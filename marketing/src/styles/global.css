@@ -3,12 +3,19 @@
 @theme {
   --font-serif: "Averia Serif Libre", serif;
   --font-geist: "Geist", sans-serif;
+  --font-devanagari: "Tiro Devanagari Hindi", "Noto Serif Devanagari", serif;
+  --font-editorial: "EB Garamond", Georgia, "Times New Roman", serif;
 
   --color-page-bg: #15408f;
   --color-page-fg: #d1e1ff;
+  --color-sandesh-bg: #15408f;
+  --color-sandesh-periwinkle: #6a89c1;
+  --color-sandesh-ink: #15408f;
+  --color-sandesh-diamond: #dce7f8;
 
   --animate-scale-pulse: scale-pulse 3s infinite ease-in-out;
   --animate-fade-in: fade-in 1s ease-out forwards;
+  --animate-underline-shimmer: sandesh-underline-shimmer 1.1s ease-in-out infinite;
 
   @keyframes scale-pulse {
     0%,
@@ -30,6 +37,16 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes sandesh-underline-shimmer {
+    0%,
+    100% {
+      border-bottom-color: #15408f;
+    }
+    50% {
+      border-bottom-color: rgba(21, 64, 143, 0.35);
     }
   }
 }

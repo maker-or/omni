@@ -2,7 +2,10 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../contracts/agent.ts";
+import type {
+  AcpBridgeEvent as AgentBridgeEvent,
+  AcpSessionState as AgentRuntimeSnapshot,
+} from "../contracts/acp.ts";
 import type {
   InstallationMetadata,
   UpdateFailure,
@@ -143,37 +146,6 @@ function failureFromError(error: unknown, phase: UpdateState["phase"]): UpdateFa
   return makeFailure("VALIDATION", message, phase === "validating" ? "validation" : "preflight");
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function agentEventDetail(event: Record<string, unknown>): string {
-  const type = String(event.type ?? "unknown");
-  if (type === "tool_execution_start" || type === "tool_execution_end") {
-    const tool = String(event.toolName ?? "unknown");
-    const error = type === "tool_execution_end" && event.isError ? " error=true" : "";
-    return ` tool=${tool}${error}`;
-  }
-  if (type === "turn_end") {
-    const toolResults = Array.isArray(event.toolResults) ? event.toolResults.length : 0;
-    return ` tool_results=${toolResults}`;
-  }
-  return "";
-}
-
-function summarizeAgentEnd(event: Record<string, unknown>): {
-  messageCount: number;
-  textPreview: string;
-} {
-  const messages = Array.isArray(event.messages) ? event.messages : [];
-  const preview = extractAssistantSummaryFromMessages(messages);
-  return {
-    messageCount: messages.length,
-    textPreview: preview.length > 240 ? `${preview.slice(0, 240)}…` : preview,
-  };
-}
-
 export class UpdateManager {
   private readonly options: {
     manifestUrl: string | null;
@@ -307,13 +279,16 @@ export class UpdateManager {
   private logUpdaterSnapshot(label: string): void {
     const snapshot = this.options.agent.getUpdaterState();
     this.log(
-      `agent_snapshot=${label} streaming=${snapshot.isStreaming} messages=${snapshot.messages.length} session=${snapshot.sessionId ?? "none"}`,
+      `agent_snapshot=${label} streaming=${snapshot.isStreaming} messages=${snapshot.messages.length} session=${snapshot.agentSessionId ?? "none"}`,
     );
     const lastAssistant = [...snapshot.messages]
       .reverse()
       .find((message) => message.role === "assistant");
     if (lastAssistant) {
-      const preview = textFromMessageContent(lastAssistant.content);
+      const preview =
+        typeof lastAssistant.text === "string"
+          ? lastAssistant.text
+          : textFromMessageContent((lastAssistant as { content?: unknown }).content);
       if (preview) {
         this.log(
           `agent_snapshot=${label} last_assistant=${JSON.stringify(
@@ -333,92 +308,42 @@ export class UpdateManager {
   private handleUpdaterEvent(payload: AgentBridgeEvent): void {
     if (!this.currentRun) return;
     this.logBridgePayload(payload);
-    if (payload.type === "snapshot") {
-      const messageCount = payload.snapshot.messages.length;
+    if (payload.type === "session-state") {
+      const messageCount = payload.state.messages.length;
       if (messageCount !== this.lastTranscriptMessageCount) {
         this.lastTranscriptMessageCount = messageCount;
         this.logTranscript({
           kind: "session_messages",
           label: `snapshot_${messageCount}`,
-          messages: payload.snapshot.messages,
+          messages: payload.state.messages,
         });
       }
       this.patchRun((record) => ({
         ...record,
         agent: {
           ...record.agent,
-          session_id: payload.snapshot.sessionId ?? record.agent.session_id,
-          status: payload.snapshot.isStreaming ? "streaming" : record.agent.status,
+          session_id: payload.state.agentSessionId ?? record.agent.session_id,
+          status: payload.state.isStreaming ? "streaming" : record.agent.status,
           message_count: messageCount,
         },
       }));
       return;
     }
-    if (payload.type !== "event") return;
-    const event = asRecord(payload.event);
-    if (!event || typeof event.type !== "string") return;
-    const eventType = event.type;
-    this.log(`agent_event=${eventType}${agentEventDetail(event)}`);
-
-    if (eventType === "tool_execution_start") {
-      const toolName = String(event.toolName ?? "unknown");
-      this.patchRun((record) => ({
-        ...record,
-        agent: {
-          ...record.agent,
-          status: "streaming",
-          last_event: eventType,
-          tool_count: (record.agent.tool_count ?? 0) + 1,
-          tools_used: [...new Set([...(record.agent.tools_used ?? []), toolName])],
-        },
-      }));
-      return;
-    }
-
-    if (eventType === "tool_execution_end") {
-      this.patchRun((record) => ({
-        ...record,
-        agent: {
-          ...record.agent,
-          status: "streaming",
-          last_event: eventType,
-        },
-      }));
-      return;
-    }
-
-    if (eventType === "agent_end") {
-      const messages = Array.isArray(event.messages) ? event.messages : [];
-      const { messageCount, textPreview } = summarizeAgentEnd(event);
-      this.logTranscript({
-        kind: "session_messages",
-        label: "agent_end",
-        messages,
-      });
+    if (payload.type === "stop") {
       this.patchRun((record) => ({
         ...record,
         agent: {
           ...record.agent,
           status: "completed",
-          last_event: eventType,
-          message_count: messageCount,
+          last_event: "stop",
           ended_at: new Date().toISOString(),
-          summary: textPreview || record.agent.summary,
         },
       }));
-      if (textPreview) this.log(`agent_end_summary=${JSON.stringify(textPreview)}`);
       return;
     }
-
-    if (eventType === "agent_start" || eventType === "turn_start" || eventType === "turn_end") {
-      this.patchRun((record) => ({
-        ...record,
-        agent: {
-          ...record.agent,
-          status: "streaming",
-          last_event: eventType,
-        },
-      }));
+    if (payload.type === "session-update") {
+      // session-update is also mirrored into session-state by the connection manager
+      this.log(`agent_event=session_update kind=${payload.update.sessionUpdate}`);
     }
   }
 

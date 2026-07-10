@@ -1,47 +1,38 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AgentBridgeEvent, AgentRuntimeSnapshot } from "../../contracts/agent.ts";
+import type { AcpBridgeEvent, AcpSessionState } from "../../contracts/acp.ts";
 
-function snapshot(
-  threadId: string,
-  patch: Partial<AgentRuntimeSnapshot> = {},
-): AgentRuntimeSnapshot {
+function sessionState(threadId: string, patch: Partial<AcpSessionState> = {}): AcpSessionState {
   return {
     projectId: "project-1",
     threadId,
-    sessionFile: null,
-    sessionId: `session-${threadId}`,
-    sessionName: `Session ${threadId}`,
+    agentId: "pipper-mock",
+    agentSessionId: `session-${threadId}`,
     cwd: "/tmp/project",
-    model: null,
-    thinkingLevel: null,
+    title: null,
+    configOptions: [],
+    commands: [],
+    messages: [],
+    toolCalls: {},
+    plan: null,
+    usage: null,
+    currentModeId: null,
     isStreaming: false,
     isCompacting: false,
-    isRetrying: false,
-    autoCompactionEnabled: true,
-    autoRetryEnabled: true,
-    messages: [],
-    messageEntryRefs: [],
-    streamingMessage: null,
-    queue: { steering: [], followUp: [] },
-    commands: [],
-    models: [],
-    stats: null,
-    status: {},
-    workingMessage: null,
-    workingVisible: false,
-    hiddenThinkingLabel: null,
-    title: null,
     editorText: "",
+    authRequiredMessage: null,
+    switchingAgent: false,
     ...patch,
-  } as AgentRuntimeSnapshot;
+  };
 }
 
 async function loadStore() {
   vi.resetModules();
   const mod = await import("./agent-store.ts");
   mod.useAgentStore.setState({
+    state: null,
     snapshot: null,
     uiRequest: null,
+    permissionRequest: null,
     isConnecting: false,
     error: null,
   });
@@ -53,31 +44,30 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("agent store bridge behavior", () => {
-  test("keeps ui request lifecycle responsive while a thread switch is pending", async () => {
-    let bridgeHandler: ((payload: AgentBridgeEvent) => void) | null = null;
-    let currentSnapshot = snapshot("thread-a");
+describe("agent store ACP bridge behavior", () => {
+  test("keeps permission UI responsive while a thread switch is pending", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    let currentState = sessionState("thread-a");
     let resolveSwitch: (() => void) | null = null;
     const switchGate = new Promise<void>((resolve) => {
       resolveSwitch = resolve;
     });
     const agentApi = {
-      onEvent: vi.fn((handler: (payload: AgentBridgeEvent) => void) => {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
         bridgeHandler = handler;
         return vi.fn();
       }),
-      getState: vi.fn(async () => currentSnapshot),
+      getState: vi.fn(async () => currentState),
+      getCapabilities: vi.fn(async () => ({
+        promptCapabilities: { image: true, embeddedContext: true },
+      })),
       switchThread: vi.fn(async () => switchGate),
-      respondToUiRequest: vi.fn(async () => {}),
+      respondToPermission: vi.fn(async () => {}),
       sendPrompt: vi.fn(async () => {}),
       replacePrompt: vi.fn(async () => {}),
       abort: vi.fn(async () => {}),
       createThread: vi.fn(),
-      cycleModel: vi.fn(),
-      setModel: vi.fn(),
-      cycleThinkingLevel: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      compact: vi.fn(),
+      setConfigOption: vi.fn(),
       setEditorText: vi.fn(),
       pasteToEditor: vi.fn(),
       reportEditorText: vi.fn(),
@@ -90,56 +80,70 @@ describe("agent store bridge behavior", () => {
     const switching = store.getState().switchThread("thread-b");
     await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-b"));
 
-    bridgeHandler?.({ type: "status", key: "phase", text: "old thread noise" });
-    expect(store.getState().snapshot?.status.phase).toBeUndefined();
-
+    // Stale session-update for old thread is ignored during pending switch
     bridgeHandler?.({
-      type: "ui-request",
-      request: {
-        id: "request-1",
-        kind: "confirm",
-        title: "Continue?",
-        message: "Approve while switching",
+      type: "session-update",
+      sessionId: "session-thread-a",
+      threadId: "thread-a",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "stale",
+        content: { type: "text", text: "noise" },
       },
     });
-    expect(store.getState().uiRequest?.id).toBe("request-1");
+    expect(store.getState().state?.messages.some((m) => m.id === "stale")).toBeFalsy();
 
-    bridgeHandler?.({ type: "ui-response", requestId: "request-1", value: true });
+    bridgeHandler?.({
+      type: "permission-request",
+      request: {
+        sessionId: "session-thread-a",
+        toolCall: { toolCallId: "t1", title: "Edit file" },
+        options: [
+          { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          { optionId: "reject", name: "Reject", kind: "reject_once" },
+        ],
+      },
+    });
+    expect(store.getState().uiRequest?.sessionId).toBe("session-thread-a");
+    expect(store.getState().permissionRequest?.sessionId).toBe("session-thread-a");
+
+    bridgeHandler?.({ type: "permission-resolved", sessionId: "session-thread-a" });
     expect(store.getState().uiRequest).toBeNull();
 
-    currentSnapshot = snapshot("thread-b", { status: { phase: "new thread" } });
+    currentState = sessionState("thread-b", {
+      messages: [
+        { id: "m1", role: "user", text: "hi", thought: "", toolCallIds: [], streaming: false },
+      ],
+    });
     resolveSwitch?.();
     await switching;
 
+    expect(store.getState().state?.threadId).toBe("thread-b");
     expect(store.getState().snapshot?.threadId).toBe("thread-b");
-    expect(store.getState().snapshot?.status.phase).toBe("new thread");
     expect(store.getState().error).toBeNull();
   });
 
-  test("ignores stale snapshots while waiting for the requested thread snapshot", async () => {
-    let bridgeHandler: ((payload: AgentBridgeEvent) => void) | null = null;
-    let currentSnapshot = snapshot("thread-a");
+  test("ignores stale session-state while waiting for the requested thread", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    let currentState = sessionState("thread-a");
     let resolveSwitch: (() => void) | null = null;
     const switchGate = new Promise<void>((resolve) => {
       resolveSwitch = resolve;
     });
     const agentApi = {
-      onEvent: vi.fn((handler: (payload: AgentBridgeEvent) => void) => {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
         bridgeHandler = handler;
         return vi.fn();
       }),
-      getState: vi.fn(async () => currentSnapshot),
+      getState: vi.fn(async () => currentState),
+      getCapabilities: vi.fn(async () => null),
       switchThread: vi.fn(async () => switchGate),
-      respondToUiRequest: vi.fn(),
+      respondToPermission: vi.fn(),
       sendPrompt: vi.fn(),
       replacePrompt: vi.fn(),
       abort: vi.fn(),
       createThread: vi.fn(),
-      cycleModel: vi.fn(),
-      setModel: vi.fn(),
-      cycleThinkingLevel: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      compact: vi.fn(),
+      setConfigOption: vi.fn(),
       setEditorText: vi.fn(),
       pasteToEditor: vi.fn(),
       reportEditorText: vi.fn(),
@@ -152,39 +156,38 @@ describe("agent store bridge behavior", () => {
     const switching = store.getState().switchThread("thread-b");
     await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-b"));
 
-    bridgeHandler?.({ type: "snapshot", snapshot: snapshot("thread-a", { title: "stale" }) });
-    expect(store.getState().snapshot?.title).toBeNull();
+    bridgeHandler?.({
+      type: "session-state",
+      state: sessionState("thread-a", { title: "stale" }),
+    });
+    expect(store.getState().state?.title).toBeNull();
 
-    bridgeHandler?.({ type: "snapshot", snapshot: snapshot("thread-b", { title: "fresh" }) });
-    expect(store.getState().snapshot?.threadId).toBe("thread-b");
-    expect(store.getState().snapshot?.title).toBe("fresh");
+    bridgeHandler?.({
+      type: "session-state",
+      state: sessionState("thread-b", { title: "fresh" }),
+    });
+    expect(store.getState().state?.threadId).toBe("thread-b");
+    expect(store.getState().state?.title).toBe("fresh");
 
-    currentSnapshot = snapshot("thread-b", { title: "fresh" });
+    currentState = sessionState("thread-b", { title: "fresh" });
     resolveSwitch?.();
     await switching;
   });
 
-  test("surfaces switch-thread failures and accepts later bridge events after pending target clears", async () => {
-    let bridgeHandler: ((payload: AgentBridgeEvent) => void) | null = null;
+  test("surfaces switch-thread failures", async () => {
     const agentApi = {
-      onEvent: vi.fn((handler: (payload: AgentBridgeEvent) => void) => {
-        bridgeHandler = handler;
-        return vi.fn();
-      }),
-      getState: vi.fn(async () => snapshot("thread-a")),
+      onEvent: vi.fn((_handler: (payload: AcpBridgeEvent) => void) => vi.fn()),
+      getState: vi.fn(async () => sessionState("thread-a")),
+      getCapabilities: vi.fn(async () => null),
       switchThread: vi.fn(async () => {
         throw new Error("runtime refused switch");
       }),
-      respondToUiRequest: vi.fn(),
+      respondToPermission: vi.fn(),
       sendPrompt: vi.fn(),
       replacePrompt: vi.fn(),
       abort: vi.fn(),
       createThread: vi.fn(),
-      cycleModel: vi.fn(),
-      setModel: vi.fn(),
-      cycleThinkingLevel: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      compact: vi.fn(),
+      setConfigOption: vi.fn(),
       setEditorText: vi.fn(),
       pasteToEditor: vi.fn(),
       reportEditorText: vi.fn(),
@@ -195,10 +198,7 @@ describe("agent store bridge behavior", () => {
     await store.getState().connect();
     await store.getState().switchThread("thread-b");
 
-    expect(store.getState().snapshot?.threadId).toBe("thread-a");
+    expect(store.getState().state?.threadId).toBe("thread-a");
     expect(store.getState().error).toBe("runtime refused switch");
-
-    bridgeHandler?.({ type: "status", key: "phase", text: "still connected" });
-    expect(store.getState().snapshot?.status.phase).toBe("still connected");
   });
 });

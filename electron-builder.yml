@@ -9,6 +9,8 @@ files:
 asar: true
 asarUnpack:
   - "**/node_modules/node-pty/**/*"
+  - "**/node_modules/@agentclientprotocol/codex-acp/**/*"
+  - "**/node_modules/@openai/codex*/**/*"
 mac:
   artifactName: pipper-${version}-${arch}.${ext}
   # Set to null to skip local macOS code signing, speeding up local DMG builds by 10x.

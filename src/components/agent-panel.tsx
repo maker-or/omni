@@ -25,6 +25,7 @@ import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
+import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
@@ -33,7 +34,7 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
-import type { AgentRuntimeSnapshot, AgentUiRequest } from "../../contracts/agent.ts";
+import type { AgentPanelSnapshot } from "@/store/agent-store";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import {
   extractGroupedMessageImages,
@@ -535,10 +536,12 @@ function cleanRuntimeStatusText(text: string | null | undefined): string | null 
   return cleaned ? cleaned : null;
 }
 
-export function getRuntimeStatusItems(snapshot: AgentRuntimeSnapshot | null): string[] {
+export function getRuntimeStatusItems(snapshot: AgentPanelSnapshot | null): string[] {
   if (!snapshot) return [];
 
   const items: string[] = [];
+  if (snapshot.authRequiredMessage) items.push(snapshot.authRequiredMessage);
+  if (snapshot.switchingAgent) items.push("Switching agent…");
   if (snapshot.workingVisible) {
     const workingMessage = cleanRuntimeStatusText(snapshot.workingMessage);
     if (workingMessage) items.push(workingMessage);
@@ -555,8 +558,6 @@ export function getRuntimeStatusItems(snapshot: AgentRuntimeSnapshot | null): st
   if (editorText) items.push(`Draft: ${editorText}`);
   if (snapshot.isCompacting) items.push("Compacting");
   if (snapshot.isRetrying) items.push("Retrying");
-  if (!snapshot.autoCompactionEnabled) items.push("Auto-compaction off");
-  if (!snapshot.autoRetryEnabled) items.push("Auto-retry off");
 
   return items.filter((item, index, all) => all.indexOf(item) === index);
 }
@@ -564,7 +565,7 @@ export function getRuntimeStatusItems(snapshot: AgentRuntimeSnapshot | null): st
 export function AgentPanel() {
   "use no memo";
   const queryClient = useQueryClient();
-  const { activeProject, loadActiveProject } = useProjectStore();
+  const { activeProject } = useProjectStore();
   const {
     threads,
     pagesByProject,
@@ -583,13 +584,14 @@ export function AgentPanel() {
     sendPrompt,
     replacePrompt,
     abort,
-    compact,
     switchThread,
     createThread,
     respondToUiRequest,
     setModel,
     cycleThinkingLevel,
+    canAttachImage,
   } = useAgentStore();
+  const showImageAttach = canAttachImage();
   const [projectsList, setProjectsList] = useState<
     Array<{ id: string; name: string; icon: string }>
   >([]);
@@ -608,6 +610,8 @@ export function AgentPanel() {
   const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [pendingCreateProjectId, setPendingCreateProjectId] = useState<string | null>(null);
   const [modelSearch, setModelSearch] = useState("");
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
@@ -790,6 +794,10 @@ export function AgentPanel() {
       setProjectsList(list);
     }
     void loadProjects();
+  }, []);
+
+  useEffect(() => {
+    void useAgentRegistryStore.getState().load();
   }, []);
 
   useEffect(() => {
@@ -1079,12 +1087,9 @@ export function AgentPanel() {
 
   const handleSelectThread = async (id: string) => {
     setActiveTabId(id);
-    await window.omni.tabs.open(id);
-    await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
     if (id === snapshot?.threadId) return;
     setRequestedThreadId(id);
     await switchThread(id);
-    await loadActiveProject();
   };
 
   const handleCloseThreadTab = async (id: string) => {
@@ -1132,22 +1137,7 @@ export function AgentPanel() {
       }
       return;
     }
-    if (token === "/compact") {
-      setIsSubmitting(true);
-      try {
-        await compact(args.join(" ") || undefined);
-        setInputValue("");
-      } catch (err) {
-        toast({
-          icon: <WarningIcon className="size-5 text-red-500" />,
-          title: "Compaction failed",
-          description: err instanceof Error ? err.message : "The agent did not start compaction.",
-        });
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
+    // Hardcoded /compact removed — agents advertise commands via available_commands_update.
     const operationThreadId = snapshot?.threadId;
     setIsSubmitting(true);
     try {
@@ -1330,15 +1320,17 @@ export function AgentPanel() {
     return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
   };
 
-  const handleCreateThread = async () => {
-    const projectId = hoveredProjectId ?? activeProject?.id;
+  const handleCreateThread = async (agentId?: string | null) => {
+    const projectId = pendingCreateProjectId ?? hoveredProjectId ?? activeProject?.id;
     if (!projectId || isCreatingThread) return;
     const project = projectsList.find((item) => item.id === projectId);
     const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
     setIsCreatingThread(true);
+    setPendingCreateProjectId(null);
+    setShowAgentPicker(false);
     try {
-      const thread = await createThread(projectId, title, snapshot?.threadId ?? null);
+      const thread = await createThread(projectId, title, snapshot?.threadId ?? null, agentId ?? null);
       await loadProjectThreads(projectId, { reset: true });
       await handleSelectThread(thread.id);
     } catch (err) {
@@ -1350,6 +1342,26 @@ export function AgentPanel() {
     } finally {
       setIsCreatingThread(false);
     }
+  };
+
+  const handleRequestCreateThread = () => {
+    const projectId = hoveredProjectId ?? activeProject?.id;
+    if (!projectId || isCreatingThread) return;
+    const registryAgents = useAgentRegistryStore.getState().agents;
+    const selectedIds = useAgentRegistryStore.getState().selectedAgentIds;
+    const availableAgents = registryAgents.filter(
+      (a) => selectedIds.includes(a.id) && a.available,
+    );
+    if (availableAgents.length === 0) {
+      toast({
+        icon: <WarningIcon className="size-5 text-amber-500" />,
+        title: "No agents selected",
+        description: "Select a coding agent in the launch window first.",
+      });
+      return;
+    }
+    setPendingCreateProjectId(projectId);
+    setShowAgentPicker(true);
   };
 
   const projectItems = projectsList.map((project, idx) => ({
@@ -1456,19 +1468,25 @@ export function AgentPanel() {
                     )) as any)
                   : undefined;
                 const isEditing = editingThreadId === thread.id;
+                const agentLabel = thread.agent_id
+                  ? (thread.agent_id.split("@")[0] ?? thread.agent_id)
+                  : null;
+                const tabTitle = thread.title ?? "New thread";
+                const labelWithAgent = agentLabel ? `${tabTitle} · ${agentLabel}` : tabTitle;
                 return (
                   <TabItem
                     key={thread.id}
                     value={thread.id}
-                    label={thread.title}
+                    label={labelWithAgent}
                     icon={Icon}
                     onClose={() => handleCloseThreadTab(thread.id)}
                     editing={isEditing}
-                    editValue={isEditing ? editingThreadTitle : thread.title}
+                    editValue={isEditing ? editingThreadTitle : tabTitle}
                     onEditValueChange={setEditingThreadTitle}
                     onEditCommit={commitRenameThread}
                     onEditCancel={cancelRenameThread}
-                    onDoubleClick={() => startRenameThread(thread.id, thread.title)}
+                    onDoubleClick={() => startRenameThread(thread.id, tabTitle)}
+                    data-pipper-id={`thread-tab-${thread.id}`}
                   />
                 );
               })}
@@ -1632,7 +1650,7 @@ export function AgentPanel() {
                             disabled={isCreatingThread}
                             onClick={async () => {
                               setIsDropdownOpen(false);
-                              await handleCreateThread();
+                              handleRequestCreateThread();
                             }}
                           >
                             {isCreatingThread ? "Creating..." : "Create new thread"}
@@ -1897,6 +1915,47 @@ export function AgentPanel() {
                 </div>
               )}
               <div className="relative isolate">
+                {snapshot?.plan && snapshot.plan.length > 0 && isStreaming ? (
+                  <div
+                    data-pipper-id="plan-popover"
+                    className="absolute right-0 bottom-full mb-1.5 z-[240] w-[280px]"
+                  >
+                    <Elevated
+                      offset={2}
+                      shadowLevel={4}
+                      className="rounded-xl border border-border/80 p-2"
+                    >
+                      <div className="px-1.5 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Plan
+                      </div>
+                      <ul className="flex flex-col gap-1">
+                        {snapshot.plan.map((entry, index) => (
+                          <li
+                            key={`${entry.content}-${index}`}
+                            className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-foreground"
+                          >
+                            <span className="mt-0.5 size-3.5 shrink-0 text-muted-foreground">
+                              {entry.status === "completed" ? (
+                                <ModelCheckIcon size={14} className="text-emerald-500" />
+                              ) : (
+                                <span className="inline-block size-2.5 rounded-full border border-border" />
+                              )}
+                            </span>
+                            <span
+                              className={
+                                entry.status === "completed"
+                                  ? "text-muted-foreground line-through"
+                                  : undefined
+                              }
+                            >
+                              {entry.content}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </Elevated>
+                  </div>
+                ) : null}
                 <AgentSlashCommandMenu
                   commands={slashMatches}
                   selectedIndex={selectedCommandIndex}
@@ -1921,17 +1980,20 @@ export function AgentPanel() {
                   onStop={() => void handleAbort()}
                   isStopping={isAborting}
                   sendLabel={isSubmitting ? "Sending" : "Send"}
-                  leftSlot={({ openFilePicker }) => (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Attach images"
-                      onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
-                    >
-                      <PaperclipIcon size={15} />
-                    </Button>
-                  )}
+                  leftSlot={({ openFilePicker }) =>
+                    showImageAttach ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        data-pipper-id="attach-image-button"
+                        aria-label="Attach images"
+                        onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
+                      >
+                        <PaperclipIcon size={15} />
+                      </Button>
+                    ) : null
+                  }
                   textareaProps={{
                     onKeyDown: (event) => {
                       if (
@@ -2163,6 +2225,61 @@ export function AgentPanel() {
           </div>
         </div>
       </Tabs>
+
+      {showAgentPicker && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center"
+              onClick={() => {
+                setShowAgentPicker(false);
+                setPendingCreateProjectId(null);
+              }}
+            >
+              <div className="absolute inset-0 bg-black/30" />
+              <div
+                className="relative z-10 w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Pick an agent for this thread
+                </div>
+                <div className="flex flex-col gap-1 mt-1">
+                  {useAgentRegistryStore
+                    .getState()
+                    .agents.filter(
+                      (a) =>
+                        useAgentRegistryStore.getState().selectedAgentIds.includes(a.id) &&
+                        a.available,
+                    )
+                    .map((agent) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-accent"
+                        onClick={() => {
+                          void handleCreateThread(agent.id);
+                        }}
+                      >
+                        <span className="flex-1 font-medium">{agent.displayName}</span>
+                        <span className="text-[11px] text-muted-foreground">{agent.name}</span>
+                      </button>
+                    ))}
+                </div>
+                <button
+                  type="button"
+                  className="mt-1 w-full rounded-lg px-2 py-1.5 text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => {
+                    setShowAgentPicker(false);
+                    setPendingCreateProjectId(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }

@@ -1,25 +1,40 @@
 import { describe, expect, test } from "vitest";
-import { matchAgentCommands, mergeAgentCommands } from "./agent-commands";
+import {
+  commandsFromAvailable,
+  formatCommandInsert,
+  matchAgentCommands,
+  mergeAgentCommands,
+} from "./agent-commands";
 
 describe("agent slash commands", () => {
-  test("keeps built-ins first and removes extension duplicates by command name", () => {
+  test("maps agent-advertised commands without hardcoded builtins", () => {
     const commands = mergeAgentCommands([
-      { name: "compact", description: "extension duplicate" },
-      { name: "explain", description: "Explain the current code" },
+      { name: "compact", description: "agent compact" },
+      { name: "explain", description: "Explain the current code", input: { hint: "topic" } },
     ] as never);
 
     expect(commands).toEqual([
-      { name: "compact", description: "Compact conversation context", source: "builtin" },
-      { name: "abort", description: "Stop the current response", source: "builtin" },
-      { name: "explain", description: "Explain the current code", source: "extension" },
+      {
+        name: "compact",
+        description: "agent compact",
+        inputHint: null,
+        source: "agent",
+      },
+      {
+        name: "explain",
+        description: "Explain the current code",
+        inputHint: "topic",
+        source: "agent",
+      },
     ]);
+    expect(commandsFromAvailable([])).toEqual([]);
   });
 
   test("matches case-insensitively and ranks prefix matches before substring matches", () => {
     const commands = [
-      { name: "recompact", description: "", source: "extension" as const },
-      { name: "compact", description: "", source: "builtin" as const },
-      { name: "compare", description: "", source: "extension" as const },
+      { name: "recompact", description: "", source: "agent" as const },
+      { name: "compact", description: "", source: "agent" as const },
+      { name: "compare", description: "", source: "agent" as const },
     ];
 
     expect(matchAgentCommands(commands, "comp").map((command) => command.name)).toEqual([
@@ -31,5 +46,12 @@ describe("agent slash commands", () => {
       "recompact",
       "compact",
     ]);
+  });
+
+  test("formatCommandInsert adds trailing space when input hint exists", () => {
+    expect(formatCommandInsert({ name: "web", description: "", source: "agent" })).toBe("/web");
+    expect(
+      formatCommandInsert({ name: "web", description: "", inputHint: "query", source: "agent" }),
+    ).toBe("/web ");
   });
 });

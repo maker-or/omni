@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowArcLeftIcon, CircleNotch, FolderIcon } from "@phosphor-icons/react";
 import type { Project } from "../../contracts/projects.ts";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,8 @@ import { ProjectIcon } from "@/components/ui/icon-picker";
 import { cn } from "@/lib/utils";
 import { AddProjectForm } from "./add-project-form";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
+import { AgentSelector } from "@/components/agent-selector";
+import { useAgentRegistryStore } from "@/store/agent-registry-store";
 
 interface AuthenticatedStageProps {
   authUser: { name: string | null; email: string | null };
@@ -20,7 +22,9 @@ interface AuthenticatedStageProps {
   handleProjectCreated: (project: Project) => void;
 }
 
-type LaunchStage = "list" | "add";
+type LaunchStage = "agent" | "list" | "add";
+
+const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
 
 export function AuthenticatedStage({
   authUser,
@@ -34,6 +38,9 @@ export function AuthenticatedStage({
   handleOpen,
   handleProjectCreated,
 }: AuthenticatedStageProps) {
+  const selectedAgentIds = useAgentRegistryStore((s) => s.selectedAgentIds);
+  const loadAgents = useAgentRegistryStore((s) => s.load);
+
   const [stage, setStage] = useState<LaunchStage>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -41,9 +48,24 @@ export function AuthenticatedStage({
       if (stageParam === "add") {
         return "add";
       }
+      if (stageParam === "agent") {
+        return "agent";
+      }
+      // First-run / explicit agent re-pick: show registry before projects.
+      try {
+        if (sessionStorage.getItem(AGENT_PICK_STORAGE_KEY) !== "1") {
+          return "agent";
+        }
+      } catch {
+        return "agent";
+      }
     }
     return "list";
   });
+
+  useEffect(() => {
+    void loadAgents();
+  }, [loadAgents]);
 
   return (
     <div className="h-screen w-screen relative overflow-hidden bg-[#171717] text-foreground flex items-center justify-center p-6">
@@ -54,13 +76,52 @@ export function AuthenticatedStage({
 
       {/* Bounded Card */}
       <div className="w-full max-w-md z-10 rounded-2xl p-8 flex flex-col gap-6">
-        {stage === "list" ? (
+        {stage === "agent" ? (
           <>
             <header className="flex flex-col gap-1 pb-2 border-b border-border">
               <h1 className="text-xl font-bold text-foreground tracking-tight truncate">
-                Welcome, {authUser.name ?? authUser.email ?? "User"}!
+                Choose your agent(s)
               </h1>
-              <p className="text-xs text-muted-foreground">Select a project to start</p>
+              <p className="text-xs text-muted-foreground">
+                Select all ACP coding agents you want to use. Cursor, Codex, and Claude are
+                supported. You can pick one per thread later.
+              </p>
+            </header>
+            <AgentSelector
+              showContinue
+              onContinue={() => {
+                try {
+                  sessionStorage.setItem(AGENT_PICK_STORAGE_KEY, "1");
+                } catch {
+                  // ignore
+                }
+                setStage("list");
+              }}
+            />
+          </>
+        ) : stage === "list" ? (
+          <>
+            <header className="flex flex-col gap-1 pb-2 border-b border-border">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h1 className="text-xl font-bold text-foreground tracking-tight truncate">
+                    Welcome, {authUser.name ?? authUser.email ?? "User"}!
+                  </h1>
+                  <p className="text-xs text-muted-foreground">Select a project to start</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 shrink-0 text-[11px]"
+                  data-pipper-id="change-agent-button"
+                  onClick={() => setStage("agent")}
+                >
+                  {selectedAgentIds.length > 0
+                    ? `Change agents (${selectedAgentIds.length})`
+                    : "Select agents"}
+                </Button>
+              </div>
             </header>
 
             <div className="flex flex-col gap-4">

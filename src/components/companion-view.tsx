@@ -15,16 +15,48 @@ import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { toast } from "@/components/ui/toast";
-import type {
-  AgentBridgeEvent,
-  AgentModelSummary,
-  AgentRuntimeSnapshot,
-} from "../../contracts/agent.ts";
+import type { AcpBridgeEvent, AcpSessionState } from "../../contracts/acp.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Elevated } from "@/lib/elevated";
 import { ProviderMark, formatProviderName } from "@/components/agent-panel";
+import {
+  applySessionUpdate,
+  applyTurnStop,
+  createEmptySessionSlice,
+} from "@/lib/acp-session-reducer";
+
+function modelFromConfig(
+  state: AcpSessionState | null,
+): { modelId: string; name: string; provider: string } | null {
+  if (!state) return null;
+  const opt = state.configOptions.find((o) => o.category === "model" || o.id === "model");
+  if (!opt || opt.type !== "select") return null;
+  const current = (opt as { currentValue?: string }).currentValue;
+  if (!current) return null;
+  const options = (opt as { options?: Array<{ value: string; name: string }> }).options ?? [];
+  const match = options.find((o) => o.value === current);
+  return {
+    provider: state.agentId ?? "agent",
+    modelId: current,
+    name: match?.name ?? current,
+  };
+}
+
+function modelsFromConfig(
+  state: AcpSessionState | null,
+): Array<{ modelId: string; name: string; provider: string }> {
+  if (!state) return [];
+  const opt = state.configOptions.find((o) => o.category === "model" || o.id === "model");
+  if (!opt || opt.type !== "select") return [];
+  const options = (opt as { options?: Array<{ value: string; name: string }> }).options ?? [];
+  return options.map((o) => ({
+    provider: state.agentId ?? "agent",
+    modelId: o.value,
+    name: o.name,
+  }));
+}
 
 export function getMessageKey(message: MessageLike, index: number): string {
   const meta = message as { id?: string; toolCallId?: string };
@@ -51,7 +83,7 @@ export function isInternalCommitPrompt(message: MessageLike): boolean {
   );
 }
 
-export function formatModelCost(model: AgentModelSummary): string {
+export function formatModelCost(model: { cost?: { input: number; output: number } }): string {
   if (!model.cost) return "Cost unavailable";
   const input = model.cost.input;
   const output = model.cost.output;
@@ -69,61 +101,79 @@ function cleanStatusText(text: string | null | undefined): string | null {
 }
 
 function patchEditorSnapshot(
-  snapshot: AgentRuntimeSnapshot | null,
-  patch: Partial<AgentRuntimeSnapshot>,
-): AgentRuntimeSnapshot | null {
+  snapshot: AcpSessionState | null,
+  patch: Partial<AcpSessionState>,
+): AcpSessionState | null {
   if (!snapshot) return snapshot;
   return { ...snapshot, ...patch };
 }
 
 export function applyEditorBridgeEvent(
-  snapshot: AgentRuntimeSnapshot | null,
-  payload: AgentBridgeEvent,
-): AgentRuntimeSnapshot | null {
+  snapshot: AcpSessionState | null,
+  payload: AcpBridgeEvent,
+): AcpSessionState | null {
   switch (payload.type) {
-    case "snapshot":
-      return payload.snapshot;
-    case "status":
-      return patchEditorSnapshot(snapshot, {
-        status: { ...snapshot?.status, [payload.key]: payload.text },
-      });
-    case "working-message":
-      return patchEditorSnapshot(snapshot, {
-        workingMessage: payload.message ?? null,
-      });
-    case "working-visible":
-      return patchEditorSnapshot(snapshot, { workingVisible: payload.visible });
+    case "session-state":
+      return payload.state;
+    case "session-update": {
+      if (!snapshot) return snapshot;
+      const slice = applySessionUpdate(
+        createEmptySessionSlice({
+          messages: snapshot.messages,
+          toolCalls: snapshot.toolCalls,
+          plan: snapshot.plan,
+          usage: snapshot.usage,
+          configOptions: snapshot.configOptions,
+          commands: snapshot.commands,
+          currentModeId: snapshot.currentModeId,
+          isStreaming: snapshot.isStreaming,
+          title: snapshot.title,
+        }),
+        payload.update,
+      );
+      return {
+        ...snapshot,
+        messages: slice.messages,
+        toolCalls: slice.toolCalls,
+        plan: slice.plan,
+        usage: slice.usage,
+        configOptions: slice.configOptions,
+        commands: slice.commands,
+        currentModeId: slice.currentModeId,
+        isStreaming: slice.isStreaming,
+        title: slice.titleChanged ? slice.title : snapshot.title,
+      };
+    }
+    case "stop": {
+      if (!snapshot) return snapshot;
+      const slice = applyTurnStop(
+        createEmptySessionSlice({
+          messages: snapshot.messages,
+          isStreaming: true,
+        }),
+      );
+      return { ...snapshot, messages: slice.messages, isStreaming: false, plan: null };
+    }
     case "title":
       return patchEditorSnapshot(snapshot, { title: payload.title ?? null });
     case "editor-text":
       return patchEditorSnapshot(snapshot, { editorText: payload.text });
-    case "event":
-    case "ui-request":
-    case "ui-response":
-    case "notification":
+    default:
       return snapshot;
   }
 }
 
-export function getEditorStatusItems(snapshot: AgentRuntimeSnapshot | null): string[] {
+export function getEditorStatusItems(snapshot: AcpSessionState | null): string[] {
   if (!snapshot) return [];
   const items: string[] = [];
-  if (snapshot.workingVisible) {
-    const workingMessage = cleanStatusText(snapshot.workingMessage);
-    if (workingMessage) items.push(workingMessage);
-  }
-  for (const value of Object.values(snapshot.status)) {
-    const statusText = cleanStatusText(value);
-    if (statusText) items.push(statusText);
-  }
-  const hiddenThinkingLabel = cleanStatusText(snapshot.hiddenThinkingLabel);
-  if (hiddenThinkingLabel && snapshot.isStreaming) items.push(`Thinking: ${hiddenThinkingLabel}`);
+  if (snapshot.authRequiredMessage) items.push(snapshot.authRequiredMessage);
+  if (snapshot.switchingAgent) items.push("Switching agent…");
+  if (snapshot.isStreaming) items.push("Streaming");
   const editorText = cleanStatusText(snapshot.editorText);
   if (editorText) {
     items.push(`Draft: ${editorText.length > 120 ? `${editorText.slice(0, 117)}...` : editorText}`);
   }
   if (snapshot.isCompacting) items.push("Compacting");
-  if (snapshot.isRetrying) items.push("Retrying");
   return items.filter((item, index, all) => all.indexOf(item) === index);
 }
 
@@ -133,7 +183,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 // ─── Editor session hook ───────────────────────────────────────────────────
 function useEditorSession() {
-  const [snapshot, setSnapshot] = useState<AgentRuntimeSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<AcpSessionState | null>(null);
   const [isActivated, setIsActivated] = useState(false);
   const [isActivating, setIsActivating] = useState(true);
   const [activationError, setActivationError] = useState<string | null>(null);
@@ -149,7 +199,7 @@ function useEditorSession() {
         setActivationError(null);
         setIsActivated(false);
         if (window.omni?.editor?.onEvent) {
-          unsubscribe = window.omni.editor.onEvent((payload: AgentBridgeEvent) => {
+          unsubscribe = window.omni.editor.onEvent((payload: AcpBridgeEvent) => {
             if (payload.type === "notification") {
               toast({
                 icon:
@@ -191,13 +241,10 @@ function useEditorSession() {
     };
   }, [activationAttempt]);
 
-  const sendPrompt = useCallback(
-    async (message: string, streamingBehavior?: "followUp" | "steer") => {
-      if (!message.trim()) return;
-      await window.omni?.editor?.sendPrompt?.({ message, streamingBehavior });
-    },
-    [],
-  );
+  const sendPrompt = useCallback(async (message: string) => {
+    if (!message.trim()) return;
+    await window.omni?.editor?.sendPrompt?.({ message });
+  }, []);
 
   const abort = useCallback(async () => {
     await window.omni?.editor?.abort?.();
@@ -326,10 +373,13 @@ export function CompanionView() {
       !isInternalCommitPrompt(m as MessageLike),
   );
   const streamingMessage =
-    isStreaming && !isProcessingAccept ? (snapshot?.streamingMessage ?? null) : null;
-  const models = snapshot?.models ?? [];
-  const modelName = snapshot?.model?.name ?? "No model";
-  const selectedModelProvider = snapshot?.model?.provider ?? null;
+    isStreaming && !isProcessingAccept
+      ? (snapshot?.messages.find((m) => m.streaming && m.role === "assistant") ?? null)
+      : null;
+  const models = modelsFromConfig(snapshot);
+  const currentModel = modelFromConfig(snapshot);
+  const modelName = currentModel?.name ?? "No model";
+  const selectedModelProvider = currentModel?.provider ?? null;
   const statusItems = useMemo(() => getEditorStatusItems(snapshot), [snapshot]);
   const queuedItems = [
     ...(snapshot?.queue.steering ?? []).map((text) => ({
@@ -747,11 +797,7 @@ export function CompanionView() {
                 active={isModelDropdownOpen}
                 disabled={models.length === 0 || isSettingModel || !isActivated}
                 onClick={() => setIsModelDropdownOpen((value) => !value)}
-                title={
-                  snapshot?.model
-                    ? `${snapshot.model.name} · ${formatModelCost(snapshot.model)}`
-                    : undefined
-                }
+                title={currentModel ? `${currentModel.name}` : undefined}
               >
                 <span className="inline-flex min-w-0 max-w-[150px] items-center gap-1.5">
                   {selectedModelProvider && (
@@ -792,8 +838,8 @@ export function CompanionView() {
                     <div className="min-h-0 flex-1 overflow-y-auto py-1">
                       {visibleModels.map((model) => {
                         const isSelected =
-                          model.provider === snapshot?.model?.provider &&
-                          model.modelId === snapshot?.model?.modelId;
+                          model.provider === currentModel?.provider &&
+                          model.modelId === currentModel?.modelId;
                         const providerLabel = formatProviderName(model.provider);
                         return (
                           <button
