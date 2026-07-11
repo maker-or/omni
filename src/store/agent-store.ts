@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   AcpBridgeEvent,
+  AcpChatMessage,
   AcpPermissionRequest,
   AcpPromptInput,
   AcpReplacePromptInput,
@@ -9,6 +10,7 @@ import type {
   AvailableCommand,
   SessionConfigOption,
 } from "../../contracts/acp.ts";
+import { projectChatMessages, projectToolResultMessages } from "../lib/acp-entries";
 import type { Thread } from "../../contracts/threads.ts";
 import {
   applySessionUpdate,
@@ -22,6 +24,21 @@ import { toast } from "../components/ui/toast";
 import { Warning, Info } from "@phosphor-icons/react";
 import React from "react";
 
+/** A question surfaced to the user, mapped from an ACP permission request. */
+export interface UiRequest {
+  id: string;
+  kind: "select" | "confirm";
+  title: string;
+  message?: string;
+  options?: string[];
+  timeoutMs?: number;
+  sessionId: string;
+  /** Thread that raised the question; drives inline-vs-dock routing in the UI.
+   *  Null when the owning session isn't bound to a thread. */
+  threadId: string | null;
+  optionIds?: string[];
+}
+
 interface AgentState {
   state: AcpSessionState | null;
   /** @deprecated Prefer `state`; panel compatibility view model. */
@@ -30,18 +47,16 @@ interface AgentState {
   slice: AcpSessionSlice;
   agentCapabilities: AgentCapabilities | null;
   authMethods: Array<{ id: string; name?: string | null }>;
+  /** Thread IDs whose agent is currently streaming, across all open threads. */
+  runningThreadIds: string[];
   permissionRequest: AcpPermissionRequest | null;
-  /** Permission UI mapped from ACP request_permission. */
-  uiRequest: {
-    id: string;
-    kind: "select" | "confirm";
-    title: string;
-    message?: string;
-    options?: string[];
-    timeoutMs?: number;
-    sessionId: string;
-    optionIds?: string[];
-  } | null;
+  /** Pending questions from agents (mapped from ACP request_permission),
+   *  in arrival order. Multiple background threads can each raise a question;
+   *  they queue here instead of overwriting one another and are answered one
+   *  by one. `uiRequest` mirrors the head for back-compat. */
+  uiRequestQueue: UiRequest[];
+  /** Head of `uiRequestQueue` (or null). Kept for existing call sites. */
+  uiRequest: UiRequest | null;
   isConnecting: boolean;
   error: string | null;
   connect: () => Promise<void>;
@@ -156,7 +171,8 @@ export interface AgentPanelSnapshot {
     isError?: boolean;
     terminalIds?: string[];
   }>;
-  messageEntryRefs: Array<{ entryId: string; parentId: string | null }>;
+  /** Aligned with `messages` indices; null for non-user rows. */
+  messageEntryRefs: Array<{ entryId: string; parentId: string | null } | null>;
   streamingMessage: {
     id: string;
     role: string;
@@ -181,102 +197,48 @@ export interface AgentPanelSnapshot {
 }
 
 /**
- * Build MessageBody-compatible content parts from ACP chat messages + toolCalls.
- * MessageBody only renders thinking/toolCall traces from array content parts.
+ * Memoized projection of the entry timeline into panel messages.
+ * Reused wholesale when entries/toolCalls/isStreaming are referentially
+ * unchanged (e.g. usage/plan/config updates), so the panel's message array
+ * identity — and therefore memoized rows — survive unrelated bridge events.
  */
-export function toPanelMessageContent(
-  message: AcpSessionState["messages"][number],
-  toolCalls: AcpSessionState["toolCalls"],
-): Array<Record<string, unknown>> {
-  const parts: Array<Record<string, unknown>> = [];
-  if (message.role === "user") {
-    if (message.text) parts.push({ type: "text", text: message.text });
-    return parts;
-  }
+let lastPanelProjection: {
+  entries: AcpSessionState["entries"];
+  toolCalls: AcpSessionState["toolCalls"];
+  isStreaming: boolean;
+  streamingChat: AcpChatMessage | null;
+  messages: AgentPanelSnapshot["messages"];
+  messageEntryRefs: AgentPanelSnapshot["messageEntryRefs"];
+} | null = null;
 
-  if (message.thought) {
-    parts.push({ type: "thinking", thinking: message.thought });
+function projectPanelMessages(state: AcpSessionState): NonNullable<typeof lastPanelProjection> {
+  if (
+    lastPanelProjection &&
+    lastPanelProjection.entries === state.entries &&
+    lastPanelProjection.toolCalls === state.toolCalls &&
+    lastPanelProjection.isStreaming === state.isStreaming
+  ) {
+    return lastPanelProjection;
   }
-
-  for (const toolCallId of message.toolCallIds) {
-    const tc = toolCalls[toolCallId];
-    if (!tc) {
-      parts.push({
-        type: "toolCall",
-        id: toolCallId,
-        name: "Tool",
-        arguments: {},
-        status: "pending",
-      });
-      continue;
-    }
-    const args =
-      tc.rawInput && typeof tc.rawInput === "object" && !Array.isArray(tc.rawInput)
-        ? (tc.rawInput as Record<string, unknown>)
-        : tc.rawInput !== undefined
-          ? { input: tc.rawInput }
-          : {};
-    parts.push({
-      type: "toolCall",
-      id: tc.toolCallId,
-      name: tc.title || tc.kind || "Tool",
-      kind: tc.kind,
-      arguments: args,
-      args,
-      status: tc.status,
-      content: tc.content,
-      rawOutput: tc.rawOutput,
-    });
-  }
-
-  if (message.text) {
-    parts.push({ type: "text", text: message.text });
-  }
-  return parts;
-}
-
-/** Synthetic toolResult messages so AssistantTraceDeck can resolve completed tools. */
-export function toPanelToolResultMessages(
-  toolCalls: AcpSessionState["toolCalls"],
-): Array<Record<string, unknown>> {
-  const results: Array<Record<string, unknown>> = [];
-  for (const tc of Object.values(toolCalls)) {
-    if (tc.status !== "completed" && tc.status !== "failed") continue;
-    const textParts: string[] = [];
-    const terminalIds: string[] = [];
-    for (const block of tc.content ?? []) {
-      const typed = block as {
-        type?: string;
-        content?: { type?: string; text?: string };
-        terminalId?: string;
-        text?: string;
-      };
-      if (typed.type === "terminal" && typed.terminalId) {
-        terminalIds.push(typed.terminalId);
-        textParts.push(`[terminal:${typed.terminalId}]`);
-      } else if (typed.type === "content" && typed.content?.type === "text") {
-        textParts.push(typed.content.text ?? "");
-      } else if (typed.type === "diff") {
-        textParts.push("[diff]");
-      } else if (typeof typed.text === "string") {
-        textParts.push(typed.text);
-      }
-    }
-    if (tc.rawOutput != null && textParts.length === 0) {
-      textParts.push(
-        typeof tc.rawOutput === "string" ? tc.rawOutput : JSON.stringify(tc.rawOutput),
-      );
-    }
-    results.push({
-      id: `tool-result-${tc.toolCallId}`,
-      role: "toolResult",
-      toolCallId: tc.toolCallId,
-      isError: tc.status === "failed",
-      content: textParts.join("\n") || (tc.status === "failed" ? "Tool failed" : "OK"),
-      terminalIds,
-    });
-  }
-  return results;
+  const chat = projectChatMessages(state.entries, state.toolCalls, state.isStreaming);
+  const streamingChat = chat.find((m) => m.streaming && m.role === "assistant") ?? null;
+  // Keep streaming assistant only in streamingMessage (legacy panel grouping path).
+  const settledChat = chat.filter((m) => !(m.streaming && m.role === "assistant"));
+  const toolResultMessages = projectToolResultMessages(state.toolCalls);
+  const messages = [...settledChat, ...toolResultMessages] as AgentPanelSnapshot["messages"];
+  // Aligned with `messages` indices; non-user slots are null.
+  const messageEntryRefs = messages.map((m) =>
+    m.role === "user" ? { entryId: m.id, parentId: null } : null,
+  );
+  lastPanelProjection = {
+    entries: state.entries,
+    toolCalls: state.toolCalls,
+    isStreaming: state.isStreaming,
+    streamingChat,
+    messages,
+    messageEntryRefs,
+  };
+  return lastPanelProjection;
 }
 
 export function toPanelSnapshot(state: AcpSessionState | null): AgentPanelSnapshot | null {
@@ -291,19 +253,7 @@ export function toPanelSnapshot(state: AcpSessionState | null): AgentPanelSnapsh
     modelId: o.value,
     name: o.name,
   }));
-  const mappedChat = state.messages.map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: toPanelMessageContent(m, state.toolCalls),
-    thought: m.thought,
-    toolCallIds: m.toolCallIds,
-    streaming: m.streaming,
-  }));
-  const streamingChat = mappedChat.find((m) => m.streaming && m.role === "assistant") ?? null;
-  // Keep streaming assistant only in streamingMessage (legacy panel grouping path).
-  const settledChat = mappedChat.filter((m) => !(m.streaming && m.role === "assistant"));
-  const toolResultMessages = toPanelToolResultMessages(state.toolCalls);
-  const messages = [...settledChat, ...toolResultMessages] as AgentPanelSnapshot["messages"];
+  const { streamingChat, messages, messageEntryRefs } = projectPanelMessages(state);
   return {
     projectId: state.projectId,
     threadId: state.threadId,
@@ -326,9 +276,7 @@ export function toPanelSnapshot(state: AcpSessionState | null): AgentPanelSnapsh
     autoCompactionEnabled: true,
     autoRetryEnabled: true,
     messages,
-    messageEntryRefs: state.messages
-      .filter((m) => m.role === "user")
-      .map((m) => ({ entryId: m.id, parentId: null })),
+    messageEntryRefs,
     streamingMessage: streamingChat
       ? {
           id: streamingChat.id,
@@ -367,7 +315,7 @@ function emptyState(): AcpSessionState {
     title: null,
     configOptions: [],
     commands: [],
-    messages: [],
+    entries: [],
     toolCalls: {},
     plan: null,
     usage: null,
@@ -383,24 +331,30 @@ function emptyState(): AcpSessionState {
 function applyBridgeEvent(
   state: Pick<
     AgentState,
-    "state" | "slice" | "permissionRequest" | "error" | "agentCapabilities" | "authMethods"
+    | "state"
+    | "slice"
+    | "permissionRequest"
+    | "uiRequestQueue"
+    | "error"
+    | "agentCapabilities"
+    | "authMethods"
   >,
   payload: AcpBridgeEvent,
 ): Partial<AgentState> {
+  if (payload.type === "running-threads") {
+    return { runningThreadIds: payload.threadIds };
+  }
+
   if (
     pendingThreadTarget &&
     payload.type !== "session-state" &&
+    payload.type !== "session-update" &&
+    payload.type !== "stop" &&
     payload.type !== "permission-request" &&
     payload.type !== "permission-resolved" &&
     payload.type !== "connection"
   ) {
-    // Ignore stale session updates while switching threads
-    if (payload.type === "session-update" && payload.threadId !== pendingThreadTarget) {
-      return {};
-    }
-    if (payload.type !== "session-update") {
-      return {};
-    }
+    return {};
   }
 
   switch (payload.type) {
@@ -414,7 +368,7 @@ function applyBridgeEvent(
       return {
         state: payload.state,
         slice: createEmptySessionSlice({
-          messages: payload.state.messages,
+          entries: payload.state.entries,
           toolCalls: payload.state.toolCalls,
           plan: payload.state.plan,
           usage: payload.state.usage,
@@ -428,7 +382,11 @@ function applyBridgeEvent(
       };
     }
     case "session-update": {
-      if (pendingThreadTarget && payload.threadId !== pendingThreadTarget) {
+      // Events from a thread running in the background must never be applied
+      // to whichever thread happens to be displayed right now — only to the
+      // thread currently shown (or the one we're switching into).
+      const displayedThreadId = pendingThreadTarget ?? state.state?.threadId ?? null;
+      if (payload.threadId !== displayedThreadId) {
         return {};
       }
       const nextSlice = applySessionUpdate(state.slice, payload.update);
@@ -437,7 +395,7 @@ function applyBridgeEvent(
         slice: nextSlice,
         state: {
           ...base,
-          messages: nextSlice.messages,
+          entries: nextSlice.entries,
           toolCalls: nextSlice.toolCalls,
           plan: nextSlice.plan,
           usage: nextSlice.usage,
@@ -450,13 +408,20 @@ function applyBridgeEvent(
       };
     }
     case "stop": {
+      // Same reasoning as "session-update": a background thread finishing its
+      // turn must not stop (or fail to stop) the streaming indicator for the
+      // thread the user is actually looking at.
+      const displayedThreadId = pendingThreadTarget ?? state.state?.threadId ?? null;
+      if (payload.threadId !== displayedThreadId) {
+        return {};
+      }
       const nextSlice = applyTurnStop(state.slice);
       const base = state.state ?? emptyState();
       return {
         slice: nextSlice,
         state: {
           ...base,
-          messages: nextSlice.messages,
+          entries: nextSlice.entries,
           isStreaming: false,
           plan: null, // plan popover auto-closes on turn complete
         },
@@ -464,26 +429,37 @@ function applyBridgeEvent(
     }
     case "permission-request": {
       const options = payload.request.options ?? [];
+      const next: UiRequest = {
+        id: payload.request.sessionId,
+        kind: "select",
+        title: "Permission required",
+        message:
+          (payload.request.toolCall as { title?: string })?.title ?? "Allow this tool call?",
+        options: options.map((o) => o.name),
+        sessionId: payload.request.sessionId,
+        threadId: payload.request.threadId ?? null,
+        optionIds: options.map((o) => o.optionId),
+      };
+      // Enqueue rather than overwrite, so a question from a background thread
+      // doesn't clobber one already awaiting an answer. Replace in place if the
+      // same session re-asks (dedupe by sessionId).
+      const withoutDup = state.uiRequestQueue.filter((r) => r.sessionId !== next.sessionId);
+      const uiRequestQueue = [...withoutDup, next];
       return {
         permissionRequest: payload.request,
-        uiRequest: {
-          id: payload.request.sessionId,
-          kind: "select",
-          title: "Permission required",
-          message:
-            (payload.request.toolCall as { title?: string })?.title ?? "Allow this tool call?",
-          options: options.map((o) => o.name),
-          sessionId: payload.request.sessionId,
-          optionIds: options.map((o) => o.optionId),
-        },
+        uiRequestQueue,
+        uiRequest: uiRequestQueue[0] ?? null,
       };
     }
-    case "permission-resolved":
+    case "permission-resolved": {
+      const uiRequestQueue = state.uiRequestQueue.filter((r) => r.sessionId !== payload.sessionId);
       return {
         permissionRequest:
           state.permissionRequest?.sessionId === payload.sessionId ? null : state.permissionRequest,
-        uiRequest: state.uiRequest?.sessionId === payload.sessionId ? null : state.uiRequest,
+        uiRequestQueue,
+        uiRequest: uiRequestQueue[0] ?? null,
       };
+    }
     case "connection":
       return {
         agentCapabilities: payload.agentCapabilities,
@@ -535,7 +511,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   slice: createEmptySessionSlice(),
   agentCapabilities: null,
   authMethods: [],
+  runningThreadIds: [],
   permissionRequest: null,
+  uiRequestQueue: [],
   uiRequest: null,
   isConnecting: false,
   error: null,
@@ -586,7 +564,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         withSnapshot({
           state,
           slice: createEmptySessionSlice({
-            messages: state.messages,
+            entries: state.entries,
             toolCalls: state.toolCalls,
             plan: state.plan,
             usage: state.usage,
@@ -603,6 +581,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       if (window.omni.agent.getCapabilities) {
         const caps = await window.omni.agent.getCapabilities();
         if (caps) set({ agentCapabilities: caps });
+      }
+      // Sync running-thread set so tabs reflect in-flight background runs after a reconnect.
+      if (window.omni.agent.getRunningThreads) {
+        const runningThreadIds = await window.omni.agent.getRunningThreads();
+        set({ runningThreadIds });
       }
     } catch (err) {
       set({
@@ -625,7 +608,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         return withSnapshot({
           state,
           slice: createEmptySessionSlice({
-            messages: state.messages,
+            entries: state.entries,
             toolCalls: state.toolCalls,
             plan: state.plan,
             usage: state.usage,
@@ -646,15 +629,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   respondToPermission: async (response) => {
     await window.omni.agent.respondToPermission(response);
-    set((s) => ({
-      permissionRequest:
-        s.permissionRequest?.sessionId === response.sessionId ? null : s.permissionRequest,
-      uiRequest: s.uiRequest?.sessionId === response.sessionId ? null : s.uiRequest,
-    }));
+    set((s) => {
+      const uiRequestQueue = s.uiRequestQueue.filter((r) => r.sessionId !== response.sessionId);
+      return {
+        permissionRequest:
+          s.permissionRequest?.sessionId === response.sessionId ? null : s.permissionRequest,
+        uiRequestQueue,
+        uiRequest: uiRequestQueue[0] ?? null,
+      };
+    });
   },
 
   respondToUiRequest: async (response) => {
-    const ui = get().uiRequest;
+    // Answer a specific queued request by id (its sessionId). Falls back to the
+    // head so existing single-request call sites keep working.
+    const queue = get().uiRequestQueue;
+    const ui = queue.find((r) => r.id === response.requestId) ?? queue[0];
     if (!ui) return;
     const optionId =
       typeof response.value === "string" && ui.optionIds && ui.options
@@ -705,7 +695,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           slice: nextSlice,
           state: {
             ...base,
-            messages: nextSlice.messages,
+            entries: nextSlice.entries,
             isStreaming: true,
           },
         });
@@ -752,7 +742,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             return withSnapshot({
               state,
               slice: createEmptySessionSlice({
-                messages: state.messages,
+                entries: state.entries,
                 toolCalls: state.toolCalls,
                 plan: state.plan,
                 usage: state.usage,

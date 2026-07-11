@@ -158,7 +158,7 @@ export default function App() {
 
       {/* Title Bar / Header */}
       <header
-        className="h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
+        className="h-8 flex items-center justify-between pl-20 pr-4 border-b border-border/60 mb-1 bg-surface-1 select-none shrink-0"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-pipper-id="header"
       >
@@ -239,7 +239,7 @@ export default function App() {
         </div>
 
         <div
-          className="flex items-center gap-1"
+          className="flex items-center gap-1 "
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Theme and Flyout Controls"
         >

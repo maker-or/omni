@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, accessSync, constants } from "node:fs";
+import { existsSync, readFileSync, accessSync, constants, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -62,7 +62,7 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     displayName: "Claude",
     description: "Claude Agent SDK via the official ACP adapter.",
     command: "npx",
-    args: ["-y", "@agentclientprotocol/claude-agent-acp"],
+    args: [],
     icon: "anthropic",
     docsUrl: "https://github.com/agentclientprotocol/claude-agent-acp",
     authHint: "Authenticate Claude Code / set ANTHROPIC_API_KEY before connecting.",
@@ -71,6 +71,36 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     installKind: "npx",
     npmPackage: "@agentclientprotocol/claude-agent-acp",
     detectCommands: ["claude-agent-acp"],
+  },
+  {
+    id: "gemini-acp",
+    name: "gemini-cli",
+    displayName: "Gemini",
+    description: "Gemini CLI in ACP mode (stdio JSON-RPC).",
+    command: "gemini",
+    args: ["--acp"],
+    icon: "gemini",
+    docsUrl: "https://geminicli.com/docs/cli/acp-mode/",
+    authHint: "Sign in with your Google account on first run (or set GEMINI_API_KEY).",
+    installHint: "npm install -g @google/gemini-cli  (or use npx on first launch)",
+    installKind: "npx",
+    npmPackage: "@google/gemini-cli",
+    detectCommands: ["gemini"],
+  },
+  {
+    id: "copilot-acp",
+    name: "copilot-cli",
+    displayName: "Copilot",
+    description: "GitHub Copilot CLI as an ACP server (stdio JSON-RPC).",
+    command: "copilot",
+    args: ["--acp", "--stdio"],
+    icon: "github-copilot",
+    docsUrl: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server",
+    authHint: "Run `copilot` once to sign in with GitHub before connecting.",
+    installHint: "npm install -g @github/copilot  (or use npx on first launch)",
+    installKind: "npx",
+    npmPackage: "@github/copilot",
+    detectCommands: ["copilot"],
   },
   {
     id: "pipper-mock",
@@ -178,6 +208,46 @@ function hasNpx(): boolean {
   return Boolean(findExecutableOnPath("npx") || findExecutableOnPath("npm"));
 }
 
+/**
+ * Multiple unrelated CLIs install a binary literally named `agent` (e.g. Grok's CLI).
+ * A bare PATH lookup can silently resolve to one of those instead of Cursor's CLI,
+ * which then hangs forever because it doesn't speak ACP. Guard against that by only
+ * trusting a candidate whose real (symlink-resolved) path identifies it as Cursor's.
+ */
+function looksLikeCursorAgentBinary(path: string): boolean {
+  let resolved = path;
+  try {
+    resolved = realpathSync(path);
+  } catch {
+    // not a symlink, or unreadable — fall back to the given path
+  }
+  return /cursor/i.test(resolved);
+}
+
+/** Find every `agent` on PATH, in PATH order, and return the first that is actually Cursor's CLI. */
+function findCursorAgentBinary(): string | null {
+  const exts =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+      : [""];
+
+  for (const dir of pathDirs()) {
+    for (const ext of exts) {
+      for (const name of [`agent${ext.toLowerCase()}`, `agent${ext}`]) {
+        const candidate = join(dir, name);
+        if (!existsSync(candidate)) continue;
+        try {
+          accessSync(candidate, constants.X_OK);
+        } catch {
+          if (process.platform !== "win32") continue;
+        }
+        if (looksLikeCursorAgentBinary(candidate)) return candidate;
+      }
+    }
+  }
+  return null;
+}
+
 /** Probe availability for one catalog entry. */
 export function probeAgentAvailability(agent: AcpAgentDescriptor): AcpAgentDescriptor {
   const base: AcpAgentDescriptor = {
@@ -211,37 +281,44 @@ export function probeAgentAvailability(agent: AcpAgentDescriptor): AcpAgentDescr
         };
   }
 
-  // Prefer a globally installed binary when listed in detectCommands
+  // Cursor's CLI binary is literally named `agent`, a name other unrelated CLIs also
+  // install (e.g. Grok). A generic PATH lookup can silently pick one of those instead,
+  // which then hangs forever because it doesn't speak ACP — so resolve it separately
+  // with a check that the candidate is actually Cursor's CLI.
+  if (base.id === "cursor-acp") {
+    const found = findCursorAgentBinary();
+    if (found) {
+      return {
+        ...base,
+        available: true,
+        command: found,
+        args: ["acp"],
+        resolvedCommand: found,
+        statusMessage: null,
+      };
+    }
+    return {
+      ...base,
+      available: false,
+      resolvedCommand: null,
+      statusMessage: base.installHint ?? `Install ${base.displayName} and ensure it is on PATH.`,
+    };
+  }
+
+  // Prefer a globally installed binary when listed in detectCommands.
+  // `base.args` holds the flags needed to enter ACP mode (e.g. `["--acp"]` for
+  // Gemini, `[]` for adapters that speak ACP by default) — reused as-is here,
+  // and prefixed with `-y <pkg>` below for the npx fallback.
   const detectList = base.detectCommands?.length ? base.detectCommands : [base.command];
   for (const cmd of detectList) {
     if (cmd === "npx" || cmd === "npm") continue;
     const found = findExecutableOnPath(cmd);
     if (found) {
-      // Cursor uses `agent acp`; global codex-acp / claude-agent-acp run with no extra args
-      if (base.id === "cursor-acp") {
-        return {
-          ...base,
-          available: true,
-          command: found,
-          args: ["acp"],
-          resolvedCommand: found,
-          statusMessage: null,
-        };
-      }
-      if (base.id === "codex-acp" || base.id === "claude-agent-acp") {
-        return {
-          ...base,
-          available: true,
-          command: found,
-          args: [],
-          resolvedCommand: found,
-          statusMessage: null,
-        };
-      }
       return {
         ...base,
         available: true,
         command: found,
+        args: base.args ?? [],
         resolvedCommand: found,
         statusMessage: null,
       };
@@ -253,11 +330,15 @@ export function probeAgentAvailability(agent: AcpAgentDescriptor): AcpAgentDescr
     if (hasNpx()) {
       const npx = findExecutableOnPath("npx") ?? "npx";
       const pkg = base.npmPackage ?? base.args.find((a) => a.startsWith("@")) ?? "";
+      // `base.args` may already be a previously-probed result (resolveAgentSpawn
+      // re-probes for fresh PATH resolution) — strip any prior `-y <pkg>` prefix
+      // so re-probing stays idempotent instead of accumulating duplicates.
+      const extraArgs = (base.args ?? []).filter((a) => a !== "-y" && a !== pkg);
       return {
         ...base,
         available: true,
         command: npx,
-        args: pkg ? ["-y", pkg] : (base.args ?? []),
+        args: pkg ? ["-y", pkg, ...extraArgs] : extraArgs,
         resolvedCommand: npx,
         statusMessage: pkg
           ? `Will launch via npx (${pkg}). First run may download the package.`

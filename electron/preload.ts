@@ -10,6 +10,7 @@ import type {
   AvailableCommand,
   SessionConfigOption,
   AcpAgentDescriptor,
+  AgentProbeResult,
 } from "../contracts/acp.ts";
 import type {
   InstallationMetadata,
@@ -216,6 +217,7 @@ const api = {
       size: number;
       cost?: { amount: number; currency: string };
     } | null> => ipcRenderer.invoke("agent:getStats"),
+    getRunningThreads: (): Promise<string[]> => ipcRenderer.invoke("agent:getRunningThreads"),
     sendPrompt: (input: AcpPromptInput): Promise<void> =>
       ipcRenderer.invoke("agent:sendPrompt", input),
     replacePrompt: (input: AcpReplacePromptInput): Promise<void> =>
@@ -241,6 +243,8 @@ const api = {
       cancelled?: boolean;
     }): Promise<void> => ipcRenderer.invoke("agent:respondToPermission", response),
     listAgents: (): Promise<AcpAgentDescriptor[]> => ipcRenderer.invoke("agent:listAgents"),
+    probeAgent: (agentId: string): Promise<AgentProbeResult> =>
+      ipcRenderer.invoke("agent:probeAgent", agentId),
     switchAgent: (agentId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchAgent", agentId),
     getPreferredAgentId: (): Promise<string> => ipcRenderer.invoke("agent:getPreferredAgentId"),

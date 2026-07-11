@@ -60,10 +60,8 @@ import {
 } from "./update-candidate-diagnostics.ts";
 import {
   appendUpdateRunTranscript,
-  extractAssistantSummaryFromMessages,
   getRunTranscriptPath,
   serializeBridgeEvent,
-  textFromMessageContent,
 } from "./update-run-transcript.ts";
 import {
   appendUpdateRunLog,
@@ -279,23 +277,18 @@ export class UpdateManager {
   private logUpdaterSnapshot(label: string): void {
     const snapshot = this.options.agent.getUpdaterState();
     this.log(
-      `agent_snapshot=${label} streaming=${snapshot.isStreaming} messages=${snapshot.messages.length} session=${snapshot.agentSessionId ?? "none"}`,
+      `agent_snapshot=${label} streaming=${snapshot.isStreaming} entries=${snapshot.entries.length} session=${snapshot.agentSessionId ?? "none"}`,
     );
-    const lastAssistant = [...snapshot.messages]
+    const lastAssistant = [...snapshot.entries]
       .reverse()
-      .find((message) => message.role === "assistant");
-    if (lastAssistant) {
-      const preview =
-        typeof lastAssistant.text === "string"
-          ? lastAssistant.text
-          : textFromMessageContent((lastAssistant as { content?: unknown }).content);
-      if (preview) {
-        this.log(
-          `agent_snapshot=${label} last_assistant=${JSON.stringify(
-            preview.length > 240 ? `${preview.slice(0, 240)}…` : preview,
-          )}`,
-        );
-      }
+      .find((entry) => entry.type === "agent_text");
+    if (lastAssistant?.text) {
+      const preview = lastAssistant.text;
+      this.log(
+        `agent_snapshot=${label} last_assistant=${JSON.stringify(
+          preview.length > 240 ? `${preview.slice(0, 240)}…` : preview,
+        )}`,
+      );
     }
   }
 
@@ -309,13 +302,13 @@ export class UpdateManager {
     if (!this.currentRun) return;
     this.logBridgePayload(payload);
     if (payload.type === "session-state") {
-      const messageCount = payload.state.messages.length;
+      const messageCount = payload.state.entries.length;
       if (messageCount !== this.lastTranscriptMessageCount) {
         this.lastTranscriptMessageCount = messageCount;
         this.logTranscript({
           kind: "session_messages",
           label: `snapshot_${messageCount}`,
-          messages: payload.state.messages,
+          messages: payload.state.entries,
         });
       }
       this.patchRun((record) => ({
@@ -732,7 +725,7 @@ export class UpdateManager {
       this.logTranscript({
         kind: "session_messages",
         label: "after_agent_final",
-        messages: finalSnapshot.messages,
+        messages: finalSnapshot.entries,
       });
       await this.logCandidateDiagnostics("after_agent", context.git_ref, context.files_changes);
       const dirtyFiles = await this.getCandidateDirtyFiles();

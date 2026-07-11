@@ -91,7 +91,7 @@ function emptySessionState(): AcpSessionState {
     title: null,
     configOptions: [],
     commands: [],
-    messages: [],
+    entries: [],
     toolCalls: {},
     plan: null,
     usage: null,
@@ -133,6 +133,8 @@ export class AgentConnectionManager {
   private readonly sessions = new Map<string, ThreadSessionRuntime>();
   private readonly pendingPermissions = new Map<string, PendingPermission>();
   private readonly terminalManager: TerminalManager;
+  /** Dedup key for the last broadcast running-threads set. */
+  private lastRunningThreadsKey = "";
 
   // Companion / editor session (ephemeral, not DB-backed)
   private editorSession: ThreadSessionRuntime | null = null;
@@ -251,7 +253,7 @@ export class AgentConnectionManager {
       title: runtime.slice.title ?? thread?.title ?? null,
       configOptions: runtime.slice.configOptions,
       commands: runtime.slice.commands,
-      messages: runtime.slice.messages,
+      entries: runtime.slice.entries,
       toolCalls: runtime.slice.toolCalls,
       plan: runtime.slice.plan,
       usage: runtime.slice.usage,
@@ -268,9 +270,28 @@ export class AgentConnectionManager {
     const id = threadId ?? this.activeThreadId;
     if (!id) {
       this.emit({ type: "session-state", state: this.getState() });
-      return;
+    } else {
+      this.emit({ type: "session-state", state: this.buildSessionState(id) });
     }
-    this.emit({ type: "session-state", state: this.buildSessionState(id) });
+    this.emitRunningThreads();
+  }
+
+  /** Thread IDs whose agent is currently streaming (across every open thread). */
+  getRunningThreadIds(): string[] {
+    const running: string[] = [];
+    for (const [threadId, runtime] of this.sessions) {
+      if (runtime.slice.isStreaming) running.push(threadId);
+    }
+    return running.sort();
+  }
+
+  /** Broadcast the running-thread set to the renderer when it changes. */
+  private emitRunningThreads(): void {
+    const running = this.getRunningThreadIds();
+    const key = running.join(",");
+    if (key === this.lastRunningThreadsKey) return;
+    this.lastRunningThreadsKey = key;
+    this.emit({ type: "running-threads", threadIds: running });
   }
 
   async ensureConnection(agentId?: string): Promise<LiveConnection> {
@@ -498,6 +519,8 @@ export class AgentConnectionManager {
     }
 
     runtime.slice = applySessionUpdate(runtime.slice, update);
+    // A background thread's streaming can flip via updates without a pushState; keep tabs in sync.
+    this.emitRunningThreads();
 
     if (runtime.slice.titleChanged && runtime.slice.title && this.sessions.has(runtime.threadId)) {
       updateThreadTitle(runtime.threadId, runtime.slice.title);
@@ -535,6 +558,7 @@ export class AgentConnectionManager {
     const sessionId = params.sessionId;
     const request: AcpPermissionRequest = {
       sessionId,
+      threadId: this.findThreadBySessionId(sessionId),
       toolCall: params.toolCall as AcpPermissionRequest["toolCall"],
       options: (params.options ?? []).map((opt) => ({
         optionId: opt.optionId,
@@ -1026,7 +1050,7 @@ export class AgentConnectionManager {
       title: runtime.slice.title ?? "Visual Editor",
       configOptions: runtime.slice.configOptions,
       commands: runtime.slice.commands,
-      messages: runtime.slice.messages,
+      entries: runtime.slice.entries,
       toolCalls: runtime.slice.toolCalls,
       plan: runtime.slice.plan,
       usage: runtime.slice.usage,
@@ -1155,7 +1179,7 @@ export class AgentConnectionManager {
       title: "Updater",
       configOptions: runtime.slice.configOptions,
       commands: runtime.slice.commands,
-      messages: runtime.slice.messages,
+      entries: runtime.slice.entries,
       toolCalls: runtime.slice.toolCalls,
       plan: runtime.slice.plan,
       usage: runtime.slice.usage,
@@ -1211,11 +1235,11 @@ export class AgentConnectionManager {
       });
       runtime.slice = applyTurnStop(runtime.slice);
       this.emitUpdater({ type: "session-state", state: this.getUpdaterState() });
-      const texts = runtime.slice.messages
-        .filter((m) => m.role === "assistant")
-        .map((m) => m.text)
+      const texts = runtime.slice.entries
+        .filter((entry) => entry.type === "agent_text")
+        .map((entry) => entry.text)
         .join("\n");
-      return texts?.trim() || "Update complete";
+      return texts.trim() || "Update complete";
     } catch (err) {
       runtime.slice = applyTurnStop(runtime.slice);
       this.emitUpdater({ type: "session-state", state: this.getUpdaterState() });

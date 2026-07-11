@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 
@@ -20,7 +21,7 @@ import {
 
 // Re-export types for consumers
 export type { IconComponent, IconName, IconLibrary } from "@/lib/icon-map";
-export { iconLibraryOrder } from "@/lib/icon-map";
+export { iconLibraryOrder, iconLibraryLabels } from "@/lib/icon-map";
 
 interface IconContextValue {
   iconLibrary: IconLibrary;
@@ -56,7 +57,8 @@ function useIcon(name: IconName): IconComponent {
 function useIcons(): Record<IconName, IconComponent> {
   const ctx = useContext(IconContext);
   const lib = ctx?.iconLibrary ?? "lucide";
-  return useMemo(() => iconMap[lib], [lib]);
+  // iconMap is a module-level constant, so iconMap[lib] is already stable.
+  return iconMap[lib];
 }
 
 function IconProvider({
@@ -78,8 +80,7 @@ function IconProvider({
       if (e.key !== "i" && e.key !== "I") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable)
-        return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
       e.preventDefault();
       setIconLibraryState((prev) => {
         const idx = iconLibraryOrder.indexOf(prev);
@@ -90,12 +91,19 @@ function IconProvider({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const value = useMemo(
+    () => ({ iconLibrary, setIconLibrary }),
+    [iconLibrary, setIconLibrary]
+  );
+
   return (
-    <IconContext.Provider value={{ iconLibrary, setIconLibrary }}>{children}</IconContext.Provider>
+    <IconContext.Provider value={value}>
+      {children}
+    </IconContext.Provider>
   );
 }
 
-export interface IconProps extends React.ComponentProps<any> {
+export interface IconProps extends ComponentProps<"svg"> {
   name: IconName;
 }
 

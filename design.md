@@ -1,5 +1,8 @@
 # Pipper Design System
 
+this is a self improving software
+hope
+
 Pipper uses a design system built around **Fluid Functionalism**: layered surfaces, clear scrolling cues, spring-based motion, and swappable visual tokens.
 
 ## 1. Surfaces and substrates

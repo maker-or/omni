@@ -1,6 +1,12 @@
 /**
  * Pure reducer for ACP session/update notifications.
  * Testable without Electron or a live agent process.
+ *
+ * State is an ordered entry timeline (`AcpEntry[]`) mirroring ACP's flat
+ * stream of updates, plus a `toolCalls` record for by-id tool state. Text
+ * chunks accumulate into the tail entry; tool calls append entries and are
+ * updated in place via the record, so settled entries keep referential
+ * identity while a turn streams (memoized views skip re-rendering them).
  */
 
 import type {
@@ -9,10 +15,10 @@ import type {
   SessionConfigOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import type { AcpChatMessage, AcpToolCallState, AcpUsageState } from "../../contracts/acp.ts";
+import type { AcpEntry, AcpToolCallState, AcpUsageState } from "../../contracts/acp.ts";
 
 export interface AcpSessionSlice {
-  messages: AcpChatMessage[];
+  entries: AcpEntry[];
   toolCalls: Record<string, AcpToolCallState>;
   plan: PlanEntry[] | null;
   usage: AcpUsageState | null;
@@ -20,7 +26,6 @@ export interface AcpSessionSlice {
   commands: AvailableCommand[];
   currentModeId: string | null;
   isStreaming: boolean;
-  activeMsgId: string | null;
   /** Title from session_info_update; null means no change. */
   title: string | null;
   titleChanged: boolean;
@@ -28,7 +33,7 @@ export interface AcpSessionSlice {
 
 export function createEmptySessionSlice(patch: Partial<AcpSessionSlice> = {}): AcpSessionSlice {
   return {
-    messages: [],
+    entries: [],
     toolCalls: {},
     plan: null,
     usage: null,
@@ -36,7 +41,6 @@ export function createEmptySessionSlice(patch: Partial<AcpSessionSlice> = {}): A
     commands: [],
     currentModeId: null,
     isStreaming: false,
-    activeMsgId: null,
     title: null,
     titleChanged: false,
     ...patch,
@@ -49,43 +53,55 @@ function contentText(content: { type?: string; text?: string } | undefined): str
   return "";
 }
 
-function ensureMessage(
-  messages: AcpChatMessage[],
-  messageId: string,
-  role: "user" | "assistant",
-): { messages: AcpChatMessage[]; index: number } {
-  const index = messages.findIndex((m) => m.id === messageId);
-  if (index >= 0) return { messages, index };
-  const next: AcpChatMessage = {
-    id: messageId,
-    role,
-    text: "",
-    thought: "",
-    toolCallIds: [],
-    streaming: role === "assistant",
-  };
-  return { messages: [...messages, next], index: messages.length };
+let entryCounter = 0;
+
+function nextEntryId(): string {
+  entryCounter += 1;
+  return `entry-${entryCounter}`;
 }
 
-function updateMessage(
-  messages: AcpChatMessage[],
-  index: number,
-  patch: Partial<AcpChatMessage>,
-): AcpChatMessage[] {
-  const copy = messages.slice();
-  copy[index] = { ...copy[index]!, ...patch };
-  return copy;
-}
+type TextEntryType = "user_text" | "agent_text" | "agent_thought";
 
-let fallbackMessageCounter = 0;
+/**
+ * Accumulate a content chunk into the timeline.
+ *
+ * ACP's `messageId` on chunks is optional. Agent text/thought chunks without
+ * one continue the tail entry of the same type (a turn streams as one
+ * message); an intervening tool call breaks continuation, starting a new
+ * segment so interleaving order is preserved. A changed `messageId` starts a
+ * new message per spec. User chunks only merge on an explicit matching
+ * `messageId` — replayed history commonly arrives as one id-less chunk per
+ * historical message, which must stay separate bubbles.
+ */
+function appendTextEntry(
+  entries: AcpEntry[],
+  type: TextEntryType,
+  update: SessionUpdate,
+): AcpEntry[] {
+  const messageId = (update as { messageId?: string | null }).messageId ?? null;
+  const chunk = contentText(
+    (update as { content?: { type?: string; text?: string } }).content,
+  );
+  const last = entries[entries.length - 1];
+  const continuesLast =
+    last?.type === type &&
+    (type === "user_text"
+      ? messageId != null && last.messageId === messageId
+      : messageId == null || last.messageId == null || last.messageId === messageId);
 
-function resolveMessageId(update: SessionUpdate, fallbackPrefix: string): string {
-  const withId = update as { messageId?: string | null };
-  if (typeof withId.messageId === "string" && withId.messageId.length > 0) {
-    return withId.messageId;
+  if (continuesLast) {
+    if (!chunk) return entries;
+    const copy = entries.slice();
+    const tail = last as Extract<AcpEntry, { type: TextEntryType }>;
+    copy[copy.length - 1] = {
+      ...tail,
+      text: tail.text + chunk,
+      messageId: tail.messageId ?? messageId,
+    };
+    return copy;
   }
-  fallbackMessageCounter += 1;
-  return `${fallbackPrefix}-${fallbackMessageCounter}`;
+  if (!chunk) return entries;
+  return [...entries, { type, id: nextEntryId(), messageId, text: chunk }];
 }
 
 function mergeToolCall(
@@ -104,83 +120,62 @@ function mergeToolCall(
   };
 }
 
+/** Append a tool_call entry unless this toolCallId already has one. */
+function ensureToolCallEntry(
+  state: AcpSessionSlice,
+  toolCallId: string,
+): AcpEntry[] {
+  if (state.toolCalls[toolCallId]) return state.entries;
+  return [...state.entries, { type: "tool_call", id: nextEntryId(), toolCallId }];
+}
+
 /**
  * Apply a single session/update to session slice state.
  */
 export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate): AcpSessionSlice {
   switch (update.sessionUpdate) {
     case "agent_message_chunk": {
-      const messageId = resolveMessageId(update, "assistant");
-      const { messages, index } = ensureMessage(state.messages, messageId, "assistant");
-      const chunk = contentText(update.content as { type?: string; text?: string });
       return {
         ...state,
-        messages: updateMessage(messages, index, {
-          text: messages[index]!.text + chunk,
-          streaming: true,
-        }),
-        activeMsgId: messageId,
+        entries: appendTextEntry(state.entries, "agent_text", update),
         isStreaming: true,
         titleChanged: false,
       };
     }
     case "agent_thought_chunk": {
-      const messageId = resolveMessageId(update, "assistant");
-      const { messages, index } = ensureMessage(state.messages, messageId, "assistant");
-      const chunk = contentText(update.content as { type?: string; text?: string });
       return {
         ...state,
-        messages: updateMessage(messages, index, {
-          thought: messages[index]!.thought + chunk,
-          streaming: true,
-        }),
-        activeMsgId: messageId,
+        entries: appendTextEntry(state.entries, "agent_thought", update),
         isStreaming: true,
         titleChanged: false,
       };
     }
     case "user_message_chunk": {
-      const messageId = resolveMessageId(update, "user");
-      const { messages, index } = ensureMessage(state.messages, messageId, "user");
-      const chunk = contentText(update.content as { type?: string; text?: string });
       return {
         ...state,
-        messages: updateMessage(messages, index, {
-          text: messages[index]!.text + chunk,
-          streaming: false,
-        }),
+        entries: appendTextEntry(state.entries, "user_text", update),
         titleChanged: false,
       };
     }
     case "tool_call": {
       const toolCallId = update.toolCallId;
-      const toolCalls = {
-        ...state.toolCalls,
-        [toolCallId]: mergeToolCall(state.toolCalls[toolCallId], {
-          toolCallId,
-          title: update.title,
-          kind: update.kind,
-          status: update.status ?? "pending",
-          content: update.content,
-          locations: update.locations as AcpToolCallState["locations"],
-          rawInput: update.rawInput,
-          rawOutput: update.rawOutput,
-        }),
-      };
-      let messages = state.messages;
-      const activeId = state.activeMsgId;
-      if (activeId) {
-        const idx = messages.findIndex((m) => m.id === activeId);
-        if (idx >= 0 && !messages[idx]!.toolCallIds.includes(toolCallId)) {
-          messages = updateMessage(messages, idx, {
-            toolCallIds: [...messages[idx]!.toolCallIds, toolCallId],
-          });
-        }
-      }
+      const entries = ensureToolCallEntry(state, toolCallId);
       return {
         ...state,
-        toolCalls,
-        messages,
+        entries,
+        toolCalls: {
+          ...state.toolCalls,
+          [toolCallId]: mergeToolCall(state.toolCalls[toolCallId], {
+            toolCallId,
+            title: update.title,
+            kind: update.kind,
+            status: update.status ?? "pending",
+            content: update.content,
+            locations: update.locations as AcpToolCallState["locations"],
+            rawInput: update.rawInput,
+            rawOutput: update.rawOutput,
+          }),
+        },
         isStreaming: true,
         titleChanged: false,
       };
@@ -188,8 +183,12 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
     case "tool_call_update": {
       const toolCallId = update.toolCallId;
       const existing = state.toolCalls[toolCallId];
+      // An update for an unknown id (e.g. agent skipped the initial tool_call)
+      // still gets a timeline entry so it renders instead of being orphaned.
+      const entries = ensureToolCallEntry(state, toolCallId);
       return {
         ...state,
+        entries,
         toolCalls: {
           ...state.toolCalls,
           [toolCallId]: mergeToolCall(existing, {
@@ -217,7 +216,7 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
       // Full replace of entries when provided (ACP plan_update may be partial; treat as replace of entries).
       return {
         ...state,
-        plan: update.entries ?? state.plan,
+        plan: (update as { entries?: PlanEntry[] }).entries ?? state.plan,
         titleChanged: false,
       };
     }
@@ -283,13 +282,11 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
   }
 }
 
-/** Mark turn complete: stop streaming flags on messages. */
+/** Mark turn complete. Streaming presentation derives from `isStreaming`. */
 export function applyTurnStop(state: AcpSessionSlice): AcpSessionSlice {
   return {
     ...state,
     isStreaming: false,
-    activeMsgId: null,
-    messages: state.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
     titleChanged: false,
   };
 }
@@ -300,20 +297,10 @@ export function appendLocalUserMessage(
   text: string,
   id?: string,
 ): AcpSessionSlice {
-  const messageId = id ?? `local-user-${Date.now()}`;
+  const entryId = id ?? `local-user-${Date.now()}`;
   return {
     ...state,
-    messages: [
-      ...state.messages,
-      {
-        id: messageId,
-        role: "user",
-        text,
-        thought: "",
-        toolCallIds: [],
-        streaming: false,
-      },
-    ],
+    entries: [...state.entries, { type: "user_text", id: entryId, messageId: null, text }],
     isStreaming: true,
     titleChanged: false,
   };
@@ -383,6 +370,6 @@ export function assemblePromptBlocks(input: {
 }
 
 /** Reset counter between tests. */
-export function resetMessageIdCounter(): void {
-  fallbackMessageCounter = 0;
+export function resetEntryIdCounter(): void {
+  entryCounter = 0;
 }

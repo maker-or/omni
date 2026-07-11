@@ -21,11 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Elevated } from "@/lib/elevated";
 import { ProviderMark, formatProviderName } from "@/components/agent-panel";
-import {
-  applySessionUpdate,
-  applyTurnStop,
-  createEmptySessionSlice,
-} from "@/lib/acp-session-reducer";
+import { applySessionUpdate, createEmptySessionSlice } from "@/lib/acp-session-reducer";
+import { projectChatMessages } from "@/lib/acp-entries";
 
 function modelFromConfig(
   state: AcpSessionState | null,
@@ -119,7 +116,7 @@ export function applyEditorBridgeEvent(
       if (!snapshot) return snapshot;
       const slice = applySessionUpdate(
         createEmptySessionSlice({
-          messages: snapshot.messages,
+          entries: snapshot.entries,
           toolCalls: snapshot.toolCalls,
           plan: snapshot.plan,
           usage: snapshot.usage,
@@ -133,7 +130,7 @@ export function applyEditorBridgeEvent(
       );
       return {
         ...snapshot,
-        messages: slice.messages,
+        entries: slice.entries,
         toolCalls: slice.toolCalls,
         plan: slice.plan,
         usage: slice.usage,
@@ -146,13 +143,7 @@ export function applyEditorBridgeEvent(
     }
     case "stop": {
       if (!snapshot) return snapshot;
-      const slice = applyTurnStop(
-        createEmptySessionSlice({
-          messages: snapshot.messages,
-          isStreaming: true,
-        }),
-      );
-      return { ...snapshot, messages: slice.messages, isStreaming: false, plan: null };
+      return { ...snapshot, isStreaming: false, plan: null };
     }
     case "title":
       return patchEditorSnapshot(snapshot, { title: payload.title ?? null });
@@ -367,14 +358,19 @@ export function CompanionView() {
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [isModelDropdownOpen]);
 
-  const activeMessages = (snapshot?.messages ?? []).filter(
-    (m) =>
-      ((m as MessageLike).role === "user" || (m as MessageLike).role === "assistant") &&
-      !isInternalCommitPrompt(m as MessageLike),
+  const chatMessages = useMemo(
+    () =>
+      snapshot
+        ? projectChatMessages(snapshot.entries, snapshot.toolCalls, snapshot.isStreaming)
+        : [],
+    [snapshot],
+  );
+  const activeMessages = chatMessages.filter(
+    (m) => !(m.streaming && m.role === "assistant") && !isInternalCommitPrompt(m as MessageLike),
   );
   const streamingMessage =
     isStreaming && !isProcessingAccept
-      ? (snapshot?.messages.find((m) => m.streaming && m.role === "assistant") ?? null)
+      ? (chatMessages.find((m) => m.streaming && m.role === "assistant") ?? null)
       : null;
   const models = modelsFromConfig(snapshot);
   const currentModel = modelFromConfig(snapshot);

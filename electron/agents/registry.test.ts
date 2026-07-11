@@ -1,4 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { existsSync, mkdtempSync, mkdirSync, symlinkSync, writeFileSync, chmodSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   BUILTIN_ACP_AGENTS,
   listRegisteredAgents,
@@ -7,11 +10,13 @@ import {
 } from "./registry.ts";
 
 describe("ACP agent registry", () => {
-  test("catalog includes Cursor, Codex, and Claude adapters", () => {
+  test("catalog includes Cursor, Codex, Claude, Gemini, and Copilot adapters", () => {
     const ids = BUILTIN_ACP_AGENTS.map((a) => a.id);
     expect(ids).toContain("cursor-acp");
     expect(ids).toContain("codex-acp");
     expect(ids).toContain("claude-agent-acp");
+    expect(ids).toContain("gemini-acp");
+    expect(ids).toContain("copilot-acp");
 
     const cursor = BUILTIN_ACP_AGENTS.find((a) => a.id === "cursor-acp")!;
     expect(cursor.command).toBe("agent");
@@ -25,6 +30,35 @@ describe("ACP agent registry", () => {
     const claude = BUILTIN_ACP_AGENTS.find((a) => a.id === "claude-agent-acp")!;
     expect(claude.npmPackage).toBe("@agentclientprotocol/claude-agent-acp");
     expect(claude.docsUrl).toContain("claude-agent-acp");
+
+    const gemini = BUILTIN_ACP_AGENTS.find((a) => a.id === "gemini-acp")!;
+    expect(gemini.command).toBe("gemini");
+    expect(gemini.args).toEqual(["--acp"]);
+    expect(gemini.npmPackage).toBe("@google/gemini-cli");
+    expect(gemini.docsUrl).toContain("geminicli.com/docs/cli/acp-mode");
+
+    const copilot = BUILTIN_ACP_AGENTS.find((a) => a.id === "copilot-acp")!;
+    expect(copilot.command).toBe("copilot");
+    expect(copilot.args).toEqual(["--acp", "--stdio"]);
+    expect(copilot.npmPackage).toBe("@github/copilot");
+    expect(copilot.docsUrl).toContain("copilot-cli-reference/acp-server");
+  });
+
+  test("npx-backed agent resolution is idempotent across repeated re-probes", () => {
+    // resolveAgentSpawn re-probes an already-probed descriptor to pick up fresh
+    // PATH state; the npx `-y <pkg>` prefix must not accumulate across re-probes.
+    // Use claude-agent-acp: it has no globally installed `claude-agent-acp` binary
+    // on PATH, so it reliably exercises the npx branch rather than the binary branch.
+    const claude = BUILTIN_ACP_AGENTS.find((a) => a.id === "claude-agent-acp")!;
+    let probed = probeAgentAvailability(claude);
+    for (let i = 0; i < 3; i++) {
+      probed = probeAgentAvailability(probed);
+    }
+    const pkgOccurrences = probed.args.filter(
+      (a) => a === "@agentclientprotocol/claude-agent-acp",
+    ).length;
+    expect(pkgOccurrences).toBeLessThanOrEqual(1);
+    expect(probed.args.filter((a) => a === "-y").length).toBeLessThanOrEqual(1);
   });
 
   test("listRegisteredAgents probes availability without throwing", () => {
@@ -62,5 +96,47 @@ describe("ACP agent registry", () => {
       installHint: "Install the missing binary first.",
     };
     expect(() => resolveAgentSpawn(fake)).toThrow(/Install the missing binary first/);
+  });
+
+  describe("cursor-acp binary resolution ignores unrelated `agent` CLIs", () => {
+    let dir: string;
+    let originalPath: string | undefined;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "pipper-agent-detect-"));
+    });
+
+    afterEach(() => {
+      if (originalPath !== undefined) process.env.PATH = originalPath;
+    });
+
+    test("skips a foreign `agent` binary earlier on PATH and finds the real Cursor CLI", () => {
+      const fakeDir = join(dir, "fake-bin");
+      const realDir = join(dir, "real-bin");
+      const realTargetDir = join(dir, "install");
+      mkdirSync(fakeDir, { recursive: true });
+      mkdirSync(realDir, { recursive: true });
+      mkdirSync(realTargetDir, { recursive: true });
+
+      const fakeAgent = join(fakeDir, "agent");
+      writeFileSync(fakeAgent, "#!/bin/sh\necho fake\n");
+      chmodSync(fakeAgent, 0o755);
+
+      const realTarget = join(realTargetDir, "cursor-agent");
+      writeFileSync(realTarget, "#!/bin/sh\necho real\n");
+      chmodSync(realTarget, 0o755);
+      const realAgent = join(realDir, "agent");
+      symlinkSync(realTarget, realAgent);
+
+      originalPath = process.env.PATH;
+      process.env.PATH = [fakeDir, realDir].join(process.platform === "win32" ? ";" : ":");
+
+      const cursor = BUILTIN_ACP_AGENTS.find((a) => a.id === "cursor-acp")!;
+      const probed = probeAgentAvailability(cursor);
+
+      expect(probed.available).toBe(true);
+      expect(probed.resolvedCommand).toBe(realAgent);
+      expect(existsSync(fakeAgent)).toBe(true);
+    });
   });
 });

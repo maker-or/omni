@@ -7,18 +7,21 @@ import { SurfaceProvider } from "@/lib/surface-context";
 import { ThemeProvider } from "@/lib/theme";
 import { Toaster } from "@/components/ui/toaster";
 import { IconProvider } from "@/lib/icon-context";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider>
-      <SurfaceProvider value={1}>
-        <ShapeProvider defaultShape="rounded">
-          <IconProvider defaultLibrary="lucide">
-            <LaunchApp />
-            <Toaster />
-          </IconProvider>
-        </ShapeProvider>
-      </SurfaceProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <SurfaceProvider value={1}>
+          <ShapeProvider defaultShape="rounded">
+            <IconProvider defaultLibrary="lucide">
+              <LaunchApp />
+              <Toaster />
+            </IconProvider>
+          </ShapeProvider>
+        </SurfaceProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

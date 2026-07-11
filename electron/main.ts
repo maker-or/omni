@@ -28,6 +28,7 @@ import {
 import { listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
+import { probeAgentById } from "./agents/handshake-probe.ts";
 import {
   broadcastOpenTabsChanged,
   closeThreadTab,
@@ -152,6 +153,16 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 }
+
+// Without these, an uncaught error anywhere in the main process (e.g. handling
+// an ACP session/update from an agent) crashes the whole process and takes
+// every window down with it. Log and keep running instead.
+process.on("uncaughtException", (err) => {
+  console.error("[main] Uncaught exception:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[main] Unhandled rejection:", reason);
+});
 
 function generateRandomId(): string {
   const hex = randomBytes(4).toString("hex");
@@ -1315,6 +1326,7 @@ function registerIpc(): void {
   ipcMain.handle("agent:getConfigOptions", () => requireAgentManager().getConfigOptions());
   ipcMain.handle("agent:getCapabilities", () => requireAgentManager().getCapabilities());
   ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
+  ipcMain.handle("agent:getRunningThreads", () => requireAgentManager().getRunningThreadIds());
   ipcMain.handle("agent:sendPrompt", (_event, input) => {
     try {
       return requireAgentManager().sendPrompt(input);
@@ -1366,6 +1378,7 @@ function registerIpc(): void {
     requireAgentManager().respondToPermission(response),
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
+  ipcMain.handle("agent:probeAgent", (_event, agentId: string) => probeAgentById(agentId));
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
   );

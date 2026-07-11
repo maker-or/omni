@@ -55,7 +55,7 @@ export function serializeBridgeEvent(payload: AgentBridgeEvent): unknown {
       sessionId: payload.state.agentSessionId,
       threadId: payload.state.threadId,
       isStreaming: payload.state.isStreaming,
-      messages: payload.state.messages,
+      messages: payload.state.entries,
       usage: payload.state.usage,
       plan: payload.state.plan,
     };

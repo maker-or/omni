@@ -17,7 +17,7 @@ function session(patch: Partial<AcpSessionState> = {}): AcpSessionState {
     title: "Visual Editor",
     configOptions: [],
     commands: [],
-    messages: [],
+    entries: [],
     toolCalls: {},
     plan: null,
     usage: null,
@@ -63,7 +63,7 @@ describe("companion-view ACP helpers", () => {
         content: { type: "text", text: "Hi" },
       },
     });
-    expect(state?.messages.some((m) => m.text === "Hi")).toBe(true);
+    expect(state?.entries.some((e) => e.type === "agent_text" && e.text === "Hi")).toBe(true);
 
     // Notifications must not wipe state
     const before = state;

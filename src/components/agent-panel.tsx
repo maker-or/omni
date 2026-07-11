@@ -18,6 +18,7 @@ import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { Tabs, TabsList, TabItem } from "@/components/ui/tabs";
 import { ProjectIcon } from "@/components/ui/icon-picker";
+import { PixelGridLoader } from "@/components/ui/pixel-grid-loader";
 import { InputMessage } from "@/components/ui/input-message";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { useIcon } from "@/lib/icon-context";
@@ -32,6 +33,7 @@ import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { ContextWindowRing } from "@/components/ui/context-window-ring";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
+import { AgentQuestionCard, AgentQuestionDock } from "@/components/agent-question";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
@@ -465,82 +467,6 @@ function MessageBody({
   );
 }
 
-function UiRequestDialog({
-  request,
-  onClose,
-}: {
-  request: AgentUiRequest;
-  onClose: (value: string | boolean | undefined) => void;
-}) {
-  const [text, setText] = useState(() => ("prefill" in request ? (request.prefill ?? "") : ""));
-  useEffect(() => {
-    setText("prefill" in request ? (request.prefill ?? "") : "");
-  }, [request]);
-
-  if (request.kind === "select") {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
-        <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
-          {request.message && (
-            <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
-          )}
-          <div className="mt-4 flex flex-col gap-2">
-            {request.options.map((option) => (
-              <Button
-                key={option}
-                variant="secondary"
-                className={`justify-start `}
-                onClick={() => onClose(option)}
-              >
-                {option}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (request.kind === "confirm") {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
-        <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-          <div className="text-sm font-medium text-foreground">{request.title}</div>
-          <div className="mt-2 text-sm text-muted-foreground">{request.message}</div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => onClose(false)}>
-              No
-            </Button>
-            <Button onClick={() => onClose(true)}>Yes</Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
-      <div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-4 shadow-surface-6">
-        <div className="text-sm font-medium text-foreground">{request.title}</div>
-        <textarea
-          autoFocus
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={request.placeholder}
-          className="mt-3 min-h-28 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
-        />
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => onClose(undefined)}>
-            Cancel
-          </Button>
-          <Button onClick={() => onClose(text.trim() || undefined)}>Submit</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const ANSI_PATTERN = new RegExp(String.raw`\u001B\[[0-?]*[ -/]*[@-~]`, "g");
 
 function cleanRuntimeStatusText(text: string | null | undefined): string | null {
@@ -591,6 +517,8 @@ export function AgentPanel() {
     error: agentError,
     isConnecting,
     uiRequest,
+    uiRequestQueue,
+    runningThreadIds,
     connect,
     refresh,
     sendPrompt,
@@ -967,6 +895,16 @@ export function AgentPanel() {
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = activeTabId || snapshotThreadId;
   const isSwitchingThread = Boolean(activeTabId && activeTabId !== snapshotThreadId);
+  // Match by the agent session id the request carries against the session the
+  // user is currently viewing — this is the identity the agent itself used, so
+  // it's reliable even when the main process couldn't resolve the request's
+  // threadId. A question for the viewed session morphs the composer in place
+  // (see the InputMessage/AgentQuestionCard swap below); everything else is
+  // handled by AgentQuestionDock. Only the head for this session shows — the
+  // rest wait their turn.
+  const activeSessionId = snapshot?.agentSessionId ?? null;
+  const inlineRequest =
+    uiRequestQueue.find((r) => activeSessionId != null && r.sessionId === activeSessionId) ?? null;
   const activeMessages = snapshot?.messages ?? [];
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
@@ -1293,44 +1231,6 @@ export function AgentPanel() {
     setInputValue(`/${commandName} `);
   };
 
-  const formatThreadRecency = (timestamp: number) => {
-    const time = typeof timestamp === "number" ? timestamp : Number(timestamp);
-    if (Number.isNaN(time)) return "Unknown";
-
-    const diffMs = Math.max(0, Date.now() - time);
-    if (diffMs < 60 * 60 * 1000) return "Recently opened";
-
-    const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
-    if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
-
-    const weeks = Math.floor(days / 7);
-    if (weeks < 5) return `${weeks} ${weeks === 1 ? "week" : "weeks"} ago`;
-
-    const months = Math.floor(days / 30);
-    if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
-
-    const years = Math.floor(days / 365);
-    return `${years} ${years === 1 ? "year" : "years"} ago`;
-  };
-
-  const getThreadRecencyTime = (
-    thread: {
-      id: string;
-      last_used_at?: number | null;
-      created_at?: number | null;
-    },
-    index: number,
-  ) => {
-    const lastUsed = Number(thread.last_used_at);
-    if (Number.isFinite(lastUsed) && lastUsed > 0) return lastUsed;
-
-    const created = Number(thread.created_at);
-    if (Number.isFinite(created) && created > 0) return created;
-
-    const idSeed = Array.from(thread.id).reduce((total, char) => total + char.charCodeAt(0), 0);
-    const fallbackDaysAgo = ((idSeed + index) % 6) + 1;
-    return Date.now() - fallbackDaysAgo * 24 * 60 * 60 * 1000;
-  };
 
   const handleCreateThread = async (agentId?: string | null) => {
     const projectId = pendingCreateProjectId ?? hoveredProjectId ?? activeProject?.id;
@@ -1433,17 +1333,7 @@ export function AgentPanel() {
       data-pipper-id="agent-panel"
       className="relative z-20 h-full w-full flex flex-col bg-surface-1  overflow-visible"
     >
-      {uiRequest && (
-        <UiRequestDialog
-          request={uiRequest}
-          onClose={(value) => {
-            void respondToUiRequest({
-              requestId: uiRequest.id,
-              value,
-            });
-          }}
-        />
-      )}
+      <AgentQuestionDock activeSessionId={activeSessionId} />
       {previewImage && (
         <div
           className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/75 p-8"
@@ -1471,23 +1361,28 @@ export function AgentPanel() {
         >
           <TabsList
             data-pipper-id="thread-tabs"
-            className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)]"
+            className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
             {[...openThreads]
               .sort((a, b) => a.created_at - b.created_at)
               .map((thread) => {
                 const project = projectsList.find((item) => item.id === thread.project_id);
-                const Icon = project
-                  ? (((props: { className?: string }) => (
-                      <ProjectIcon name={project.icon} className={props.className} />
+                const isThreadWorking = runningThreadIds.includes(thread.id);
+                const Icon = isThreadWorking
+                  ? (((props: { className?: string; size?: number }) => (
+                      <PixelGridLoader size={props.size} className={props.className} />
                     )) as any)
-                  : undefined;
+                  : project
+                    ? (((props: { className?: string }) => (
+                        <ProjectIcon name={project.icon} className={props.className} />
+                      )) as any)
+                    : undefined;
                 const isEditing = editingThreadId === thread.id;
                 const agentLabel = thread.agent_id
                   ? (thread.agent_id.split("@")[0] ?? thread.agent_id)
                   : null;
                 const tabTitle = thread.title ?? "New thread";
-                const labelWithAgent = agentLabel ? `${tabTitle} · ${agentLabel}` : tabTitle;
+                const labelWithAgent = agentLabel ? `${tabTitle}` : tabTitle;
                 return (
                   <TabItem
                     key={thread.id}
@@ -1588,9 +1483,7 @@ export function AgentPanel() {
                           {hoveredProjectThreads.length > 0 ? (
                             hoveredProjectThreads.map((thread, index) => {
                               const isActive = thread.id === threadId;
-                              const recencyLabel = formatThreadRecency(
-                                getThreadRecencyTime(thread, index),
-                              );
+
                               return (
                                 <div
                                   key={thread.id}
@@ -1614,9 +1507,6 @@ export function AgentPanel() {
                                       {thread.title}
                                     </span>
                                   </button>
-                                  <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] leading-tight text-muted-foreground/75 max-sm:hidden">
-                                    {recencyLabel}
-                                  </span>
                                   <button
                                     type="button"
                                     aria-label={`Delete ${thread.title}`}
@@ -1680,7 +1570,7 @@ export function AgentPanel() {
           </div>
         </div>
 
-        <div className="relative flex-1 overflow-hidden  min-h-0 flex flex-col">
+        <div className="relative flex-1 overflow-hidden mt-4  min-h-0 flex flex-col">
           {allMessages.length === 0 && (
             <AmbientPixelField
               pixelSize={6}
@@ -1977,6 +1867,9 @@ export function AgentPanel() {
                   onSelect={applyCommand}
                 />
 
+                {inlineRequest ? (
+                  <AgentQuestionCard request={inlineRequest} className="relative z-10" />
+                ) : (
                 <InputMessage
                   className="relative z-10"
                   textareaRef={composerTextareaRef}
@@ -2201,6 +2094,7 @@ export function AgentPanel() {
                     </div>
                   }
                 />
+                )}
               </div>
 
               <div
@@ -2221,16 +2115,23 @@ export function AgentPanel() {
                 {snapshot?.stats && (
                   <div className="ml-auto flex w-full items-center justify-between gap-2">
                     <ContextWindowRing
-                      contextUsage={snapshot.stats.contextUsage}
-                      contextWindowFallback={snapshot.model?.contextWindow}
+                      contextUsage={
+                        snapshot.stats.size > 0
+                          ? {
+                              tokens: snapshot.stats.used,
+                              contextWindow: snapshot.stats.size,
+                              percent: (snapshot.stats.used / snapshot.stats.size) * 100,
+                            }
+                          : undefined
+                      }
                       modelName={snapshot.model?.name}
                       autoCompactionEnabled={snapshot.autoCompactionEnabled}
-                      sessionTokens={snapshot.stats.tokens.total}
-                      sessionCost={snapshot.stats.cost}
+                      sessionTokens={snapshot.stats.used}
+                      sessionCost={snapshot.stats.cost?.amount}
                     />
-                    {snapshot.stats.cost > 0 && (
+                    {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
                       <span className="tabular-nums opacity-70">
-                        (${snapshot.stats.cost.toFixed(4)})
+                        (${snapshot.stats.cost.amount.toFixed(4)})
                       </span>
                     )}
                   </div>

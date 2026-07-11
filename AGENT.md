@@ -1,5 +1,8 @@
 # Pipper Agent Guide
 
+this is a self improving software
+hope
+
 ## What this repo is
 
 Pipper is a self-improving agent harness. The codebase is early-stage, so prefer changes that improve long-term structure, reliability, and maintainability.
@@ -52,7 +55,14 @@ When there is a tradeoff, choose correctness and robustness over short-term conv
 
 ## core architecture
 
-the base application the agentic core is build on top of pi-sdk[https://pi.dev/docs/latest/sdk] , so before making any chages to agentic core , first understand how the pi-sdk actaully work , and how its implemented in your application
+The agentic core is built on the **Agent Client Protocol (ACP)**, not pi-sdk (pi-sdk is legacy/deprecated — see `contracts/agent.ts`, which is explicitly marked `@deprecated Legacy pi-sdk agent contracts`).
+
+- Agents are external CLI processes speaking ACP over stdio JSON-RPC (`@agentclientprotocol/sdk`). Pipper connects to them as a client.
+- `electron/agents/registry.ts` is the catalog of supported agents (Cursor, Codex, Claude Code, and a bundled `pipper-mock` for dev/tests), with PATH/npx probing and spawn resolution. `electron/agents/config.json` overrides/extends the built-in catalog and sets the default agent.
+- `electron/agent-connection-manager.ts` owns the actual ACP connections; `electron/agent.ts` re-exports it as `AgentManager` for backwards compatibility during the migration off the old pi-sdk-based manager.
+- Renderer-side session state is derived via `src/lib/acp-session-reducer.ts`.
+
+Before making any changes to the agentic core, first understand how ACP works and how it's implemented in this app (start with `electron/agent-connection-manager.ts` and `electron/agents/registry.ts`), not pi-sdk.
 
 Do not rewrite working code unless there is a measurable architectural benefit.
 

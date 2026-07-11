@@ -7,6 +7,7 @@ import type {
   AcpReplacePromptInput,
   AcpSessionState,
   AgentCapabilities,
+  AgentProbeResult,
   AvailableCommand,
   McpServerInput,
   McpServerRecord,
@@ -144,6 +145,7 @@ declare global {
           size: number;
           cost?: { amount: number; currency: string };
         } | null>;
+        getRunningThreads: () => Promise<string[]>;
         sendPrompt: (input: AcpPromptInput) => Promise<void>;
         replacePrompt: (input: AcpReplacePromptInput) => Promise<void>;
         abort: () => Promise<void>;
@@ -166,6 +168,7 @@ declare global {
           cancelled?: boolean;
         }) => Promise<void>;
         listAgents: () => Promise<AcpAgentDescriptor[]>;
+        probeAgent: (agentId: string) => Promise<AgentProbeResult>;
         switchAgent: (agentId: string) => Promise<void>;
         getPreferredAgentId: () => Promise<string>;
         setPreferredAgentId: (agentId: string) => Promise<void>;

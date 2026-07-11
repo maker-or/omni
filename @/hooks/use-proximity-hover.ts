@@ -25,7 +25,7 @@ interface UseProximityHoverReturn {
   activeIndex: number | null;
   setActiveIndex: Dispatch<SetStateAction<number | null>>;
   itemRects: ItemRect[];
-  session: number;
+  sessionRef: RefObject<number>;
   handlers: {
     onMouseMove: (e: React.MouseEvent) => void;
     onMouseEnter: () => void;
@@ -37,14 +37,14 @@ interface UseProximityHoverReturn {
 
 export function useProximityHover<T extends HTMLElement>(
   containerRef: RefObject<T | null>,
-  options: UseProximityHoverOptions = {},
+  options: UseProximityHoverOptions = {}
 ): UseProximityHoverReturn {
   const { axis = "y" } = options;
   const itemsRef = useRef(new Map<number, HTMLElement>());
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [itemRects, setItemRects] = useState<ItemRect[]>([]);
   const itemRectsRef = useRef<ItemRect[]>([]);
-  const [session, setSession] = useState(0);
+  const sessionRef = useRef(0);
   const rafIdRef = useRef<number | null>(null);
   const remeasureRafIdRef = useRef<number | null>(null);
 
@@ -65,6 +65,23 @@ export function useProximityHover<T extends HTMLElement>(
         width: element.offsetWidth,
       };
     });
+    // Skip the state update when nothing moved (a cheap top/left/width/height
+    // compare) so redundant remeasures don't churn re-renders.
+    const prev = itemRectsRef.current;
+    let changed = prev.length !== rects.length;
+    for (let i = 0; !changed && i < rects.length; i++) {
+      const p = prev[i];
+      const r = rects[i];
+      if (p === r) continue; // both undefined (sparse slot)
+      changed =
+        !p ||
+        !r ||
+        p.top !== r.top ||
+        p.left !== r.left ||
+        p.width !== r.width ||
+        p.height !== r.height;
+    }
+    if (!changed) return;
     itemRectsRef.current = rects;
     setItemRects(rects);
   }, [containerRef]);
@@ -88,7 +105,7 @@ export function useProximityHover<T extends HTMLElement>(
         measureItems();
       });
     },
-    [measureItems],
+    [measureItems]
   );
 
   const handleMouseMove = useCallback(
@@ -150,11 +167,11 @@ export function useProximityHover<T extends HTMLElement>(
         setActiveIndex(containingIndex ?? closestIndex);
       });
     },
-    [axis, containerRef],
+    [axis, containerRef]
   );
 
   const handleMouseEnter = useCallback(() => {
-    setSession((prev) => prev + 1);
+    sessionRef.current += 1;
   }, []);
 
   const handleMouseLeave = useCallback(() => {
@@ -164,6 +181,25 @@ export function useProximityHover<T extends HTMLElement>(
     }
     setActiveIndex(null);
   }, []);
+
+  // Remeasure when the container resizes — a reflow moves items even though
+  // the registered set is unchanged, which would otherwise leave itemRects
+  // stale. Coalesced through the same rAF as register/unregister.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (remeasureRafIdRef.current !== null) {
+        cancelAnimationFrame(remeasureRafIdRef.current);
+      }
+      remeasureRafIdRef.current = requestAnimationFrame(() => {
+        remeasureRafIdRef.current = null;
+        measureItems();
+      });
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [containerRef, measureItems]);
 
   // Clean up rAF on unmount
   useEffect(() => {
@@ -181,7 +217,7 @@ export function useProximityHover<T extends HTMLElement>(
     activeIndex,
     setActiveIndex,
     itemRects,
-    session,
+    sessionRef,
     handlers: {
       onMouseMove: handleMouseMove,
       onMouseEnter: handleMouseEnter,
@@ -190,4 +226,19 @@ export function useProximityHover<T extends HTMLElement>(
     registerItem,
     measureItems,
   };
+}
+
+/**
+ * Hook for child items to register themselves with the proximity hover system.
+ * Call in useEffect with the item's ref and index.
+ */
+export function useRegisterProximityItem(
+  registerItem: (index: number, element: HTMLElement | null) => void,
+  index: number,
+  ref: RefObject<HTMLElement | null>
+) {
+  useEffect(() => {
+    registerItem(index, ref.current);
+    return () => registerItem(index, null);
+  }, [index, registerItem, ref]);
 }

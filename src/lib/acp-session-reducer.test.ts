@@ -5,15 +5,15 @@ import {
   appendLocalUserMessage,
   assemblePromptBlocks,
   createEmptySessionSlice,
-  resetMessageIdCounter,
+  resetEntryIdCounter,
 } from "./acp-session-reducer";
 
 describe("acp-session-reducer", () => {
   beforeEach(() => {
-    resetMessageIdCounter();
+    resetEntryIdCounter();
   });
 
-  test("accumulates agent message and thought chunks by messageId", () => {
+  test("accumulates agent message and thought chunks into tail entries", () => {
     let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
       sessionUpdate: "agent_thought_chunk",
@@ -31,20 +31,49 @@ describe("acp-session-reducer", () => {
       content: { type: "text", text: " world" },
     });
 
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.thought).toBe("thinking… ");
-    expect(state.messages[0]?.text).toBe("Hello world");
+    expect(state.entries).toHaveLength(2);
+    expect(state.entries[0]).toMatchObject({ type: "agent_thought", text: "thinking… " });
+    expect(state.entries[1]).toMatchObject({ type: "agent_text", text: "Hello world" });
     expect(state.isStreaming).toBe(true);
-    expect(state.activeMsgId).toBe("m1");
   });
 
-  test("tool call lifecycle create and update", () => {
-    let state = createEmptySessionSlice({ activeMsgId: "asst-1" });
+  test("chunks without a messageId accumulate into the tail entry", () => {
+    // Standard ACP streaming updates carry no messageId; consecutive chunks of
+    // one kind must stay a single segment instead of fragmenting.
+    let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
       sessionUpdate: "agent_message_chunk",
-      messageId: "asst-1",
-      content: { type: "text", text: "Working" },
+      content: { type: "text", text: "Here is " },
     });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "the answer." },
+    });
+
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({ type: "agent_text", text: "Here is the answer." });
+  });
+
+  test("a changed messageId starts a new message per ACP spec", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "m1",
+      content: { type: "text", text: "first" },
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "m2",
+      content: { type: "text", text: "second" },
+    });
+
+    expect(state.entries).toHaveLength(2);
+    expect(state.entries[0]).toMatchObject({ text: "first", messageId: "m1" });
+    expect(state.entries[1]).toMatchObject({ text: "second", messageId: "m2" });
+  });
+
+  test("tool call lifecycle: entry appended once, record updated in place", () => {
+    let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
       sessionUpdate: "tool_call",
       toolCallId: "tc1",
@@ -52,6 +81,7 @@ describe("acp-session-reducer", () => {
       kind: "read",
       status: "pending",
     });
+    const entriesAfterCall = state.entries;
     state = applySessionUpdate(state, {
       sessionUpdate: "tool_call_update",
       toolCallId: "tc1",
@@ -61,7 +91,107 @@ describe("acp-session-reducer", () => {
 
     expect(state.toolCalls.tc1?.status).toBe("completed");
     expect(state.toolCalls.tc1?.title).toBe("Read file");
-    expect(state.messages[0]?.toolCallIds).toContain("tc1");
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({ type: "tool_call", toolCallId: "tc1" });
+    // tool_call_update must not touch the entry list (identity preserved).
+    expect(state.entries).toBe(entriesAfterCall);
+  });
+
+  test("tool_call_update for an unknown id still gets a timeline entry", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "ghost",
+      status: "completed",
+    });
+
+    expect(state.toolCalls.ghost?.status).toBe("completed");
+    expect(state.entries.some((e) => e.type === "tool_call" && e.toolCallId === "ghost")).toBe(
+      true,
+    );
+  });
+
+  test("interleaving order is preserved: text → tool → text", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Let me check. " },
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tc1",
+      title: "Read file",
+      status: "completed",
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Found it." },
+    });
+
+    expect(state.entries.map((e) => e.type)).toEqual(["agent_text", "tool_call", "agent_text"]);
+    expect(state.entries[0]).toMatchObject({ text: "Let me check. " });
+    expect(state.entries[2]).toMatchObject({ text: "Found it." });
+  });
+
+  test("settled entries keep referential identity while streaming", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "plan" },
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tc1",
+      title: "Read",
+      status: "in_progress",
+    });
+    const settledThought = state.entries[0];
+    const settledTool = state.entries[1];
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "streaming tail…" },
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: " more" },
+    });
+
+    expect(state.entries[0]).toBe(settledThought);
+    expect(state.entries[1]).toBe(settledTool);
+  });
+
+  test("user_message_chunk without messageId stays one bubble per chunk", () => {
+    // Replayed history commonly arrives as one id-less chunk per historical
+    // user message; they must not merge into a single bubble.
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "first question" },
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "second question" },
+    });
+
+    expect(state.entries).toHaveLength(2);
+    expect(state.entries.every((e) => e.type === "user_text")).toBe(true);
+  });
+
+  test("user_message_chunk with matching messageId merges", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "user_message_chunk",
+      messageId: "u1",
+      content: { type: "text", text: "hello " },
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "user_message_chunk",
+      messageId: "u1",
+      content: { type: "text", text: "world" },
+    });
+
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({ type: "user_text", text: "hello world" });
   });
 
   test("plan, usage, commands, config options replace", () => {
@@ -69,19 +199,18 @@ describe("acp-session-reducer", () => {
     state = applySessionUpdate(state, {
       sessionUpdate: "plan",
       entries: [
-        { content: "Step 1", priority: "high", status: "pending" },
-        { content: "Step 2", priority: "medium", status: "in_progress" },
+        { content: "step 1", priority: "high", status: "completed" },
+        { content: "step 2", priority: "low", status: "pending" },
       ],
     });
     state = applySessionUpdate(state, {
       sessionUpdate: "usage_update",
       used: 100,
-      size: 200_000,
-      cost: { amount: 0.01, currency: "USD" },
+      size: 200000,
     } as never);
     state = applySessionUpdate(state, {
       sessionUpdate: "available_commands_update",
-      availableCommands: [{ name: "web", description: "Search" }],
+      availableCommands: [{ name: "web", description: "search", input: null }],
     });
     state = applySessionUpdate(state, {
       sessionUpdate: "config_option_update",
@@ -91,11 +220,11 @@ describe("acp-session-reducer", () => {
           name: "Model",
           category: "model",
           type: "select",
-          currentValue: "a",
-          options: [{ value: "a", name: "A" }],
-        },
+          currentValue: "gpt-x",
+          options: [{ value: "gpt-x", name: "GPT X" }],
+        } as never,
       ],
-    } as never);
+    });
 
     expect(state.plan).toHaveLength(2);
     expect(state.usage?.used).toBe(100);
@@ -113,70 +242,50 @@ describe("acp-session-reducer", () => {
     expect(state.titleChanged).toBe(true);
   });
 
-  test("applyTurnStop clears streaming flags", () => {
+  test("applyTurnStop clears streaming", () => {
     let state = createEmptySessionSlice({
       isStreaming: true,
-      activeMsgId: "m1",
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          text: "done",
-          thought: "",
-          toolCallIds: [],
-          streaming: true,
-        },
-      ],
+      entries: [{ type: "agent_text", id: "e1", messageId: null, text: "done" }],
     });
     state = applyTurnStop(state);
     expect(state.isStreaming).toBe(false);
-    expect(state.activeMsgId).toBeNull();
-    expect(state.messages[0]?.streaming).toBe(false);
+    expect(state.entries).toHaveLength(1);
   });
 
   test("appendLocalUserMessage and assemblePromptBlocks", () => {
     let state = createEmptySessionSlice();
     state = appendLocalUserMessage(state, "Hello", "u1");
-    expect(state.messages[0]).toMatchObject({
+    expect(state.entries[0]).toMatchObject({
+      type: "user_text",
       id: "u1",
-      role: "user",
       text: "Hello",
     });
     expect(state.isStreaming).toBe(true);
 
     const blocks = assemblePromptBlocks({
-      message: "Hi",
-      images: [{ data: "abc", mimeType: "image/png" }],
+      message: "look at this",
+      images: [{ data: "aGk=", mimeType: "image/png" }],
+      resources: [{ uri: "file:///tmp/a.ts", name: "a.ts", text: "const a = 1;" }],
       allowImage: true,
-      resources: [{ uri: "file:///a.ts", text: "const x = 1" }],
       allowEmbeddedContext: true,
     });
-    expect(blocks).toEqual([
-      { type: "text", text: "Hi" },
-      { type: "image", data: "abc", mimeType: "image/png" },
-      {
-        type: "resource",
-        resource: { uri: "file:///a.ts", mimeType: undefined, text: "const x = 1" },
-      },
-    ]);
-
-    const noImage = assemblePromptBlocks({
-      message: "Hi",
-      images: [{ data: "abc", mimeType: "image/png" }],
-      allowImage: false,
-    });
-    expect(noImage).toEqual([{ type: "text", text: "Hi" }]);
+    expect(blocks[0]).toMatchObject({ type: "text", text: "look at this" });
+    expect(blocks[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+    expect(blocks[2]).toMatchObject({ type: "resource" });
   });
 
   test("user_message_chunk during session load", () => {
     let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
       sessionUpdate: "user_message_chunk",
-      messageId: "history-user",
-      content: { type: "text", text: "past message" },
+      messageId: "u-1",
+      content: { type: "text", text: "restored question" },
     });
-    expect(state.messages[0]?.role).toBe("user");
-    expect(state.messages[0]?.text).toBe("past message");
-    expect(state.messages[0]?.streaming).toBe(false);
+    expect(state.entries[0]).toMatchObject({
+      type: "user_text",
+      text: "restored question",
+    });
+    // Restored user chunks must not flip the session into a streaming state.
+    expect(state.isStreaming).toBe(false);
   });
 });

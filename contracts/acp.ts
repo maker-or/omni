@@ -71,6 +71,22 @@ export interface AcpAgentDescriptor {
   statusMessage?: string | null;
 }
 
+/**
+ * Outcome of actually spawning an agent and attempting an ACP `initialize`
+ * handshake, as opposed to `AcpAgentDescriptor.available` which only checks
+ * whether a binary/npx fetch path exists.
+ */
+export type AgentProbeStatus = "probing" | "ready" | "needs-install" | "needs-auth" | "error";
+
+export interface AgentProbeResult {
+  agentId: string;
+  status: AgentProbeStatus;
+  /** Human-readable reason, shown alongside install/auth/error states. */
+  message?: string | null;
+  /** Auth methods the agent reported during `initialize`, when `status` is `needs-auth`. */
+  authMethods?: AuthMethod[];
+}
+
 export interface AcpUsageState {
   used: number;
   size: number;
@@ -88,11 +104,50 @@ export interface AcpToolCallState {
   rawOutput?: unknown;
 }
 
+/**
+ * One item in a session's ordered timeline. Mirrors ACP's flat stream of
+ * `session/update` notifications: text/thought segments and tool calls are
+ * siblings, and render order is arrival order. Consecutive chunks of the same
+ * kind accumulate into the tail entry; a tool call between text chunks starts
+ * a new segment, so interleaving is preserved. Tool call details live in
+ * `AcpSessionState.toolCalls` keyed by `toolCallId`; `tool_call_update`
+ * touches only that record, never the entry list.
+ */
+export type AcpEntry =
+  | { type: "user_text"; id: string; messageId: string | null; text: string }
+  | { type: "agent_text"; id: string; messageId: string | null; text: string }
+  | { type: "agent_thought"; id: string; messageId: string | null; text: string }
+  | { type: "tool_call"; id: string; toolCallId: string };
+
+/** Content part of a derived chat message; order matches the entry timeline. */
+export type AcpMessagePart =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
+  | {
+      type: "toolCall";
+      id: string;
+      name: string;
+      kind?: ToolKind;
+      status?: ToolCallStatus;
+      arguments: Record<string, unknown>;
+      args: Record<string, unknown>;
+      content?: ToolCallContent[];
+      rawOutput?: unknown;
+    };
+
+/**
+ * Chat message view derived from the entry timeline by the renderer
+ * projection (`src/lib/acp-entries.ts`). Not sent over IPC.
+ */
 export interface AcpChatMessage {
   id: string;
   role: "user" | "assistant";
+  /** Concatenated visible text segments (no thought/tool content). */
   text: string;
+  /** Concatenated thought segments. */
   thought: string;
+  /** Parts in timeline order (thinking / toolCall / text interleaved). */
+  content: AcpMessagePart[];
   toolCallIds: string[];
   /** True while the assistant message is still streaming. */
   streaming: boolean;
@@ -100,6 +155,11 @@ export interface AcpChatMessage {
 
 export interface AcpPermissionRequest {
   sessionId: string;
+  /** Thread that owns the session this permission belongs to, resolved in the
+   *  main process from `sessionId`. Lets the renderer route the question to the
+   *  right surface (inline composer vs. bottom-right dock). Null when the
+   *  session isn't bound to a thread yet. */
+  threadId?: string | null;
   toolCall: ToolCallUpdate | ToolCall;
   options: Array<{
     optionId: string;
@@ -145,7 +205,8 @@ export interface AcpSessionState {
   title: string | null;
   configOptions: SessionConfigOption[];
   commands: AvailableCommand[];
-  messages: AcpChatMessage[];
+  /** Ordered session timeline; see {@link AcpEntry}. */
+  entries: AcpEntry[];
   toolCalls: Record<string, AcpToolCallState>;
   plan: PlanEntry[] | null;
   usage: AcpUsageState | null;
@@ -172,7 +233,9 @@ export type AcpBridgeEvent =
   | { type: "title"; threadId: string; title: string }
   | { type: "terminal-output"; terminalId: string; output: string; append: boolean }
   | { type: "editor-text"; text: string }
-  | { type: "stop"; sessionId: string; threadId: string | null; stopReason: string };
+  | { type: "stop"; sessionId: string; threadId: string | null; stopReason: string }
+  /** Thread IDs whose agent is currently streaming, across all open threads. */
+  | { type: "running-threads"; threadIds: string[] };
 
 export interface McpServerRecord {
   id: string;

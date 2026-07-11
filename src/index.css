@@ -41,6 +41,12 @@
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
 
+  /* --- State/elevation roles (aliased to the palette above; var() resolves
+   *     lazily, so these pick up the .dark overrides of their sources) ------ */
+  --card: var(--surface-2); /* solid panel/card fill */
+  --hover: var(--muted); /* row hover wash */
+  --active: var(--accent); /* selected-row fill */
+
   /* --- Radius ----------------------------------------------------------- */
   --radius: 0.625rem;
 
@@ -184,6 +190,10 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
 
+  --color-card: var(--card);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+
   --color-muted: var(--muted);
 
   --color-destructive: var(--destructive);
@@ -239,17 +249,16 @@
 
   /* --- Keyframes -------------------------------------------------------- */
   @keyframes spinner-move {
-    to {
-      stroke-dashoffset: -100;
+  to {
+    stroke-dashoffset: -100;
     }
   }
   @keyframes spinner-dash {
-    0%,
-    100% {
-      stroke-dasharray: 15 85;
+  0%, 100% {
+    stroke-dasharray: 15 85;
     }
-    50% {
-      stroke-dasharray: 40 60;
+  50% {
+    stroke-dasharray: 40 60;
     }
   }
   @keyframes pipper-beam-spin {
@@ -281,6 +290,15 @@
     to {
       opacity: 1;
       transform: translateX(-50%) translateY(0);
+    }
+  }
+  @keyframes pixel-loader-pulse {
+    0%,
+    100% {
+      opacity: 0.15;
+    }
+    50% {
+      opacity: 1;
     }
   }
 }

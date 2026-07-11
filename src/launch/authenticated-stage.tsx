@@ -83,8 +83,7 @@ export function AuthenticatedStage({
                 Choose your agent(s)
               </h1>
               <p className="text-xs text-muted-foreground">
-                Select all ACP coding agents you want to use. Cursor, Codex, and Claude are
-                supported. You can pick one per thread later.
+                Select all ACP coding agents you want to use. You can pick one per thread later.
               </p>
             </header>
             <AgentSelector

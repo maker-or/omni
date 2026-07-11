@@ -11,7 +11,7 @@ function emptyState(threadId = "t1"): AcpSessionState {
     title: null,
     configOptions: [],
     commands: [],
-    messages: [],
+    entries: [],
     toolCalls: {},
     plan: null,
     usage: null,
