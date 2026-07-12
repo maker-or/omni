@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -46,6 +46,9 @@ import {
   type ChatImageAttachment,
 } from "@/lib/agent-message-images";
 import { matchAgentCommands, mergeAgentCommands } from "@/lib/agent-commands";
+import { isSubagentTrigger, SUBAGENT_COMMAND } from "@/lib/subagent-orchestration";
+import { SubagentComposer, type SubagentComposerSubmit } from "@/components/subagent-composer";
+import { SubagentActivity } from "@/components/subagent-activity";
 import {
   OPEN_TABS_QUERY_KEY,
   useMergedProjectThreads,
@@ -168,11 +171,11 @@ export function ProviderMark({ provider, className }: { provider: string; classN
       <svg
         aria-label={label}
         className={cn("h-4 w-[22px] shrink-0", className)}
-        viewBox="0 0 28 20"
+        viewBox="0 0 841.89 595.28"
         role="img"
       >
         <path
-          d="M18.5278 7.12438L18.8042 18.0896H21.0179L21.2946 3.13265L18.5278 7.12438ZM21.2946 1.91406H17.9169L12.6164 9.56156L14.3053 11.9981L21.2946 1.91406ZM6.70508 18.0896H10.0828L11.772 15.6531L10.0828 13.2163L6.70508 18.0896ZM6.70508 7.12438L14.3053 18.0896H17.683L10.0828 7.12438H6.70508Z"
+          d="m557.09 211.99 8.31 326.37h66.56l8.32-445.18zM640.28 56.91H538.72L379.35 284.53l50.78 72.52zM201.61 538.36h101.56l50.79-72.52-50.79-72.53zM201.61 211.99l228.52 326.37h101.56L303.17 211.99z"
           fill="currentColor"
         />
       </svg>
@@ -251,6 +254,50 @@ export function ProviderMark({ provider, className }: { provider: string; classN
       <path d="M10 1.75L11.85 5.5H8.15L10 1.75Z" fill="currentColor" />
       <path d="M10 18.25L8.15 14.5H11.85L10 18.25Z" fill="currentColor" />
     </svg>
+  );
+}
+
+// Stable component identity: this must not be recreated per-render or per-tab.
+// A fresh function reference makes React remount the icon on every unrelated
+// re-render (e.g. every streaming chunk), which restarts the CSS animation
+// before it ever completes a visible pulse cycle.
+function TabWorkingIcon(props: { className?: string; size?: number }) {
+  return <PixelGridLoader size={props.size} className={props.className} />;
+}
+
+// Cache one stable component per project icon name so switching between tabs
+// (or unrelated re-renders) doesn't remount — and reset any CSS transitions
+// on — icons that didn't actually change.
+const projectIconComponentCache = new Map<
+  string,
+  (props: { className?: string }) => ReactElement
+>();
+function getProjectIconComponent(name: string) {
+  let Component = projectIconComponentCache.get(name);
+  if (!Component) {
+    Component = (props: { className?: string }) => (
+      <ProjectIcon name={name} className={props.className} />
+    );
+    projectIconComponentCache.set(name, Component);
+  }
+  return Component;
+}
+
+// Stable component identity: hoisted to module scope so it isn't recreated on
+// every AgentPanel render, which would otherwise remount every visible
+// message's copy button on every keystroke/streaming token.
+function CopyButton({ isCopied, onCopy }: { isCopied: boolean; onCopy: () => void }) {
+  const CopyIcon = useIcon("copy");
+  const CheckIcon = useIcon("check");
+  return (
+    <button
+      type="button"
+      aria-label="Copy message"
+      className={iconButtonClass}
+      onClick={onCopy}
+    >
+      {isCopied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+    </button>
   );
 }
 
@@ -519,6 +566,7 @@ export function AgentPanel() {
     uiRequest,
     uiRequestQueue,
     runningThreadIds,
+    subagentRuns,
     connect,
     refresh,
     sendPrompt,
@@ -543,6 +591,8 @@ export function AgentPanel() {
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [orchestrationOpen, setOrchestrationOpen] = useState(false);
+  const [orchestrationSeed, setOrchestrationSeed] = useState("");
   const [editState, setEditState] = useState<{
     targetEntryId: string;
     images: ChatImageAttachment[];
@@ -574,13 +624,17 @@ export function AgentPanel() {
   const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
   const ChevronDownIcon = useIcon("chevron-down");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const CopyIcon = useIcon("copy");
-  const CheckIcon = useIcon("check");
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
   const openTabsQuery = useOpenTabsQuery();
   const openTabsState = openTabsQuery.data;
   const openThreads = openTabsState?.openThreads ?? [];
+  const orderedOpenThreads = useMemo(() => {
+    const threadsById = new Map(openThreads.map((thread) => [thread.id, thread]));
+    return (openTabsState?.openThreadIds ?? [])
+      .map((threadId) => threadsById.get(threadId))
+      .filter((thread): thread is Thread => Boolean(thread));
+  }, [openTabsState?.openThreadIds, openThreads]);
   const activeThreadId = openTabsState?.activeThreadId ?? null;
   const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
   const hoveredProjectThreadsQuery = useProjectThreadsQuery(hoveredProjectId);
@@ -588,6 +642,7 @@ export function AgentPanel() {
     () => mergeAgentCommands(snapshot?.commands ?? []),
     [snapshot?.commands],
   );
+  const registryAgents = useAgentRegistryStore((state) => state.agents);
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
   const recentProjectsQuery = useRecentProjectsQuery(
@@ -596,20 +651,6 @@ export function AgentPanel() {
     openThreads,
   );
   usePrefetchRecentProjects(recentProjectsQuery.data ?? []);
-
-  function CopyButton({ msgId, bodyText }: { msgId: string; bodyText: string }) {
-    const isCopied = copiedMessageId === msgId;
-    return (
-      <button
-        type="button"
-        aria-label="Copy message"
-        className={iconButtonClass}
-        onClick={() => void handleCopy(msgId, bodyText)}
-      >
-        {isCopied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-      </button>
-    );
-  }
 
   const formatMessageTime = (message: MessageLike): string | undefined => {
     const meta = message as { timestamp?: number; created_at?: string };
@@ -831,6 +872,10 @@ export function AgentPanel() {
   useEffect(() => {
     const currentThreadId = snapshot?.threadId;
     if (currentThreadId) {
+      // Don't resurrect a tab the user just closed: the agent snapshot keeps
+      // pointing at the closed thread until switchThread lands, and re-opening
+      // it here is what made closing the active tab flaky.
+      if (closingTabIdsRef.current.has(currentThreadId)) return;
       setActiveTabId(currentThreadId);
       void window.omni.tabs.open(currentThreadId).then(() => {
         void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
@@ -1035,7 +1080,14 @@ export function AgentPanel() {
     scrollRafRef.current = requestAnimationFrame(tick);
   }, [latestConversationScrollKey, isStreaming, allMessages.length]);
 
+  // Tabs whose close is in flight (or whose thread the agent snapshot still
+  // references after closing). Guards both the double-click-on-X case and the
+  // tab-sync effect above, which would otherwise re-open a just-closed tab
+  // because snapshot.threadId lags behind until switchThread completes.
+  const closingTabIdsRef = useRef<Set<string>>(new Set());
+
   const handleSelectThread = async (id: string) => {
+    closingTabIdsRef.current.delete(id);
     setActiveTabId(id);
     if (id === snapshot?.threadId) return;
     setRequestedThreadId(id);
@@ -1043,33 +1095,49 @@ export function AgentPanel() {
   };
 
   const handleCloseThreadTab = async (id: string) => {
-    const sortedThreads = [...openThreads].sort((a, b) => a.created_at - b.created_at);
-    const currentIndex = sortedThreads.findIndex((t) => t.id === id);
-    const nextState = await window.omni.tabs.close(id);
-    await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+    // A rapid double-click on the X must not fire a second close (which
+    // would otherwise re-run next-active selection against stale state).
+    if (closingTabIdsRef.current.has(id)) return;
+    closingTabIdsRef.current.add(id);
+    try {
+      const wasActive = id === activeTabId;
+      // The main process is the single source of truth for which tab becomes
+      // active next (MRU switch history, then right neighbor, then left) —
+      // the renderer just follows nextState.activeThreadId.
+      const nextState = await window.omni.tabs.close(id);
+      await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
 
-    if (id === activeTabId) {
-      const remainingThreads = sortedThreads.filter((t) => t.id !== id);
-      const fallbackThread =
-        remainingThreads.find((thread) => thread.id === nextState.activeThreadId) ??
-        remainingThreads[currentIndex] ??
-        remainingThreads[currentIndex - 1] ??
-        remainingThreads[remainingThreads.length - 1] ??
-        null;
-
-      if (fallbackThread) {
-        await handleSelectThread(fallbackThread.id);
+      if (!wasActive) return;
+      if (nextState.activeThreadId) {
+        await handleSelectThread(nextState.activeThreadId);
       } else {
         setActiveTabId(null);
-        await window.omni.tabs.setActive(null);
-        await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+      }
+    } finally {
+      // Keep the id flagged while the agent snapshot may still reference the
+      // closed thread; handleSelectThread clears it if the user reopens it.
+      if (id !== useAgentStore.getState().snapshot?.threadId) {
+        closingTabIdsRef.current.delete(id);
       }
     }
+  };
+
+  const openOrchestration = (seed: string) => {
+    setOrchestrationSeed(seed);
+    setOrchestrationOpen(true);
+    setInputValue("");
+    setSelectedCommandIndex(0);
   };
 
   const handleSend = async (text: string, files: File[]) => {
     const trimmed = text.trim();
     if (!trimmed && !files.length && !editState?.images.length) return;
+    // Client-side command: morph the composer instead of prompting the agent.
+    // Any remainder text seeds the orchestration goal.
+    if (isSubagentTrigger(trimmed)) {
+      openOrchestration(trimmed.replace(/^\/\S+\s*/, ""));
+      return;
+    }
     const [token, ...args] = trimmed.split(/\s+/);
     if (token === "/abort" && args.length === 0) {
       setIsSubmitting(true);
@@ -1106,20 +1174,33 @@ export function AgentPanel() {
         });
         return;
       }
-      if (editState && operationThreadId)
-        await replacePrompt({
-          threadId: operationThreadId,
-          targetUserEntryId: editState.targetEntryId,
-          message: trimmed,
-          images,
+      // The underlying ACP call only resolves once the agent finishes its
+      // entire turn, so we deliberately don't await it here — awaiting would
+      // hold composerDisabled (and this stale draft text) for the whole turn.
+      // The optimistic user message + isStreaming are already applied
+      // synchronously by the store before any IPC round-trip, so it's safe to
+      // clear the composer now and just report failures asynchronously.
+      const sendOp =
+        editState && operationThreadId
+          ? replacePrompt({
+              threadId: operationThreadId,
+              targetUserEntryId: editState.targetEntryId,
+              message: trimmed,
+              images,
+            })
+          : sendPrompt({
+              threadId: operationThreadId,
+              message: trimmed,
+              images: newImages.length ? newImages : undefined,
+              streamingBehavior: isStreaming ? streamingBehavior : undefined,
+            });
+      sendOp.catch((err) => {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: editState ? "Edit failed" : "Send failed",
+          description: err instanceof Error ? err.message : "The agent did not accept the message.",
         });
-      else
-        await sendPrompt({
-          threadId: operationThreadId,
-          message: trimmed,
-          images: newImages.length ? newImages : undefined,
-          streamingBehavior: isStreaming ? streamingBehavior : undefined,
-        });
+      });
       if (snapshot?.threadId === operationThreadId) {
         setInputValue("");
         setAttachedFiles([]);
@@ -1228,9 +1309,59 @@ export function AgentPanel() {
   };
 
   const applyCommand = (commandName: string) => {
+    if (commandName === SUBAGENT_COMMAND) {
+      openOrchestration("");
+      return;
+    }
     setInputValue(`/${commandName} `);
   };
 
+  const handleOrchestrationSubmit = async ({
+    prompt,
+    orchestratorAgentId,
+  }: SubagentComposerSubmit) => {
+    setIsSubmitting(true);
+    try {
+      // The orchestrator runs in a thread owned by its agent. Reuse the
+      // current thread when it already is that agent; otherwise start one.
+      let threadId = snapshot?.threadId ?? null;
+      const needsNewThread = !threadId || orchestratorAgentId !== (snapshot?.agentId ?? null);
+      if (needsNewThread) {
+        const projectId = activeProject?.id;
+        if (!projectId) throw new Error("Open a project before orchestrating subagents.");
+        const count = threads.filter((thread) => thread.project_id === projectId).length + 1;
+        const thread = await createThread(
+          projectId,
+          `Orchestration #${count}`,
+          snapshot?.threadId ?? null,
+          orchestratorAgentId,
+        );
+        await loadProjectThreads(projectId, { reset: true });
+        await handleSelectThread(thread.id);
+        threadId = thread.id;
+      }
+      // Fire-and-forget like handleSend: the ACP call resolves only when the
+      // whole orchestration turn ends, and optimistic state is already applied.
+      sendPrompt({ threadId, message: prompt }).catch((err) => {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Orchestration failed",
+          description:
+            err instanceof Error ? err.message : "The orchestrator did not accept the prompt.",
+        });
+      });
+      setOrchestrationOpen(false);
+      setOrchestrationSeed("");
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Orchestration failed",
+        description: err instanceof Error ? err.message : "The orchestration was not started.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleCreateThread = async (agentId?: string | null) => {
     const projectId = pendingCreateProjectId ?? hoveredProjectId ?? activeProject?.id;
@@ -1299,7 +1430,6 @@ export function AgentPanel() {
   const hoveredThreadsHasMore = hoveredThreadPage
     ? hoveredThreadPage.hasMore
     : Boolean(hoveredProjectThreadsQuery.data?.hasMore);
-  const runtimeStatusItems = useMemo(() => getRuntimeStatusItems(snapshot), [snapshot]);
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     return models.filter(
@@ -1363,43 +1493,38 @@ export function AgentPanel() {
             data-pipper-id="thread-tabs"
             className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
-            {[...openThreads]
-              .sort((a, b) => a.created_at - b.created_at)
-              .map((thread) => {
-                const project = projectsList.find((item) => item.id === thread.project_id);
-                const isThreadWorking = runningThreadIds.includes(thread.id);
-                const Icon = isThreadWorking
-                  ? (((props: { className?: string; size?: number }) => (
-                      <PixelGridLoader size={props.size} className={props.className} />
-                    )) as any)
-                  : project
-                    ? (((props: { className?: string }) => (
-                        <ProjectIcon name={project.icon} className={props.className} />
-                      )) as any)
-                    : undefined;
-                const isEditing = editingThreadId === thread.id;
-                const agentLabel = thread.agent_id
-                  ? (thread.agent_id.split("@")[0] ?? thread.agent_id)
-                  : null;
-                const tabTitle = thread.title ?? "New thread";
-                const labelWithAgent = agentLabel ? `${tabTitle}` : tabTitle;
-                return (
-                  <TabItem
-                    key={thread.id}
-                    value={thread.id}
-                    label={labelWithAgent}
-                    icon={Icon}
-                    onClose={() => handleCloseThreadTab(thread.id)}
-                    editing={isEditing}
-                    editValue={isEditing ? editingThreadTitle : tabTitle}
-                    onEditValueChange={setEditingThreadTitle}
-                    onEditCommit={commitRenameThread}
-                    onEditCancel={cancelRenameThread}
-                    onDoubleClick={() => startRenameThread(thread.id, tabTitle)}
-                    data-pipper-id={`thread-tab-${thread.id}`}
-                  />
-                );
-              })}
+            {orderedOpenThreads.map((thread) => {
+              const project = projectsList.find((item) => item.id === thread.project_id);
+              const isThreadWorking = runningThreadIds.includes(thread.id);
+              const Icon = isThreadWorking
+                ? TabWorkingIcon
+                : project
+                  ? getProjectIconComponent(project.icon)
+                  : undefined;
+              const isEditing = editingThreadId === thread.id;
+              const agentLabel = thread.agent_id
+                ? (thread.agent_id.split("@")[0] ?? thread.agent_id)
+                : null;
+              const tabTitle = thread.title ?? "New thread";
+              const labelWithAgent = agentLabel ? `${tabTitle}` : tabTitle;
+              return (
+                <TabItem
+                  key={thread.id}
+                  value={thread.id}
+                  label={labelWithAgent}
+                  scrollLabelOnHover
+                  icon={Icon}
+                  onClose={() => handleCloseThreadTab(thread.id)}
+                  editing={isEditing}
+                  editValue={isEditing ? editingThreadTitle : tabTitle}
+                  onEditValueChange={setEditingThreadTitle}
+                  onEditCommit={commitRenameThread}
+                  onEditCancel={cancelRenameThread}
+                  onDoubleClick={() => startRenameThread(thread.id, tabTitle)}
+                  data-pipper-id={`thread-tab-${thread.id}`}
+                />
+              );
+            })}
           </TabsList>
 
           <div className="relative">
@@ -1434,9 +1559,7 @@ export function AgentPanel() {
                     {projectItems.map((item) => {
                       const project = projectsList.find((p) => p.id === item.id);
                       const ProjectIconItem = project
-                        ? (((props: { className?: string }) => (
-                            <ProjectIcon name={project.icon} className={props.className} />
-                          )) as any)
+                        ? getProjectIconComponent(project.icon)
                         : undefined;
                       return (
                         <MenuItem
@@ -1481,7 +1604,7 @@ export function AgentPanel() {
                             </div>
                           )}
                           {hoveredProjectThreads.length > 0 ? (
-                            hoveredProjectThreads.map((thread, index) => {
+                            hoveredProjectThreads.map((thread) => {
                               const isActive = thread.id === threadId;
 
                               return (
@@ -1500,8 +1623,8 @@ export function AgentPanel() {
                                     <span
                                       className={
                                         isActive
-                                          ? "min-w-0 flex-1 truncate text-[13px] text-foreground font-medium"
-                                          : "min-w-0 flex-1 truncate text-[13px] text-muted-foreground hover:text-foreground"
+                                          ? "block w-full truncate text-[13px] text-foreground font-medium"
+                                          : "block w-full truncate text-[13px] text-muted-foreground hover:text-foreground"
                                       }
                                     >
                                       {thread.title}
@@ -1630,7 +1753,10 @@ export function AgentPanel() {
                     const actions =
                       from === "user" ? (
                         <div data-pipper-id="user-actions-buttons">
-                          <CopyButton msgId={msgId} bodyText={bodyText} />
+                          <CopyButton
+                            isCopied={copiedMessageId === msgId}
+                            onCopy={() => void handleCopy(msgId, bodyText)}
+                          />
                           <button
                             type="button"
                             aria-label="Edit message"
@@ -1663,7 +1789,10 @@ export function AgentPanel() {
                         </div>
                       ) : (
                         <div data-pipper-id="agent-actions-buttons">
-                          <CopyButton msgId={msgId} bodyText={bodyText} />
+                          <CopyButton
+                            isCopied={copiedMessageId === msgId}
+                            onCopy={() => void handleCopy(msgId, bodyText)}
+                          />
                           {!isStreaming && (
                             <button
                               type="button"
@@ -1867,233 +1996,256 @@ export function AgentPanel() {
                   onSelect={applyCommand}
                 />
 
+                <SubagentActivity
+                  runs={subagentRuns}
+                  agents={registryAgents}
+                  className="relative z-10 mb-1.5"
+                />
+
                 {inlineRequest ? (
                   <AgentQuestionCard request={inlineRequest} className="relative z-10" />
+                ) : orchestrationOpen ? (
+                  <SubagentComposer
+                    className="relative z-10"
+                    agents={registryAgents}
+                    defaultOrchestratorId={snapshot?.agentId ?? null}
+                    initialGoal={orchestrationSeed}
+                    isSubmitting={isSubmitting}
+                    onSubmit={(payload) => void handleOrchestrationSubmit(payload)}
+                    onCancel={() => {
+                      setOrchestrationOpen(false);
+                      setOrchestrationSeed("");
+                    }}
+                  />
                 ) : (
-                <InputMessage
-                  className="relative z-10"
-                  textareaRef={composerTextareaRef}
-                  value={inputValue}
-                  onValueChange={setInputValue}
-                  placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
-                  onSend={handleSend}
-                  disabled={composerDisabled}
-                  canSendWhenEmpty={Boolean(editState?.images.length)}
-                  files={attachedFiles}
-                  onFilesChange={handleFilesChange}
-                  onFilesRejected={handleFilesRejected}
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
-                  isStreaming={isStreaming}
-                  onStop={() => void handleAbort()}
-                  isStopping={isAborting}
-                  sendLabel={isSubmitting ? "Sending" : "Send"}
-                  leftSlot={({ openFilePicker }) =>
-                    showImageAttach ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        data-pipper-id="attach-image-button"
-                        aria-label="Attach images"
-                        onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
-                      >
-                        <PaperclipIcon size={15} />
-                      </Button>
-                    ) : null
-                  }
-                  textareaProps={{
-                    onKeyDown: (event) => {
-                      if (
-                        slashMatches.length &&
-                        (event.key === "ArrowDown" || event.key === "ArrowUp")
-                      ) {
-                        event.preventDefault();
-                        setSelectedCommandIndex(
-                          (current) =>
-                            (current + (event.key === "ArrowDown" ? 1 : -1) + slashMatches.length) %
-                            slashMatches.length,
-                        );
-                        return;
-                      }
-                      if (
-                        slashMatches.length &&
-                        (event.key === "Tab" ||
-                          (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
-                      ) {
-                        event.preventDefault();
-                        applyCommand(
-                          slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
-                        );
-                        return;
-                      }
-                      if (event.key === "Escape") {
-                        setSelectedCommandIndex(0);
-                      }
-                    },
-                  }}
-                  rightSlot={
-                    <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
-                      {" "}
-                      {snapshot?.thinkingLevel !== undefined &&
-                        snapshot?.thinkingLevel !== null && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={runtimeControlsDisabled}
-                            onClick={async () => {
-                              if (runtimeControlsDisabled) return;
-                              setIsRuntimeActionPending(true);
-                              try {
-                                await cycleThinkingLevel();
-                              } catch (err) {
-                                toast({
-                                  icon: <WarningIcon className="size-5 text-red-500" />,
-                                  title: "Reasoning level failed",
-                                  description:
-                                    err instanceof Error
-                                      ? err.message
-                                      : "The reasoning level was not changed.",
-                                });
-                              } finally {
-                                setIsRuntimeActionPending(false);
-                              }
-                            }}
-                          >
-                            Reasoning: {snapshot.thinkingLevel}
-                          </Button>
-                        )}
-                      <Button
-                        data-pipper-id="model-selector"
-                        variant="ghost"
-                        size="sm"
-                        trailingIcon={ChevronDownIcon}
-                        active={isModelDropdownOpen}
-                        disabled={models.length === 0 || runtimeControlsDisabled}
-                        onClick={() => {
-                          setIsDropdownOpen(false);
-                          setIsModelDropdownOpen((prev) => !prev);
-                        }}
-                      >
-                        <span className="inline-flex min-w-0 items-center gap-1.5">
-                          {selectedModelProvider && (
-                            <ProviderMark
-                              provider={selectedModelProvider}
-                              className="h-3.5 w-3.5 opacity-85"
-                            />
-                          )}
-                          <span className="truncate">{modelName}</span>
-                        </span>
-                      </Button>
-                      {isModelDropdownOpen && models.length > 0 && (
-                        <div
-                          data-pipper-id="model-dropdown"
-                          className="absolute right-0 bottom-full mb-1.5 z-[250]"
+                  <InputMessage
+                    className="relative z-10"
+                    textareaRef={composerTextareaRef}
+                    value={inputValue}
+                    onValueChange={setInputValue}
+                    placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
+                    onSend={handleSend}
+                    disabled={composerDisabled}
+                    canSendWhenEmpty={Boolean(editState?.images.length)}
+                    files={attachedFiles}
+                    onFilesChange={handleFilesChange}
+                    onFilesRejected={handleFilesRejected}
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
+                    isStreaming={isStreaming}
+                    onStop={() => void handleAbort()}
+                    isStopping={isAborting}
+                    sendLabel={isSubmitting ? "Sending" : "Send"}
+                    leftSlot={({ openFilePicker }) =>
+                      showImageAttach ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          data-pipper-id="attach-image-button"
+                          aria-label="Attach images"
+                          onClick={() =>
+                            openFilePicker("image/png,image/jpeg,image/gif,image/webp")
+                          }
                         >
-                          <Elevated
-                            offset={2}
-                            shadowLevel={5}
-                            className="flex h-[360px] w-[320px] flex-col overflow-hidden rounded-xl border border-border/80 p-1.5"
-                          >
-                            <label className="flex h-9 shrink-0 items-center gap-2 px-2.5 text-muted-foreground focus-within:text-foreground">
-                              <MagnifyingGlassIcon size={14} />
-                              <input
-                                value={modelSearch}
-                                onChange={(event) => setModelSearch(event.target.value)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Escape") setIsModelDropdownOpen(false);
-                                }}
-                                placeholder="Find a model"
-                                aria-label="Find a model"
-                                className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60"
-                                autoFocus
+                          <PaperclipIcon size={15} />
+                        </Button>
+                      ) : null
+                    }
+                    textareaProps={{
+                      onKeyDown: (event) => {
+                        if (
+                          slashMatches.length &&
+                          (event.key === "ArrowDown" || event.key === "ArrowUp")
+                        ) {
+                          event.preventDefault();
+                          setSelectedCommandIndex(
+                            (current) =>
+                              (current +
+                                (event.key === "ArrowDown" ? 1 : -1) +
+                                slashMatches.length) %
+                              slashMatches.length,
+                          );
+                          return;
+                        }
+                        if (
+                          slashMatches.length &&
+                          (event.key === "Tab" ||
+                            (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
+                        ) {
+                          event.preventDefault();
+                          applyCommand(
+                            slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
+                          );
+                          return;
+                        }
+                        if (event.key === "Escape") {
+                          setSelectedCommandIndex(0);
+                        }
+                      },
+                    }}
+                    rightSlot={
+                      <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
+                        {" "}
+                        {snapshot?.thinkingLevel !== undefined &&
+                          snapshot?.thinkingLevel !== null && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={runtimeControlsDisabled}
+                              onClick={async () => {
+                                if (runtimeControlsDisabled) return;
+                                setIsRuntimeActionPending(true);
+                                try {
+                                  await cycleThinkingLevel();
+                                } catch (err) {
+                                  toast({
+                                    icon: <WarningIcon className="size-5 text-red-500" />,
+                                    title: "Reasoning level failed",
+                                    description:
+                                      err instanceof Error
+                                        ? err.message
+                                        : "The reasoning level was not changed.",
+                                  });
+                                } finally {
+                                  setIsRuntimeActionPending(false);
+                                }
+                              }}
+                            >
+                              Reasoning: {snapshot.thinkingLevel}
+                            </Button>
+                          )}
+                        <Button
+                          data-pipper-id="model-selector"
+                          variant="ghost"
+                          size="sm"
+                          trailingIcon={ChevronDownIcon}
+                          active={isModelDropdownOpen}
+                          disabled={models.length === 0 || runtimeControlsDisabled}
+                          onClick={() => {
+                            setIsDropdownOpen(false);
+                            setIsModelDropdownOpen((prev) => !prev);
+                          }}
+                        >
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            {selectedModelProvider && (
+                              <ProviderMark
+                                provider={selectedModelProvider}
+                                className="h-3.5 w-3.5 opacity-85"
                               />
-                            </label>
-                            <div className="mx-2 border-t border-border/60" />
-                            <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                              {visibleModels.map((model) => {
-                                const isSelected =
-                                  model.provider === snapshot?.model?.provider &&
-                                  model.modelId === snapshot?.model?.modelId;
-                                const providerLabel = formatProviderName(model.provider);
-                                return (
-                                  <button
-                                    type="button"
-                                    key={`${model.provider}:${model.modelId}`}
-                                    aria-label={`${model.name}, ${providerLabel}`}
-                                    title={`${model.name} · ${providerLabel}`}
-                                    disabled={isRuntimeActionPending}
-                                    className={cn(
-                                      "group/model-row flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-                                      isSelected
-                                        ? "bg-accent text-foreground"
-                                        : "text-muted-foreground hover:bg-hover hover:text-foreground",
-                                      isRuntimeActionPending && "opacity-50",
-                                    )}
-                                    onClick={async () => {
-                                      if (isRuntimeActionPending) return;
-                                      setIsRuntimeActionPending(true);
-                                      try {
-                                        const success = await setModel({
-                                          provider: model.provider,
-                                          modelId: model.modelId,
-                                        });
-                                        if (success) {
-                                          setIsModelDropdownOpen(false);
-                                        } else {
+                            )}
+                            <span className="truncate">{modelName}</span>
+                          </span>
+                        </Button>
+                        {isModelDropdownOpen && models.length > 0 && (
+                          <div
+                            data-pipper-id="model-dropdown"
+                            className="absolute right-0 bottom-full mb-1.5 z-[250]"
+                          >
+                            <Elevated
+                              offset={2}
+                              shadowLevel={5}
+                              className="flex h-[360px] w-[320px] flex-col overflow-hidden rounded-xl border border-border/80 p-1.5"
+                            >
+                              <label className="flex h-9 shrink-0 items-center gap-2 px-2.5 text-muted-foreground focus-within:text-foreground">
+                                <MagnifyingGlassIcon size={14} />
+                                <input
+                                  value={modelSearch}
+                                  onChange={(event) => setModelSearch(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Escape") setIsModelDropdownOpen(false);
+                                  }}
+                                  placeholder="Find a model"
+                                  aria-label="Find a model"
+                                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60"
+                                  autoFocus
+                                />
+                              </label>
+                              <div className="mx-2 border-t border-border/60" />
+                              <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                                {visibleModels.map((model) => {
+                                  const isSelected =
+                                    model.provider === snapshot?.model?.provider &&
+                                    model.modelId === snapshot?.model?.modelId;
+                                  const providerLabel = formatProviderName(model.provider);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={`${model.provider}:${model.modelId}`}
+                                      aria-label={`${model.name}, ${providerLabel}`}
+                                      title={`${model.name} · ${providerLabel}`}
+                                      disabled={isRuntimeActionPending}
+                                      className={cn(
+                                        "group/model-row flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
+                                        isSelected
+                                          ? "bg-accent text-foreground"
+                                          : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                                        isRuntimeActionPending && "opacity-50",
+                                      )}
+                                      onClick={async () => {
+                                        if (isRuntimeActionPending) return;
+                                        setIsRuntimeActionPending(true);
+                                        try {
+                                          const success = await setModel({
+                                            provider: model.provider,
+                                            modelId: model.modelId,
+                                          });
+                                          if (success) {
+                                            setIsModelDropdownOpen(false);
+                                          } else {
+                                            toast({
+                                              icon: <WarningIcon className="size-5 text-red-500" />,
+                                              title: "Model change failed",
+                                              description: "The selected model was not applied.",
+                                            });
+                                          }
+                                        } catch (err) {
                                           toast({
                                             icon: <WarningIcon className="size-5 text-red-500" />,
                                             title: "Model change failed",
-                                            description: "The selected model was not applied.",
+                                            description:
+                                              err instanceof Error
+                                                ? err.message
+                                                : "The selected model was not applied.",
                                           });
+                                        } finally {
+                                          setIsRuntimeActionPending(false);
                                         }
-                                      } catch (err) {
-                                        toast({
-                                          icon: <WarningIcon className="size-5 text-red-500" />,
-                                          title: "Model change failed",
-                                          description:
-                                            err instanceof Error
-                                              ? err.message
-                                              : "The selected model was not applied.",
-                                        });
-                                      } finally {
-                                        setIsRuntimeActionPending(false);
-                                      }
-                                    }}
-                                  >
-                                    <span
-                                      className={cn(
-                                        "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
-                                        isSelected
-                                          ? "border-border/70 bg-surface-4 text-foreground"
-                                          : "border-transparent bg-transparent text-muted-foreground/70 group-hover/model-row:bg-surface-3 group-hover/model-row:text-foreground",
-                                      )}
+                                      }}
                                     >
-                                      <ProviderMark provider={model.provider} />
-                                    </span>
-                                    <span className="min-w-0 flex-1 truncate">{model.name}</span>
-                                    {isSelected && (
-                                      <ModelCheckIcon
-                                        className="shrink-0"
-                                        size={13}
-                                        weight="bold"
-                                      />
-                                    )}
-                                  </button>
-                                );
-                              })}
-                              {visibleModelCount === 0 && (
-                                <div className="flex h-24 items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
-                                  No matching models
-                                </div>
-                              )}
-                            </div>
-                          </Elevated>
-                        </div>
-                      )}
-                    </div>
-                  }
-                />
+                                      <span
+                                        className={cn(
+                                          "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
+                                          isSelected
+                                            ? "border-border/70 bg-surface-4 text-foreground"
+                                            : "border-transparent bg-transparent text-muted-foreground/70 group-hover/model-row:bg-surface-3 group-hover/model-row:text-foreground",
+                                        )}
+                                      >
+                                        <ProviderMark provider={model.provider} />
+                                      </span>
+                                      <span className="min-w-0 flex-1 truncate">{model.name}</span>
+                                      {isSelected && (
+                                        <ModelCheckIcon
+                                          className="shrink-0"
+                                          size={13}
+                                          weight="bold"
+                                        />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                                {visibleModelCount === 0 && (
+                                  <div className="flex h-24 items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
+                                    No matching models
+                                  </div>
+                                )}
+                              </div>
+                            </Elevated>
+                          </div>
+                        )}
+                      </div>
+                    }
+                  />
                 )}
               </div>
 
@@ -2101,17 +2253,6 @@ export function AgentPanel() {
                 data-pipper-id="stats-bar"
                 className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
               >
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  {runtimeStatusItems.map((item) => (
-                    <span
-                      key={item}
-                      className="max-w-[260px] truncate rounded-md border border-border/60 bg-surface-2 px-2 py-1"
-                      title={item}
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
                 {snapshot?.stats && (
                   <div className="ml-auto flex w-full items-center justify-between gap-2">
                     <ContextWindowRing

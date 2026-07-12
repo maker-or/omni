@@ -97,17 +97,14 @@ function ShapeProvider({
     void root.offsetHeight;
     callback();
     if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
-    transitionTimeoutRef.current = setTimeout(
-      () => root.classList.remove("transitioning"),
-      200
-    );
+    transitionTimeoutRef.current = setTimeout(() => root.classList.remove("transitioning"), 200);
   }, []);
 
   const setShape = useCallback(
     (next: ShapeVariant) => {
       transitionShape(() => setShapeState(next));
     },
-    [transitionShape]
+    [transitionShape],
   );
 
   // Global keyboard shortcut: R to cycle radius
@@ -116,7 +113,8 @@ function ShapeProvider({
       if (e.key !== "r" && e.key !== "R") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable)
+        return;
       e.preventDefault();
       transitionShape(() => {
         setShapeState((prev) => {
@@ -129,16 +127,9 @@ function ShapeProvider({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [transitionShape]);
 
-  const value = useMemo(
-    () => ({ shape, setShape, classes: shapeMap[shape] }),
-    [shape, setShape]
-  );
+  const value = useMemo(() => ({ shape, setShape, classes: shapeMap[shape] }), [shape, setShape]);
 
-  return (
-    <ShapeContext.Provider value={value}>
-      {children}
-    </ShapeContext.Provider>
-  );
+  return <ShapeContext.Provider value={value}>{children}</ShapeContext.Provider>;
 }
 
 export { ShapeProvider, useShape, useShapeContext, shapeMap };

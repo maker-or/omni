@@ -12,6 +12,8 @@ import type {
   McpServerInput,
   McpServerRecord,
   SessionConfigOption,
+  SubagentConfig,
+  SubagentRunSnapshot,
 } from "../../contracts/acp.ts";
 import type {
   InstallationMetadata,
@@ -178,6 +180,11 @@ declare global {
         pasteToEditor: (text: string) => Promise<void>;
         reportEditorText: (text: string) => void;
         onEvent: (callback: (payload: AcpBridgeEvent) => void) => () => void;
+      };
+      subagents: {
+        getConfig: () => Promise<SubagentConfig>;
+        setConfig: (partial: Partial<SubagentConfig>) => Promise<SubagentConfig>;
+        listRuns: () => Promise<SubagentRunSnapshot[]>;
       };
       mcp: {
         list: () => Promise<McpServerRecord[]>;

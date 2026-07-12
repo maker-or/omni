@@ -168,9 +168,14 @@ export class LauncherUpdateManager {
       this.state = createIdleLauncherUpdateState(this.options.currentVersion);
       writeLauncherUpdateStateAtomic(this.statePath, this.state);
     } else if (this.state.phase === "checking") this.state.phase = "idle";
-    else if (this.state.phase === "downloading")
+    else if (this.state.phase === "downloading") {
+      // The crashed download's .partial file was already deleted above; drop
+      // the stale path too so recovery actions (open download folder,
+      // diagnostics) never point at a file that no longer exists.
       this.state.phase = this.state.manifest ? "available" : "idle";
-    else if (
+      this.state.downloaded_path = null;
+      this.state.downloaded_sha256 = null;
+    } else if (
       this.state.phase === "downloaded" &&
       (!this.state.downloaded_path ||
         !existsSync(this.state.downloaded_path) ||

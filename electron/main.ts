@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
 import { spawn, execFile } from "node:child_process";
@@ -10,6 +10,12 @@ import { promisify } from "node:util";
 import * as pty from "node-pty";
 import { markLaunchComplete, readLaunchState } from "./launch-state";
 import { readCompanionState, writeCompanionState } from "./companion-state";
+import {
+  capturePipperEditBaseline,
+  listPipperEditChangedFiles,
+  revertPipperEditChanges,
+  type PipperEditBaseline,
+} from "./pipper-edit-session";
 import { createProject, getProject, listProjects } from "./projects";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
@@ -84,6 +90,17 @@ const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
 const ptyProcesses = new Map<string, pty.IPty>();
 const execFileAsync = promisify(execFile);
+
+function killAllPtyProcesses(reason: string): void {
+  for (const [id, ptyProc] of ptyProcesses) {
+    try {
+      ptyProc.kill();
+    } catch (error) {
+      console.warn(`[${reason}] Failed to stop terminal ${id}:`, error);
+    }
+  }
+  ptyProcesses.clear();
+}
 
 function resolveWindowsShell(): string {
   const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
@@ -173,75 +190,9 @@ function normalizeTheme(theme: string): "light" | "dark" | "system" {
   return theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
 }
 
-function dirtyFilesFromPorcelain(status: string): string[] {
-  const paths: string[] = [];
-  for (const line of status.split("\n")) {
-    if (!line.trim()) continue;
-    const body = line.slice(3);
-    if (!body) continue;
-    const renameParts = body.split(" -> ");
-    if (renameParts.length > 1) {
-      paths.push(renameParts[0], renameParts[renameParts.length - 1]);
-    } else {
-      paths.push(body);
-    }
-  }
-  return paths.filter(Boolean);
-}
-
-function isPatchMetadataFile(file: string): boolean {
-  return file.replace(/\\/g, "/") === "patch.md";
-}
-
-function workspaceFileFingerprint(root: string, file: string): string | null {
-  const filePath = join(root, file);
-  if (!fs.existsSync(filePath)) return null;
-  return fingerprintPath(filePath);
-}
-
-function fingerprintPath(filePath: string): string {
-  const stat = fs.lstatSync(filePath);
-  if (stat.isSymbolicLink()) return `symlink:${fs.readlinkSync(filePath)}`;
-  if (stat.isDirectory()) {
-    const entries = fs.readdirSync(filePath).sort();
-    const hash = createHash("sha256");
-    for (const entry of entries) {
-      hash.update(entry);
-      hash.update("\0");
-      hash.update(fingerprintPath(join(filePath, entry)));
-      hash.update("\0");
-    }
-    return `directory:${hash.digest("hex")}`;
-  }
-  return `file:${createHash("sha256").update(fs.readFileSync(filePath)).digest("hex")}`;
-}
-
-async function capturePipperEditBaseline(activePath: string): Promise<Map<string, string | null>> {
-  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd: activePath });
-  const files = dirtyFilesFromPorcelain(String(stdout)).filter(
-    (file) => !isPatchMetadataFile(file),
-  );
-  return new Map(files.map((file) => [file, workspaceFileFingerprint(activePath, file)]));
-}
-
 async function ensurePipperEditBaseline(): Promise<void> {
   if (pipperEditBaseline) return;
   pipperEditBaseline = await capturePipperEditBaseline(getActivePath());
-}
-
-function changedSincePipperEditBaseline(activePath: string, file: string): boolean {
-  if (!pipperEditBaseline) return false;
-  if (!pipperEditBaseline.has(file)) return true;
-  return pipperEditBaseline.get(file) !== workspaceFileFingerprint(activePath, file);
-}
-
-async function listPipperEditChangedFiles(activePath: string): Promise<string[]> {
-  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
-    cwd: activePath,
-  });
-  return dirtyFilesFromPorcelain(String(stdout)).filter(
-    (file) => !isPatchMetadataFile(file) && changedSincePipperEditBaseline(activePath, file),
-  );
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -250,7 +201,7 @@ let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
 let updateManager: UpdateManager | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
-let pipperEditBaseline: Map<string, string | null> | null = null;
+let pipperEditBaseline: PipperEditBaseline | null = null;
 let allowCompanionClose = false;
 let updateSubsystemReady = false;
 let quitAuthorized = false;
@@ -325,42 +276,65 @@ function endCompanionSession(): void {
 
 async function hasPipperEditChanges(): Promise<boolean> {
   if (!pipperEditBaseline) return false;
-  return (await listPipperEditChangedFiles(getActivePath())).length > 0;
+  return (await listPipperEditChangedFiles(getActivePath(), pipperEditBaseline)).length > 0;
 }
 
 async function rejectPipperEditChanges(): Promise<void> {
-  await restoreFromBackup();
+  if (pipperEditBaseline) {
+    // Selective revert: only the files this edit session changed. Never a
+    // global `reset --hard` — pre-existing dirty files the agent did not
+    // touch must survive a reject.
+    const result = await revertPipperEditChanges(getActivePath(), pipperEditBaseline);
+    if (result.kept.length > 0) {
+      console.warn(
+        "[Reject] Kept files that were dirty before the edit session and were also modified by it:",
+        result.kept,
+      );
+    }
+  } else {
+    // No baseline (unknown provenance, e.g. after a crash) — fall back to the
+    // last known-good backup.
+    await restoreFromBackup();
+  }
   pipperEditBaseline = null;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.reload();
   }
 }
 
+let companionCloseInFlight = false;
+
 async function requestCompanionClose(): Promise<void> {
-  const win = companionWindow;
-  if (!win || win.isDestroyed()) return;
+  if (companionCloseInFlight) return;
+  companionCloseInFlight = true;
+  try {
+    const win = companionWindow;
+    if (!win || win.isDestroyed()) return;
 
-  if (!allowCompanionClose && (await hasPipperEditChanges().catch(() => true))) {
-    const result = await dialog.showMessageBox(win, {
-      type: "warning",
-      buttons: ["Keep Editing", "Reject Changes", "Close Without Reverting"],
-      defaultId: 0,
-      cancelId: 0,
-      title: "Unaccepted edit changes",
-      message: "The edit session has workspace changes that have not been accepted or rejected.",
-      detail:
-        "Reject changes to restore the last backup, or close without reverting to leave the files dirty.",
-    });
+    if (!allowCompanionClose && (await hasPipperEditChanges().catch(() => true))) {
+      const result = await dialog.showMessageBox(win, {
+        type: "warning",
+        buttons: ["Keep Editing", "Reject Changes", "Close Without Reverting"],
+        defaultId: 0,
+        cancelId: 0,
+        title: "Unaccepted edit changes",
+        message: "The edit session has workspace changes that have not been accepted or rejected.",
+        detail:
+          "Reject changes to restore the last backup, or close without reverting to leave the files dirty.",
+      });
 
-    if (result.response === 0) return;
-    if (result.response === 1) {
-      await rejectPipperEditChanges();
+      if (result.response === 0) return;
+      if (result.response === 1) {
+        await rejectPipperEditChanges();
+      }
     }
-  }
 
-  allowCompanionClose = true;
-  endCompanionSession();
-  win.close();
+    allowCompanionClose = true;
+    endCompanionSession();
+    win.close();
+  } finally {
+    companionCloseInFlight = false;
+  }
 }
 
 function setMainWindowTitle(title: string): void {
@@ -687,6 +661,7 @@ async function createMainWindow(): Promise<void> {
   });
 
   mainWindow.on("closed", () => {
+    killAllPtyProcesses("WindowClosed");
     mainWindow = null;
   });
 
@@ -905,14 +880,7 @@ async function runWorkspaceSetupForLauncher(): Promise<void> {
 async function prepareProcessesForUpdate(): Promise<void> {
   await agentManager?.quiesceForUpdate();
   companionWindow?.close();
-  for (const [id, process] of ptyProcesses) {
-    try {
-      process.kill();
-    } catch (error) {
-      console.warn(`[Update] Failed to stop terminal ${id}:`, error);
-    }
-  }
-  ptyProcesses.clear();
+  killAllPtyProcesses("Update");
   stopDevFileWatcher();
 }
 
@@ -1178,6 +1146,7 @@ function registerIpc(): void {
     }
 
     if (mainWindow && !mainWindow.isDestroyed()) {
+      killAllPtyProcesses("LaunchComplete");
       mainWindow.webContents.reload();
       mainWindow.show();
       mainWindow.focus();
@@ -1403,6 +1372,12 @@ function registerIpc(): void {
   ipcMain.on("agent:reportEditorText", (_event, text: string) => {
     requireAgentManager().reportEditorText(text);
   });
+
+  ipcMain.handle("subagents:getConfig", () => requireAgentManager().getSubagentConfig());
+  ipcMain.handle("subagents:setConfig", (_event, partial) =>
+    requireAgentManager().setSubagentConfig(partial),
+  );
+  ipcMain.handle("subagents:listRuns", () => requireAgentManager().getSubagentRuns());
 
   ipcMain.handle("mcp:list", () => listMcpServers());
   ipcMain.handle("mcp:create", (_event, input) => createMcpServer(input));
@@ -1640,7 +1615,7 @@ function registerIpc(): void {
       if (!pipperEditBaseline) {
         throw new Error("Edit session is still initializing. Try again in a moment.");
       }
-      const filesChanged = await listPipperEditChangedFiles(activePath);
+      const filesChanged = await listPipperEditChangedFiles(activePath, pipperEditBaseline);
       if (filesChanged.length === 0) return { committed: false, filesChanged };
       const patchPath = join(activePath, "patch.md");
       const existing = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
@@ -1786,6 +1761,7 @@ app.whenReady().then(async () => {
         console.error("[Main] Failed to restart Vite server on agent_end:", err);
       }
       if (mainWindow && !mainWindow.isDestroyed()) {
+        killAllPtyProcesses("AgentEndReload");
         mainWindow.webContents.reload();
       }
     },
@@ -1897,18 +1873,25 @@ app.on("before-quit", (event) => {
     createLaunchWindow("list");
   }
   void (async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    if (updateManager?.isCheckStale()) await updateManager.check();
-    const result = await updateManager!.startNow();
-    if (result.success) {
-      quitAuthorized = true;
-      app.quit();
-    } else {
-      updateQuitInProgress = false;
-      if (result.cancelled) {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (updateManager?.isCheckStale()) await updateManager.check();
+      const result = await updateManager!.startNow();
+      if (result.success) {
         quitAuthorized = true;
         app.quit();
+      } else {
+        updateQuitInProgress = false;
+        if (result.cancelled) {
+          quitAuthorized = true;
+          app.quit();
+        }
       }
+    } catch (error) {
+      // Any unexpected rejection must release the quit guard, or the app
+      // becomes unquittable while an update stays scheduled.
+      console.error("[Update] Scheduled-quit update failed unexpectedly:", error);
+      updateQuitInProgress = false;
     }
   })();
 });
@@ -1923,14 +1906,7 @@ app.on("will-quit", () => {
   launcherUpdateManager?.stopPeriodicChecks();
   void agentManager?.dispose();
   void shutdownAnalytics();
-  for (const [id, ptyProc] of ptyProcesses.entries()) {
-    try {
-      ptyProc.kill();
-    } catch (e) {
-      console.error(`Failed to kill PTY process ${id}`, e);
-    }
-  }
-  ptyProcesses.clear();
+  killAllPtyProcesses("Quit");
 
   if (viteProcess) {
     try {

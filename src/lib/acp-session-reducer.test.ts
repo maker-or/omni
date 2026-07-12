@@ -97,6 +97,59 @@ describe("acp-session-reducer", () => {
     expect(state.entries).toBe(entriesAfterCall);
   });
 
+  test("duplicate tool_call_update is a no-op and preserves record identity", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tc1",
+      title: "Read file",
+      kind: "read",
+      status: "pending",
+    });
+    const content = [{ type: "content" as const, content: { type: "text" as const, text: "ok" } }];
+    const completeUpdate = {
+      sessionUpdate: "tool_call_update" as const,
+      toolCallId: "tc1",
+      status: "completed" as const,
+      content,
+    };
+    state = applySessionUpdate(state, completeUpdate);
+    const settledToolCall = state.toolCalls.tc1;
+
+    // Applying the exact same update again (e.g. a redelivered event) must not
+    // allocate a new record or regress the status.
+    state = applySessionUpdate(state, completeUpdate);
+
+    expect(state.toolCalls.tc1).toBe(settledToolCall);
+    expect(state.toolCalls.tc1?.status).toBe("completed");
+  });
+
+  test("a redelivered initial tool_call does not reset a completed status", () => {
+    let state = createEmptySessionSlice();
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tc1",
+      title: "Read file",
+      kind: "read",
+      status: "pending",
+    });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tc1",
+      status: "completed",
+    });
+
+    // The bridge/IPC layer redelivers the original tool_call announcement.
+    state = applySessionUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tc1",
+      title: "Read file",
+      kind: "read",
+    });
+
+    expect(state.toolCalls.tc1?.status).toBe("completed");
+  });
+
   test("tool_call_update for an unknown id still gets a timeline entry", () => {
     let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
@@ -192,6 +245,31 @@ describe("acp-session-reducer", () => {
 
     expect(state.entries).toHaveLength(1);
     expect(state.entries[0]).toMatchObject({ type: "user_text", text: "hello world" });
+  });
+
+  test("an agent that echoes the prompt does not duplicate the optimistic user bubble", () => {
+    // Grok emits a user_message_chunk echoing the just-sent prompt. We already
+    // show an optimistic local user bubble on send, so the echo must reconcile
+    // into it rather than append a second identical bubble.
+    let state = createEmptySessionSlice();
+    state = appendLocalUserMessage(state, "can i get access to other model");
+    state = applySessionUpdate(state, {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "can i get access to other model" },
+    });
+
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({
+      type: "user_text",
+      text: "can i get access to other model",
+    });
+    // Agent reply still lands as its own entry afterwards.
+    state = applySessionUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Sure — here are the options." },
+    });
+    expect(state.entries).toHaveLength(2);
+    expect(state.entries[1]).toMatchObject({ type: "agent_text" });
   });
 
   test("plan, usage, commands, config options replace", () => {

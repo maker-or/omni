@@ -264,19 +264,61 @@ export type IconComponent = ComponentType<IconComponentProps>;
 export type IconLibrary = "lucide" | "tabler" | "phosphor" | "hugeicons" | "untitledui";
 
 export type IconName =
-  | "chevron-right" | "chevron-down" | "x" | "copy" | "menu" | "dot"
-  | "monitor" | "sun" | "moon" | "rectangle-horizontal" | "circle"
-  | "square-library" | "clock" | "star" | "settings"
-  | "plus" | "arrow-left" | "arrow-right" | "arrow-up" | "search" | "loader"
-  | "users" | "lock" | "mail" | "bell" | "shield" | "palette"
-  | "lightbulb" | "rocket" | "heart" | "paintbrush" | "brain"
-  | "globe" | "user"
-  | "image" | "link" | "check" | "rotate-ccw"
-  | "play" | "pause" | "pipette"
-  | "home" | "message-circle" | "inbox"
-  | "pencil" | "skip-forward" | "corner-down-right";
+  | "chevron-right"
+  | "chevron-down"
+  | "x"
+  | "copy"
+  | "menu"
+  | "dot"
+  | "monitor"
+  | "sun"
+  | "moon"
+  | "rectangle-horizontal"
+  | "circle"
+  | "square-library"
+  | "clock"
+  | "star"
+  | "settings"
+  | "plus"
+  | "arrow-left"
+  | "arrow-right"
+  | "arrow-up"
+  | "search"
+  | "loader"
+  | "users"
+  | "lock"
+  | "mail"
+  | "bell"
+  | "shield"
+  | "palette"
+  | "lightbulb"
+  | "rocket"
+  | "heart"
+  | "paintbrush"
+  | "brain"
+  | "globe"
+  | "user"
+  | "image"
+  | "link"
+  | "check"
+  | "rotate-ccw"
+  | "play"
+  | "pause"
+  | "pipette"
+  | "home"
+  | "message-circle"
+  | "inbox"
+  | "pencil"
+  | "skip-forward"
+  | "corner-down-right";
 
-export const iconLibraryOrder: IconLibrary[] = ["lucide", "tabler", "phosphor", "hugeicons", "untitledui"];
+export const iconLibraryOrder: IconLibrary[] = [
+  "lucide",
+  "tabler",
+  "phosphor",
+  "hugeicons",
+  "untitledui",
+];
 
 export const iconLibraryLabels: Record<IconLibrary, string> = {
   lucide: "Lucide",
@@ -289,7 +331,9 @@ export const iconLibraryLabels: Record<IconLibrary, string> = {
 // ── Adapter Factories ───────────────────────────────────────
 
 // Tabler: `strokeWidth` → `stroke` prop
-function tabler(Icon: ComponentType<{ size?: number; stroke?: number; className?: string }>): IconComponent {
+function tabler(
+  Icon: ComponentType<{ size?: number; stroke?: number; className?: string }>,
+): IconComponent {
   return function TablerAdapter({ size, strokeWidth, className }: IconComponentProps) {
     return <Icon size={size} stroke={strokeWidth} className={className} />;
   };
@@ -298,7 +342,9 @@ function tabler(Icon: ComponentType<{ size?: number; stroke?: number; className?
 // Phosphor: uses filled paths per weight variant, not CSS stroke.
 // Map numeric strokeWidth → discrete weight prop.
 type PhosphorWeight = "thin" | "light" | "regular" | "bold";
-function phosphor(Icon: ComponentType<{ size?: number; weight?: PhosphorWeight; className?: string }>): IconComponent {
+function phosphor(
+  Icon: ComponentType<{ size?: number; weight?: PhosphorWeight; className?: string }>,
+): IconComponent {
   return function PhosphorAdapter({ size, strokeWidth, className }: IconComponentProps) {
     const weight: PhosphorWeight = strokeWidth != null && strokeWidth >= 1.75 ? "regular" : "light";
     return <Icon size={size} weight={weight} className={className} />;
@@ -322,7 +368,14 @@ function hugeicons(iconDef: unknown): IconComponent {
 
 // Untitled UI: standard 24px SVG components — `strokeWidth`/`className` pass
 // through natively; only `size` needs mapping to `width`/`height`.
-function untitledui(Icon: ComponentType<{ width?: number; height?: number; strokeWidth?: number; className?: string }>): IconComponent {
+function untitledui(
+  Icon: ComponentType<{
+    width?: number;
+    height?: number;
+    strokeWidth?: number;
+    className?: string;
+  }>,
+): IconComponent {
   return function UntitledUiAdapter({ size, strokeWidth, className }: IconComponentProps) {
     return <Icon width={size} height={size} strokeWidth={strokeWidth} className={className} />;
   };
@@ -333,49 +386,49 @@ function untitledui(Icon: ComponentType<{ width?: number; height?: number; strok
 const lucideMap: Record<IconName, IconComponent> = {
   "chevron-right": ChevronRight,
   "chevron-down": ChevronDown,
-  "pipette": Pipette,
-  "x": X,
-  "copy": Copy,
-  "menu": Menu,
-  "dot": Dot,
-  "monitor": Monitor,
-  "sun": Sun,
-  "moon": Moon,
+  pipette: Pipette,
+  x: X,
+  copy: Copy,
+  menu: Menu,
+  dot: Dot,
+  monitor: Monitor,
+  sun: Sun,
+  moon: Moon,
   "rectangle-horizontal": RectangleHorizontal,
-  "circle": Circle,
+  circle: Circle,
   "square-library": SquareLibrary,
-  "clock": Clock,
-  "star": Star,
-  "settings": Settings,
-  "plus": Plus,
+  clock: Clock,
+  star: Star,
+  settings: Settings,
+  plus: Plus,
   "arrow-left": ArrowLeft,
   "arrow-right": ArrowRight,
   "arrow-up": ArrowUp,
-  "search": Search,
-  "loader": Loader,
-  "users": Users,
-  "lock": Lock,
-  "mail": Mail,
-  "bell": Bell,
-  "shield": Shield,
-  "palette": Palette,
-  "lightbulb": Lightbulb,
-  "rocket": Rocket,
-  "heart": Heart,
-  "paintbrush": Paintbrush,
-  "brain": Brain,
-  "globe": Globe,
-  "user": User,
-  "image": ImageIcon,
-  "link": Link,
-  "check": Check,
+  search: Search,
+  loader: Loader,
+  users: Users,
+  lock: Lock,
+  mail: Mail,
+  bell: Bell,
+  shield: Shield,
+  palette: Palette,
+  lightbulb: Lightbulb,
+  rocket: Rocket,
+  heart: Heart,
+  paintbrush: Paintbrush,
+  brain: Brain,
+  globe: Globe,
+  user: User,
+  image: ImageIcon,
+  link: Link,
+  check: Check,
   "rotate-ccw": RotateCcw,
-  "play": Play,
-  "pause": Pause,
-  "home": Home,
+  play: Play,
+  pause: Pause,
+  home: Home,
   "message-circle": MessageCircle,
-  "inbox": Inbox,
-  "pencil": Pencil,
+  inbox: Inbox,
+  pencil: Pencil,
   "skip-forward": SkipForward,
   "corner-down-right": CornerDownRight,
 };
@@ -383,49 +436,49 @@ const lucideMap: Record<IconName, IconComponent> = {
 const tablerMap: Record<IconName, IconComponent> = {
   "chevron-right": tabler(IconChevronRight),
   "chevron-down": tabler(IconChevronDown),
-  "pipette": tabler(IconColorPicker),
-  "x": tabler(IconX),
-  "copy": tabler(IconCopy),
-  "menu": tabler(IconMenu2),
-  "dot": tabler(IconPoint),
-  "monitor": tabler(IconDeviceDesktop),
-  "sun": tabler(IconSun),
-  "moon": tabler(IconMoon),
+  pipette: tabler(IconColorPicker),
+  x: tabler(IconX),
+  copy: tabler(IconCopy),
+  menu: tabler(IconMenu2),
+  dot: tabler(IconPoint),
+  monitor: tabler(IconDeviceDesktop),
+  sun: tabler(IconSun),
+  moon: tabler(IconMoon),
   "rectangle-horizontal": tabler(IconSquare),
-  "circle": tabler(IconCircle),
+  circle: tabler(IconCircle),
   "square-library": tabler(IconLibrary),
-  "clock": tabler(IconClock),
-  "star": tabler(IconStar),
-  "settings": tabler(IconSettings),
-  "plus": tabler(IconPlus),
+  clock: tabler(IconClock),
+  star: tabler(IconStar),
+  settings: tabler(IconSettings),
+  plus: tabler(IconPlus),
   "arrow-left": tabler(IconArrowLeft),
   "arrow-right": tabler(IconArrowRight),
   "arrow-up": tabler(IconArrowUp),
-  "search": tabler(IconSearch),
-  "loader": tabler(IconLoader2),
-  "users": tabler(IconUsers),
-  "lock": tabler(IconLock),
-  "mail": tabler(IconMail),
-  "bell": tabler(IconBell),
-  "shield": tabler(IconShield),
-  "palette": tabler(IconPalette),
-  "lightbulb": tabler(IconBulb),
-  "rocket": tabler(IconRocket),
-  "heart": tabler(IconHeart),
-  "paintbrush": tabler(IconBrush),
-  "brain": tabler(IconBrain),
-  "globe": tabler(IconGlobe),
-  "user": tabler(IconUser),
-  "image": tabler(IconPhoto),
-  "link": tabler(IconLink),
-  "check": tabler(IconCheck),
+  search: tabler(IconSearch),
+  loader: tabler(IconLoader2),
+  users: tabler(IconUsers),
+  lock: tabler(IconLock),
+  mail: tabler(IconMail),
+  bell: tabler(IconBell),
+  shield: tabler(IconShield),
+  palette: tabler(IconPalette),
+  lightbulb: tabler(IconBulb),
+  rocket: tabler(IconRocket),
+  heart: tabler(IconHeart),
+  paintbrush: tabler(IconBrush),
+  brain: tabler(IconBrain),
+  globe: tabler(IconGlobe),
+  user: tabler(IconUser),
+  image: tabler(IconPhoto),
+  link: tabler(IconLink),
+  check: tabler(IconCheck),
   "rotate-ccw": tabler(IconRotate2),
-  "play": tabler(IconPlayerPlay),
-  "pause": tabler(IconPlayerPause),
-  "home": tabler(IconHome),
+  play: tabler(IconPlayerPlay),
+  pause: tabler(IconPlayerPause),
+  home: tabler(IconHome),
   "message-circle": tabler(IconMessageCircle),
-  "inbox": tabler(IconInbox),
-  "pencil": tabler(IconPencil),
+  inbox: tabler(IconInbox),
+  pencil: tabler(IconPencil),
   "skip-forward": tabler(IconPlayerSkipForward),
   "corner-down-right": tabler(IconCornerDownRight),
 };
@@ -433,49 +486,49 @@ const tablerMap: Record<IconName, IconComponent> = {
 const phosphorMap: Record<IconName, IconComponent> = {
   "chevron-right": phosphor(PhCaretRight),
   "chevron-down": phosphor(PhCaretDown),
-  "pipette": phosphor(PhEyedropper),
-  "x": phosphor(PhX),
-  "copy": phosphor(PhCopy),
-  "menu": phosphor(PhList),
-  "dot": phosphor(PhDotOutline),
-  "monitor": phosphor(PhMonitor),
-  "sun": phosphor(PhSun),
-  "moon": phosphor(PhMoon),
+  pipette: phosphor(PhEyedropper),
+  x: phosphor(PhX),
+  copy: phosphor(PhCopy),
+  menu: phosphor(PhList),
+  dot: phosphor(PhDotOutline),
+  monitor: phosphor(PhMonitor),
+  sun: phosphor(PhSun),
+  moon: phosphor(PhMoon),
   "rectangle-horizontal": phosphor(PhRectangle),
-  "circle": phosphor(PhCircle),
+  circle: phosphor(PhCircle),
   "square-library": phosphor(PhBooks),
-  "clock": phosphor(PhClock),
-  "star": phosphor(PhStar),
-  "settings": phosphor(PhGear),
-  "plus": phosphor(PhPlus),
+  clock: phosphor(PhClock),
+  star: phosphor(PhStar),
+  settings: phosphor(PhGear),
+  plus: phosphor(PhPlus),
   "arrow-left": phosphor(PhArrowLeft),
   "arrow-right": phosphor(PhArrowRight),
   "arrow-up": phosphor(PhArrowUp),
-  "search": phosphor(PhMagnifyingGlass),
-  "loader": phosphor(PhSpinner),
-  "users": phosphor(PhUsers),
-  "lock": phosphor(PhLock),
-  "mail": phosphor(PhEnvelope),
-  "bell": phosphor(PhBell),
-  "shield": phosphor(PhShield),
-  "palette": phosphor(PhPalette),
-  "lightbulb": phosphor(PhLightbulb),
-  "rocket": phosphor(PhRocket),
-  "heart": phosphor(PhHeart),
-  "paintbrush": phosphor(PhPaintBrush),
-  "brain": phosphor(PhBrain),
-  "globe": phosphor(PhGlobe),
-  "user": phosphor(PhUser),
-  "image": phosphor(PhImage),
-  "link": phosphor(PhLink),
-  "check": phosphor(PhCheck),
+  search: phosphor(PhMagnifyingGlass),
+  loader: phosphor(PhSpinner),
+  users: phosphor(PhUsers),
+  lock: phosphor(PhLock),
+  mail: phosphor(PhEnvelope),
+  bell: phosphor(PhBell),
+  shield: phosphor(PhShield),
+  palette: phosphor(PhPalette),
+  lightbulb: phosphor(PhLightbulb),
+  rocket: phosphor(PhRocket),
+  heart: phosphor(PhHeart),
+  paintbrush: phosphor(PhPaintBrush),
+  brain: phosphor(PhBrain),
+  globe: phosphor(PhGlobe),
+  user: phosphor(PhUser),
+  image: phosphor(PhImage),
+  link: phosphor(PhLink),
+  check: phosphor(PhCheck),
   "rotate-ccw": phosphor(PhRotateCcw),
-  "play": phosphor(PhPlay),
-  "pause": phosphor(PhPause),
-  "home": phosphor(PhHouse),
+  play: phosphor(PhPlay),
+  pause: phosphor(PhPause),
+  home: phosphor(PhHouse),
   "message-circle": phosphor(PhChatCircle),
-  "inbox": phosphor(PhTray),
-  "pencil": phosphor(PhPencil),
+  inbox: phosphor(PhTray),
+  pencil: phosphor(PhPencil),
   "skip-forward": phosphor(PhSkipForward),
   "corner-down-right": phosphor(PhArrowElbowDownRight),
 };
@@ -483,49 +536,49 @@ const phosphorMap: Record<IconName, IconComponent> = {
 const hugeiconsMap: Record<IconName, IconComponent> = {
   "chevron-right": hugeicons(HiChevronRight),
   "chevron-down": hugeicons(HiChevronDown),
-  "pipette": hugeicons(HiDropper),
-  "x": hugeicons(HiX),
-  "copy": hugeicons(HiCopy),
-  "menu": hugeicons(HiMenu),
-  "dot": hugeicons(HiDot),
-  "monitor": hugeicons(HiMonitor),
-  "sun": hugeicons(HiSun),
-  "moon": hugeicons(HiMoon),
+  pipette: hugeicons(HiDropper),
+  x: hugeicons(HiX),
+  copy: hugeicons(HiCopy),
+  menu: hugeicons(HiMenu),
+  dot: hugeicons(HiDot),
+  monitor: hugeicons(HiMonitor),
+  sun: hugeicons(HiSun),
+  moon: hugeicons(HiMoon),
   "rectangle-horizontal": hugeicons(HiRectangle),
-  "circle": hugeicons(HiDot),
+  circle: hugeicons(HiDot),
   "square-library": hugeicons(HiLibrary),
-  "clock": hugeicons(HiClock),
-  "star": hugeicons(HiStar),
-  "settings": hugeicons(HiSettings),
-  "plus": hugeicons(HiPlus),
+  clock: hugeicons(HiClock),
+  star: hugeicons(HiStar),
+  settings: hugeicons(HiSettings),
+  plus: hugeicons(HiPlus),
   "arrow-left": hugeicons(HiArrowLeft),
   "arrow-right": hugeicons(HiArrowRight),
   "arrow-up": hugeicons(HiArrowUp),
-  "search": hugeicons(HiSearch),
-  "loader": hugeicons(HiLoader),
-  "users": hugeicons(HiUsers),
-  "lock": hugeicons(HiLock),
-  "mail": hugeicons(HiMail),
-  "bell": hugeicons(HiBell),
-  "shield": hugeicons(HiShield),
-  "palette": hugeicons(HiPalette),
-  "lightbulb": hugeicons(HiLightbulb),
-  "rocket": hugeicons(HiRocket),
-  "heart": hugeicons(HiHeart),
-  "paintbrush": hugeicons(HiPaintbrush),
-  "brain": hugeicons(HiBrain),
-  "globe": hugeicons(HiGlobe),
-  "user": hugeicons(HiUser),
-  "image": hugeicons(HiImage),
-  "link": hugeicons(HiLink),
-  "check": hugeicons(HiCheck),
+  search: hugeicons(HiSearch),
+  loader: hugeicons(HiLoader),
+  users: hugeicons(HiUsers),
+  lock: hugeicons(HiLock),
+  mail: hugeicons(HiMail),
+  bell: hugeicons(HiBell),
+  shield: hugeicons(HiShield),
+  palette: hugeicons(HiPalette),
+  lightbulb: hugeicons(HiLightbulb),
+  rocket: hugeicons(HiRocket),
+  heart: hugeicons(HiHeart),
+  paintbrush: hugeicons(HiPaintbrush),
+  brain: hugeicons(HiBrain),
+  globe: hugeicons(HiGlobe),
+  user: hugeicons(HiUser),
+  image: hugeicons(HiImage),
+  link: hugeicons(HiLink),
+  check: hugeicons(HiCheck),
   "rotate-ccw": hugeicons(HiRotateCcw),
-  "play": Play,
-  "pause": Pause,
-  "home": hugeicons(HiHome),
+  play: Play,
+  pause: Pause,
+  home: hugeicons(HiHome),
   "message-circle": hugeicons(HiMessage),
-  "inbox": hugeicons(HiInbox),
-  "pencil": hugeicons(HiPencil),
+  inbox: hugeicons(HiInbox),
+  pencil: hugeicons(HiPencil),
   "skip-forward": hugeicons(HiSkipForward),
   "corner-down-right": hugeicons(HiCornerDownRight),
 };
@@ -533,53 +586,53 @@ const hugeiconsMap: Record<IconName, IconComponent> = {
 const untitleduiMap: Record<IconName, IconComponent> = {
   "chevron-right": untitledui(UuiChevronRight),
   "chevron-down": untitledui(UuiChevronDown),
-  "pipette": untitledui(UuiDropper),
-  "x": untitledui(UuiX),
-  "copy": untitledui(UuiCopy),
-  "menu": untitledui(UuiMenu),
+  pipette: untitledui(UuiDropper),
+  x: untitledui(UuiX),
+  copy: untitledui(UuiCopy),
+  menu: untitledui(UuiMenu),
   // No bare dot in the set — reuse Circle (matches HugeIcons' dot handling).
-  "dot": untitledui(UuiCircle),
-  "monitor": untitledui(UuiMonitor),
-  "sun": untitledui(UuiSun),
-  "moon": untitledui(UuiMoon),
+  dot: untitledui(UuiCircle),
+  monitor: untitledui(UuiMonitor),
+  sun: untitledui(UuiSun),
+  moon: untitledui(UuiMoon),
   "rectangle-horizontal": untitledui(UuiSquare),
-  "circle": untitledui(UuiCircle),
+  circle: untitledui(UuiCircle),
   "square-library": untitledui(UuiBook),
-  "clock": untitledui(UuiClock),
-  "star": untitledui(UuiStar),
-  "settings": untitledui(UuiSettings),
-  "plus": untitledui(UuiPlus),
+  clock: untitledui(UuiClock),
+  star: untitledui(UuiStar),
+  settings: untitledui(UuiSettings),
+  plus: untitledui(UuiPlus),
   "arrow-left": untitledui(UuiArrowLeft),
   "arrow-right": untitledui(UuiArrowRight),
   "arrow-up": untitledui(UuiArrowUp),
-  "search": untitledui(UuiSearch),
-  "loader": untitledui(UuiLoader),
-  "users": untitledui(UuiUsers),
-  "lock": untitledui(UuiLock),
-  "mail": untitledui(UuiMail),
-  "bell": untitledui(UuiBell),
-  "shield": untitledui(UuiShield),
-  "palette": untitledui(UuiPalette),
-  "lightbulb": untitledui(UuiLightbulb),
-  "rocket": untitledui(UuiRocket),
-  "heart": untitledui(UuiHeart),
-  "paintbrush": untitledui(UuiBrush),
+  search: untitledui(UuiSearch),
+  loader: untitledui(UuiLoader),
+  users: untitledui(UuiUsers),
+  lock: untitledui(UuiLock),
+  mail: untitledui(UuiMail),
+  bell: untitledui(UuiBell),
+  shield: untitledui(UuiShield),
+  palette: untitledui(UuiPalette),
+  lightbulb: untitledui(UuiLightbulb),
+  rocket: untitledui(UuiRocket),
+  heart: untitledui(UuiHeart),
+  paintbrush: untitledui(UuiBrush),
   // No brain icon in the free set — CpuChip01 carries the "intelligence" metaphor.
-  "brain": untitledui(UuiCpuChip),
-  "globe": untitledui(UuiGlobe),
-  "user": untitledui(UuiUser),
-  "image": untitledui(UuiImage),
-  "link": untitledui(UuiLink),
-  "check": untitledui(UuiCheck),
+  brain: untitledui(UuiCpuChip),
+  globe: untitledui(UuiGlobe),
+  user: untitledui(UuiUser),
+  image: untitledui(UuiImage),
+  link: untitledui(UuiLink),
+  check: untitledui(UuiCheck),
   "rotate-ccw": untitledui(UuiRotateCcw),
   // Only enclosed Pause variants exist; fall back to Lucide for a bare pair
   // (matches HugeIcons' play/pause handling).
-  "play": Play,
-  "pause": Pause,
-  "home": untitledui(UuiHome),
+  play: Play,
+  pause: Pause,
+  home: untitledui(UuiHome),
   "message-circle": untitledui(UuiMessage),
-  "inbox": untitledui(UuiInbox),
-  "pencil": untitledui(UuiPencil),
+  inbox: untitledui(UuiInbox),
+  pencil: untitledui(UuiPencil),
   "skip-forward": untitledui(UuiSkipForward),
   "corner-down-right": untitledui(UuiCornerDownRight),
 };

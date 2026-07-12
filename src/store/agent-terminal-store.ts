@@ -21,12 +21,20 @@ export const useAgentTerminalStore = create<AgentTerminalState>((set, get) => ({
   exitCodes: {},
 
   applyTerminalOutput: (terminalId, output, append) => {
-    set((s) => ({
-      outputs: {
-        ...s.outputs,
-        [terminalId]: append ? (s.outputs[terminalId] ?? "") + output : output,
-      },
-    }));
+    set((s) => {
+      // Limit accumulated output size to 200,000 chars to avoid unbounded memory
+      // growth on long-lived sessions (mirrors terminal-store.ts's appendHistory).
+      let next = append ? (s.outputs[terminalId] ?? "") + output : output;
+      if (next.length > 200000) {
+        next = next.slice(next.length - 100000);
+      }
+      return {
+        outputs: {
+          ...s.outputs,
+          [terminalId]: next,
+        },
+      };
+    });
   },
 
   getOutput: (terminalId) => get().outputs[terminalId] ?? "",

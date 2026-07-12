@@ -9,9 +9,10 @@ import type {
   AgentCapabilities,
   AvailableCommand,
   SessionConfigOption,
+  SubagentRunSnapshot,
 } from "../../contracts/acp.ts";
 import { projectChatMessages, projectToolResultMessages } from "../lib/acp-entries";
-import type { Thread } from "../../contracts/threads.ts";
+import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import {
   applySessionUpdate,
   applyTurnStop,
@@ -23,6 +24,48 @@ import { useAgentTerminalStore } from "./agent-terminal-store";
 import { toast } from "../components/ui/toast";
 import { Warning, Info } from "@phosphor-icons/react";
 import React from "react";
+import { queryClient } from "../lib/query-client";
+import { OPEN_TABS_QUERY_KEY } from "../lib/thread-queries";
+import { useThreadStore } from "./thread-store";
+
+/**
+ * An agent naming a session ("title" bridge event) is the source of truth
+ * for a thread's title, but the tab strip reads from the open-tabs query and
+ * the thread store, neither of which this store owns. Patch both caches in
+ * place — cheaper than a refetch and keeps the tab label in sync the moment
+ * the agent names the session.
+ */
+function applyThreadTitleUpdate(threadId: string, title: string): void {
+  queryClient.setQueryData<(OpenTabsState & { openThreads: Thread[] }) | undefined>(
+    OPEN_TABS_QUERY_KEY,
+    (current) =>
+      current
+        ? {
+            ...current,
+            openThreads: current.openThreads.map((thread) =>
+              thread.id === threadId ? { ...thread, title } : thread,
+            ),
+          }
+        : current,
+  );
+
+  queryClient.setQueriesData<ThreadPage | undefined>({ queryKey: ["project-threads"] }, (current) =>
+    current
+      ? {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, title } : thread,
+          ),
+        }
+      : current,
+  );
+
+  useThreadStore.setState((state) => ({
+    threads: state.threads.map((thread) =>
+      thread.id === threadId ? { ...thread, title } : thread,
+    ),
+  }));
+}
 
 /** A question surfaced to the user, mapped from an ACP permission request. */
 export interface UiRequest {
@@ -49,6 +92,8 @@ interface AgentState {
   authMethods: Array<{ id: string; name?: string | null }>;
   /** Thread IDs whose agent is currently streaming, across all open threads. */
   runningThreadIds: string[];
+  /** Subagent runs spawned via the client-hosted spawn_subagent tool. */
+  subagentRuns: SubagentRunSnapshot[];
   permissionRequest: AcpPermissionRequest | null;
   /** Pending questions from agents (mapped from ACP request_permission),
    *  in arrival order. Multiple background threads can each raise a question;
@@ -105,6 +150,7 @@ let unsubscribeBridge: (() => void) | null = null;
 let latestThreadSwitchId = 0;
 let threadSwitchQueue: Promise<void> = Promise.resolve();
 let pendingThreadTarget: string | null = null;
+let latestRefreshId = 0;
 
 function selectConfigOption(
   options: SessionConfigOption[],
@@ -345,6 +391,12 @@ function applyBridgeEvent(
     return { runningThreadIds: payload.threadIds };
   }
 
+  // Subagent activity is global (not per-thread); apply regardless of which
+  // thread is displayed or being switched into.
+  if (payload.type === "subagent-runs") {
+    return { subagentRuns: payload.runs };
+  }
+
   if (
     pendingThreadTarget &&
     payload.type !== "session-state" &&
@@ -362,8 +414,19 @@ function applyBridgeEvent(
       if (pendingThreadTarget && payload.state.threadId !== pendingThreadTarget) {
         return {};
       }
-      if (pendingThreadTarget && payload.state.threadId === pendingThreadTarget) {
+      const isResolvingSwitch = pendingThreadTarget === payload.state.threadId;
+      if (isResolvingSwitch) {
         pendingThreadTarget = null;
+      }
+      // Same reasoning as "session-update"/"stop": a background thread's own
+      // pushState (e.g. its turn starting or ending) must never clobber the
+      // state of whichever thread the user is actually looking at.
+      if (
+        !isResolvingSwitch &&
+        state.state?.threadId &&
+        payload.state.threadId !== state.state.threadId
+      ) {
+        return {};
       }
       return {
         state: payload.state,
@@ -433,8 +496,7 @@ function applyBridgeEvent(
         id: payload.request.sessionId,
         kind: "select",
         title: "Permission required",
-        message:
-          (payload.request.toolCall as { title?: string })?.title ?? "Allow this tool call?",
+        message: (payload.request.toolCall as { title?: string })?.title ?? "Allow this tool call?",
         options: options.map((o) => o.name),
         sessionId: payload.request.sessionId,
         threadId: payload.request.threadId ?? null,
@@ -512,6 +574,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   agentCapabilities: null,
   authMethods: [],
   runningThreadIds: [],
+  subagentRuns: [],
   permissionRequest: null,
   uiRequestQueue: [],
   uiRequest: null,
@@ -529,6 +592,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           console.error("Failed to unsubscribe previous bridge listener:", err);
         }
         unsubscribeBridge = null;
+        // Terminals belong to the previous connection's agent processes; their
+        // ids can never receive output again, so drop them to bound the
+        // outputs record's key count across reconnects.
+        useAgentTerminalStore.getState().reset();
       }
       // Single writer for ACP terminal-output (no second onEvent subscription).
       const rawCleanup = window.omni.agent.onEvent((payload: AcpBridgeEvent) => {
@@ -536,6 +603,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           useAgentTerminalStore
             .getState()
             .applyTerminalOutput(payload.terminalId, payload.output, payload.append);
+        }
+        if (payload.type === "title") {
+          applyThreadTitleUpdate(payload.threadId, payload.title);
         }
         if (payload.type === "notification") {
           let icon = React.createElement(Info, { className: "size-5 text-blue-500" });
@@ -596,9 +666,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   refresh: async () => {
+    const refreshId = ++latestRefreshId;
     try {
       const state = await window.omni.agent.getState();
       set(() => {
+        if (refreshId !== latestRefreshId) return {};
         if (pendingThreadTarget && state.threadId !== pendingThreadTarget) {
           return {};
         }
@@ -621,9 +693,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         });
       });
     } catch (err) {
-      set({
-        error: err instanceof Error ? err.message : "Failed to refresh agent state",
-      });
+      if (refreshId === latestRefreshId) {
+        set({
+          error: err instanceof Error ? err.message : "Failed to refresh agent state",
+        });
+      }
     }
   },
 

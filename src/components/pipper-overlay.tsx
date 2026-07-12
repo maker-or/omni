@@ -5,6 +5,7 @@ import { InputMessage } from "@/components/ui/input-message";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { BorderBeam } from "border-beam";
+import { Elevated } from "@/lib/elevated";
 import { toast } from "@/components/ui/toast";
 
 interface HighlightRect {
@@ -25,11 +26,13 @@ interface CommentPopup {
 }
 
 function getPipperElementById(pipperId: string): HTMLElement | null {
-  const elements = document.querySelectorAll<HTMLElement>("[data-pipper-id]");
-  for (const element of elements) {
-    if (element.getAttribute("data-pipper-id") === pipperId) return element;
-  }
-  return null;
+  // Single attribute-selector query instead of enumerating every
+  // [data-pipper-id] element and comparing in JS.
+  const escaped =
+    typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(pipperId)
+      : pipperId.replace(/["\\]/g, "\\$&");
+  return document.querySelector<HTMLElement>(`[data-pipper-id="${escaped}"]`);
 }
 
 function getPopupPosition(rect: DOMRect): { top: number; left: number } {
@@ -77,28 +80,18 @@ export function PipperOverlay() {
 
   const findPipperElement = useCallback(
     (x: number, y: number): { el: HTMLElement; pipperId: string } | null => {
-      if (overlayRef.current) overlayRef.current.style.pointerEvents = "none";
-      const el = document.elementFromPoint(x, y);
-      if (overlayRef.current) overlayRef.current.style.pointerEvents = "all";
-      if (!el) return null;
-      const candidates: HTMLElement[] = [];
-      let current: Element | null = el instanceof HTMLElement ? el : el.parentElement;
-      while (current) {
-        if (current instanceof HTMLElement && current.hasAttribute("data-pipper-id")) {
-          candidates.push(current);
-        }
-        current = current.parentElement;
-      }
-      if (!candidates.length) return null;
-      const pipper = candidates.reduce((smallest, candidate) => {
-        const smallestRect = smallest.getBoundingClientRect();
-        const candidateRect = candidate.getBoundingClientRect();
-        return candidateRect.width * candidateRect.height < smallestRect.width * smallestRect.height
-          ? candidate
-          : smallest;
-      });
-      const pipperId = pipper.getAttribute("data-pipper-id");
-      if (!pipperId) return null;
+      // elementsFromPoint returns the whole stack under the cursor, so the
+      // overlay never has to toggle its own pointer-events per sample (two
+      // style writes + a forced style recalc on every mousemove).
+      const overlayEl = overlayRef.current;
+      const top = document.elementsFromPoint(x, y).find((node) => node !== overlayEl);
+      if (!top) return null;
+      const start = top instanceof HTMLElement ? top : top.parentElement;
+      // closest() picks the innermost annotated ancestor — the most specific
+      // target — without measuring a rect for every candidate on the chain.
+      const pipper = start?.closest<HTMLElement>("[data-pipper-id]") ?? null;
+      const pipperId = pipper?.getAttribute("data-pipper-id");
+      if (!pipper || !pipperId) return null;
       return { el: pipper, pipperId };
     },
     [],
@@ -158,22 +151,50 @@ export function PipperOverlay() {
     };
   }, [editMode, overlayVisible, popup, escArmed, exitEditMode]);
 
+  // Mirrors of popup/beam state for the hover rAF callback, so a frame
+  // scheduled just before a click can't clobber the locked highlight.
+  const hoverBlockedRef = useRef(false);
+  hoverBlockedRef.current = Boolean(popup) || isBeaming;
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current);
+    };
+  }, []);
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (popup || isBeaming) return;
-      const found = findPipperElement(e.clientX, e.clientY);
-      if (!found) {
-        setHighlight(null);
-        return;
-      }
-      const rect = found.el.getBoundingClientRect();
-      setHighlight({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        pipperId: found.pipperId,
-        label: found.pipperId,
+      // rAF-throttle hover tracking: coalesce the mousemove burst (can be
+      // 120+/s) into at most one hit-test + rect read per frame.
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+      if (hoverFrameRef.current !== null) return;
+      hoverFrameRef.current = requestAnimationFrame(() => {
+        hoverFrameRef.current = null;
+        const point = pointerRef.current;
+        if (!point || hoverBlockedRef.current) return;
+        const found = findPipperElement(point.x, point.y);
+        if (!found) {
+          setHighlight((current) => (current ? null : current));
+          return;
+        }
+        const rect = found.el.getBoundingClientRect();
+        setHighlight((current) => {
+          // Same target, same geometry — keep the identity, skip the render.
+          if (current && current.pipperId === found.pipperId && !rectChanged(rect, current)) {
+            return current;
+          }
+          return {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+            pipperId: found.pipperId,
+            label: found.pipperId,
+          };
+        });
       });
     },
     [popup, isBeaming, findPipperElement],
@@ -236,8 +257,18 @@ export function PipperOverlay() {
     if (!editMode || !overlayVisible || !lockedPipperId || (!popup && !isBeaming)) return;
 
     let frame = 0;
+    // Cache the tracked element across frames — re-resolving it is a DOM
+    // query, and it only ever changes when the page reloads or the element
+    // unmounts (both leave it disconnected).
+    let element: HTMLElement | null = null;
     const updateLockedGeometry = () => {
-      const element = getPipperElementById(lockedPipperId);
+      if (
+        !element ||
+        !element.isConnected ||
+        element.getAttribute("data-pipper-id") !== lockedPipperId
+      ) {
+        element = getPipperElementById(lockedPipperId);
+      }
       if (!element) {
         setHighlight((current) => (current?.pipperId === lockedPipperId ? null : current));
         frame = requestAnimationFrame(updateLockedGeometry);
@@ -295,6 +326,26 @@ export function PipperOverlay() {
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
       />
+
+      {/* Esc-armed hint — the first Esc arms exit; show what the second does */}
+      {escArmed && !popup && (
+        <div
+          data-pipper-id="edit-mode-escape-hint"
+          className="fixed left-1/2 top-4 z-[9993] pointer-events-none"
+          style={{ animation: "fade-in 160ms ease-out both" }}
+        >
+          <div
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2.5 py-1.5",
+              "text-[11px] font-semibold text-foreground whitespace-nowrap",
+              surfaceClasses(5, 4),
+            )}
+          >
+            Press <kbd className="rounded border border-border/70 px-1 text-[10px]">Esc</kbd> again
+            to exit Edit Mode
+          </div>
+        </div>
+      )}
 
       {/* Hover highlight — shown when hovering (no popup, no beam) */}
       {highlight && !popup && !isBeaming && (
@@ -375,75 +426,84 @@ export function PipperOverlay() {
         </div>
       )}
 
-      {/* Comment popup — surface-5 sits above the page (surface-1) */}
+      {/* Comment popup — an Elevated floating surface above the page */}
       {popup && (
         <div
-          className={"fixed z-[9992] flex flex-col gap-2 rounded-xl p-3"}
-          style={{ top: popup.top, left: popup.left, width: 308 }}
+          className={"fixed z-[9992] flex flex-col gap-2"}
+          style={{
+            top: popup.top,
+            left: popup.left,
+            width: 308,
+            animation: "pipper-popup-in 140ms ease-out both",
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           <BorderBeam size="pulse-outside" colorVariant="mono">
-            <InputMessage
-              value={commentText}
-              onValueChange={setCommentText}
-              onSend={(text) => {
-                if (!popup || !text.trim()) return;
-                const { pipperId, label } = popup;
-                (async () => {
-                  try {
-                    await window.omni?.pipper?.addComment(pipperId, text.trim());
-                  } catch (err) {
-                    console.error("[PipperOverlay] addComment failed:", err);
-                    await window.omni?.pipper?.setProcessing?.(null).catch(() => undefined);
-                    toast({
-                      icon: <WarningIcon className="size-5 text-red-500" />,
-                      title: "Could not send edit",
-                      description:
-                        err instanceof Error ? err.message : "The companion did not receive it.",
+            <Elevated offset={4} shadowLevel={5} className="rounded-xl p-1.5">
+              <InputMessage
+                value={commentText}
+                onValueChange={setCommentText}
+                onSend={(text) => {
+                  if (!popup || !text.trim()) return;
+                  const { pipperId, label } = popup;
+                  (async () => {
+                    try {
+                      await window.omni?.pipper?.addComment(pipperId, text.trim());
+                    } catch (err) {
+                      console.error("[PipperOverlay] addComment failed:", err);
+                      await window.omni?.pipper?.setProcessing?.(null).catch(() => undefined);
+                      toast({
+                        icon: <WarningIcon className="size-5 text-red-500" />,
+                        title: "Could not send edit",
+                        description:
+                          err instanceof Error ? err.message : "The companion did not receive it.",
+                      });
+                      return;
+                    }
+                    try {
+                      await window.omni?.pipper?.setProcessing?.(pipperId);
+                    } catch (err) {
+                      console.error("[PipperOverlay] setProcessing failed:", err);
+                      toast({
+                        icon: <WarningIcon className="size-5 text-yellow-500" />,
+                        title: "Edit sent without highlight",
+                        description:
+                          err instanceof Error
+                            ? err.message
+                            : "The companion received the request.",
+                      });
+                    }
+                    setPopup(null);
+                    setCommentText("");
+                    setHighlight({
+                      top: popup.elementRect.top,
+                      left: popup.elementRect.left,
+                      width: popup.elementRect.width,
+                      height: popup.elementRect.height,
+                      pipperId,
+                      label,
                     });
-                    return;
-                  }
-                  try {
-                    await window.omni?.pipper?.setProcessing?.(pipperId);
-                  } catch (err) {
-                    console.error("[PipperOverlay] setProcessing failed:", err);
-                    toast({
-                      icon: <WarningIcon className="size-5 text-yellow-500" />,
-                      title: "Edit sent without highlight",
-                      description:
-                        err instanceof Error ? err.message : "The companion received the request.",
-                    });
-                  }
-                  setPopup(null);
-                  setCommentText("");
-                  setHighlight({
-                    top: popup.elementRect.top,
-                    left: popup.elementRect.left,
-                    width: popup.elementRect.width,
-                    height: popup.elementRect.height,
-                    pipperId,
-                    label,
-                  });
-                })();
-              }}
-              placeholder="Describe the change…"
-              textareaRef={inputRef}
-              leftSlot={() => (
-                <>
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-md px-1.5 py-0.5",
-                      "text-[10px] font-bold text-foreground tracking-wide",
-                      surfaceClasses(7, 4),
-                    )}
-                  >
-                    @ {popup.label}
-                  </span>
-                </>
-              )}
-              minRows={1}
-              maxRows={4}
-            />
+                  })();
+                }}
+                placeholder="Describe the change…"
+                textareaRef={inputRef}
+                leftSlot={() => (
+                  <>
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-md px-1.5 py-0.5",
+                        "text-[10px] font-bold text-foreground tracking-wide",
+                        surfaceClasses(7, 4),
+                      )}
+                    >
+                      @ {popup.label}
+                    </span>
+                  </>
+                )}
+                minRows={1}
+                maxRows={4}
+              />
+            </Elevated>
           </BorderBeam>
         </div>
       )}

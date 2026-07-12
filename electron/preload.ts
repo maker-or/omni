@@ -11,6 +11,8 @@ import type {
   SessionConfigOption,
   AcpAgentDescriptor,
   AgentProbeResult,
+  SubagentConfig,
+  SubagentRunSnapshot,
 } from "../contracts/acp.ts";
 import type {
   InstallationMetadata,
@@ -265,6 +267,12 @@ const api = {
         ipcRenderer.removeListener("agent:event", listener);
       };
     },
+  },
+  subagents: {
+    getConfig: (): Promise<SubagentConfig> => ipcRenderer.invoke("subagents:getConfig"),
+    setConfig: (partial: Partial<SubagentConfig>): Promise<SubagentConfig> =>
+      ipcRenderer.invoke("subagents:setConfig", partial),
+    listRuns: (): Promise<SubagentRunSnapshot[]> => ipcRenderer.invoke("subagents:listRuns"),
   },
   mcp: {
     list: () => ipcRenderer.invoke("mcp:list"),

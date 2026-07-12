@@ -16,15 +16,18 @@ const DIFFS_TAB_ID = "__diffs__";
 
 export function OthersView() {
   const { activeProject } = useProjectStore();
-  const {
-    sessions,
-    activeSessionId,
-    createSession,
-    closeSession,
-    clearSessions,
-    setActiveSessionId,
-    initializeGlobalListener,
-  } = useTerminalStore();
+  // Select only what's rendered here — `useTerminalStore()` with no selector
+  // re-renders on every PTY output chunk from any session (appendHistory
+  // mutates `sessions`), which would otherwise re-render this whole view
+  // (and DiffView beneath it) continuously whenever a background terminal
+  // is streaming output.
+  const sessions = useTerminalStore((state) => state.sessions);
+  const activeSessionId = useTerminalStore((state) => state.activeSessionId);
+  const createSession = useTerminalStore((state) => state.createSession);
+  const closeSession = useTerminalStore((state) => state.closeSession);
+  const clearSessions = useTerminalStore((state) => state.clearSessions);
+  const setActiveSessionId = useTerminalStore((state) => state.setActiveSessionId);
+  const initializeGlobalListener = useTerminalStore((state) => state.initializeGlobalListener);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -70,7 +73,7 @@ export function OthersView() {
     setActiveTabId((current) => {
       if (current === DIFFS_TAB_ID) return current;
       if (activeSessionId) return activeSessionId;
-      if (sessions.length > 0) return sessions[sessions.length - 1].id;
+      if (sessions.length > 0) return sessions[0].id;
       return null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,7 +135,7 @@ export function OthersView() {
                 label="Diffs"
                 onClose={() => {
                   closeDiffTab();
-                  setActiveTabId(activeSessionId ?? (sessions[sessions.length - 1]?.id ?? null));
+                  setActiveTabId(activeSessionId ?? sessions[0]?.id ?? null);
                 }}
               />
             )}

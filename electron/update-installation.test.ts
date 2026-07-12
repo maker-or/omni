@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { fsyncSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InstallationMetadata } from "../contracts/updates.ts";
@@ -8,8 +8,14 @@ import {
   STALE_INSTALLATION_METADATA_ERROR,
   assertInstallationMetadataMatchesActive,
   readAndValidateInstallationAgainstActive,
+  readInstallationMetadata,
   writeInstallationMetadata,
 } from "./update-installation.ts";
+
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return { ...actual, fsyncSync: vi.fn(actual.fsyncSync) };
+});
 
 const installation: InstallationMetadata = {
   installed_version: "0.0.2",
@@ -68,6 +74,48 @@ describe("installation metadata invariants", () => {
       });
       expect(repaired.customized_head_commit).toBe(head);
       expect(repaired.installed_version).toBe("0.1.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("writes installation metadata atomically, leaving no temp file behind", () => {
+    const root = mkdtempSync(join(tmpdir(), "pipper-installation-atomic-"));
+    try {
+      const installationPath = join(root, "nested", "installation.json");
+      writeInstallationMetadata(installation, installationPath);
+
+      expect(readInstallationMetadata(installationPath)).toEqual(installation);
+      const entries = readdirSync(join(root, "nested"));
+      expect(entries.some((entry) => entry.endsWith(".tmp"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves prior installation metadata intact when the write is interrupted before rename", () => {
+    const root = mkdtempSync(join(tmpdir(), "pipper-installation-crash-"));
+    try {
+      const installationPath = join(root, "installation.json");
+      writeInstallationMetadata(installation, installationPath);
+
+      vi.mocked(fsyncSync).mockImplementationOnce(() => {
+        throw new Error("simulated disk failure");
+      });
+      const next: InstallationMetadata = {
+        installed_version: "9.9.9",
+        customized_head_commit: "new-head",
+        last_healthy_at: "2026-07-01T00:00:00.000Z",
+      };
+      expect(() => writeInstallationMetadata(next, installationPath)).toThrow(
+        "simulated disk failure",
+      );
+
+      // The rename never happened, so readers still see the last complete write,
+      // never a truncated or partially written file.
+      expect(readInstallationMetadata(installationPath)).toEqual(installation);
+      const entries = readdirSync(root);
+      expect(entries.filter((entry) => entry.endsWith(".tmp"))).toHaveLength(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

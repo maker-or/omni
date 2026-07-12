@@ -18,10 +18,9 @@ import type {
   AcpReplacePromptInput,
   AcpSessionState,
 } from "../contracts/acp.ts";
-import type { Project } from "../contracts/projects.ts";
 import type { Thread } from "../contracts/threads.ts";
 import { getProject } from "./projects.ts";
-import { getActiveProjectId, setActiveProjectId } from "./session.ts";
+import { setActiveProjectId } from "./session.ts";
 import {
   getThread,
   listThreads,
@@ -41,6 +40,7 @@ import {
   resolveAgentSpawn,
 } from "./agents/registry.ts";
 import { listMcpServers, toAcpMcpServers } from "./mcp-servers.ts";
+import { SubagentManager } from "./subagents/subagent-manager.ts";
 import { TerminalManager } from "./terminal-manager.ts";
 import {
   applySessionUpdate,
@@ -64,16 +64,42 @@ interface LiveConnection {
   agent: acp.ClientContext;
   agentCapabilities: AgentCapabilities;
   authMethods: AuthMethod[];
+  /**
+   * Non-standard model catalog some agents (e.g. Grok) advertise in the
+   * initialize result's `_meta.modelState` instead of via session config
+   * options. When present we synthesize a "model" config option from it and
+   * route model switches through the custom `session/set_model` method.
+   */
+  modelState?: {
+    currentModelId?: string | null;
+    availableModels?: Array<{ modelId: string; name: string }>;
+  } | null;
   closed: Promise<void>;
 }
 
 interface ThreadSessionRuntime {
   threadId: string;
   agentSessionId: string;
+  /** Which agent process owns this session — looked up independently of whatever
+   * connection is currently active, since the active connection can change out
+   * from under a session (e.g. editor/updater) after it was created. */
+  agentId: string;
   projectId: string;
   cwd: string;
   slice: AcpSessionSlice;
   editorText: string;
+  /**
+   * True only between a client-initiated prompt request being sent and its
+   * response resolving. `isStreaming` (which drives the composer's stop button
+   * and the tab's working indicator) is set true by every agent chunk/tool_call
+   * in `applySessionUpdate`, but is only cleared by `applyTurnStop` when the
+   * prompt request resolves. Without this flag, a `session/update` that arrives
+   * after the turn ends — a late flush, or an agent streaming background work
+   * out-of-band — would flip `isStreaming` back to true with nothing left to
+   * clear it, sticking the loader forever. Updates outside an active turn are
+   * clamped to non-streaming in `handleSessionUpdate`.
+   */
+  promptInFlight: boolean;
 }
 
 interface PendingPermission {
@@ -121,6 +147,8 @@ export class AgentConnectionManager {
 
   private connection: LiveConnection | null = null;
   private connecting: Promise<LiveConnection> | null = null;
+  /** In-flight spawn per agentId, so concurrent callers share one spawn instead of racing. */
+  private readonly spawning = new Map<string, Promise<LiveConnection>>();
   /**
    * Keep one live ACP transport per agent. ACP sessions belong to the agent
    * process that created them, so tearing this down on every cross-agent
@@ -133,6 +161,8 @@ export class AgentConnectionManager {
   private readonly sessions = new Map<string, ThreadSessionRuntime>();
   private readonly pendingPermissions = new Map<string, PendingPermission>();
   private readonly terminalManager: TerminalManager;
+  /** Client-hosted subagent tool: lets any session spawn sibling agent sessions. */
+  private readonly subagents: SubagentManager;
   /** Dedup key for the last broadcast running-threads set. */
   private lastRunningThreadsKey = "";
 
@@ -172,6 +202,33 @@ export class AgentConnectionManager {
         this.emit({ type: "terminal-output", terminalId, output: chunk, append: true });
       },
     });
+    this.subagents = new SubagentManager({
+      host: {
+        acquireConnection: async (agentId) => {
+          const live = await this.acquireConnection(agentId);
+          return {
+            agentId: live.agentId,
+            agentCapabilities: live.agentCapabilities,
+            agent: live.agent,
+          };
+        },
+        baseMcpServers: (caps) => toAcpMcpServers(listMcpServers(), caps.mcpCapabilities),
+        emitEvent: (event) => this.emit(event),
+      },
+    });
+    void this.subagents.init();
+  }
+
+  getSubagentConfig() {
+    return this.subagents.getConfig();
+  }
+
+  setSubagentConfig(partial: Parameters<SubagentManager["setConfig"]>[0]) {
+    return this.subagents.setConfig(partial);
+  }
+
+  getSubagentRuns() {
+    return this.subagents.getRunSnapshots();
   }
 
   listAgents(): AcpAgentDescriptor[] {
@@ -316,19 +373,35 @@ export class AgentConnectionManager {
     }
   }
 
-  async switchAgent(agentId: string): Promise<LiveConnection> {
+  /**
+   * Get (or spawn) a live connection for an agent WITHOUT making it the
+   * active UI agent — used by subagent runs so an orchestrator spawning e.g.
+   * Codex doesn't flip the composer over to Codex.
+   */
+  async acquireConnection(agentId: string): Promise<LiveConnection> {
     const descriptor = getAgentDescriptor(agentId);
     if (!descriptor) {
       throw new Error(`Unknown agent: ${agentId}`);
     }
+    const cached = this.connections.get(agentId);
+    if (cached) return cached;
+    let pending = this.spawning.get(agentId);
+    if (!pending) {
+      pending = this.spawnAndInitialize(descriptor).finally(() => this.spawning.delete(agentId));
+      this.spawning.set(agentId, pending);
+    }
+    const live = await pending;
+    this.connections.set(agentId, live);
+    return live;
+  }
 
+  async switchAgent(agentId: string): Promise<LiveConnection> {
     this.emit({
       type: "session-state",
       state: { ...this.getState(), switchingAgent: true },
     });
 
-    const live = this.connections.get(agentId) ?? (await this.spawnAndInitialize(descriptor));
-    this.connections.set(agentId, live);
+    const live = await this.acquireConnection(agentId);
     this.connection = live;
     this.preferredAgentId = agentId;
 
@@ -425,6 +498,9 @@ export class AgentConnectionManager {
     const agentInfoName = initResult.agentInfo?.name ?? descriptor.name ?? descriptor.id;
     const agentCapabilities = initResult.agentCapabilities ?? {};
     const authMethods = initResult.authMethods ?? [];
+    const modelState =
+      (initResult as { _meta?: { modelState?: LiveConnection["modelState"] } })._meta?.modelState ??
+      null;
 
     const closed = connection.closed.then(() => {
       this.connections.delete(descriptor.id);
@@ -450,6 +526,7 @@ export class AgentConnectionManager {
       agent: agentCtx,
       agentCapabilities,
       authMethods,
+      modelState,
       closed,
     };
   }
@@ -478,11 +555,11 @@ export class AgentConnectionManager {
     for (const threadId of this.sessions.keys()) {
       if (getThread(threadId)?.agent_id === agentId) this.sessions.delete(threadId);
     }
-    if (this.editorSession && this.connection?.agentId === agentId) {
+    if (this.editorSession?.agentId === agentId) {
       this.editorSession = null;
       this.editorAgentSessionId = null;
     }
-    if (this.updaterSession && this.connection?.agentId === agentId) {
+    if (this.updaterSession?.agentId === agentId) {
       this.updaterSession = null;
     }
   }
@@ -497,6 +574,10 @@ export class AgentConnectionManager {
   }
 
   private async handleSessionUpdate(sessionId: string, update: SessionUpdate): Promise<void> {
+    // Headless subagent sessions accumulate into their run's slice; their
+    // streaming must not leak into thread timelines or the renderer.
+    if (this.subagents.handleSessionUpdate(sessionId, update)) return;
+
     const threadId = this.findThreadBySessionId(sessionId);
     let runtime: ThreadSessionRuntime | null = null;
     if (threadId && this.sessions.has(threadId)) {
@@ -519,6 +600,17 @@ export class AgentConnectionManager {
     }
 
     runtime.slice = applySessionUpdate(runtime.slice, update);
+    // `applySessionUpdate` sets isStreaming=true for every agent chunk/tool_call,
+    // but only `applyTurnStop` (on the prompt request resolving) clears it. An
+    // update that lands outside an active turn — a late flush after the response,
+    // or an agent streaming background work out-of-band — would otherwise turn the
+    // loader back on with nothing left to clear it. Clamp such updates to
+    // non-streaming so the composer's stop button and the tab's working icon
+    // reflect only genuine in-flight turns. Scoped to thread sessions; the
+    // editor/updater sessions manage their own turn lifecycle.
+    if (this.sessions.has(runtime.threadId) && !runtime.promptInFlight && runtime.slice.isStreaming) {
+      runtime.slice = { ...runtime.slice, isStreaming: false };
+    }
     // A background thread's streaming can flip via updates without a pushState; keep tabs in sync.
     this.emitRunningThreads();
 
@@ -555,6 +647,10 @@ export class AgentConnectionManager {
   private handlePermissionRequest(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {
+    // Subagent sessions have no UI surface to answer on; resolve per config.
+    const auto = this.subagents.autoPermissionResponse(params);
+    if (auto) return Promise.resolve(auto);
+
     const sessionId = params.sessionId;
     const request: AcpPermissionRequest = {
       sessionId,
@@ -639,18 +735,69 @@ export class AgentConnectionManager {
     return toAcpMcpServers(listMcpServers(), caps);
   }
 
+  /**
+   * User-configured MCP servers plus the client-hosted subagent tool endpoint
+   * (a fresh token per session so tool calls are attributable). The returned
+   * bind() must be called with the established ACP session id.
+   */
+  private async sessionMcpServers(
+    live: LiveConnection,
+    cwd: string,
+  ): Promise<{ servers: Array<Record<string, unknown>>; bind: (sessionId: string) => void }> {
+    const base = this.mcpServersForConnection(live);
+    const attached = await this.subagents.attachMcpServers(base, live.agentCapabilities, {
+      cwd,
+      depth: 0,
+    });
+    return {
+      servers: attached.servers,
+      bind: (sessionId) => {
+        if (attached.token) this.subagents.bindSession(attached.token, sessionId);
+      },
+    };
+  }
+
+  /**
+   * Some agents (e.g. Grok) advertise their model catalog in the initialize
+   * result's `_meta.modelState` rather than as a session config option. When the
+   * agent returned no native "model" option, synthesize one from that catalog so
+   * it flows through the standard model picker UI unchanged.
+   */
+  private withModelOption(
+    live: LiveConnection,
+    options: SessionConfigOption[],
+  ): SessionConfigOption[] {
+    const ms = live.modelState;
+    const models = ms?.availableModels ?? [];
+    if (models.length === 0) return options;
+    if (options.some((o) => o.category === "model" || o.id === "model")) return options;
+    const modelOption = {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: ms?.currentModelId ?? models[0]?.modelId ?? null,
+      options: models.map((m) => ({ value: m.modelId, name: m.name })),
+    } as unknown as SessionConfigOption;
+    return [modelOption, ...options];
+  }
+
   private async sessionNew(
     live: LiveConnection,
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
-    const mcpServers = this.mcpServersForConnection(live);
+    const { servers, bind } = await this.sessionMcpServers(live, cwd);
     const result = await live.agent.request(acp.methods.agent.session.new, {
       cwd,
-      mcpServers: mcpServers as never,
+      mcpServers: servers as never,
     });
+    bind(result.sessionId);
     return {
       sessionId: result.sessionId,
-      configOptions: (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
+      configOptions: this.withModelOption(
+        live,
+        (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
+      ),
     };
   }
 
@@ -659,19 +806,22 @@ export class AgentConnectionManager {
     cwd: string,
     sessionId: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
-    const mcpServers = this.mcpServersForConnection(live);
+    const { servers, bind } = await this.sessionMcpServers(live, cwd);
     const result = await live.agent.request(acp.methods.agent.session.load, {
       cwd,
       sessionId,
-      mcpServers: mcpServers as never,
+      mcpServers: servers as never,
     });
+    bind((result as { sessionId?: string })?.sessionId ?? sessionId);
     return {
       sessionId: (result as { sessionId?: string })?.sessionId ?? sessionId,
-      configOptions:
+      configOptions: this.withModelOption(
+        live,
         ((result as { configOptions?: SessionConfigOption[] | null })?.configOptions as
           | SessionConfigOption[]
           | null
           | undefined) ?? [],
+      ),
     };
   }
 
@@ -680,15 +830,22 @@ export class AgentConnectionManager {
     prevSessionId: string,
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
-    const mcpServers = this.mcpServersForConnection(live);
+    const { servers, bind } = await this.sessionMcpServers(live, cwd);
     const result = await live.agent.request(acp.methods.agent.session.resume, {
       prevSessionId,
       cwd,
-      mcpServers: mcpServers as never,
+      mcpServers: servers as never,
     } as never);
+    bind((result as { sessionId?: string })?.sessionId ?? prevSessionId);
     return {
-      sessionId: result.sessionId,
-      configOptions: (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
+      sessionId: (result as { sessionId?: string })?.sessionId ?? prevSessionId,
+      configOptions: this.withModelOption(
+        live,
+        ((result as { configOptions?: SessionConfigOption[] | null })?.configOptions as
+          | SessionConfigOption[]
+          | null
+          | undefined) ?? [],
+      ),
     };
   }
 
@@ -742,35 +899,60 @@ export class AgentConnectionManager {
 
     // Close previous session optionally — skip for rapid switches; load new
     if (!this.sessions.has(threadId)) {
-      let sessionId = thread.agent_session_id;
-      let configOptions: SessionConfigOption[] = [];
-      try {
-        const loaded = await this.sessionLoad(live, project.path, sessionId);
-        sessionId = loaded.sessionId;
-        configOptions = loaded.configOptions;
-      } catch {
-        // Agent restarted — try resume
-        try {
-          const resumed = await this.sessionResume(live, thread.agent_session_id, project.path);
-          sessionId = resumed.sessionId;
-          configOptions = resumed.configOptions;
-          updateThreadAgentSessionId(threadId, sessionId);
-        } catch {
-          const created = await this.sessionNew(live, project.path);
-          sessionId = created.sessionId;
-          configOptions = created.configOptions;
-          updateThreadAgentSessionId(threadId, sessionId);
-        }
-      }
-
-      this.sessions.set(threadId, {
+      // Register the runtime BEFORE awaiting session/load: agents stream the
+      // conversation replay as session/update notifications while the load
+      // request is still in flight, and handleSessionUpdate can only route
+      // them into this slice if the sessionId is already known here. Without
+      // this, a reloaded thread renders with an empty timeline.
+      const runtime = {
         threadId,
-        agentSessionId: sessionId,
+        agentSessionId: thread.agent_session_id,
+        agentId: live.agentId,
         projectId: project.id,
         cwd: project.path,
-        slice: createEmptySessionSlice({ configOptions }),
+        slice: createEmptySessionSlice(),
         editorText: "",
-      });
+        promptInFlight: false,
+      };
+      this.sessions.set(threadId, runtime);
+
+      try {
+        let sessionId = thread.agent_session_id;
+        let configOptions: SessionConfigOption[] = [];
+        try {
+          const loaded = await this.sessionLoad(live, project.path, sessionId);
+          sessionId = loaded.sessionId;
+          configOptions = loaded.configOptions;
+        } catch {
+          // Agent restarted — try resume. A failed load may have streamed a
+          // partial replay before erroring; drop it so the fallback path
+          // doesn't append onto half a timeline.
+          runtime.slice = createEmptySessionSlice();
+          try {
+            const resumed = await this.sessionResume(live, thread.agent_session_id, project.path);
+            sessionId = resumed.sessionId;
+            configOptions = resumed.configOptions;
+            updateThreadAgentSessionId(threadId, sessionId);
+          } catch {
+            const created = await this.sessionNew(live, project.path);
+            sessionId = created.sessionId;
+            configOptions = created.configOptions;
+            updateThreadAgentSessionId(threadId, sessionId);
+          }
+        }
+
+        // Merge instead of replacing the slice: the replay already populated
+        // entries/toolCalls, only the session identity and config are new.
+        runtime.agentSessionId = sessionId;
+        if (configOptions.length > 0 || runtime.slice.configOptions.length === 0) {
+          runtime.slice = { ...runtime.slice, configOptions };
+        }
+      } catch (err) {
+        // No session could be established — remove the placeholder so a
+        // retry doesn't silently reuse a dead runtime.
+        this.sessions.delete(threadId);
+        throw err;
+      }
     }
 
     touchThread(threadId);
@@ -802,10 +984,12 @@ export class AgentConnectionManager {
     this.sessions.set(thread.id, {
       threadId: thread.id,
       agentSessionId: created.sessionId,
+      agentId: live.agentId,
       projectId,
       cwd: project.path,
       slice: createEmptySessionSlice({ configOptions: created.configOptions }),
       editorText: "",
+      promptInFlight: false,
     });
 
     this.activeProjectId = projectId;
@@ -903,6 +1087,7 @@ export class AgentConnectionManager {
       this.pushState(threadId);
     }
 
+    runtime.promptInFlight = true;
     runtime.slice = { ...runtime.slice, isStreaming: true };
     this.pushState(threadId);
     touchThread(threadId);
@@ -912,6 +1097,7 @@ export class AgentConnectionManager {
         sessionId: runtime.agentSessionId,
         prompt: blocks,
       });
+      runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
       this.emit({
         type: "stop",
@@ -921,6 +1107,7 @@ export class AgentConnectionManager {
       });
       this.pushState(threadId);
     } catch (err) {
+      runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
       this.pushState(threadId);
       throw err;
@@ -936,6 +1123,7 @@ export class AgentConnectionManager {
     const live = this.connection;
     if (!runtime || !live) throw new Error("No session for thread");
 
+    runtime.promptInFlight = true;
     runtime.slice = appendLocalUserMessage(runtime.slice, input.text);
     runtime.slice = { ...runtime.slice, isStreaming: true };
     this.pushState(threadId);
@@ -947,9 +1135,11 @@ export class AgentConnectionManager {
         promptId: input.promptId,
         text: input.text,
       });
+      runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
       this.pushState(threadId);
     } catch {
+      runtime.promptInFlight = false;
       // Fallback: regular prompt
       await this.sendPrompt({
         threadId,
@@ -968,6 +1158,8 @@ export class AgentConnectionManager {
       sessionId: runtime.agentSessionId,
     });
     this.cancelPendingPermissions(runtime.agentSessionId);
+    // Cascade cancel to subagent runs this session spawned.
+    this.subagents.cancelRunsForParent(runtime.agentSessionId);
     // Cascade cancel to ACP agent terminals (session/cancel → terminal/kill).
     // Kill keeps terminalIds valid for final output queries; release is agent-owned.
     this.terminalManager.killRunning();
@@ -978,6 +1170,24 @@ export class AgentConnectionManager {
     if (!threadId || !this.connection) return [];
     const runtime = this.sessions.get(threadId);
     if (!runtime) return [];
+    // Grok exposes its models via initialize `_meta.modelState` and switches them
+    // with a custom `session/set_model` method — it doesn't implement the standard
+    // `session/set_config_option`. Route the synthesized "model" option there and
+    // update the local option optimistically (the agent acks via `_meta.model.Ok`).
+    if (configId === "model" && this.connection.modelState) {
+      await this.connection.agent.request("session/set_model" as never, {
+        sessionId: runtime.agentSessionId,
+        modelId: value,
+      } as never);
+      const options = runtime.slice.configOptions.map((o) =>
+        o.id === "model" || o.category === "model"
+          ? ({ ...o, currentValue: value } as SessionConfigOption)
+          : o,
+      );
+      runtime.slice = { ...runtime.slice, configOptions: options };
+      this.pushState(threadId);
+      return options;
+    }
     const result = await this.connection.agent.request(acp.methods.agent.session.setConfigOption, {
       sessionId: runtime.agentSessionId,
       configId,
@@ -1024,10 +1234,12 @@ export class AgentConnectionManager {
     this.editorSession = {
       threadId: "__editor__",
       agentSessionId: created.sessionId,
+      agentId: live.agentId,
       projectId: "__omni_editor__",
       cwd,
       slice: createEmptySessionSlice({ configOptions: created.configOptions }),
       editorText: this.currentEditorText,
+      promptInFlight: false,
     };
     this.emitEditor({ type: "session-state", state: this.getEditorState() });
   }
@@ -1044,7 +1256,7 @@ export class AgentConnectionManager {
     return {
       projectId: runtime.projectId,
       threadId: runtime.threadId,
-      agentId: this.connection?.agentId ?? null,
+      agentId: runtime.agentId,
       agentSessionId: runtime.agentSessionId,
       cwd: runtime.cwd,
       title: runtime.slice.title ?? "Visual Editor",
@@ -1066,54 +1278,127 @@ export class AgentConnectionManager {
   async sendEditorPrompt(input: {
     message: string;
     images?: Array<{ data: string; mimeType: string }>;
+    streamingBehavior?: "followUp" | "steer";
   }): Promise<void> {
+    type EditorPromptQueue = {
+      promptChain?: Promise<void>;
+      pendingPromptCount?: number;
+      abortEpoch?: number;
+    };
     if (!this.editorSession) await this.activateEditor();
-    const runtime = this.editorSession;
-    const live = this.connection;
-    if (!runtime || !live) throw new Error("Editor session unavailable");
+    const runtime = this.editorSession as (typeof this.editorSession & EditorPromptQueue) | null;
+    if (!runtime) throw new Error("Editor session unavailable");
+    const live = this.connections.get(runtime.agentId);
+    if (!live) {
+      // The agent process that owned this session is gone (crashed/respawned
+      // under the same agentId) — its session state can't be recovered.
+      this.editorSession = null;
+      this.editorAgentSessionId = null;
+      throw new Error("Editor session unavailable");
+    }
 
     const blocks = assemblePromptBlocks({
       message: input.message,
       images: input.images,
       allowImage: true,
     });
+    // Surface the user message immediately, even when it has to wait for an
+    // in-flight turn — the companion renders it as a queued follow-up.
     runtime.slice = appendLocalUserMessage(runtime.slice, input.message);
     runtime.slice = { ...runtime.slice, isStreaming: true };
+    runtime.pendingPromptCount = (runtime.pendingPromptCount ?? 0) + 1;
     this.emitEditor({ type: "session-state", state: this.getEditorState() });
 
-    try {
-      await live.agent.request(acp.methods.agent.session.prompt, {
-        sessionId: runtime.agentSessionId,
-        prompt: blocks,
-      });
-      runtime.slice = applyTurnStop(runtime.slice);
-    } finally {
+    const settle = () => {
+      if (this.editorSession !== runtime) return;
+      runtime.pendingPromptCount = Math.max(0, (runtime.pendingPromptCount ?? 1) - 1);
+      // Only settle the turn once no follow-up prompt is queued behind this
+      // one — otherwise the companion flashes idle (and shows accept/reject)
+      // between serialized prompts. Always runs, including on prompt errors,
+      // so the editor can never be stuck in a streaming state.
+      if (runtime.pendingPromptCount === 0) {
+        runtime.slice = applyTurnStop(runtime.slice);
+      }
       this.emitEditor({ type: "session-state", state: this.getEditorState() });
-    }
+    };
+    const epoch = runtime.abortEpoch ?? 0;
+    const run = async () => {
+      // Session disposed while this prompt was queued.
+      if (this.editorSession !== runtime) return;
+      // User aborted while this prompt was queued — drop it.
+      if ((runtime.abortEpoch ?? 0) !== epoch) {
+        settle();
+        return;
+      }
+      try {
+        await live.agent.request(acp.methods.agent.session.prompt, {
+          sessionId: runtime.agentSessionId,
+          prompt: blocks,
+        });
+      } finally {
+        settle();
+      }
+    };
+
+    // Serialize prompts: the editor session can only run one turn at a time,
+    // so a prompt sent while streaming becomes a follow-up turn instead of a
+    // concurrent session/prompt request racing the in-flight one.
+    const chain = (runtime.promptChain ?? Promise.resolve()).then(run, run);
+    runtime.promptChain = chain.then(
+      () => undefined,
+      () => undefined,
+    );
+    await chain;
   }
 
   async abortEditor(): Promise<void> {
-    if (!this.editorSession || !this.connection) return;
-    await this.connection.agent.notify(acp.methods.agent.session.cancel, {
+    if (!this.editorSession) return;
+    const live = this.connections.get(this.editorSession.agentId);
+    if (!live) {
+      this.editorSession = null;
+      this.editorAgentSessionId = null;
+      return;
+    }
+    // Bump the abort epoch so prompts queued behind the in-flight turn are
+    // dropped instead of firing after the user pressed stop.
+    const runtime = this.editorSession as typeof this.editorSession & { abortEpoch?: number };
+    runtime.abortEpoch = (runtime.abortEpoch ?? 0) + 1;
+    await live.agent.notify(acp.methods.agent.session.cancel, {
       sessionId: this.editorSession.agentSessionId,
     });
     this.cancelPendingPermissions(this.editorSession.agentSessionId);
+    this.subagents.cancelRunsForParent(this.editorSession.agentSessionId);
     this.terminalManager.killRunning();
   }
 
   async setEditorModel(model: { provider?: string; modelId: string }): Promise<boolean> {
-    if (!this.editorSession || !this.connection) return false;
+    if (!this.editorSession) return false;
+    const live = this.connections.get(this.editorSession.agentId);
+    if (!live) {
+      this.editorSession = null;
+      this.editorAgentSessionId = null;
+      return false;
+    }
     // Prefer config option id "model" when present
     const modelOpt = this.editorSession.slice.configOptions.find(
       (o) => o.category === "model" || o.id === "model",
     );
     if (!modelOpt) return false;
     try {
-      await this.connection.agent.request(acp.methods.agent.session.setConfigOption, {
-        sessionId: this.editorSession.agentSessionId,
-        configId: modelOpt.id,
-        value: model.modelId as never,
-      });
+      // Grok-style agents switch models via the custom `session/set_model` method
+      // rather than `session/set_config_option` (see setConfigOption).
+      if (live.modelState) {
+        await live.agent.request("session/set_model" as never, {
+          sessionId: this.editorSession.agentSessionId,
+          modelId: model.modelId,
+        } as never);
+      } else {
+        await live.agent.request(acp.methods.agent.session.setConfigOption, {
+          sessionId: this.editorSession.agentSessionId,
+          configId: modelOpt.id,
+          value: model.modelId as never,
+        });
+      }
       return true;
     } catch {
       return false;
@@ -1122,9 +1407,10 @@ export class AgentConnectionManager {
 
   async disposeEditor(): Promise<void> {
     if (!this.editorSession) return;
-    if (this.connection) {
+    const live = this.connections.get(this.editorSession.agentId);
+    if (live) {
       try {
-        await this.connection.agent.request(acp.methods.agent.session.close, {
+        await live.agent.request(acp.methods.agent.session.close, {
           sessionId: this.editorSession.agentSessionId,
         });
       } catch {
@@ -1173,7 +1459,7 @@ export class AgentConnectionManager {
     return {
       projectId: runtime.projectId,
       threadId: runtime.threadId,
-      agentId: this.connection?.agentId ?? null,
+      agentId: runtime.agentId,
       agentSessionId: runtime.agentSessionId,
       cwd: runtime.cwd,
       title: "Updater",
@@ -1208,10 +1494,12 @@ export class AgentConnectionManager {
     this.updaterSession = {
       threadId: "__updater__",
       agentSessionId: created.sessionId,
+      agentId: live.agentId,
       projectId: "__updater__",
       cwd: workdir,
       slice: createEmptySessionSlice({ configOptions: created.configOptions }),
       editorText: "",
+      promptInFlight: false,
     };
     this.emitUpdater({ type: "session-state", state: this.getUpdaterState() });
   }
@@ -1220,9 +1508,13 @@ export class AgentConnectionManager {
     if (!this.updaterSession) {
       await this.activateUpdater();
     }
-    const live = this.connection;
     const runtime = this.updaterSession;
-    if (!live || !runtime) throw new Error("Updater session unavailable");
+    if (!runtime) throw new Error("Updater session unavailable");
+    const live = this.connections.get(runtime.agentId);
+    if (!live) {
+      this.updaterSession = null;
+      throw new Error("Updater session unavailable");
+    }
 
     runtime.slice = appendLocalUserMessage(runtime.slice, message);
     runtime.slice = { ...runtime.slice, isStreaming: true };
@@ -1248,18 +1540,25 @@ export class AgentConnectionManager {
   }
 
   async abortUpdater(): Promise<void> {
-    if (!this.updaterSession || !this.connection) return;
-    await this.connection.agent.notify(acp.methods.agent.session.cancel, {
+    if (!this.updaterSession) return;
+    const live = this.connections.get(this.updaterSession.agentId);
+    if (!live) {
+      this.updaterSession = null;
+      return;
+    }
+    await live.agent.notify(acp.methods.agent.session.cancel, {
       sessionId: this.updaterSession.agentSessionId,
     });
     this.cancelPendingPermissions(this.updaterSession.agentSessionId);
+    this.subagents.cancelRunsForParent(this.updaterSession.agentSessionId);
   }
 
   async disposeUpdater(): Promise<void> {
     if (!this.updaterSession) return;
-    if (this.connection) {
+    const live = this.connections.get(this.updaterSession.agentId);
+    if (live) {
       try {
-        await this.connection.agent.request(acp.methods.agent.session.close, {
+        await live.agent.request(acp.methods.agent.session.close, {
           sessionId: this.updaterSession.agentSessionId,
         });
       } catch {
@@ -1285,8 +1584,38 @@ export class AgentConnectionManager {
     await this.activateProject(state.projectId, state.threadId);
   }
 
+  /**
+   * Stop all user-facing agent activity before an update snapshots and
+   * promotes the workspace: cancel every in-flight turn, resolve pending
+   * permission requests as cancelled, dispose the editor session, kill
+   * agent-owned terminals, and shut down agent processes so nothing writes
+   * to the active workspace mid-promotion. The updater re-establishes its
+   * own connection afterwards via activateUpdater() → ensureConnection().
+   */
+  async quiesceForUpdate(): Promise<void> {
+    const live = this.connection;
+    if (live) {
+      for (const runtime of this.sessions.values()) {
+        if (!runtime.slice.isStreaming) continue;
+        try {
+          await live.agent.notify(acp.methods.agent.session.cancel, {
+            sessionId: runtime.agentSessionId,
+          });
+        } catch {
+          // Connection may already be down; process kill below still applies.
+        }
+        this.cancelPendingPermissions(runtime.agentSessionId);
+        runtime.promptInFlight = false;
+        runtime.slice = applyTurnStop(runtime.slice);
+      }
+    }
+    await this.disposeEditor().catch(() => {});
+    await this.closeConnection().catch(() => {});
+  }
+
   dispose(): Promise<void> {
     this.terminalManager.killAll();
+    this.subagents.dispose();
     return Promise.allSettled([this.disposeEditor(), this.closeConnection()]).then(() => undefined);
   }
 

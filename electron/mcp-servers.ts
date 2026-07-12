@@ -96,9 +96,11 @@ export function toAcpMcpServers(
   const out: Array<Record<string, unknown>> = [];
   for (const row of rows) {
     if (row.transport_type === "http" && caps.http && row.url) {
-      out.push({ type: "http", name: row.name, url: row.url });
+      // `headers` is a required array in the ACP HttpMcpServer schema (opencode
+      // rejects the entry with -32602 if it's absent).
+      out.push({ type: "http", name: row.name, url: row.url, headers: [] });
     } else if (row.transport_type === "sse" && caps.sse && row.url) {
-      out.push({ type: "sse", name: row.name, url: row.url });
+      out.push({ type: "sse", name: row.name, url: row.url, headers: [] });
     } else if (row.transport_type === "stdio" && row.command) {
       // stdio MCP is always sendable when agent has any MCP transport; some agents accept it without flag.
       let args: string[] = [];

@@ -32,7 +32,7 @@ const GIT_COMMIT_ENV = {
   GIT_COMMITTER_EMAIL: "pipper@internal",
 } as const;
 
-function gitCommitEnv(): NodeJS.ProcessEnv {
+export function gitCommitEnv(): NodeJS.ProcessEnv {
   return { ...process.env, ...GIT_COMMIT_ENV };
 }
 

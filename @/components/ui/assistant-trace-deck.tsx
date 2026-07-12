@@ -1,4 +1,4 @@
-import { useState, useEffect, type HTMLAttributes } from "react";
+import { useState, useEffect, useMemo, type HTMLAttributes } from "react";
 import type { IconName } from "@/lib/icon-context";
 import {
   ThinkingSteps,
@@ -11,6 +11,7 @@ import {
   ThinkingStepImage,
 } from "@/components/ui/thinking-steps";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import type { StepStatus } from "@/components/ui/thinking-steps";
 import { useAgentTerminalStore } from "@/store/agent-terminal-store";
@@ -264,6 +265,17 @@ function AssistantTraceDeck({
     return domains;
   };
 
+  const toolResultByCallId = useMemo(() => {
+    const map = new Map<string, ToolResultMessage & { terminalIds?: string[] }>();
+    for (const m of activeMessages) {
+      const candidate = m as ToolResultMessage & { terminalIds?: string[] };
+      if (candidate.role === "toolResult" && candidate.toolCallId && !map.has(candidate.toolCallId)) {
+        map.set(candidate.toolCallId, candidate); // keep first match, matching Array.find's behavior
+      }
+    }
+    return map;
+  }, [activeMessages]);
+
   return (
     <ThinkingSteps open={open} onOpenChange={setOpen} className={className} {...props}>
       <ThinkingStepsHeader>
@@ -281,10 +293,21 @@ function AssistantTraceDeck({
                 index={index}
                 icon="brain"
                 label="Thinking"
-                description={part.thinking}
                 status={isPartStreaming ? "active" : "complete"}
                 isLast={isLast}
               >
+                {part.thinking && (
+                  // Agents send condensed thinking as markdown (bold section
+                  // headers separated by "<!-- -->" comments); render it as
+                  // markdown so the comment is swallowed instead of shown
+                  // literally and headers actually render bold.
+                  <MarkdownRenderer
+                    isStreaming={isPartStreaming}
+                    className="text-[13px] text-muted-foreground [&_p]:leading-snug [&_strong]:text-foreground"
+                  >
+                    {part.thinking}
+                  </MarkdownRenderer>
+                )}
                 {isPartStreaming && <ThinkingIndicator className="mt-1" />}
               </ThinkingStep>
             );
@@ -295,20 +318,11 @@ function AssistantTraceDeck({
             const toolName = part.name || "";
             const args = part.arguments ?? part.args ?? {};
             const partStatus = part.status as string | undefined;
+            const resultMsg = toolResultByCallId.get(toolCallId);
             const terminalIds = [
               ...extractTerminalIdsFromPart(part),
-              ...((
-                activeMessages.find((m) => {
-                  const candidate = m as ToolResultMessage & { terminalIds?: string[] };
-                  return candidate.role === "toolResult" && candidate.toolCallId === toolCallId;
-                }) as (ToolResultMessage & { terminalIds?: string[] }) | undefined
-              )?.terminalIds ?? []),
+              ...(resultMsg?.terminalIds ?? []),
             ].filter((id, i, all) => all.indexOf(id) === i);
-
-            const resultMsg = activeMessages.find((m) => {
-              const candidate = m as ToolResultMessage;
-              return candidate.role === "toolResult" && candidate.toolCallId === toolCallId;
-            }) as ToolResultMessage | undefined;
 
             const completedViaPart =
               partStatus === "completed" || partStatus === "failed" || partStatus === "cancelled";

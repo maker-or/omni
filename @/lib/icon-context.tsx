@@ -80,7 +80,8 @@ function IconProvider({
       if (e.key !== "i" && e.key !== "I") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable)
+        return;
       e.preventDefault();
       setIconLibraryState((prev) => {
         const idx = iconLibraryOrder.indexOf(prev);
@@ -91,16 +92,9 @@ function IconProvider({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const value = useMemo(
-    () => ({ iconLibrary, setIconLibrary }),
-    [iconLibrary, setIconLibrary]
-  );
+  const value = useMemo(() => ({ iconLibrary, setIconLibrary }), [iconLibrary, setIconLibrary]);
 
-  return (
-    <IconContext.Provider value={value}>
-      {children}
-    </IconContext.Provider>
-  );
+  return <IconContext.Provider value={value}>{children}</IconContext.Provider>;
 }
 
 export interface IconProps extends ComponentProps<"svg"> {

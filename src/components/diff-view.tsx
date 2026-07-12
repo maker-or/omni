@@ -1,6 +1,7 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { memo, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CodeView } from "@pierre/diffs/react";
 import { parseDiffFromFile, type CodeViewDiffItem } from "@pierre/diffs";
+import type { DiffFileEntry } from "@/store/diff-store";
 import { RowsIcon, ColumnsIcon } from "@phosphor-icons/react";
 import { useDiffStore } from "@/store/diff-store";
 import { Button } from "@/components/ui/button";
@@ -26,27 +27,50 @@ const DIFF_UNSAFE_CSS = `
   }
 `;
 
-export function DiffView() {
+// No props: reads everything from stores directly. Memoized so it doesn't
+// re-render (and thrash CodeView's scroll) every time OthersView re-renders
+// for unrelated reasons — e.g. a background terminal streaming PTY output.
+export const DiffView = memo(function DiffView() {
   const files = useDiffStore((state) => state.files);
   const order = useDiffStore((state) => state.order);
   const [layout, setLayout] = useState<"split" | "unified">("split");
   const { resolvedTheme } = useTheme();
 
+  // Cache parsed diffs per path so a change to one file doesn't force every
+  // other item to be recomputed and handed to CodeView as a new object —
+  // that churn is what was thrashing the virtualizer's scroll position.
+  const itemCacheRef = useRef<Map<string, { entry: DiffFileEntry; item: CodeViewDiffItem }>>(
+    new Map(),
+  );
+
   // Stack every changed file (across every turn), not just the most recently
   // touched one — an agent that edits file A then file B should still show
   // both, not have B replace A.
   const items: CodeViewDiffItem[] = useMemo(() => {
-    return order
+    const cache = itemCacheRef.current;
+    const nextCache = new Map<string, { entry: DiffFileEntry; item: CodeViewDiffItem }>();
+    const result = order
       .map((path) => files[path])
-      .filter((file): file is NonNullable<typeof file> => Boolean(file))
-      .map((file) => ({
-        id: file.path,
-        type: "diff" as const,
-        fileDiff: parseDiffFromFile(
-          { name: file.path, contents: file.oldText },
-          { name: file.path, contents: file.newText },
-        ),
-      }));
+      .filter((file): file is DiffFileEntry => Boolean(file))
+      .map((file) => {
+        const cached = cache.get(file.path);
+        if (cached && cached.entry === file) {
+          nextCache.set(file.path, cached);
+          return cached.item;
+        }
+        const item: CodeViewDiffItem = {
+          id: file.path,
+          type: "diff" as const,
+          fileDiff: parseDiffFromFile(
+            { name: file.path, contents: file.oldText },
+            { name: file.path, contents: file.newText },
+          ),
+        };
+        nextCache.set(file.path, { entry: file, item });
+        return item;
+      });
+    itemCacheRef.current = nextCache;
+    return result;
   }, [order, files]);
 
   if (order.length === 0) {
@@ -94,9 +118,9 @@ export function DiffView() {
             </Button>
           </div>
         </div>
-        {/* CodeView manages its own internal virtualized scroll container —
-            wrapping it in another `overflow-auto` div creates a competing
-            scroll region and breaks scrolling, so this is just a sizing box. */}
+        {/* CodeView attaches its scroll listener directly to the div it
+            renders (via `className`), so that same element — not a wrapping
+            ancestor — must own the bounded height + overflow-y. */}
         <div className="min-h-0 flex-1">
           <CodeView
             items={items}
@@ -107,10 +131,10 @@ export function DiffView() {
               unsafeCSS: DIFF_UNSAFE_CSS,
               stickyHeaders: true,
             }}
-            className="h-full w-full"
+            className="h-full w-full overflow-y-auto"
           />
         </div>
       </div>
     </Elevated>
   );
-}
+});

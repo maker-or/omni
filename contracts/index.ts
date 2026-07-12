@@ -19,4 +19,7 @@ export {
   type PlanEntry,
   type SessionConfigOption,
   type SessionUpdate,
+  type SubagentConfig,
+  type SubagentRunSnapshot,
+  type SubagentRunStatus,
 } from "./acp.ts";

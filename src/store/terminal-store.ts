@@ -31,7 +31,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const newSession: TerminalSession = { id, title, cwd, history: "" };
 
     set({
-      sessions: [...get().sessions, newSession],
+      sessions: [newSession, ...get().sessions],
       activeSessionId: id,
     });
   },
@@ -47,8 +47,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
     let nextActiveId = activeSessionId;
     if (activeSessionId === id) {
-      nextActiveId =
-        filteredSessions.length > 0 ? filteredSessions[filteredSessions.length - 1].id : null;
+      nextActiveId = filteredSessions.length > 0 ? filteredSessions[0].id : null;
     }
 
     set({

@@ -86,8 +86,7 @@ export interface AskUserAnswer {
   skipped?: boolean;
 }
 
-export interface AskUserQuestionsProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
+export interface AskUserQuestionsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
   questions: AskUserQuestion[];
   currentIndex?: number;
   defaultCurrentIndex?: number;
@@ -131,7 +130,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       className,
       ...rest
     },
-    ref
+    ref,
   ) {
     // ── Controlled / uncontrolled state ──────────────────────────
     const [internalIndex, setInternalIndex] = useState(defaultCurrentIndex);
@@ -142,12 +141,12 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         if (!isIndexControlled) setInternalIndex(next);
         onCurrentIndexChange?.(next);
       },
-      [isIndexControlled, onCurrentIndexChange]
+      [isIndexControlled, onCurrentIndexChange],
     );
 
-    const [internalAnswers, setInternalAnswers] = useState<
-      Record<string, AskUserAnswer>
-    >(defaultAnswers ?? {});
+    const [internalAnswers, setInternalAnswers] = useState<Record<string, AskUserAnswer>>(
+      defaultAnswers ?? {},
+    );
     const isAnswersControlled = controlledAnswers !== undefined;
     const answers = isAnswersControlled
       ? (controlledAnswers as Record<string, AskUserAnswer>)
@@ -159,18 +158,14 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     }, [answers]);
 
     const writeAnswers = useCallback(
-      (
-        updater: (
-          prev: Record<string, AskUserAnswer>
-        ) => Record<string, AskUserAnswer>
-      ) => {
+      (updater: (prev: Record<string, AskUserAnswer>) => Record<string, AskUserAnswer>) => {
         const next = updater(answersRef.current);
         answersRef.current = next;
         if (!isAnswersControlled) setInternalAnswers(next);
         onAnswersChange?.(next);
         return next;
       },
-      [isAnswersControlled, onAnswersChange]
+      [isAnswersControlled, onAnswersChange],
     );
 
     const shape = useShape();
@@ -183,25 +178,17 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     // keyboard hints.)
     const ArrowLeftKey = useMemo(
       () =>
-        function ArrowLeftKey(p: {
-          size?: number;
-          strokeWidth?: number;
-          className?: string;
-        }) {
+        function ArrowLeftKey(p: { size?: number; strokeWidth?: number; className?: string }) {
           return <ArrowLeft {...p} className={cn(p.className, "hidden sm:block")} />;
         },
-      [ArrowLeft]
+      [ArrowLeft],
     );
     const ArrowRightKey = useMemo(
       () =>
-        function ArrowRightKey(p: {
-          size?: number;
-          strokeWidth?: number;
-          className?: string;
-        }) {
+        function ArrowRightKey(p: { size?: number; strokeWidth?: number; className?: string }) {
           return <ArrowRight {...p} className={cn(p.className, "hidden sm:block")} />;
         },
-      [ArrowRight]
+      [ArrowRight],
     );
 
     // Detect the platform so the Continue shortcut hint shows the right
@@ -235,10 +222,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     // freeText owns the whole answer area, so the inline Other row is
     // suppressed even if a caller sets both.
     const allowOther = !isFreeText && !!question?.allowOther;
-    const selectedIds = useMemo(
-      () => currentAnswer?.selectedIds ?? [],
-      [currentAnswer]
-    );
+    const selectedIds = useMemo(() => currentAnswer?.selectedIds ?? [], [currentAnswer]);
     const otherText = currentAnswer?.otherText ?? "";
 
     const options = question?.options ?? [];
@@ -313,8 +297,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       // for a single line. 1.5× line-height is a generous fudge below
       // a true second wrapped line (2× line-height) but well above any
       // single-line rounding artefact.
-      const lineHeight =
-        parseFloat(window.getComputedStyle(el).lineHeight) || 18;
+      const lineHeight = parseFloat(window.getComputedStyle(el).lineHeight) || 18;
       setIsOtherMultiline(el.scrollHeight > lineHeight * 1.5);
       measureItems();
     }, [otherText, measureItems, qId]);
@@ -376,7 +359,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       if (!restoreFocusRef.current) return;
       restoreFocusRef.current = false;
       const firstRow = rowsContainerRef.current?.querySelector(
-        '[data-proximity-index="0"]'
+        '[data-proximity-index="0"]',
       ) as HTMLElement | null;
       firstRow?.focus();
     }, [safeIndex]);
@@ -391,7 +374,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           setIndex(safeIndex + 1);
         }
       },
-      [safeIndex, total, onComplete, setIndex, markFocusRestore]
+      [safeIndex, total, onComplete, setIndex, markFocusRestore],
     );
 
     const handleSingleSelect = useCallback(
@@ -412,7 +395,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         }));
         goNext(snapshot);
       },
-      [question, qId, writeAnswers, goNext]
+      [question, qId, writeAnswers, goNext],
     );
 
     const handleMultiToggle = useCallback(
@@ -434,7 +417,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           };
         });
       },
-      [question, qId, writeAnswers]
+      [question, qId, writeAnswers],
     );
 
     // Base UI Checkbox.Group reports value changes coming from its (hidden)
@@ -454,7 +437,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           },
         }));
       },
-      [question, qId, writeAnswers]
+      [question, qId, writeAnswers],
     );
 
     const handleOtherChange = useCallback(
@@ -472,7 +455,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           },
         }));
       },
-      [question, qId, writeAnswers]
+      [question, qId, writeAnswers],
     );
 
     const handleOtherSubmit = useCallback(() => {
@@ -544,8 +527,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         const root = rootRef.current;
         if (!root) return;
         if (!root.contains(target)) {
-          if (mountedInstances.some((el) => el !== root && el.contains(target)))
-            return;
+          if (mountedInstances.some((el) => el !== root && el.contains(target))) return;
           if (mountedInstances[mountedInstances.length - 1] !== root) return;
         }
         const code = e.key;
@@ -563,14 +545,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       };
       document.addEventListener("keydown", handler);
       return () => document.removeEventListener("keydown", handler);
-    }, [
-      question,
-      options,
-      isMulti,
-      allowOther,
-      handleSingleSelect,
-      handleMultiToggle,
-    ]);
+    }, [question, options, isMulti, allowOther, handleSingleSelect, handleMultiToggle]);
 
     // ── Keyboard navigation ──────────────────────────────────────
     // Up/Down move the highlight between rows using the SAME indicator as
@@ -581,7 +556,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     // (not "radiogroup") and so isn't auto-skipped by that handler.
     const focusRow = (idx: number) => {
       const el = rowsContainerRef.current?.querySelector(
-        `[data-proximity-index="${idx}"]`
+        `[data-proximity-index="${idx}"]`,
       ) as HTMLElement | null;
       el?.focus();
     };
@@ -594,15 +569,13 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         if (allowOther && next === otherIndex) otherInputRef.current?.focus();
         else focusRow(next);
       },
-      [allowOther, otherIndex, setActiveIndex]
+      [allowOther, otherIndex, setActiveIndex],
     );
 
     const handleNavKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement;
       const isTextInput =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable;
+        target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
       // Inside the Other text field, ←/→ and Home/End move the caret natively.
       // ↑/↓ are dual-purpose in the textarea: when the caret has more lines
@@ -634,9 +607,8 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       // runs our (external) handler first and skips its own when we call
       // preventBaseUIHandler — without it, every arrow press would land focus
       // on an invisible control right after we move it to the next row.
-      const preventBaseUI = (
-        e as unknown as { preventBaseUIHandler?: () => void }
-      ).preventBaseUIHandler;
+      const preventBaseUI = (e as unknown as { preventBaseUIHandler?: () => void })
+        .preventBaseUIHandler;
 
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
@@ -651,12 +623,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
       }
 
       if (rowCount === 0) return;
-      if (
-        e.key === "ArrowDown" ||
-        e.key === "ArrowUp" ||
-        e.key === "Home" ||
-        e.key === "End"
-      ) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Home" || e.key === "End") {
         e.preventDefault();
         e.stopPropagation();
         preventBaseUI?.();
@@ -665,7 +632,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         else if (e.key === "End") next = rowCount - 1;
         else {
           // When focus is in the Other field, treat it as the Other row.
-          const base = isTextInput ? otherIndex : activeIndex ?? -1;
+          const base = isTextInput ? otherIndex : (activeIndex ?? -1);
           next = e.key === "ArrowDown" ? base + 1 : base - 1;
           next = (next + rowCount) % rowCount;
         }
@@ -700,7 +667,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           className={cn(
             "w-full max-w-[520px] p-5 bg-card border border-border",
             shape.container,
-            className
+            className,
           )}
           {...rest}
         >
@@ -710,8 +677,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     }
 
     // ── Layout calculations for hover/focus indicators ───────────
-    const activeRect =
-      activeIndex !== null ? itemRects[activeIndex] : null;
+    const activeRect = activeIndex !== null ? itemRects[activeIndex] : null;
     // focusedIndex comes from the rows container's onFocus (see rowsContent),
     // set only when the focused row matches :focus-visible — so the blue
     // morphing ring tracks keyboard focus across option rows. It is
@@ -778,8 +744,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     // True when the user is hovering a row that ISN'T part of any selected
     // run — we dim the selected backgrounds slightly to draw attention to
     // the hover target.
-    const isHoveringNonSelected =
-      activeIndex !== null && !selectedIndices.has(activeIndex);
+    const isHoveringNonSelected = activeIndex !== null && !selectedIndices.has(activeIndex);
 
     // Selected backgrounds, with the merge/split boundary animation when one
     // unselected row bridges or splits two selected runs. Selected backgrounds
@@ -799,9 +764,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
     // fallback from registry/base). Arrows handle row-to-row movement; Tab
     // moves on past the group. The Other row never takes the stop — its
     // textarea is natively focusable on its own.
-    const firstSelectedRow = options.findIndex((opt, i) =>
-      selectedIds.includes(optionKey(opt, i))
-    );
+    const firstSelectedRow = options.findIndex((opt, i) => selectedIds.includes(optionKey(opt, i)));
 
     // ── Option rows ──────────────────────────────────────────────
     // The rows container is handed to a Base UI group primitive via `render`
@@ -834,17 +797,14 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           if (indexAttr != null) {
             const idx = Number(indexAttr);
             setActiveIndex(idx);
-            setFocusedIndex(
-              (e.target as HTMLElement).matches(":focus-visible") ? idx : null
-            );
+            setFocusedIndex((e.target as HTMLElement).matches(":focus-visible") ? idx : null);
           }
         }}
         onBlur={(e) => {
           // Only clear when focus leaves the whole group — row-to-row moves
           // keep the indicators mounted so they morph instead of exiting and
           // re-entering.
-          if (rowsContainerRef.current?.contains(e.relatedTarget as Node))
-            return;
+          if (rowsContainerRef.current?.contains(e.relatedTarget as Node)) return;
           setFocusedIndex(null);
           setActiveIndex(null);
         }}
@@ -860,8 +820,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           {(() => {
             if (!allowOther) return null;
             const otherRect = itemRects[otherIndex];
-            const isEmptyFocused =
-              focusedIndex === otherIndex && otherText.length === 0;
+            const isEmptyFocused = focusedIndex === otherIndex && otherText.length === 0;
             if (!otherRect || !isEmptyFocused) return null;
             return (
               <motion.div
@@ -869,7 +828,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                 aria-hidden
                 className={cn(
                   "absolute pointer-events-none bg-card ring-1 ring-inset ring-border",
-                  shape.bg
+                  shape.bg,
                 )}
                 initial={{
                   opacity: 0,
@@ -902,10 +861,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
             <motion.div
               key={`hover-${sessionRef.current}`}
               aria-hidden
-              className={cn(
-                "absolute pointer-events-none bg-hover",
-                shape.bg
-              )}
+              className={cn("absolute pointer-events-none bg-hover", shape.bg)}
               initial={{
                 opacity: 0,
                 top: activeRect.top,
@@ -936,10 +892,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
             selected state stays readable when mousing over a row. Corners
             are driven numerically (around shape.bg's radius) so a single
             selected row matches its hover. */}
-        <SelectionBackgrounds
-          blocks={blocks}
-          dimmed={isHoveringNonSelected}
-        />
+        <SelectionBackgrounds blocks={blocks} dimmed={isHoveringNonSelected} />
 
         {/* Single morphing focus ring — fed by the container onFocus above,
             so keyboard focus on any option row draws it. */}
@@ -949,7 +902,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
               aria-hidden
               className={cn(
                 "absolute pointer-events-none border border-[color:var(--focus-ring,#6B97FF)] z-20",
-                shape.focusRing
+                shape.focusRing,
               )}
               initial={{
                 opacity: 0,
@@ -988,23 +941,12 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
               isSelected={isSelected}
               // Roving tabindex — see firstSelectedRow above. Multi-select
               // no longer puts a tab stop on every row.
-              tabIndex={
-                i === firstSelectedRow ||
-                (firstSelectedRow === -1 && i === 0)
-                  ? 0
-                  : -1
-              }
-              onClick={() =>
-                isMulti ? handleMultiToggle(oid) : handleSingleSelect(oid)
-              }
+              tabIndex={i === firstSelectedRow || (firstSelectedRow === -1 && i === 0) ? 0 : -1}
+              onClick={() => (isMulti ? handleMultiToggle(oid) : handleSingleSelect(oid))}
               onKeyDown={(e) => {
                 // Let ⌘/Ctrl+Enter fall through to the root handler
                 // (Continue) instead of toggling the focused row.
-                if (
-                  (e.key === " " || e.key === "Enter") &&
-                  !e.metaKey &&
-                  !e.ctrlKey
-                ) {
+                if ((e.key === " " || e.key === "Enter") && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
                   if (isMulti) handleMultiToggle(oid);
                   else handleSingleSelect(oid);
@@ -1022,13 +964,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
               // pair a title with a description that often wraps).
               topAlign={question.layout === "stacked"}
               chipPosition={question.chipPosition ?? "right"}
-              arrowIcon={
-                <ArrowRight
-                  size={14}
-                  strokeWidth={2}
-                  className="h-3.5 w-3.5"
-                />
-              }
+              arrowIcon={<ArrowRight size={14} strokeWidth={2} className="h-3.5 w-3.5" />}
               // Hidden Base UI primitive (sr-only): carries the group's
               // selection plumbing while the visible row wrapper handles
               // all interaction and styling. aria-hidden + tabIndex -1 keep
@@ -1043,12 +979,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                     aria-hidden
                   />
                 ) : (
-                  <RadioPrimitive.Root
-                    value={oid}
-                    className="sr-only"
-                    tabIndex={-1}
-                    aria-hidden
-                  />
+                  <RadioPrimitive.Root value={oid} className="sr-only" tabIndex={-1} aria-hidden />
                 )
               }
             >
@@ -1103,9 +1034,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                   {opt.description && (
                     <>
                       {" "}
-                      <span className="text-muted-foreground">
-                        {opt.description}
-                      </span>
+                      <span className="text-muted-foreground">{opt.description}</span>
                     </>
                   )}
                 </span>
@@ -1132,40 +1061,22 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
             // centred like the surrounding option rows.
             topAlign={isOtherMultiline}
             chipPosition={question.chipPosition ?? "right"}
-            ariaLabel={
-              question.otherPlaceholder ?? "Describe in your own words"
-            }
+            ariaLabel={question.otherPlaceholder ?? "Describe in your own words"}
             showArrow={
               !isMulti &&
-              (focusedIndex === otherIndex ||
-                activeIndex === otherIndex) &&
+              (focusedIndex === otherIndex || activeIndex === otherIndex) &&
               otherText.trim().length > 0
             }
-            arrowIcon={
-              <ArrowRight
-                size={14}
-                strokeWidth={2}
-                className="h-3.5 w-3.5"
-              />
-            }
-            onArrowClick={
-              !isMulti && otherText.trim().length > 0
-                ? handleOtherSubmit
-                : undefined
-            }
+            arrowIcon={<ArrowRight size={14} strokeWidth={2} className="h-3.5 w-3.5" />}
+            onArrowClick={!isMulti && otherText.trim().length > 0 ? handleOtherSubmit : undefined}
           >
             <span className="inline-grid w-full">
               <textarea
                 ref={otherInputRef}
                 rows={1}
                 value={otherText}
-                placeholder={
-                  question.otherPlaceholder ??
-                  "Describe in your own words…"
-                }
-                aria-label={
-                  question.otherPlaceholder ?? "Describe in your own words"
-                }
+                placeholder={question.otherPlaceholder ?? "Describe in your own words…"}
+                aria-label={question.otherPlaceholder ?? "Describe in your own words"}
                 onChange={(e) => handleOtherChange(e.target.value)}
                 onKeyDown={(e) => {
                   // Standard chat pattern: plain Enter submits,
@@ -1190,7 +1101,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                   // input it replaces — no border, no padding, no
                   // resize handle, no scrollbars (height is JS-driven,
                   // see the auto-resize effect above).
-                  "col-start-1 row-start-1 block w-full bg-transparent border-0 p-0 m-0 outline-none resize-none overflow-hidden text-[13px] leading-snug text-foreground placeholder:text-muted-foreground"
+                  "col-start-1 row-start-1 block w-full bg-transparent border-0 p-0 m-0 outline-none resize-none overflow-hidden text-[13px] leading-snug text-foreground placeholder:text-muted-foreground",
                 )}
                 style={{ fontVariationSettings: fontWeights.medium }}
               />
@@ -1205,8 +1116,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         ref={(node) => {
           rootRef.current = node;
           if (typeof ref === "function") ref(node);
-          else if (ref)
-            (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+          else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
         }}
         className={cn(
           // overflow-hidden crops the footer buttons to the card's rounded
@@ -1214,7 +1124,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           // clipped at the edge instead of visibly flying outside the card.
           "relative w-full max-w-[520px] overflow-hidden bg-card border border-border",
           shape.container,
-          className
+          className,
         )}
         {...rest}
         onKeyDown={(e) => {
@@ -1255,59 +1165,56 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
           >
             <div
               ref={contentMeasureRef}
-              className={cn(
-                "px-4 sm:px-5",
-                showFooter ? "pb-1" : "pb-2.5 sm:pb-3"
-              )}
+              className={cn("px-4 sm:px-5", showFooter ? "pb-1" : "pb-2.5 sm:pb-3")}
             >
               <div key={qId} className="flex flex-col gap-2">
-              {/* Question title */}
-              <h3
-                id={`${reactId}-${qId}-title`}
-                className="text-[16px] text-foreground leading-snug"
-                style={{ fontVariationSettings: fontWeights.semibold }}
-              >
-                {question.title}
-              </h3>
+                {/* Question title */}
+                <h3
+                  id={`${reactId}-${qId}-title`}
+                  className="text-[16px] text-foreground leading-snug"
+                  style={{ fontVariationSettings: fontWeights.semibold }}
+                >
+                  {question.title}
+                </h3>
 
-              {/* freeText: a single open-ended textarea is the whole answer —
+                {/* freeText: a single open-ended textarea is the whole answer —
                   no option rows, no chips. It auto-focuses (see the freeText
                   effect) and commits via ⌘/⌃+Enter or the bottom submit
                   button. The field auto-resizes via the shared resize effect
                   (otherInputRef), and its value is stored in `otherText`. */}
-              {isFreeText ? (
-                // The min-height lives on the CONTAINER, not the textarea: the
-                // shared auto-resize effect drives the textarea's `height`
-                // explicitly (1 line → grows as it wraps), so a min-height on
-                // the field itself fights that and mis-measures. The box gives
-                // the field a few lines of presence at rest; clicking anywhere
-                // in it focuses the caret.
-                <div
-                  onClick={() => otherInputRef.current?.focus()}
-                  className={cn(
-                    // -mx-3 + px-3 mirrors the option rows / "Something else"
-                    // field: the box bleeds 12px each side (so its fill spans the
-                    // same width as the hover/selected backgrounds) while the
-                    // text starts at the content edge, aligned with the option
-                    // titles and the question heading.
-                    "relative mt-1 -mx-3 px-3 py-2.5 cursor-text transition-colors",
-                    // Resting height: a few lines for multi-line, one row for
-                    // single-line. The textarea still auto-resizes above this
-                    // floor as content wraps.
-                    isFreeTextMultiline ? "min-h-[76px]" : "min-h-10",
-                    shape.bg,
-                    // Mirror the "Something else" field instead of a blue focus
-                    // ring. Empty + at rest: no border, fully quiet. Hover
-                    // lightens with bg-hover; focus shows the bg-card + border
-                    // hint. Once it has text it fills with the same bg-active
-                    // overlay the selected option rows use (focus-within comes
-                    // after hover in the cascade, so focusing wins over hovering).
-                    otherText.length > 0
-                      ? "bg-active"
-                      : "hover:bg-hover focus-within:bg-card focus-within:ring-1 focus-within:ring-inset focus-within:ring-border"
-                  )}
-                >
-                  {/* Base UI Field.Control wires the textarea into the Field:
+                {isFreeText ? (
+                  // The min-height lives on the CONTAINER, not the textarea: the
+                  // shared auto-resize effect drives the textarea's `height`
+                  // explicitly (1 line → grows as it wraps), so a min-height on
+                  // the field itself fights that and mis-measures. The box gives
+                  // the field a few lines of presence at rest; clicking anywhere
+                  // in it focuses the caret.
+                  <div
+                    onClick={() => otherInputRef.current?.focus()}
+                    className={cn(
+                      // -mx-3 + px-3 mirrors the option rows / "Something else"
+                      // field: the box bleeds 12px each side (so its fill spans the
+                      // same width as the hover/selected backgrounds) while the
+                      // text starts at the content edge, aligned with the option
+                      // titles and the question heading.
+                      "relative mt-1 -mx-3 px-3 py-2.5 cursor-text transition-colors",
+                      // Resting height: a few lines for multi-line, one row for
+                      // single-line. The textarea still auto-resizes above this
+                      // floor as content wraps.
+                      isFreeTextMultiline ? "min-h-[76px]" : "min-h-10",
+                      shape.bg,
+                      // Mirror the "Something else" field instead of a blue focus
+                      // ring. Empty + at rest: no border, fully quiet. Hover
+                      // lightens with bg-hover; focus shows the bg-card + border
+                      // hint. Once it has text it fills with the same bg-active
+                      // overlay the selected option rows use (focus-within comes
+                      // after hover in the cascade, so focusing wins over hovering).
+                      otherText.length > 0
+                        ? "bg-active"
+                        : "hover:bg-hover focus-within:bg-card focus-within:ring-1 focus-within:ring-inset focus-within:ring-border",
+                    )}
+                  >
+                    {/* Base UI Field.Control wires the textarea into the Field:
                       the footer Field.Error's generated id lands in this
                       element's aria-describedby, and Field.Root's `invalid`
                       drives aria-invalid — the association the previous bare
@@ -1315,62 +1222,60 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                       flows through onValueChange into the same
                       handleOtherChange path; all visual props live on the
                       rendered textarea. */}
-                  <Field.Control
-                    value={otherText}
-                    onValueChange={handleOtherChange}
-                    render={
-                      <textarea
-                        ref={otherInputRef}
-                        rows={1}
-                        placeholder={
-                          question.freeTextPlaceholder ?? "Type your answer…"
-                        }
-                        aria-labelledby={`${reactId}-${qId}-title`}
-                        onKeyDown={(e) => {
-                          // Multi-line: plain Enter is a newline; ⌘/⌃+Enter
-                          // submits (caught by the root handler). Single-line:
-                          // plain Enter submits like an input, so a newline is
-                          // never inserted.
-                          if (e.key !== "Enter") return;
-                          if (e.shiftKey || e.metaKey || e.ctrlKey) return;
-                          if (!isFreeTextMultiline) {
-                            e.preventDefault();
-                            handleOtherSubmit();
-                          }
-                        }}
-                        className="block w-full bg-transparent border-0 p-0 m-0 outline-none resize-none overflow-hidden text-[13px] leading-snug text-foreground placeholder:text-muted-foreground"
-                        style={{ fontVariationSettings: fontWeights.medium }}
-                      />
-                    }
+                    <Field.Control
+                      value={otherText}
+                      onValueChange={handleOtherChange}
+                      render={
+                        <textarea
+                          ref={otherInputRef}
+                          rows={1}
+                          placeholder={question.freeTextPlaceholder ?? "Type your answer…"}
+                          aria-labelledby={`${reactId}-${qId}-title`}
+                          onKeyDown={(e) => {
+                            // Multi-line: plain Enter is a newline; ⌘/⌃+Enter
+                            // submits (caught by the root handler). Single-line:
+                            // plain Enter submits like an input, so a newline is
+                            // never inserted.
+                            if (e.key !== "Enter") return;
+                            if (e.shiftKey || e.metaKey || e.ctrlKey) return;
+                            if (!isFreeTextMultiline) {
+                              e.preventDefault();
+                              handleOtherSubmit();
+                            }
+                          }}
+                          className="block w-full bg-transparent border-0 p-0 m-0 outline-none resize-none overflow-hidden text-[13px] leading-snug text-foreground placeholder:text-muted-foreground"
+                          style={{ fontVariationSettings: fontWeights.medium }}
+                        />
+                      }
+                    />
+                  </div>
+                ) : isMulti ? (
+                  // Multi-select: Base UI Checkbox.Group supplies group state to
+                  // the hidden per-row checkbox primitives, rendered onto the
+                  // rows container itself (see rowsContent above) so the DOM
+                  // stays one flat container the absolute overlays can measure.
+                  <CheckboxGroupPrimitive
+                    value={selectedIds}
+                    onValueChange={handleGroupValueChange}
+                    render={rowsContent}
                   />
-                </div>
-              ) : isMulti ? (
-                // Multi-select: Base UI Checkbox.Group supplies group state to
-                // the hidden per-row checkbox primitives, rendered onto the
-                // rows container itself (see rowsContent above) so the DOM
-                // stays one flat container the absolute overlays can measure.
-                <CheckboxGroupPrimitive
-                  value={selectedIds}
-                  onValueChange={handleGroupValueChange}
-                  render={rowsContent}
-                />
-              ) : (
-                // Single-select: Base UI Radio.Group, same render-onto-the-
-                // container trick. `null` (not undefined) when unanswered keeps
-                // the group controlled from the first render. onValueChange
-                // routes hidden-primitive selection through the same
-                // handleSingleSelect path as row clicks — the two never
-                // double-fire, since clicking a row doesn't click its sr-only
-                // child.
-                <RadioGroupPrimitive
-                  value={selectedIds[0] ?? null}
-                  onValueChange={(value) => {
-                    if (typeof value === "string") handleSingleSelect(value);
-                  }}
-                  render={rowsContent}
-                />
-              )}
-            </div>
+                ) : (
+                  // Single-select: Base UI Radio.Group, same render-onto-the-
+                  // container trick. `null` (not undefined) when unanswered keeps
+                  // the group controlled from the first render. onValueChange
+                  // routes hidden-primitive selection through the same
+                  // handleSingleSelect path as row clicks — the two never
+                  // double-fire, since clicking a row doesn't click its sr-only
+                  // child.
+                  <RadioGroupPrimitive
+                    value={selectedIds[0] ?? null}
+                    onValueChange={(value) => {
+                      if (typeof value === "string") handleSingleSelect(value);
+                    }}
+                    render={rowsContent}
+                  />
+                )}
+              </div>
             </div>
           </motion.div>
 
@@ -1494,14 +1399,11 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                         <Button
                           variant="primary"
                           size="sm"
-                          onClick={
-                            isFreeText ? handleOtherSubmit : handleMultiNext
-                          }
+                          onClick={isFreeText ? handleOtherSubmit : handleMultiNext}
                           disabled={
                             isFreeText
                               ? otherText.trim().length === 0
-                              : selectedIds.length === 0 &&
-                                otherText.trim().length === 0
+                              : selectedIds.length === 0 && otherText.trim().length === 0
                           }
                           // The shortcut chip acts as a trailing icon, so tighten
                           // the right padding to match the Button's iconRight on
@@ -1510,8 +1412,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
                           className="pr-3 sm:pr-[6px]"
                         >
                           <span className="inline-flex items-center gap-1.5">
-                            {question.nextLabel ??
-                              (safeIndex >= total - 1 ? "Finish" : "Continue")}
+                            {question.nextLabel ?? (safeIndex >= total - 1 ? "Finish" : "Continue")}
                             {/* Shortcut hint — replaces the trailing arrow. Sits
                                 inside the button so it dims with the disabled
                                 state. ⌘↵ on macOS, ⌃↵ elsewhere. Desktop-only:
@@ -1534,7 +1435,7 @@ const AskUserQuestions = forwardRef<HTMLDivElement, AskUserQuestionsProps>(
         </Field.Root>
       </div>
     );
-  }
+  },
 );
 
 AskUserQuestions.displayName = "AskUserQuestions";
@@ -1564,7 +1465,7 @@ function ShortcutChip({
         tone === "inverted"
           ? "bg-background/15 text-background"
           : "bg-foreground/10 text-muted-foreground",
-        shape.bg
+        shape.bg,
       )}
     >
       {children}
@@ -1662,7 +1563,7 @@ function Row({
           className={cn(
             "absolute inset-0 inline-flex items-center justify-center bg-foreground text-background",
             shape.bg,
-            onArrowClick && "cursor-pointer"
+            onArrowClick && "cursor-pointer",
           )}
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -1698,8 +1599,7 @@ function Row({
     <span
       className={cn(
         "shrink-0 w-7 h-7 relative inline-flex items-center justify-center",
-        topAlign &&
-          (bodyLayout === "stacked" ? "-mt-[1px]" : "-mt-[5px]")
+        topAlign && (bodyLayout === "stacked" ? "-mt-[1px]" : "-mt-[5px]"),
       )}
     >
       <span
@@ -1712,17 +1612,15 @@ function Row({
               ? "bg-foreground text-background"
               : "border border-border text-muted-foreground"
             : chipFilled
-            ? "text-foreground"
-            : "text-muted-foreground",
+              ? "text-foreground"
+              : "text-muted-foreground",
           // Only fade the chip when it shares a slot with the arrow — for
           // chip-on-left the arrow has its own slot on the right, so the
           // chip stays in place.
-          chipPosition === "right" && showArrow && "opacity-0"
+          chipPosition === "right" && showArrow && "opacity-0",
         )}
         style={{
-          fontVariationSettings: chipFilled
-            ? fontWeights.semibold
-            : fontWeights.medium,
+          fontVariationSettings: chipFilled ? fontWeights.semibold : fontWeights.medium,
         }}
       >
         {chipContent}
@@ -1740,8 +1638,7 @@ function Row({
     <span
       className={cn(
         "shrink-0 w-7 h-7 relative inline-flex items-center justify-center",
-        topAlign &&
-          (bodyLayout === "stacked" ? "-mt-[1px]" : "-mt-[5px]")
+        topAlign && (bodyLayout === "stacked" ? "-mt-[1px]" : "-mt-[5px]"),
       )}
     >
       {arrowOverlay}
@@ -1765,7 +1662,7 @@ function Row({
         // instead. Skip genuinely interactive children — the Other row's
         // textarea must keep taking focus from clicks.
         const interactive = (e.target as HTMLElement).closest(
-          'button:not([tabindex="-1"]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          'button:not([tabindex="-1"]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         );
         if (interactive && interactive !== e.currentTarget) return;
         e.preventDefault();
@@ -1791,12 +1688,8 @@ function Row({
         // reads visually balanced in both orientations. For chip-on-left
         // + multi-select there's no right slot, so widen the right padding
         // to match the chip-on-right's 12px / 6px asymmetry mirrored.
-        chipPosition === "left"
-          ? isMulti
-            ? "pl-1.5 pr-3"
-            : "pl-1.5 pr-1.5"
-          : "pl-3 pr-1.5",
-        shape.item
+        chipPosition === "left" ? (isMulti ? "pl-1.5 pr-3" : "pl-1.5 pr-1.5") : "pl-3 pr-1.5",
+        shape.item,
       )}
     >
       {/* Selected background is drawn at the container level so contiguous
@@ -1809,9 +1702,7 @@ function Row({
       <span
         className={cn(
           "min-w-0 flex-1 text-[13px] leading-snug",
-          bodyLayout === "stacked"
-            ? "flex flex-col gap-0.5"
-            : "inline-flex items-center gap-0"
+          bodyLayout === "stacked" ? "flex flex-col gap-0.5" : "inline-flex items-center gap-0",
         )}
       >
         {children}

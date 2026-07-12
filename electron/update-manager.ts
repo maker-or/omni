@@ -1,5 +1,15 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -46,6 +56,7 @@ import {
   getPreviousPath,
   getUpdateStatePath,
   getUpdatesPath,
+  gitCommitEnv,
   normalizeActiveBeforeUpdate,
   prepareCandidateDependencies,
   promoteCandidate,
@@ -105,7 +116,35 @@ function manifestPath(): string {
 function readManifestFile(): UpdateManifest | null {
   const path = manifestPath();
   if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, "utf8")) as UpdateManifest;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as UpdateManifest;
+  } catch {
+    // A truncated or corrupt cached manifest (for example after power loss
+    // mid-write) must degrade to "no update cached", not throw into every
+    // caller — a throw here previously escaped run() before its try block and
+    // left the scheduled-quit flow unable to ever finish quitting. The next
+    // check() re-downloads the manifest.
+    renameSync(path, join(getUpdatesPath(), `manifest.corrupt-${Date.now()}.json`));
+    return null;
+  }
+}
+
+function writeManifestFileAtomic(manifest: UpdateManifest): void {
+  mkdirSync(getUpdatesPath(), { recursive: true });
+  const path = manifestPath();
+  const temporaryPath = `${path}.tmp`;
+  // fsync before rename, matching update-state.ts and update-installation.ts:
+  // a plain writeFileSync risks leaving a truncated/corrupt file behind a
+  // crash or power loss mid-write, which readManifestFile()'s corrupt-file
+  // handling exists to paper over.
+  const fd = openSync(temporaryPath, "w", 0o600);
+  try {
+    writeFileSync(fd, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(temporaryPath, path);
 }
 
 function message(error: unknown): string {
@@ -211,9 +250,18 @@ export class UpdateManager {
     return this.options.agent.getUpdaterState();
   }
 
-  private persist(patch: Partial<UpdateState>, phase?: UpdateState["phase"]): void {
+  private persist(
+    patch: Partial<UpdateState>,
+    phase?: UpdateState["phase"],
+    options?: { forceTransition?: boolean },
+  ): void {
     const nextPhase = phase ?? this.state.phase;
-    assertUpdateTransition(this.state.phase, nextPhase);
+    // Transition assertions guard live update runs. Startup recovery instead
+    // re-derives trusted state from whatever phase survived the crash, so the
+    // recovery paths may force a transition the live state machine forbids
+    // (for example completed -> failed when the active workspace vanished).
+    // Throwing here during recovery would reject recover() and block startup.
+    if (!options?.forceTransition) assertUpdateTransition(this.state.phase, nextPhase);
     this.state = {
       ...this.state,
       ...patch,
@@ -341,7 +389,34 @@ export class UpdateManager {
   }
 
   async recover(): Promise<void> {
-    rmSync(join(getUpdatesPath(), "context"), { recursive: true, force: true });
+    // recover() runs on the startup critical path: if it rejects, the update
+    // subsystem never initializes and window creation is skipped. Whatever
+    // goes wrong while healing crashed state, degrade to a persisted failed
+    // state instead of throwing into startup.
+    try {
+      await this.recoverFromPersistedState();
+    } catch (error) {
+      console.error("[UpdateManager] Recovery failed:", error);
+      try {
+        this.failRecoveredRun(
+          makeFailure(
+            "PROMOTION_HEALTH",
+            `Update recovery did not complete: ${message(error)}`,
+            "promotion",
+          ),
+        );
+      } catch (persistError) {
+        console.error("[UpdateManager] Could not persist recovery failure:", persistError);
+      }
+    }
+  }
+
+  private async recoverFromPersistedState(): Promise<void> {
+    try {
+      rmSync(join(getUpdatesPath(), "context"), { recursive: true, force: true });
+    } catch (error) {
+      console.error("[UpdateManager] Failed to clear stale updater context:", error);
+    }
     const run =
       (this.state.run_id ? readUpdateRunRecord(this.state.run_id) : null) ??
       (RUNNING_PHASES.includes(this.state.phase) ? readNewestUpdateRunRecord() : null);
@@ -358,14 +433,44 @@ export class UpdateManager {
         ),
       );
     } else if (run?.promotion.status === "health_ok") {
-      this.progress("promoting", "Finalizing a health-confirmed update after restart");
-      finalizePromotion();
+      // Do not persist a phase here: the persisted phase is awaiting-health-check,
+      // and awaiting-health-check -> promoting is not a legal transition, so the
+      // old progress("promoting") call threw and wedged startup in exactly the
+      // crash window this branch exists to heal. Broadcast progress only.
+      this.options.broadcastProgress({
+        phase: this.state.phase,
+        message: "Finalizing a health-confirmed update after restart",
+      });
       const candidateCommit = run.candidate_commit ?? run.promotion.candidate_commit;
+      // A crash between finalizePromotion() (which discards `previous`) and the
+      // final "completed" persist would otherwise make this branch run again on
+      // the next launch and call finalizePromotion() a second time, which throws
+      // because `previous` no longer exists. Treat a missing `previous` as
+      // "finalization already happened" and verify the filesystem agrees before
+      // claiming success, instead of re-running a non-idempotent step.
+      const alreadyFinalized = !existsSync(getPreviousPath());
+      let activeMatchesCandidate = alreadyFinalized && candidateCommit != null;
+      if (alreadyFinalized && candidateCommit) {
+        try {
+          activeMatchesCandidate = (await getGitHead(getActivePath())) === candidateCommit;
+        } catch {
+          activeMatchesCandidate = false;
+        }
+      }
+      if (!alreadyFinalized) finalizePromotion();
       if (!candidateCommit) {
         this.failRecoveredRun(
           makeFailure(
             "PROMOTION_FINALIZE",
             "Recovered update is missing candidate commit.",
+            "promotion",
+          ),
+        );
+      } else if (alreadyFinalized && !activeMatchesCandidate) {
+        this.failRecoveredRun(
+          makeFailure(
+            "PROMOTION_FINALIZE",
+            "Recovered update could not confirm the active workspace matches the finalized candidate.",
             "promotion",
           ),
         );
@@ -385,7 +490,9 @@ export class UpdateManager {
           outcome: "completed",
           finished_at: new Date().toISOString(),
         });
-        this.persist({ error: null, scheduled_for_quit: false }, "completed");
+        this.persist({ error: null, scheduled_for_quit: false }, "completed", {
+          forceTransition: true,
+        });
       }
     } else if (
       (this.state.phase === "promoting" || this.state.phase === "awaiting-health-check") &&
@@ -463,6 +570,7 @@ export class UpdateManager {
         run_id: run?.run_id ?? this.state.run_id,
       },
       "failed",
+      { forceTransition: true },
     );
   }
 
@@ -472,7 +580,7 @@ export class UpdateManager {
       readAndValidateInstallationAgainstActive({ repair: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.persist({ error: message }, "failed");
+      this.persist({ error: message }, "failed", { forceTransition: true });
     }
   }
 
@@ -508,8 +616,7 @@ export class UpdateManager {
         installation.installed_version,
         this.options.repositoryUrl!,
       );
-      mkdirSync(getUpdatesPath(), { recursive: true });
-      writeFileSync(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`);
+      writeManifestFileAtomic(manifest);
       if (updateState) {
         this.persist(
           {
@@ -644,8 +751,12 @@ export class UpdateManager {
   }
 
   private async getCandidateDirtyFiles(): Promise<string[]> {
-    const status = (await execFileAsync("git", ["status", "--short"], { cwd: getCandidatePath() }))
-      .stdout;
+    const status = (
+      await execFileAsync("git", ["status", "--short"], {
+        cwd: getCandidatePath(),
+        maxBuffer: 50 * 1024 * 1024,
+      })
+    ).stdout;
     return dirtyFilesFromStatus(status);
   }
 
@@ -657,7 +768,25 @@ export class UpdateManager {
     }
     this.cancelled = false;
     const started = Date.now();
-    const record = await this.createRunRecord(manifest);
+    // Tracks whether *this* run performed the promotion swap, independent of the
+    // persisted run record (which only reaches promotion.status="swapped" after
+    // assertPostSwapInvariants() also succeeds) and independent of a leftover
+    // `previous` directory on disk (which can survive from an earlier, unrelated
+    // crash and must not be mistaken for this run's own swap in the catch below).
+    let didSwap = false;
+    // Run-record creation happens before the main try block, so a failure here
+    // (for example git being unavailable in the active workspace) previously
+    // rejected the startNow() promise instead of resolving with a failure. The
+    // scheduled-quit flow awaits startNow() and only clears its in-progress
+    // flag on a resolved result, so a rejection wedged quitting forever.
+    let record: UpdateRunRecord;
+    try {
+      record = await this.createRunRecord(manifest);
+    } catch (error) {
+      const failure = failureFromError(error, this.state.phase);
+      this.persist({ error: failure.message, scheduled_for_quit: false }, "failed");
+      return { success: false, error: failure.message };
+    }
     this.persist({ run_id: record.run_id, error: null }, "preparing");
     appendUpdateRunLog(record.run_id, "run=started");
 
@@ -789,7 +918,7 @@ export class UpdateManager {
       await execFileAsync(
         "git",
         ["commit", "-m", `Apply Pipper ${manifest.version} while preserving local customizations`],
-        { cwd: getCandidatePath() },
+        { cwd: getCandidatePath(), env: gitCommitEnv() },
       );
       const candidateCommit = await getGitHead(getCandidatePath());
       this.patchRun((run) => ({
@@ -801,6 +930,7 @@ export class UpdateManager {
       this.progress("ready-to-promote", "Candidate passed validation");
       this.progress("promoting", "Promoting the validated update");
       const receipt = promoteCandidate();
+      didSwap = true;
       assertPostSwapInvariants(receipt, candidateCommit);
       this.patchRun((run) => ({
         ...run,
@@ -870,7 +1000,7 @@ export class UpdateManager {
       if (validationResults) {
         this.patchRun((run) => ({ ...run, validation_results: validationResults }));
       }
-      if (existsSync(getPreviousPath())) {
+      if (didSwap) {
         try {
           this.progress("rolling-back", "Restoring the previous working version", failure.message);
           rollbackPromotion();

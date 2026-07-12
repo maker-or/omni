@@ -246,61 +246,6 @@
   --shadow-2: var(--shadow-2);
   --shadow-1: var(--shadow-1);
   --color-shadow-color: var(--shadow-color);
-
-  /* --- Keyframes -------------------------------------------------------- */
-  @keyframes spinner-move {
-  to {
-    stroke-dashoffset: -100;
-    }
-  }
-  @keyframes spinner-dash {
-  0%, 100% {
-    stroke-dasharray: 15 85;
-    }
-  50% {
-    stroke-dasharray: 40 60;
-    }
-  }
-  @keyframes pipper-beam-spin {
-    from {
-      --pipper-beam-angle: 0deg;
-    }
-    to {
-      --pipper-beam-angle: 360deg;
-    }
-  }
-  @keyframes pipper-highlight-pulse {
-    0%,
-    100% {
-      opacity: 1;
-      box-shadow:
-        0 0 0 1px oklch(0.65 0.2 260 / 0.25),
-        inset 0 0 0 1px oklch(0.65 0.2 260 / 0.1);
-    }
-    50% {
-      opacity: 0.75;
-      box-shadow: 0 0 0 3px oklch(0.65 0.2 260 / 0.12);
-    }
-  }
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-      transform: translateX(-50%) translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-  }
-  @keyframes pixel-loader-pulse {
-    0%,
-    100% {
-      opacity: 0.15;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
 }
 
 /* @property must live at top level — not inside @theme */
@@ -308,6 +253,85 @@
   syntax: "<angle>";
   inherits: false;
   initial-value: 0deg;
+}
+
+/*
+ * Keyframes referenced only via inline `style={{ animation: "..." }}` (not a
+ * Tailwind utility class) get stripped from the production build when nested
+ * inside `@theme` — Tailwind's build only preserves theme-block content it
+ * can trace to a generated utility. Top-level `@keyframes` is always kept.
+ */
+@keyframes spinner-move {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+@keyframes spinner-dash {
+  0%,
+  100% {
+    stroke-dasharray: 15 85;
+  }
+  50% {
+    stroke-dasharray: 40 60;
+  }
+}
+@keyframes pipper-beam-spin {
+  from {
+    --pipper-beam-angle: 0deg;
+  }
+  to {
+    --pipper-beam-angle: 360deg;
+  }
+}
+@keyframes pipper-highlight-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 1px oklch(0.65 0.2 260 / 0.25),
+      inset 0 0 0 1px oklch(0.65 0.2 260 / 0.1);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 3px oklch(0.65 0.2 260 / 0.12);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+@keyframes pipper-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes tab-label-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--tab-label-scroll-distance, 0));
+  }
+}
+@keyframes pixel-loader-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* =============================================================================

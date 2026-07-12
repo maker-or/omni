@@ -41,7 +41,10 @@ const toolPartCache = new WeakMap<
   { dep: AcpToolCallState | undefined; part: AcpMessagePart }
 >();
 
-function toolCallPart(entry: Extract<AcpEntry, { type: "tool_call" }>, tc: AcpToolCallState | undefined): AcpMessagePart {
+function toolCallPart(
+  entry: Extract<AcpEntry, { type: "tool_call" }>,
+  tc: AcpToolCallState | undefined,
+): AcpMessagePart {
   const cached = toolPartCache.get(entry);
   if (cached && cached.dep === tc) return cached.part;
   const part: AcpMessagePart = tc
@@ -128,6 +131,23 @@ function projectAssistantRun(
   return msg;
 }
 
+// Outer-walk cache: `entries` is append-only within a session (the reducer
+// only ever concatenates onto it or replaces its tail entry in place — see
+// appendTextEntry/ensureToolCallEntry in acp-session-reducer.ts), so once a
+// message (a user_text entry, or an assistant run) is superseded by a later
+// one, the entries backing it are referentially frozen forever. We remember
+// the entries array from the last call, the index where its final message
+// started, and the already-projected messages for everything before that
+// final message. A later call can reuse that settled prefix outright and
+// only re-walk from the boundary onward, turning the per-call cost from
+// O(total entries) into O(size of the still-open run) regardless of total
+// session history. If the array isn't a recognizable extension of the
+// cached one (e.g. a session-state reset swapped in a new slice), we fall
+// back to a full rescan from index 0.
+let lastEntries: AcpEntry[] | undefined;
+let lastBoundary = 0;
+let lastPrefixMessages: AcpChatMessage[] = [];
+
 /**
  * Project the timeline into chat messages: each `user_text` entry is a user
  * message; each maximal run of assistant entries (text/thought/tool) between
@@ -139,9 +159,21 @@ export function projectChatMessages(
   toolCalls: ToolCallMap,
   isStreaming: boolean,
 ): AcpChatMessage[] {
-  const messages: AcpChatMessage[] = [];
   let i = 0;
+  const messages: AcpChatMessage[] = [];
+  if (
+    lastEntries &&
+    entries.length >= lastBoundary &&
+    (lastBoundary === 0 || entries[lastBoundary - 1] === lastEntries[lastBoundary - 1])
+  ) {
+    // Everything before the previous final message is unchanged; reuse it
+    // and only re-derive from where that final message started.
+    i = lastBoundary;
+    messages.push(...lastPrefixMessages);
+  }
+  let lastMessageStart = i;
   while (i < entries.length) {
+    lastMessageStart = i;
     const entry = entries[i]!;
     if (entry.type === "user_text") {
       let msg = userMessageCache.get(entry);
@@ -167,6 +199,9 @@ export function projectChatMessages(
     const streaming = isStreaming && i >= entries.length;
     messages.push(projectAssistantRun(run, toolCalls, streaming));
   }
+  lastEntries = entries;
+  lastBoundary = lastMessageStart;
+  lastPrefixMessages = messages.slice(0, -1);
   return messages;
 }
 

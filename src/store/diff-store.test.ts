@@ -2,12 +2,17 @@ import { describe, expect, test } from "vitest";
 import { useDiffStore } from "./diff-store";
 import type { AcpToolCallState } from "../../contracts/acp.ts";
 
-function editToolCall(path: string, oldText: string | null, newText: string): AcpToolCallState {
+function editToolCall(
+  path: string,
+  oldText: string | null,
+  newText: string,
+  status: AcpToolCallState["status"] = "completed",
+): AcpToolCallState {
   return {
     toolCallId: `tc-${path}`,
     title: "Edit",
     kind: "edit",
-    status: "completed",
+    status,
     content: [{ type: "diff", path, oldText, newText } as never],
   };
 }
@@ -70,6 +75,33 @@ describe("diff-store", () => {
     expect(state.order).toEqual(["/repo/a.ts", "/repo/b.ts"]);
     expect(state.isOpen).toBe(true);
     expect(state.activePath).toBe("/repo/b.ts");
+  });
+
+  test("ignores in-flight (non-completed) tool calls to avoid churn while streaming", () => {
+    useDiffStore.setState({
+      threadId: "thread-1",
+      files: {},
+      order: [],
+      activePath: null,
+      isOpen: false,
+      unseenCount: 0,
+    });
+
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "ne", "in_progress"),
+    });
+
+    let state = useDiffStore.getState();
+    expect(state.order).toEqual([]);
+    expect(state.files["/repo/a.ts"]).toBeUndefined();
+
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "new", "completed"),
+    });
+
+    state = useDiffStore.getState();
+    expect(state.order).toEqual(["/repo/a.ts"]);
+    expect(state.files["/repo/a.ts"]).toMatchObject({ oldText: "old", newText: "new" });
   });
 
   test("switching threads clears diffs from the previous thread", () => {

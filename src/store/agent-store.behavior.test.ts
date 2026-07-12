@@ -337,4 +337,43 @@ describe("agent store ACP bridge behavior", () => {
     expect(store.getState().uiRequestQueue).toEqual([]);
     expect(store.getState().uiRequest).toBeNull();
   });
+
+  test("reconnecting drops terminal output from the previous connection", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    const agentApi = {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
+        bridgeHandler = handler;
+        return vi.fn();
+      }),
+      getState: vi.fn(async () => sessionState("thread-a")),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    const { useAgentTerminalStore } = await import("./agent-terminal-store.ts");
+    await store.getState().connect();
+
+    bridgeHandler?.({
+      type: "terminal-output",
+      terminalId: "term-old",
+      output: "build passed",
+      append: true,
+    });
+    expect(useAgentTerminalStore.getState().getOutput("term-old")).toBe("build passed");
+
+    // Reconnect: the old connection's terminals can never emit again, so
+    // their accumulated output must not survive into the new connection.
+    await store.getState().connect();
+    expect(useAgentTerminalStore.getState().getOutput("term-old")).toBe("");
+    expect(useAgentTerminalStore.getState().outputs).toEqual({});
+
+    // The new connection's terminals still record output normally.
+    bridgeHandler?.({
+      type: "terminal-output",
+      terminalId: "term-new",
+      output: "hello",
+      append: true,
+    });
+    expect(useAgentTerminalStore.getState().getOutput("term-new")).toBe("hello");
+  });
 });

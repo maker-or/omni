@@ -1,11 +1,22 @@
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
+import { SUBAGENT_COMMAND } from "./subagent-orchestration";
 
 export interface AgentCommand {
   name: string;
   description: string;
   inputHint?: string | null;
-  source: "agent";
+  source: "agent" | "client";
 }
+
+/** Commands the composer handles itself — never forwarded to the agent. */
+export const CLIENT_COMMANDS: AgentCommand[] = [
+  {
+    name: SUBAGENT_COMMAND,
+    description: "Orchestrate subagents across your installed agents",
+    inputHint: null,
+    source: "client",
+  },
+];
 
 /** Map agent-advertised AvailableCommand[] into UI autocomplete items. */
 export function commandsFromAvailable(commands: AvailableCommand[]): AgentCommand[] {
@@ -20,9 +31,17 @@ export function commandsFromAvailable(commands: AvailableCommand[]): AgentComman
   }));
 }
 
-/** @deprecated Use commandsFromAvailable — hardcoded slash commands removed. */
+/**
+ * Agent-advertised commands plus the client-side ones. A client command wins
+ * over a same-named agent command — the composer intercepts its trigger, so
+ * the agent variant would be unreachable anyway.
+ */
 export function mergeAgentCommands(commands: AvailableCommand[]): AgentCommand[] {
-  return commandsFromAvailable(commands);
+  const clientNames = new Set(CLIENT_COMMANDS.map((command) => command.name));
+  return [
+    ...commandsFromAvailable(commands).filter((command) => !clientNames.has(command.name)),
+    ...CLIENT_COMMANDS,
+  ];
 }
 
 export function matchAgentCommands(commands: AgentCommand[], query: string): AgentCommand[] {

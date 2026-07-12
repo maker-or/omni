@@ -7,7 +7,7 @@ import {
 } from "./agent-commands";
 
 describe("agent slash commands", () => {
-  test("maps agent-advertised commands without hardcoded builtins", () => {
+  test("maps agent-advertised commands and appends the client-side ones", () => {
     const commands = mergeAgentCommands([
       { name: "compact", description: "agent compact" },
       { name: "explain", description: "Explain the current code", input: { hint: "topic" } },
@@ -26,8 +26,23 @@ describe("agent slash commands", () => {
         inputHint: "topic",
         source: "agent",
       },
+      {
+        name: "subagent",
+        description: "Orchestrate subagents across your installed agents",
+        inputHint: null,
+        source: "client",
+      },
     ]);
     expect(commandsFromAvailable([])).toEqual([]);
+  });
+
+  test("a client command shadows a same-named agent command", () => {
+    const commands = mergeAgentCommands([
+      { name: "subagent", description: "agent-side variant" },
+    ] as never);
+    const subagent = commands.filter((command) => command.name === "subagent");
+    expect(subagent).toHaveLength(1);
+    expect(subagent[0]!.source).toBe("client");
   });
 
   test("matches case-insensitively and ranks prefix matches before substring matches", () => {

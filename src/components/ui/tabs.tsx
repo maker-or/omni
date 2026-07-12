@@ -12,6 +12,7 @@ import {
   Children,
   cloneElement,
   isValidElement,
+  type CSSProperties,
   type ComponentPropsWithoutRef,
 } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
@@ -362,6 +363,8 @@ interface TabItemProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Tab
   onEditValueChange?: (value: string) => void;
   onEditCommit?: () => boolean | Promise<boolean>;
   onEditCancel?: () => void;
+  /** Keeps the label to a fixed width and reveals overflow while hovered. */
+  scrollLabelOnHover?: boolean;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
@@ -378,6 +381,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
       onEditValueChange,
       onEditCommit,
       onEditCancel,
+      scrollLabelOnHover = false,
       _index = 0,
       className,
       ...props
@@ -386,7 +390,10 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
   ) => {
     const internalRef = useRef<HTMLButtonElement>(null);
     const editInputRef = useRef<HTMLInputElement>(null);
+    const labelViewportRef = useRef<HTMLSpanElement>(null);
+    const labelTextRef = useRef<HTMLSpanElement>(null);
     const editActionRef = useRef<"submit" | "cancel" | null>(null);
+    const [labelOverflow, setLabelOverflow] = useState(0);
     const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
 
     useEffect(() => {
@@ -400,6 +407,38 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
       editInputRef.current?.focus();
       editInputRef.current?.select();
     }, [editing]);
+
+    useLayoutEffect(() => {
+      if (!scrollLabelOnHover) return;
+      const viewport = labelViewportRef.current;
+      const text = labelTextRef.current;
+      if (!viewport || !text) return;
+
+      const measureOverflow = () => {
+        const nextOverflow = Math.max(0, text.scrollWidth - viewport.clientWidth);
+        setLabelOverflow((current) =>
+          Math.abs(current - nextOverflow) < 1 ? current : nextOverflow,
+        );
+      };
+
+      measureOverflow();
+      // A tab can mount while its ancestor is hidden (e.g. a not-yet-active
+      // panel) or before the variable webfont finishes swapping in, both of
+      // which make the initial scrollWidth/clientWidth read as 0 or wrong.
+      // Re-measure once the next frame lands and once webfonts settle; the
+      // ResizeObserver below keeps it correct after that.
+      const raf = requestAnimationFrame(measureOverflow);
+      const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+      fonts?.ready?.then(measureOverflow).catch(() => {});
+
+      const observer = new ResizeObserver(measureOverflow);
+      observer.observe(viewport);
+      observer.observe(text);
+      return () => {
+        cancelAnimationFrame(raf);
+        observer.disconnect();
+      };
+    }, [label, scrollLabelOnHover]);
 
     const isSelected = selectedValue === value;
     const isActive = hoveredIndex === _index || isSelected;
@@ -420,7 +459,10 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
         value={value}
         data-proximity-index={_index}
         className={cn(
-          "relative z-10 flex shrink-0 items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none group",
+          // Named group (`group/tab`) so hover styles inside respond to THIS
+          // tab only — a bare `group` would also match any `.group` ancestor
+          // elsewhere in the layout, animating every label at once.
+          "relative z-10 flex shrink-0 items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none group/tab",
           className,
         )}
         {...props}
@@ -483,6 +525,39 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
               "text-[13px] leading-none text-foreground",
             )}
           />
+        ) : scrollLabelOnHover ? (
+          <span
+            ref={labelViewportRef}
+            className={cn(
+              // max-width (not fixed width) keeps short titles snug while
+              // still capping long ones at a consistent 9ch viewport.
+              "inline-block max-w-[9ch] overflow-hidden text-[13px] whitespace-nowrap align-middle",
+              // Overflowing labels fade out at the right edge instead of
+              // hard-clipping; the fade lifts on hover so the scroll reveals
+              // the full label.
+              labelOverflow > 0 &&
+                "[mask-image:linear-gradient(to_right,black_calc(100%_-_12px),transparent_100%)] group-hover/tab:[mask-image:none]",
+            )}
+            title={label}
+          >
+            <span
+              ref={labelTextRef}
+              className={cn(
+                "inline-block w-max transition-[color,font-variation-settings] duration-80",
+                labelOverflow > 0 &&
+                  "group-hover/tab:animate-[tab-label-scroll_2.4s_ease-in-out_350ms_infinite_alternate]",
+                isActive ? "text-foreground" : "text-muted-foreground",
+              )}
+              style={
+                {
+                  fontVariationSettings: isSelected ? fontWeights.semibold : fontWeights.normal,
+                  "--tab-label-scroll-distance": `-${labelOverflow}px`,
+                } as CSSProperties
+              }
+            >
+              {label}
+            </span>
+          </span>
         ) : (
           <span className="inline-grid text-[13px] whitespace-nowrap">
             <span
@@ -524,7 +599,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
               "relative z-20 ml-1 flex size-4 items-center justify-center rounded-full border-none bg-transparent text-muted-foreground transition-[background-color,color,opacity,transform] duration-150 hover:bg-neutral-200/50 hover:text-foreground dark:hover:bg-neutral-800/50 cursor-pointer",
               isSelected
                 ? "opacity-100 scale-100 pointer-events-auto"
-                : "opacity-0 scale-75 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto",
+                : "opacity-0 scale-75 pointer-events-none group-hover/tab:opacity-100 group-hover/tab:scale-100 group-hover/tab:pointer-events-auto",
             )}
             title="Close Tab"
           >

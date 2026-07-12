@@ -74,6 +74,36 @@
       "detectCommands": ["copilot"]
     },
     {
+      "id": "opencode-acp",
+      "name": "opencode",
+      "displayName": "opencode",
+      "description": "opencode CLI in ACP mode (stdio JSON-RPC).",
+      "command": "opencode",
+      "args": ["acp"],
+      "icon": "opencode",
+      "docsUrl": "https://opencode.ai/docs/acp/",
+      "authHint": "Run `opencode auth login` to configure a provider before connecting.",
+      "installHint": "npm install -g opencode-ai  (or use npx on first launch)",
+      "installKind": "npx",
+      "npmPackage": "opencode-ai",
+      "detectCommands": ["opencode"]
+    },
+    {
+      "id": "grok-acp",
+      "name": "grok",
+      "displayName": "Grok",
+      "description": "Grok Build CLI in ACP mode (stdio JSON-RPC).",
+      "command": "grok",
+      "args": ["agent", "stdio"],
+      "icon": "xai",
+      "docsUrl": "https://www.npmjs.com/package/@xai-official/grok",
+      "authHint": "Run `grok login` to sign in with your xAI account before connecting.",
+      "installHint": "npm install -g @xai-official/grok  (or use npx on first launch)",
+      "installKind": "npx",
+      "npmPackage": "@xai-official/grok",
+      "detectCommands": ["grok"]
+    },
+    {
       "id": "pipper-mock",
       "name": "pipper-mock",
       "displayName": "Pipper Mock",

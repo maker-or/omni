@@ -15,7 +15,7 @@ import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { toast } from "@/components/ui/toast";
-import type { AcpBridgeEvent, AcpSessionState } from "../../contracts/acp.ts";
+import type { AcpBridgeEvent, AcpChatMessage, AcpSessionState } from "../../contracts/acp.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -24,9 +24,14 @@ import { ProviderMark, formatProviderName } from "@/components/agent-panel";
 import { applySessionUpdate, createEmptySessionSlice } from "@/lib/acp-session-reducer";
 import { projectChatMessages } from "@/lib/acp-entries";
 
-function modelFromConfig(
-  state: AcpSessionState | null,
-): { modelId: string; name: string; provider: string } | null {
+interface EditorModelOption {
+  provider: string;
+  modelId: string;
+  name: string;
+  cost?: { input: number; output: number };
+}
+
+function modelFromConfig(state: AcpSessionState | null): EditorModelOption | null {
   if (!state) return null;
   const opt = state.configOptions.find((o) => o.category === "model" || o.id === "model");
   if (!opt || opt.type !== "select") return null;
@@ -41,9 +46,7 @@ function modelFromConfig(
   };
 }
 
-function modelsFromConfig(
-  state: AcpSessionState | null,
-): Array<{ modelId: string; name: string; provider: string }> {
+function modelsFromConfig(state: AcpSessionState | null): EditorModelOption[] {
   if (!state) return [];
   const opt = state.configOptions.find((o) => o.category === "model" || o.id === "model");
   if (!opt || opt.type !== "select") return [];
@@ -159,7 +162,15 @@ export function getEditorStatusItems(snapshot: AcpSessionState | null): string[]
   const items: string[] = [];
   if (snapshot.authRequiredMessage) items.push(snapshot.authRequiredMessage);
   if (snapshot.switchingAgent) items.push("Switching agent…");
-  if (snapshot.isStreaming) items.push("Streaming");
+  // Prefer showing what the agent is actually doing over a generic
+  // "Streaming" chip: surface the most recent in-flight tool call title.
+  const runningTools = Object.values(snapshot.toolCalls).filter(
+    (tc) => tc.status === "pending" || tc.status === "in_progress",
+  );
+  const activeTool = runningTools[runningTools.length - 1];
+  if (snapshot.isStreaming) {
+    items.push(activeTool?.title ? activeTool.title : "Streaming");
+  }
   const editorText = cleanStatusText(snapshot.editorText);
   if (editorText) {
     items.push(`Draft: ${editorText.length > 120 ? `${editorText.slice(0, 117)}...` : editorText}`);
@@ -170,6 +181,32 @@ export function getEditorStatusItems(snapshot: AcpSessionState | null): string[]
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/**
+ * Derives the companion's conversation render model from an ACP editor
+ * snapshot. This must be total over `AcpSessionState` — the companion window
+ * previously crashed on first snapshot because render code reached for a
+ * legacy `snapshot.queue` field that does not exist on the ACP contract.
+ */
+export function deriveCompanionConversation(
+  snapshot: AcpSessionState | null,
+  options: { suppressStreaming?: boolean } = {},
+): { activeMessages: AcpChatMessage[]; streamingMessage: AcpChatMessage | null } {
+  if (!snapshot) return { activeMessages: [], streamingMessage: null };
+  const chatMessages = projectChatMessages(
+    snapshot.entries,
+    snapshot.toolCalls,
+    snapshot.isStreaming,
+  );
+  const activeMessages = chatMessages.filter(
+    (m) => !(m.streaming && m.role === "assistant") && !isInternalCommitPrompt(m as MessageLike),
+  );
+  const streamingMessage =
+    snapshot.isStreaming && !options.suppressStreaming
+      ? (chatMessages.find((m) => m.streaming && m.role === "assistant") ?? null)
+      : null;
+  return { activeMessages, streamingMessage };
 }
 
 // ─── Editor session hook ───────────────────────────────────────────────────
@@ -263,7 +300,6 @@ export function CompanionView() {
   const [inputValue, setInputValue] = useState("");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
-  const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -295,13 +331,6 @@ export function CompanionView() {
     }
   }, [abort, isStopping]);
 
-  const queueEditorPrompt = useCallback(
-    async (message: string, behavior: "followUp" | "steer" | undefined) => {
-      await sendPrompt(message, behavior);
-    },
-    [sendPrompt],
-  );
-
   // ── 1. Enter edit mode immediately on mount ─────────────────────────────
   useEffect(() => {
     window.omni?.pipper?.enterEditMode?.().catch((err) => {
@@ -323,16 +352,15 @@ export function CompanionView() {
     if (!window.omni?.pipper?.onCommentAdded) return;
     const unsub = window.omni.pipper.onCommentAdded((pipperId, text) => {
       setActivePipperId(pipperId);
-      queueEditorPrompt(
-        `[Component: ${pipperId}]\n${text}`,
-        isStreaming ? "followUp" : undefined,
-      ).catch((err) => {
+      // The main process serializes editor prompts, so a comment arriving
+      // mid-stream simply becomes a follow-up turn.
+      sendPrompt(`[Component: ${pipperId}]\n${text}`).catch((err) => {
         setOperationError(errorMessage(err, "Failed to send overlay request."));
         void window.omni?.pipper?.setProcessing?.(null);
       });
     });
     return unsub;
-  }, [isStreaming, queueEditorPrompt]);
+  }, [sendPrompt]);
 
   // ── 4. Clear beam when agent finishes streaming ──────────────────────────
   useEffect(() => {
@@ -358,35 +386,15 @@ export function CompanionView() {
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [isModelDropdownOpen]);
 
-  const chatMessages = useMemo(
-    () =>
-      snapshot
-        ? projectChatMessages(snapshot.entries, snapshot.toolCalls, snapshot.isStreaming)
-        : [],
-    [snapshot],
+  const { activeMessages, streamingMessage } = useMemo(
+    () => deriveCompanionConversation(snapshot, { suppressStreaming: isProcessingAccept }),
+    [snapshot, isProcessingAccept],
   );
-  const activeMessages = chatMessages.filter(
-    (m) => !(m.streaming && m.role === "assistant") && !isInternalCommitPrompt(m as MessageLike),
-  );
-  const streamingMessage =
-    isStreaming && !isProcessingAccept
-      ? (chatMessages.find((m) => m.streaming && m.role === "assistant") ?? null)
-      : null;
-  const models = modelsFromConfig(snapshot);
+  const models = useMemo(() => modelsFromConfig(snapshot), [snapshot]);
   const currentModel = modelFromConfig(snapshot);
   const modelName = currentModel?.name ?? "No model";
   const selectedModelProvider = currentModel?.provider ?? null;
   const statusItems = useMemo(() => getEditorStatusItems(snapshot), [snapshot]);
-  const queuedItems = [
-    ...(snapshot?.queue.steering ?? []).map((text) => ({
-      label: "Steer",
-      text,
-    })),
-    ...(snapshot?.queue.followUp ?? []).map((text) => ({
-      label: "Next",
-      text,
-    })),
-  ];
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     return models.filter((model) => {
@@ -445,15 +453,14 @@ export function CompanionView() {
     setOperationError(null);
     await window.omni?.pipper?.setProcessing?.(null);
     try {
-      await sendPrompt(trimmed, isStreaming ? streamingBehavior : undefined);
-      setStreamingBehavior("followUp");
+      await sendPrompt(trimmed);
     } catch (err) {
       setInputValue(trimmed);
       setOperationError(errorMessage(err, "Failed to send editor request."));
     }
   };
 
-  const handleSelectModel = async (model: AgentModelSummary) => {
+  const handleSelectModel = async (model: EditorModelOption) => {
     if (isSettingModel) return;
     setIsSettingModel(true);
     try {
@@ -483,12 +490,15 @@ export function CompanionView() {
   };
 
   const handleAccept = async () => {
+    if (isProcessingAccept || isProcessingReject) return;
     setIsProcessingAccept(true);
     setOperationError(null);
     try {
       const result = await window.omni?.pipper?.acceptChanges?.("Accepted visual customization");
       if (!result?.committed) {
-        setOperationError("No edit-session changes to accept.");
+        setOperationError(
+          "No changes to accept — the workspace is unchanged. Keep editing, or Reject to close.",
+        );
         return;
       }
       await window.omni?.pipper?.exitEditMode?.();
@@ -502,6 +512,7 @@ export function CompanionView() {
   };
 
   const handleReject = async () => {
+    if (isProcessingAccept || isProcessingReject) return;
     setIsProcessingReject(true);
     setOperationError(null);
     try {
@@ -664,8 +675,7 @@ export function CompanionView() {
         operationError ||
         activePipperId ||
         isActivating ||
-        statusItems.length > 0 ||
-        queuedItems.length > 0) && (
+        statusItems.length > 0) && (
         <div className="flex flex-col gap-1 border-t border-border/40 bg-surface-2/35 px-3 py-2 text-[12px] text-muted-foreground shrink-0">
           {isActivating && <div>Activating editor...</div>}
           {activationError && (
@@ -699,15 +709,6 @@ export function CompanionView() {
                 >
                   {item}
                 </span>
-              ))}
-            </div>
-          )}
-          {queuedItems.length > 0 && (
-            <div className="flex flex-col gap-1">
-              {queuedItems.map((item, index) => (
-                <div key={`${item.label}-${index}`} className="line-clamp-2" title={item.text}>
-                  <span className="font-medium text-foreground/80">{item.label}</span>: {item.text}
-                </div>
               ))}
             </div>
           )}

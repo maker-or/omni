@@ -79,9 +79,7 @@ function appendTextEntry(
   update: SessionUpdate,
 ): AcpEntry[] {
   const messageId = (update as { messageId?: string | null }).messageId ?? null;
-  const chunk = contentText(
-    (update as { content?: { type?: string; text?: string } }).content,
-  );
+  const chunk = contentText((update as { content?: { type?: string; text?: string } }).content);
   const last = entries[entries.length - 1];
   const continuesLast =
     last?.type === type &&
@@ -108,23 +106,33 @@ function mergeToolCall(
   existing: AcpToolCallState | undefined,
   update: Partial<AcpToolCallState> & { toolCallId: string },
 ): AcpToolCallState {
-  return {
+  const merged: AcpToolCallState = {
     toolCallId: update.toolCallId,
     title: update.title ?? existing?.title ?? "Tool",
     kind: update.kind ?? existing?.kind,
-    status: update.status ?? existing?.status,
+    status: update.status ?? existing?.status ?? "pending",
     content: update.content ?? existing?.content,
     locations: update.locations ?? existing?.locations,
     rawInput: update.rawInput !== undefined ? update.rawInput : existing?.rawInput,
     rawOutput: update.rawOutput !== undefined ? update.rawOutput : existing?.rawOutput,
   };
+  if (
+    existing &&
+    merged.title === existing.title &&
+    merged.kind === existing.kind &&
+    merged.status === existing.status &&
+    merged.content === existing.content &&
+    merged.locations === existing.locations &&
+    merged.rawInput === existing.rawInput &&
+    merged.rawOutput === existing.rawOutput
+  ) {
+    return existing;
+  }
+  return merged;
 }
 
 /** Append a tool_call entry unless this toolCallId already has one. */
-function ensureToolCallEntry(
-  state: AcpSessionSlice,
-  toolCallId: string,
-): AcpEntry[] {
+function ensureToolCallEntry(state: AcpSessionSlice, toolCallId: string): AcpEntry[] {
   if (state.toolCalls[toolCallId]) return state.entries;
   return [...state.entries, { type: "tool_call", id: nextEntryId(), toolCallId }];
 }
@@ -151,6 +159,16 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
       };
     }
     case "user_message_chunk": {
+      // Some agents (e.g. Grok) echo the user's prompt back as a user_message_chunk
+      // mid-turn. We already render an optimistic local user entry on send (see
+      // appendLocalUserMessage), so the echo would append a duplicate row. When the
+      // trailing entry is that optimistic message, swallow the echo — keeping the
+      // optimistic entry's identity intact. On resume/history replay there is no
+      // optimistic entry, so those user messages still append normally.
+      const last = state.entries[state.entries.length - 1];
+      if (last?.type === "user_text" && last.id.startsWith("local-user-")) {
+        return { ...state, titleChanged: false };
+      }
       return {
         ...state,
         entries: appendTextEntry(state.entries, "user_text", update),
@@ -169,7 +187,7 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
             toolCallId,
             title: update.title,
             kind: update.kind,
-            status: update.status ?? "pending",
+            status: update.status,
             content: update.content,
             locations: update.locations as AcpToolCallState["locations"],
             rawInput: update.rawInput,

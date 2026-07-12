@@ -264,6 +264,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const [fileMention, setFileMention] = useState<FileMentionState | null>(null);
     const [activeFileMentionIndex, setActiveFileMentionIndex] = useState(0);
     const activeFileMentionRef = useRef<HTMLDivElement | null>(null);
+    const fileFetchStatusRef = useRef<"idle" | "loading" | "done">("idle");
 
     const filesArr = useMemo(() => files ?? [], [files]);
     const supportsFiles = onFilesChange !== undefined;
@@ -360,14 +361,21 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const nextMention = getFileMentionState(nextValue, cursor);
         setFileMention(nextMention);
         setActiveFileMentionIndex(0);
-        if (nextMention && projectFiles.length === 0) {
+        if (nextMention && projectFiles.length === 0 && fileFetchStatusRef.current === "idle") {
+          fileFetchStatusRef.current = "loading";
           void window.omni?.projects
             ?.listFiles?.()
-            .then(setProjectFiles)
-            .catch(() => setProjectFiles([]));
+            .then((files) => {
+              setProjectFiles(files);
+              fileFetchStatusRef.current = "done";
+            })
+            .catch(() => {
+              setProjectFiles([]);
+              fileFetchStatusRef.current = "idle";
+            });
         }
       },
-      [projectFiles.length],
+      [],
     );
 
     const handleTextareaChange = useCallback(

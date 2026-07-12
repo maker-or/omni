@@ -66,7 +66,7 @@ export async function validateCandidate(
   const changedFiles = status.output
     .split("\n")
     .filter(Boolean)
-    .map((line) => line.slice(3).split(" -> ").at(-1) ?? "");
+    .flatMap((line) => line.slice(3).split(" -> "));
   if (changedFiles.length === 0) throw new Error("Update agent produced no candidate changes.");
   const protectedFile = changedFiles.find((file) =>
     PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix)),

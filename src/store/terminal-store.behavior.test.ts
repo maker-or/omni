@@ -24,13 +24,13 @@ describe("terminal store session behavior", () => {
     useTerminalStore.getState().createSession("/tmp/project-b");
 
     expect(useTerminalStore.getState().sessions).toEqual([
-      { id: "term-1", title: "Terminal 1", cwd: "/tmp/project-a", history: "" },
       { id: "term-2", title: "Terminal 2", cwd: "/tmp/project-b", history: "" },
+      { id: "term-1", title: "Terminal 1", cwd: "/tmp/project-a", history: "" },
     ]);
     expect(useTerminalStore.getState().activeSessionId).toBe("term-2");
   });
 
-  test("closing the active session kills its pty and selects the last remaining session", () => {
+  test("closing the active session kills its pty and selects the first remaining session", () => {
     const kill = vi.fn();
     (globalThis as any).window = { omni: { terminal: { kill } } };
     useTerminalStore.setState({
@@ -49,7 +49,7 @@ describe("terminal store session behavior", () => {
       "term-1",
       "term-3",
     ]);
-    expect(useTerminalStore.getState().activeSessionId).toBe("term-3");
+    expect(useTerminalStore.getState().activeSessionId).toBe("term-1");
   });
 
   test("clearing sessions kills every active pty", () => {
