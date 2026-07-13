@@ -54,7 +54,7 @@ export interface AcpAgentDescriptor {
   description?: string;
   /** Docs / install page URL. */
   docsUrl?: string;
-  /** External auth instructions shown when authMethods is non-empty. */
+  /** External auth instructions for an agent-specific authentication failure. */
   authHint?: string;
   /** Human install command shown when the agent is not detected. */
   installHint?: string;
@@ -83,7 +83,7 @@ export interface AgentProbeResult {
   status: AgentProbeStatus;
   /** Human-readable reason, shown alongside install/auth/error states. */
   message?: string | null;
-  /** Auth methods the agent reported during `initialize`, when `status` is `needs-auth`. */
+  /** Auth methods associated with a detected authentication requirement, when available. */
   authMethods?: AuthMethod[];
 }
 

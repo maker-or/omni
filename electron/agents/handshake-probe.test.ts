@@ -25,7 +25,7 @@ function nodeScriptDescriptor(scriptPath: string): AcpAgentDescriptor {
 }
 
 describe("probeAgentHandshake", () => {
-  test("pipper-mock reports ready (empty authMethods)", async () => {
+  test("pipper-mock reports ready", async () => {
     const result = await probeAgentById("pipper-mock");
     expect(result.status).toBe("ready");
   });
@@ -44,7 +44,7 @@ describe("probeAgentHandshake", () => {
     expect(result.message).toContain("Install the thing first");
   });
 
-  test("agent reporting non-empty authMethods is classified needs-auth", async () => {
+  test("agent reporting supported authMethods is still classified ready", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipper-probe-"));
     const script = writeScript(
       dir,
@@ -69,8 +69,7 @@ describe("probeAgentHandshake", () => {
     );
 
     const result = await probeAgentHandshake(nodeScriptDescriptor(script));
-    expect(result.status).toBe("needs-auth");
-    expect(result.authMethods?.[0]?.id).toBe("login");
+    expect(result).toEqual({ agentId: "test-agent", status: "ready" });
   });
 
   test("agent that never responds is classified as an error after the timeout", async () => {

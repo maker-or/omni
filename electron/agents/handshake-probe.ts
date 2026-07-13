@@ -82,7 +82,7 @@ export async function probeAgentHandshake(
       }, options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS);
     });
 
-    const initResult = await Promise.race([
+    await Promise.race([
       connection.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
@@ -95,15 +95,9 @@ export async function probeAgentHandshake(
       timedOut,
     ]);
 
-    const authMethods = initResult.authMethods ?? [];
-    if (authMethods.length > 0) {
-      return {
-        agentId: descriptor.id,
-        status: "needs-auth",
-        authMethods,
-        message: descriptor.authHint ?? `${descriptor.displayName} requires authentication.`,
-      };
-    }
+    // `authMethods` advertises the authentication flows an agent supports; it
+    // does not indicate whether the user is currently signed in. A successful
+    // initialize response therefore proves the agent is ready for onboarding.
     return { agentId: descriptor.id, status: "ready" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

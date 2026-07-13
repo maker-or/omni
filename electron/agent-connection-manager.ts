@@ -65,6 +65,14 @@ interface LiveConnection {
   agentCapabilities: AgentCapabilities;
   authMethods: AuthMethod[];
   /**
+   * Set only when the agent actually rejects `session/new` with an
+   * `auth_required` error — i.e. the user is genuinely not signed in. This is
+   * distinct from `authMethods`, which merely advertises the auth flows the
+   * agent *supports* and is present even for signed-in users, so it must never
+   * be used to decide whether authentication is required.
+   */
+  authRequiredMessage: string | null;
+  /**
    * Non-standard model catalog some agents (e.g. Grok) advertise in the
    * initialize result's `_meta.modelState` instead of via session config
    * options. When present we synthesize a "model" config option from it and
@@ -105,6 +113,17 @@ interface ThreadSessionRuntime {
 interface PendingPermission {
   resolve: (response: acp.RequestPermissionResponse) => void;
   request: AcpPermissionRequest;
+}
+
+/**
+ * True when an ACP request rejected with the protocol's `auth_required` error.
+ * The SDK's `RequestError.authRequired()` helper emits code -32000 with an
+ * "Authentication required" message; -32000 is a generic server-error code
+ * reused for other failures (permission/turn), so we also match the message.
+ */
+function isAuthRequiredError(err: unknown): boolean {
+  if (!(err instanceof acp.RequestError)) return false;
+  return err.code === -32000 && /auth(?:entication)?[\s_-]*required/i.test(err.message);
 }
 
 function emptySessionState(): AcpSessionState {
@@ -281,10 +300,11 @@ export class AgentConnectionManager {
   }
 
   private authMessage(): string | null {
-    const methods = this.connection?.authMethods ?? [];
-    if (methods.length === 0) return null;
-    const names = methods.map((m) => m.name ?? m.id).join(", ");
-    return `This agent requires authentication (${names}). Please authenticate the agent in your terminal first.`;
+    // Only surfaced after a real `auth_required` failure from `session/new`.
+    // An agent advertising `authMethods` at `initialize` is NOT a sign-in
+    // signal — signed-in agents advertise them too — so we must not nag based
+    // on that alone (that false positive is what made onboarding unreliable).
+    return this.connection?.authRequiredMessage ?? null;
   }
 
   private buildSessionState(threadId: string): AcpSessionState {
@@ -526,6 +546,7 @@ export class AgentConnectionManager {
       agent: agentCtx,
       agentCapabilities,
       authMethods,
+      authRequiredMessage: null,
       modelState,
       closed,
     };
@@ -787,10 +808,24 @@ export class AgentConnectionManager {
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     const { servers, bind } = await this.sessionMcpServers(live, cwd);
-    const result = await live.agent.request(acp.methods.agent.session.new, {
-      cwd,
-      mcpServers: servers as never,
-    });
+    let result: { sessionId: string; configOptions?: SessionConfigOption[] | null };
+    try {
+      result = await live.agent.request(acp.methods.agent.session.new, {
+        cwd,
+        mcpServers: servers as never,
+      });
+    } catch (err) {
+      // A genuine "not signed in" surfaces here as an ACP `auth_required`
+      // error — the only reliable signal — so record it for `authMessage()`.
+      if (isAuthRequiredError(err)) {
+        const descriptor = getAgentDescriptor(live.agentId);
+        live.authRequiredMessage =
+          descriptor?.authHint ??
+          `${descriptor?.displayName ?? live.agentId} requires authentication. Please sign in from your terminal first.`;
+      }
+      throw err;
+    }
+    live.authRequiredMessage = null;
     bind(result.sessionId);
     return {
       sessionId: result.sessionId,
