@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { open } from "node:fs/promises";
 import os from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { clipboard, shell } from "electron";
 import type {
   LauncherDownloadProgress,
@@ -101,7 +101,7 @@ export class LauncherUpdateManager {
     return (this.options.fetchImpl ?? fetch)(input, init);
   }
   private isManagedDownloadPath(path: string): boolean {
-    const root = `${resolve(this.downloadsPath)}/`;
+    const root = `${resolve(this.downloadsPath)}${sep}`;
     const resolved = resolve(path);
     return (
       resolved.startsWith(root) &&

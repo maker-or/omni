@@ -30,6 +30,7 @@ beforeEach(async () => {
   await git("init", "-q");
   await git("config", "user.email", "test@pipper.dev");
   await git("config", "user.name", "Pipper Test");
+  await git("config", "core.autocrlf", "false");
   write("app.tsx", "committed app\n");
   write("styles.css", "committed styles\n");
   await git("add", "-A");
