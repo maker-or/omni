@@ -57,7 +57,7 @@ describe("SubagentComposer", () => {
     expect(html).not.toContain("Gemini");
     // Auto mode is the default, and an empty goal blocks submission.
     expect(html).toContain("The orchestrator decides how many subagents to spawn.");
-    expect(html).toMatch(/Describe the goal/);
+    expect(html).toMatch(/What should the orchestrator achieve/);
     expect(submitButtonTag(html)).toContain('disabled=""');
   });
 

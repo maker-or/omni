@@ -696,11 +696,11 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
 
   console.log("[Main] Creating new launchWindow");
   launchWindow = new BrowserWindow({
-    width: 720,
-    height: 620,
-    minWidth: 560,
-    minHeight: 520,
-    resizable: false,
+    width: 960,
+    height: 720,
+    minWidth: 640,
+    minHeight: 560,
+    resizable: true,
     title: "Welcome to Pipper Code (Alpha)",
     show: false,
     icon: getIconPath(),

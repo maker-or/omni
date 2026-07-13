@@ -292,9 +292,6 @@ export function SubagentComposer({
         />
 
         <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-            {validationError ?? "⌘↵ to start · Esc to close"}
-          </span>
           <div className="flex shrink-0 items-center gap-1.5">
             {config && (
               <>

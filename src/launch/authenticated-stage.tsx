@@ -74,17 +74,16 @@ export function AuthenticatedStage({
         <AmbientPixelField intensity={0.35} fadeStart={0.8} />
       </div>
 
-      {/* Bounded Card */}
-      <div className="w-full max-w-md z-10 rounded-2xl p-8 flex flex-col gap-6">
+      {/* Bounded Card — wider on agent onboarding for the two-column picker */}
+      <div
+        className={cn(
+          "w-full z-10 rounded-2xl p-8 flex flex-col gap-6",
+          stage === "agent" ? "max-w-3xl" : "max-w-md",
+        )}
+      >
         {stage === "agent" ? (
           <>
-            <header className="flex flex-col gap-1 pb-2 border-b border-border">
-              <h1 className="text-xl font-bold text-foreground tracking-tight truncate">
-                Choose your agent(s)
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                Select all ACP coding agents you want to use. You can pick one per thread later.
-              </p>
+            <header className="flex flex-col gap-2">
             </header>
             <AgentSelector
               showContinue

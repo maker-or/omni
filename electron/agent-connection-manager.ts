@@ -893,9 +893,11 @@ export class AgentConnectionManager {
     }
 
     const live = this.connection!;
+    const projectChanged = this.activeProjectId !== project.id;
     this.activeProjectId = project.id;
     this.activeThreadId = threadId;
     setActiveProjectId(project.id);
+    if (projectChanged) this.broadcastActiveProject?.(project.id);
 
     // Close previous session optionally — skip for rapid switches; load new
     if (!this.sessions.has(threadId)) {

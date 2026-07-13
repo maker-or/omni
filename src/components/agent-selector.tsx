@@ -100,16 +100,16 @@ export function AgentSelector({
       <Elevated
         offset={1}
         data-pipper-id="agent-setup-walkthrough"
-        className={cn("rounded-xl border border-border p-3", className)}
+        className={cn("rounded-xl border border-border p-5", className)}
       >
-        <div className="mb-1 text-[12px] font-medium text-foreground">Finishing setup</div>
-        <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
+        <div className="mb-1 text-sm font-medium text-foreground">Finishing setup</div>
+        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
           Checking your selected agents. Anything that needs installing or signing in shows up below
           — skip any of them and set it up later.
         </p>
 
-        <ScrollArea className="max-h-[280px]" viewportClassName="max-h-[280px] pr-2">
-          <div className="flex flex-col gap-1.5">
+        <ScrollArea className="max-h-[380px]" viewportClassName="max-h-[380px] pr-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {cards}
             {canFinish && (
               <div
@@ -122,13 +122,13 @@ export function AgentSelector({
           </div>
         </ScrollArea>
 
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             data-pipper-id="agent-setup-skip-all"
-            className="h-8 text-[11px] text-muted-foreground"
+            className="h-9 text-xs text-muted-foreground"
             onClick={async () => {
               // Keep skippedAgentIds/setupSkipped so the agent panel can
               // still see which agents were never confirmed working.
@@ -163,32 +163,34 @@ export function AgentSelector({
     return !anyReady;
   });
 
+  const selectedAgentNames = agents
+    .filter((a) => selectedAgentIds.includes(a.id))
+    .map((a) => a.displayName);
+
   return (
     <Elevated
       offset={1}
       data-pipper-id="agent-selector"
-      className={cn("rounded-xl border border-border p-3", className)}
+      className={cn("flex flex-col gap-4 rounded-xl border border-border p-5", className)}
     >
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <div className="text-[12px] font-medium text-foreground">Coding agent(s)</div>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Install and sign in to each agent outside Pipper, then select the ones you want here.
+        </p>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           data-pipper-id="agent-selector-refresh"
-          className="h-7 text-[11px]"
+          className="h-8 shrink-0 text-xs"
           onClick={() => void load()}
         >
           Refresh
         </Button>
       </div>
-      <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
-        Pipper talks to ACP agents over stdio — install and authenticate each one outside Pipper,
-        then connect. Select all agents you want to use.
-      </p>
 
-      <ScrollArea className="max-h-[300px]" viewportClassName="max-h-[300px] pr-2">
-        <div className="flex flex-col gap-1.5">
+      <ScrollArea className="max-h-[420px]" viewportClassName="max-h-[420px] pr-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {visibleAgents.map((agent) => (
             <AgentOption
               key={agent.id}
@@ -202,40 +204,44 @@ export function AgentSelector({
             />
           ))}
           {agents.length === 0 && (
-            <div className="px-2 py-3 text-[12px] text-muted-foreground">
+            <div className="col-span-full px-2 py-6 text-center text-sm text-muted-foreground">
               No ACP agents in the registry.
             </div>
           )}
         </div>
       </ScrollArea>
 
-      {selectedAgentIds.length > 0 && (
-        <div className="mt-2 rounded-lg border border-border/60 bg-surface-1/50 px-2.5 py-2 text-[11px] text-muted-foreground">
-          Selected: {selectedAgentIds.length} agent{selectedAgentIds.length > 1 ? "s" : ""}.{" "}
-          {agents
-            .filter((a) => selectedAgentIds.includes(a.id))
-            .map((a) => a.displayName)
-            .join(", ")}
-        </div>
-      )}
-
       {authRequiredMessage && (
-        <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[12px] text-amber-600 dark:text-amber-400">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-600 dark:text-amber-400">
           {authRequiredMessage}
         </div>
       )}
       {error && (
-        <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-2 text-[12px] text-red-500">
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-500">
           {error}
         </div>
       )}
 
       {showContinue && (
-        <div className="mt-3 flex justify-end">
+        <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 text-sm text-muted-foreground" data-pipper-id="agent-selector-summary">
+            {selectedAgentIds.length > 0 ? (
+              <>
+                <span className="font-medium text-foreground">
+                  {selectedAgentIds.length} selected
+                </span>
+                <span className="text-muted-foreground"> · </span>
+                <span className="truncate">{selectedAgentNames.join(", ")}</span>
+              </>
+            ) : (
+              "Select at least one agent to continue"
+            )}
+          </div>
           <Button
             type="button"
-            size="sm"
+            size="default"
             data-pipper-id="agent-selector-continue"
+            className="shrink-0 sm:min-w-[140px]"
             disabled={!canContinue}
             onClick={async () => {
               // Selection is shared by launch/main renderers through SQLite.
@@ -347,72 +353,67 @@ function AgentOption({
 }) {
   const unavailable = agent.available === false;
   const metaText = !agent.available ? agent.installHint : agent.statusMessage;
+  const statusLabel = selected ? "Selected" : agent.available ? "Ready" : "Setup";
 
   return (
     <div
       className={cn(
-        "rounded-lg border px-3 py-2 transition-colors",
+        "flex h-full flex-col gap-2 rounded-xl border p-4 transition-colors",
         selected
-          ? "border-accent bg-accent text-foreground"
+          ? "border-accent bg-accent/80 text-foreground"
           : "border-border/50 bg-surface-1/40 text-muted-foreground",
-        unavailable && "opacity-70",
+        unavailable && !selected && "opacity-80",
       )}
     >
       <button
         type="button"
         data-pipper-id={`agent-option-${agent.id}`}
         className={cn(
-          "flex w-full items-center gap-2 text-left text-[13px]",
+          "flex w-full flex-1 flex-col gap-2 text-left",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg",
+          !selected && "hover:opacity-90",
           unavailable && "cursor-not-allowed",
         )}
         onClick={() => void onToggle()}
       >
-        <span className="shrink-0 text-muted-foreground/70">
-          {selected ? (
-            <CheckSquareIcon size={18} weight="fill" className="text-primary" />
-          ) : (
-            <SquareIcon size={18} />
-          )}
-        </span>
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className="shrink-0 font-medium text-foreground">{agent.displayName}</span>
-          {agent.available ? (
-            <CheckCircleIcon className="shrink-0 text-emerald-500" size={13} weight="fill" />
-          ) : (
-            <WarningCircleIcon className="shrink-0 text-amber-500" size={13} weight="fill" />
-          )}
-          {agent.description ? (
-            <span className="truncate text-[11px] text-muted-foreground/80">
-              {agent.description}
-            </span>
-          ) : null}
-        </span>
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {selected ? "Selected" : agent.available ? "Ready" : "Setup"}
-        </span>
-      </button>
+        <div className="flex items-start justify-between gap-2">
+          <span className="shrink-0 text-muted-foreground/70">
+            {selected ? (
+              <CheckSquareIcon size={20} weight="fill" className="text-primary" />
+            ) : (
+              <SquareIcon size={20} />
+            )}
+          </span>
 
-      {metaText || agent.docsUrl ? (
-        <div className="mt-1 flex items-center gap-3 pl-[26px]">
-          {metaText ? (
-            <span className="min-w-0 flex-1 truncate text-[11px] leading-snug text-muted-foreground">
-              {metaText}
-            </span>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            {agent.displayName}
+            {agent.available ? (
+              <CheckCircleIcon className="shrink-0 text-emerald-500" size={14} weight="fill" />
+            ) : (
+              <WarningCircleIcon className="shrink-0 text-amber-500" size={14} weight="fill" />
+            )}
+          </span>
+          {agent.description ? (
+            <span className="text-xs leading-relaxed text-muted-foreground">{agent.description}</span>
           ) : null}
-          {agent.docsUrl ? (
-            <button
-              type="button"
-              className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-              data-pipper-id={`agent-docs-${agent.id}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                void window.omni?.shell?.openExternal?.(agent.docsUrl!);
-              }}
-            >
-              Docs <ArrowSquareOutIcon size={11} />
-            </button>
+          {metaText ? (
+            <span className="text-xs leading-snug text-muted-foreground/90">{metaText}</span>
           ) : null}
         </div>
+      </button>
+
+      {agent.docsUrl ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+          data-pipper-id={`agent-docs-${agent.id}`}
+          onClick={() => void window.omni?.shell?.openExternal?.(agent.docsUrl!)}
+        >
+          Docs <ArrowSquareOutIcon size={12} />
+        </button>
       ) : null}
     </div>
   );
