@@ -333,6 +333,36 @@
     opacity: 1;
   }
 }
+@keyframes text-shimmer {
+  0% {
+    background-position: 150% center;
+  }
+  100% {
+    background-position: -150% center;
+  }
+}
+
+/*
+ * Shimmer sweep for text that represents in-flight work (e.g. a subagent
+ * still running). A moving highlight band travels across the glyphs by
+ * animating a text-clipped gradient's background-position.
+ */
+.animate-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 35%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 65%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2.2s linear infinite;
+}
 
 /* =============================================================================
  * Base layer

@@ -16,7 +16,9 @@ import {
   createEmptySessionSlice,
   type AcpSessionSlice,
 } from "../../src/lib/acp-session-reducer.ts";
-import { listRegisteredAgents } from "../agents/registry.ts";
+import { getAgentDescriptor, listRegisteredAgents } from "../agents/registry.ts";
+import type { AnalyticsEventName, AnalyticsProperties } from "../analytics-schema.ts";
+import { categorizeIntent } from "../analytics-sanitize.ts";
 import {
   readSubagentConfig,
   writeSubagentConfig,
@@ -59,6 +61,8 @@ export interface SubagentManagerOptions {
   listAgents?: () => AcpAgentDescriptor[];
   /** Override the userData directory in tests. */
   baseDir?: string;
+  /** Product analytics sink; omitted in tests. */
+  captureAnalytics?: (name: AnalyticsEventName, properties: AnalyticsProperties) => void;
 }
 
 interface TokenContext {
@@ -110,10 +114,15 @@ export class SubagentManager {
   private readonly slotWaiters: Array<() => void> = [];
   private disposed = false;
 
+  private readonly captureAnalytics:
+    | ((name: AnalyticsEventName, properties: AnalyticsProperties) => void)
+    | undefined;
+
   constructor(options: SubagentManagerOptions) {
     this.host = options.host;
     this.listAgents = options.listAgents ?? listRegisteredAgents;
     this.baseDir = options.baseDir;
+    this.captureAnalytics = options.captureAnalytics;
   }
 
   async init(): Promise<void> {
@@ -449,6 +458,15 @@ export class SubagentManager {
       throw err instanceof Error ? err : new Error(String(err));
     } finally {
       run.finishedAt = Date.now();
+      this.captureAnalytics?.("subagent_run_completed", {
+        agent_id: run.agentId,
+        agent_name: getAgentDescriptor(run.agentId)?.name,
+        status: run.status,
+        depth: run.depth,
+        // Duration of just this run; startedAt is stamped when the slot is acquired.
+        execution_duration_ms: run.finishedAt - run.startedAt,
+        task_category: categorizeIntent(run.task),
+      });
       if (run.connection && run.sessionId) {
         run.connection.agent
           .request(acp.methods.agent.session.close, { sessionId: run.sessionId })

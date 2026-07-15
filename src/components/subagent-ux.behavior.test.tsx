@@ -79,7 +79,9 @@ describe("SubagentComposer", () => {
 
 describe("SubagentActivity", () => {
   test("renders nothing when there are no runs", () => {
-    expect(renderToStaticMarkup(<SubagentActivity runs={[]} agents={AGENTS} />)).toBe("");
+    expect(
+      renderToStaticMarkup(<SubagentActivity runs={[]} agents={AGENTS} activeSessionId="parent" />),
+    ).toBe("");
   });
 
   test("shows every active run but only the most recent settled ones", () => {
@@ -91,17 +93,38 @@ describe("SubagentActivity", () => {
       runSnapshot("s3", "cancelled", 30),
       runSnapshot("s4", "finished", 40),
     ];
-    const html = renderToStaticMarkup(<SubagentActivity runs={runs} agents={AGENTS} />);
+    const html = renderToStaticMarkup(
+      <SubagentActivity runs={runs} agents={AGENTS} activeSessionId="parent" />,
+    );
     // Both active runs are visible…
     expect(html).toContain("task for a1");
     expect(html).toContain("task for a2");
-    // …but only the 3 most recently settled, so the strip stays bounded.
+    // …but only the 3 most recently settled, so the panel stays bounded.
     expect(html).toContain("task for s4");
     expect(html).toContain("task for s3");
     expect(html).toContain("task for s2");
     expect(html).not.toContain("task for s1");
-    // Chips show the agent's display name and expose status for styling/tests.
+    // Items show the agent's display name and expose status for styling/tests.
     expect(html).toContain("Codex");
     expect(html).toContain('data-status="running"');
+  });
+
+  test("scopes runs to the active thread's orchestrator session", () => {
+    const mine = { ...runSnapshot("mine", "running"), parentSessionId: "thread-1" };
+    const other = { ...runSnapshot("other", "running"), parentSessionId: "thread-2" };
+    const html = renderToStaticMarkup(
+      <SubagentActivity runs={[mine, other]} agents={AGENTS} activeSessionId="thread-1" />,
+    );
+    // Only the run spawned by the viewed thread shows; the other thread's
+    // run does not leak in after switching threads.
+    expect(html).toContain("task for mine");
+    expect(html).not.toContain("task for other");
+  });
+
+  test("renders nothing when no thread session is active", () => {
+    const runs = [runSnapshot("a1", "running")];
+    expect(
+      renderToStaticMarkup(<SubagentActivity runs={runs} agents={AGENTS} activeSessionId={null} />),
+    ).toBe("");
   });
 });

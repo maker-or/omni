@@ -2,6 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -20,6 +21,7 @@ import { Tabs, TabsList, TabItem } from "@/components/ui/tabs";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { PixelGridLoader } from "@/components/ui/pixel-grid-loader";
 import { InputMessage } from "@/components/ui/input-message";
+import { SliderComfortable } from "@/components/ui/slider";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
@@ -576,6 +578,7 @@ export function AgentPanel() {
     createThread,
     respondToUiRequest,
     setModel,
+    setConfigOption,
     cycleThinkingLevel,
     canAttachImage,
   } = useAgentStore();
@@ -600,6 +603,7 @@ export function AgentPanel() {
   const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [showThinkingSlider, setShowThinkingSlider] = useState(false);
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [pendingCreateProjectId, setPendingCreateProjectId] = useState<string | null>(null);
   const [modelSearch, setModelSearch] = useState("");
@@ -645,6 +649,48 @@ export function AgentPanel() {
   const registryAgents = useAgentRegistryStore((state) => state.agents);
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
+
+  // ── Thinking level options ────────────────────────────────────────────
+  const thoughtLevelOpts = useMemo(() => {
+    const opts = snapshot?.configOptions ?? [];
+    return (
+      opts.find((o: any) => o.category === "thought_level") ??
+      opts.find((o: any) => o.id === "thought_level") ??
+      opts.find((o: any) => o.id?.includes?.("thought_level"))
+    );
+  }, [snapshot?.configOptions]);
+
+  const thoughtLevelValues = useMemo(() => {
+    if (!thoughtLevelOpts || (thoughtLevelOpts as any).type !== "select") return [];
+    const raw = (thoughtLevelOpts as any).options;
+    if (!Array.isArray(raw)) return [];
+    const out: Array<{ value: string; name: string }> = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      if ("value" in item && "name" in item) {
+        out.push({ value: String((item as any).value), name: String((item as any).name) });
+      } else if ("options" in item && Array.isArray((item as any).options)) {
+        for (const nested of (item as any).options) {
+          if (nested && typeof nested === "object" && "value" in nested) {
+            out.push({ value: String(nested.value), name: String(nested.name ?? nested.value) });
+          }
+        }
+      }
+    }
+    return out;
+  }, [thoughtLevelOpts]);
+
+  const thoughtLevelConfigId = useMemo(() => {
+    if (!thoughtLevelOpts) return null;
+    return (thoughtLevelOpts as any).id ?? null;
+  }, [thoughtLevelOpts]);
+
+  const currentThoughtIndex = useMemo(() => {
+    if (!thoughtLevelValues.length || !snapshot?.thinkingLevel) return 0;
+    const idx = thoughtLevelValues.findIndex((v) => v.value === snapshot.thinkingLevel);
+    return idx >= 0 ? idx : 0;
+  }, [thoughtLevelValues, snapshot?.thinkingLevel]);
+
   const recentProjectsQuery = useRecentProjectsQuery(
     activeProject?.id,
     threadSwitchHistory,
@@ -1999,6 +2045,7 @@ export function AgentPanel() {
                 <SubagentActivity
                   runs={subagentRuns}
                   agents={registryAgents}
+                  activeSessionId={activeSessionId}
                   className="relative z-10 mb-1.5"
                 />
 
@@ -2018,6 +2065,48 @@ export function AgentPanel() {
                     }}
                   />
                 ) : (
+                  <>
+                  <AnimatePresence>
+                    {showThinkingSlider && thoughtLevelValues.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="pb-2">
+                          <SliderComfortable
+                            value={currentThoughtIndex}
+                            onChange={(index) => {
+                              const val = thoughtLevelValues[index];
+                              if (val && thoughtLevelConfigId) {
+                                setConfigOption(thoughtLevelConfigId, val.value).catch(
+                                  (err) => {
+                                    toast({
+                                      icon: <WarningIcon className="size-5 text-red-500" />,
+                                      title: "Reasoning level failed",
+                                      description:
+                                        err instanceof Error
+                                          ? err.message
+                                          : "The reasoning level was not changed.",
+                                    });
+                                  },
+                                );
+                              }
+                            }}
+                            min={0}
+                            max={thoughtLevelValues.length - 1}
+                            step={1}
+                            variant="pips"
+                            label="Reasoning"
+                            formatValue={(v) => thoughtLevelValues[v]?.name ?? String(v)}
+                            disabled={runtimeControlsDisabled}
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                   <InputMessage
                     className="relative z-10"
                     textareaRef={composerTextareaRef}
@@ -2087,32 +2176,16 @@ export function AgentPanel() {
                     rightSlot={
                       <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
                         {" "}
-                        {snapshot?.thinkingLevel !== undefined &&
-                          snapshot?.thinkingLevel !== null && (
+                        {thoughtLevelValues.length > 0 && (
                             <Button
                               variant="ghost"
                               size="sm"
                               disabled={runtimeControlsDisabled}
-                              onClick={async () => {
-                                if (runtimeControlsDisabled) return;
-                                setIsRuntimeActionPending(true);
-                                try {
-                                  await cycleThinkingLevel();
-                                } catch (err) {
-                                  toast({
-                                    icon: <WarningIcon className="size-5 text-red-500" />,
-                                    title: "Reasoning level failed",
-                                    description:
-                                      err instanceof Error
-                                        ? err.message
-                                        : "The reasoning level was not changed.",
-                                  });
-                                } finally {
-                                  setIsRuntimeActionPending(false);
-                                }
-                              }}
+                              onClick={() => setShowThinkingSlider((v) => !v)}
                             >
-                              Reasoning: {snapshot.thinkingLevel}
+                              {thoughtLevelValues[currentThoughtIndex]?.name ??
+                                snapshot?.thinkingLevel ??
+                                "Reasoning"}
                             </Button>
                           )}
                         <Button
@@ -2246,6 +2319,7 @@ export function AgentPanel() {
                       </div>
                     }
                   />
+                  </>
                 )}
               </div>
 

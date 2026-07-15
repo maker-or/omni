@@ -50,7 +50,7 @@ import {
   createEmptySessionSlice,
   type AcpSessionSlice,
 } from "../src/lib/acp-session-reducer.ts";
-import type { AnalyticsProperties } from "./analytics-schema.ts";
+import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
 
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type SetWindowTitle = (title: string) => void;
@@ -160,8 +160,11 @@ export class AgentConnectionManager {
   private readonly broadcastActiveProject?: (projectId: string) => void;
   private readonly reloadMainWindow?: () => void;
   private readonly captureAnalytics?: (
-    name: "mutation_started" | "mutation_completed" | "thread_created",
+    name: AnalyticsEventName,
     properties: AnalyticsProperties,
+  ) => void;
+  private readonly setAgentContext?: (
+    ctx: { agentId?: string | null; agentName?: string | null; modelId?: string | null } | null,
   ) => void;
 
   private connection: LiveConnection | null = null;
@@ -184,6 +187,8 @@ export class AgentConnectionManager {
   private readonly subagents: SubagentManager;
   /** Dedup key for the last broadcast running-threads set. */
   private lastRunningThreadsKey = "";
+  /** Per tool-call start timestamps for `tool_call_finished` timing, keyed `${sessionId}:${toolCallId}`. */
+  private readonly toolCallStarts = new Map<string, { startedAt: number; kind?: string }>();
 
   // Companion / editor session (ephemeral, not DB-backed)
   private editorSession: ThreadSessionRuntime | null = null;
@@ -205,9 +210,9 @@ export class AgentConnectionManager {
     sendToFlyout?: SendToFlyout;
     broadcastActiveProject?: (projectId: string) => void;
     reloadMainWindow?: () => void;
-    captureAnalytics?: (
-      name: "mutation_started" | "mutation_completed" | "thread_created",
-      properties: AnalyticsProperties,
+    captureAnalytics?: (name: AnalyticsEventName, properties: AnalyticsProperties) => void;
+    setAgentContext?: (
+      ctx: { agentId?: string | null; agentName?: string | null; modelId?: string | null } | null,
     ) => void;
   }) {
     this.sendToRenderer = options.sendToRenderer;
@@ -216,6 +221,7 @@ export class AgentConnectionManager {
     this.broadcastActiveProject = options.broadcastActiveProject;
     this.reloadMainWindow = options.reloadMainWindow;
     this.captureAnalytics = options.captureAnalytics;
+    this.setAgentContext = options.setAgentContext;
     this.terminalManager = new TerminalManager({
       onOutput: (terminalId, chunk) => {
         this.emit({ type: "terminal-output", terminalId, output: chunk, append: true });
@@ -234,6 +240,7 @@ export class AgentConnectionManager {
         baseMcpServers: (caps) => toAcpMcpServers(listMcpServers(), caps.mcpCapabilities),
         emitEvent: (event) => this.emit(event),
       },
+      captureAnalytics: (name, properties) => this.captureAnalytics?.(name, properties),
     });
     void this.subagents.init();
   }
@@ -406,13 +413,32 @@ export class AgentConnectionManager {
     const cached = this.connections.get(agentId);
     if (cached) return cached;
     let pending = this.spawning.get(agentId);
+    const isNewSpawn = !pending;
+    const spawnStartedAt = Date.now();
     if (!pending) {
       pending = this.spawnAndInitialize(descriptor).finally(() => this.spawning.delete(agentId));
       this.spawning.set(agentId, pending);
     }
-    const live = await pending;
-    this.connections.set(agentId, live);
-    return live;
+    try {
+      const live = await pending;
+      this.connections.set(agentId, live);
+      if (isNewSpawn) {
+        this.captureAnalytics?.("agent_connected", {
+          ...this.agentProps(agentId),
+          connect_duration_ms: Date.now() - spawnStartedAt,
+          install_kind: descriptor.installKind,
+        });
+      }
+      return live;
+    } catch (err) {
+      if (isNewSpawn) {
+        this.captureAnalytics?.("agent_connection_failed", {
+          ...this.agentProps(agentId),
+          error_type: err instanceof Error ? err.name : undefined,
+        });
+      }
+      throw err;
+    }
   }
 
   async switchAgent(agentId: string): Promise<LiveConnection> {
@@ -421,9 +447,17 @@ export class AgentConnectionManager {
       state: { ...this.getState(), switchingAgent: true },
     });
 
+    const previousAgentId = this.connection?.agentId ?? null;
     const live = await this.acquireConnection(agentId);
     this.connection = live;
     this.preferredAgentId = agentId;
+    if (previousAgentId && previousAgentId !== live.agentId) {
+      this.captureAnalytics?.("agent_switched", {
+        from_agent_id: previousAgentId,
+        to_agent_id: live.agentId,
+        agent_name: getAgentDescriptor(live.agentId)?.name,
+      });
+    }
 
     this.emit({
       type: "connection",
@@ -618,6 +652,12 @@ export class AgentConnectionManager {
         update,
       });
       return;
+    }
+
+    // Time tool calls for thread sessions only (subagents are handled above;
+    // editor/updater runs are ephemeral and excluded).
+    if (this.sessions.has(runtime.threadId)) {
+      this.trackToolCallTiming(sessionId, runtime, update);
     }
 
     runtime.slice = applySessionUpdate(runtime.slice, update);
@@ -931,6 +971,7 @@ export class AgentConnectionManager {
     const projectChanged = this.activeProjectId !== project.id;
     this.activeProjectId = project.id;
     this.activeThreadId = threadId;
+    this.publishActiveAgentContext(live.agentId);
     setActiveProjectId(project.id);
     if (projectChanged) this.broadcastActiveProject?.(project.id);
 
@@ -1031,6 +1072,7 @@ export class AgentConnectionManager {
 
     this.activeProjectId = projectId;
     this.activeThreadId = thread.id;
+    this.publishActiveAgentContext(live.agentId);
     setActiveProjectId(projectId);
     touchThread(thread.id);
     await updateLaunchSelection({ projectId, threadId: thread.id });
@@ -1039,6 +1081,7 @@ export class AgentConnectionManager {
       project_id: projectId,
       thread_id: thread.id,
       agent_id: live.agentId,
+      agent_name: getAgentDescriptor(live.agentId)?.name,
     } as AnalyticsProperties);
 
     this.pushState(thread.id);
@@ -1129,6 +1172,17 @@ export class AgentConnectionManager {
     this.pushState(threadId);
     touchThread(threadId);
 
+    const agentProps = this.agentProps(live.agentId);
+    this.captureAnalytics?.("prompt_submitted", {
+      ...agentProps,
+      project_id: runtime.projectId,
+      thread_id: threadId,
+      has_images: Boolean(input.images?.length),
+      has_resources: Boolean(input.resources?.length),
+    });
+    const turnStartedAt = Date.now();
+    const toolCallsBefore = Object.keys(runtime.slice.toolCalls).length;
+
     try {
       const result = await live.agent.request(acp.methods.agent.session.prompt, {
         sessionId: runtime.agentSessionId,
@@ -1136,6 +1190,17 @@ export class AgentConnectionManager {
       });
       runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
+      this.captureAnalytics?.("turn_completed", {
+        ...agentProps,
+        thread_id: threadId,
+        stop_reason: result.stopReason,
+        turn_duration_ms: Date.now() - turnStartedAt,
+        tool_call_count: Math.max(
+          0,
+          Object.keys(runtime.slice.toolCalls).length - toolCallsBefore,
+        ),
+      });
+      this.reportTokens(runtime, agentProps, threadId);
       this.emit({
         type: "stop",
         sessionId: runtime.agentSessionId,
@@ -1146,9 +1211,33 @@ export class AgentConnectionManager {
     } catch (err) {
       runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
+      this.captureAnalytics?.("turn_failed", {
+        ...agentProps,
+        thread_id: threadId,
+        turn_duration_ms: Date.now() - turnStartedAt,
+        error_type: err instanceof Error ? err.name : undefined,
+      });
       this.pushState(threadId);
       throw err;
     }
+  }
+
+  /** Emit `tokens_reported` from the slice's usage snapshot at turn end (never per chunk). */
+  private reportTokens(
+    runtime: ThreadSessionRuntime,
+    agentProps: AnalyticsProperties,
+    threadId: string,
+  ): void {
+    const usage = runtime.slice.usage;
+    if (!usage) return;
+    this.captureAnalytics?.("tokens_reported", {
+      ...agentProps,
+      thread_id: threadId,
+      tokens_used: usage.used,
+      context_size: usage.size,
+      cost_amount: usage.cost?.amount,
+      cost_currency: usage.cost?.currency,
+    });
   }
 
   async replacePrompt(input: AcpReplacePromptInput): Promise<void> {
@@ -1248,6 +1337,55 @@ export class AgentConnectionManager {
 
   getCapabilities(): AgentCapabilities | null {
     return this.connection?.agentCapabilities ?? null;
+  }
+
+  /** Promote the given agent onto the analytics base context (name resolved from the registry). */
+  private publishActiveAgentContext(agentId: string): void {
+    this.setAgentContext?.({ agentId, agentName: getAgentDescriptor(agentId)?.name ?? null });
+  }
+
+  /** Build the standard agent-identity properties for an event from an agent id. */
+  private agentProps(agentId: string): AnalyticsProperties {
+    return { agent_id: agentId, agent_name: getAgentDescriptor(agentId)?.name };
+  }
+
+  /**
+   * Bracket tool-call start/finish and emit `tool_call_finished` with duration
+   * when a call reaches a terminal status. `tool_kind` lets us answer "which
+   * agent spends the most time on which tool kind."
+   */
+  private trackToolCallTiming(
+    sessionId: string,
+    runtime: ThreadSessionRuntime,
+    update: SessionUpdate,
+  ): void {
+    if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") return;
+    const toolCallId = (update as { toolCallId?: string }).toolCallId;
+    if (!toolCallId) return;
+    const key = `${sessionId}:${toolCallId}`;
+    const status = (update as { status?: string }).status;
+    const kind = (update as { kind?: string }).kind;
+
+    if (!this.toolCallStarts.has(key)) {
+      this.toolCallStarts.set(key, { startedAt: Date.now(), kind });
+    } else if (kind) {
+      // A later update may be the first to carry the kind; keep it.
+      const entry = this.toolCallStarts.get(key)!;
+      if (!entry.kind) entry.kind = kind;
+    }
+
+    if (status === "completed" || status === "failed") {
+      const entry = this.toolCallStarts.get(key);
+      if (!entry) return;
+      this.toolCallStarts.delete(key);
+      this.captureAnalytics?.("tool_call_finished", {
+        ...this.agentProps(runtime.agentId),
+        thread_id: runtime.threadId,
+        tool_kind: entry.kind ?? kind,
+        tool_duration_ms: Date.now() - entry.startedAt,
+        success: status === "completed",
+      });
+    }
   }
 
   getStats() {

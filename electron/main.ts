@@ -54,9 +54,15 @@ import {
   prependStandardPaths,
   type DependencyStatus,
 } from "./dependency-installer";
-import { captureAnalytics, identifyAnalyticsUser, shutdownAnalytics } from "./analytics";
-import type { AnalyticsProperties } from "./analytics-schema";
-import { sanitizeErrorType, sanitizeIdentifier } from "./analytics-sanitize";
+import {
+  captureAnalytics,
+  identifyAnalyticsUser,
+  setActiveAgentContext,
+  setAnalyticsPersonProperties,
+  shutdownAnalytics,
+} from "./analytics";
+import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
+import { categorizeIntent, sanitizeErrorType, sanitizeIdentifier } from "./analytics-sanitize";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
@@ -202,6 +208,10 @@ let agentManager: AgentManager | null = null;
 let updateManager: UpdateManager | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let pipperEditBaseline: PipperEditBaseline | null = null;
+/** When the current visual-edit session began, for edit funnel timing. Null when not editing. */
+let pipperEditEnteredAt: number | null = null;
+/** Companion turns issued since entering the current edit session (iteration count). */
+let pipperEditIterations = 0;
 let allowCompanionClose = false;
 let updateSubsystemReady = false;
 let quitAuthorized = false;
@@ -402,6 +412,7 @@ async function handleAuthCallback(url: string): Promise<void> {
     name: record.name,
     avatarUrl: record.avatar_url,
   });
+  stampHealthPersonProperties();
 
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send("launch:authComplete", record);
@@ -1504,8 +1515,11 @@ function registerIpc(): void {
   ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
   ipcMain.handle(
     "editor:sendPrompt",
-    (_event, input: { message: string; streamingBehavior?: "followUp" | "steer" }) =>
-      requireAgentManager().sendEditorPrompt(input),
+    (_event, input: { message: string; streamingBehavior?: "followUp" | "steer" }) => {
+      // Count companion turns as edit iterations while a visual-edit session is open.
+      if (pipperEditEnteredAt !== null) pipperEditIterations += 1;
+      return requireAgentManager().sendEditorPrompt(input);
+    },
   );
   ipcMain.handle("editor:abort", () => requireAgentManager().abortEditor());
   ipcMain.handle("editor:setModel", (_event, model: { provider: string; modelId: string }) =>
@@ -1542,6 +1556,12 @@ function registerIpc(): void {
   ipcMain.handle("pipper:enterEditMode", async () => {
     if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
     await ensurePipperEditBaseline();
+    pipperEditEnteredAt = Date.now();
+    pipperEditIterations = 0;
+    captureAnalytics("edit_mode_entered", {
+      windowType: "main",
+      properties: { project_id: getActiveProjectId() ?? undefined },
+    });
     broadcastToWindows("pipper:stateChanged", { editMode: true, overlayVisible: true });
   });
   ipcMain.handle("pipper:exitEditMode", () => {
@@ -1564,6 +1584,20 @@ function registerIpc(): void {
         status,
         error,
         gitInstalled,
+      });
+      // Track the first-run setup funnel. The human step string is slugified to a
+      // stable identifier; raw error text is never sent (it can contain paths).
+      captureAnalytics("onboarding_step", {
+        windowType: "launch",
+        properties: {
+          step: step
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "")
+            .slice(0, 64),
+          status,
+          success: status !== "failed",
+        },
       });
     };
 
@@ -1655,7 +1689,21 @@ function registerIpc(): void {
             source: "companion",
           },
         });
+        captureAnalytics("edit_accepted", {
+          windowType: "companion",
+          properties: {
+            project_id: projectId,
+            source: "companion",
+            files_changed_count: filesChanged.length,
+            intent_category: categorizeIntent(intent),
+            iterations: pipperEditIterations,
+            time_to_accept_ms:
+              pipperEditEnteredAt !== null ? Date.now() - pipperEditEnteredAt : undefined,
+          },
+        });
       }
+      pipperEditEnteredAt = null;
+      pipperEditIterations = 0;
       return { committed: true, filesChanged };
     } catch (err: any) {
       if (projectId) {
@@ -1687,6 +1735,17 @@ function registerIpc(): void {
             rejection_stage: "after_review",
           },
         });
+        captureAnalytics("edit_rejected", {
+          windowType: "companion",
+          properties: {
+            project_id: projectId,
+            source: "companion",
+            rejection_stage: "after_review",
+            iterations: pipperEditIterations,
+            time_in_edit_ms:
+              pipperEditEnteredAt !== null ? Date.now() - pipperEditEnteredAt : undefined,
+          },
+        });
         captureAnalytics("rollback_executed", {
           windowType: "companion",
           properties: {
@@ -1694,10 +1753,24 @@ function registerIpc(): void {
             success: true,
           },
         });
+        captureAnalytics("edit_rollback_health", {
+          windowType: "companion",
+          properties: { project_id: projectId, success: true },
+        });
       }
+      pipperEditEnteredAt = null;
+      pipperEditIterations = 0;
     } catch (err: any) {
       if (projectId) {
         captureAnalytics("rollback_executed", {
+          windowType: "companion",
+          properties: {
+            project_id: projectId,
+            success: false,
+            error_type: sanitizeErrorType(err),
+          },
+        });
+        captureAnalytics("edit_rollback_health", {
           windowType: "companion",
           properties: {
             project_id: projectId,
@@ -1712,7 +1785,51 @@ function registerIpc(): void {
   });
 }
 
+/**
+ * Stamp installation health as person properties so cohorts like "customized
+ * users" or "users on version X" are queryable. Best-effort: never throws.
+ */
+function stampHealthPersonProperties(): void {
+  try {
+    const installationPath = getInstallationMetadataPath();
+    if (!fs.existsSync(installationPath)) return;
+    const installation = JSON.parse(fs.readFileSync(installationPath, "utf8"));
+    setAnalyticsPersonProperties({
+      installed_version: installation.installed_version,
+      has_customizations: Boolean(installation.customized_head_commit),
+      last_healthy_at: installation.last_healthy_at,
+    });
+  } catch {
+    // Missing/unreadable installation metadata is non-fatal for analytics.
+  }
+}
+
+// ─── Usage & duration tracking ──────────────────────────────────────────────
+/** Wall-clock start of this app session; diffed on quit for session_duration_ms. */
+const sessionStartedAt = Date.now();
+const USAGE_HEARTBEAT_INTERVAL_MS = 60_000;
+let usageHeartbeatTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Emit `app_heartbeat` every interval, but only while a window is focused, so the
+ * sum of heartbeats measures *active* (attention) time rather than idle-open time.
+ * Base properties already carry the active agent, so this is attributable per agent.
+ */
+function startUsageHeartbeat(): void {
+  if (usageHeartbeatTimer) return;
+  usageHeartbeatTimer = setInterval(() => {
+    const focused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused());
+    if (!focused) return;
+    captureAnalytics("app_heartbeat", {
+      windowType: "background",
+      properties: { heartbeat_seconds: USAGE_HEARTBEAT_INTERVAL_MS / 1000 },
+    });
+  }, USAGE_HEARTBEAT_INTERVAL_MS);
+  usageHeartbeatTimer.unref?.();
+}
+
 app.whenReady().then(async () => {
+  startUsageHeartbeat();
   if (process.platform === "darwin") {
     const iconPath = getIconPath();
     if (iconPath) {
@@ -1733,6 +1850,7 @@ app.whenReady().then(async () => {
       name: authUser.name,
       avatarUrl: authUser.avatar_url,
     });
+    stampHealthPersonProperties();
   }
   agentManager = new AgentManager({
     sendToRenderer: sendToMainWindow,
@@ -1741,10 +1859,7 @@ app.whenReady().then(async () => {
     broadcastActiveProject: (projectId: string) => {
       broadcastToWindows("projects:activeChanged", projectId);
     },
-    captureAnalytics: (
-      name: "mutation_started" | "mutation_completed" | "thread_created",
-      properties: AnalyticsProperties,
-    ) => {
+    captureAnalytics: (name: AnalyticsEventName, properties: AnalyticsProperties) => {
       captureAnalytics(name, {
         windowType:
           properties.source === "overlay_comment" || properties.source === "companion_prompt"
@@ -1753,13 +1868,27 @@ app.whenReady().then(async () => {
         properties,
       });
     },
+    setAgentContext: setActiveAgentContext,
     reloadMainWindow: async () => {
       console.log("[Main] agent_end triggered. Restarting dev server and reloading main window...");
+      // Time the self-rebuild and record whether it succeeded — the core signal
+      // for whether the app can modify itself without breaking the build.
+      const buildStartedAt = Date.now();
+      let buildOk = true;
       try {
         await restartViteServer();
       } catch (err) {
+        buildOk = false;
         console.error("[Main] Failed to restart Vite server on agent_end:", err);
       }
+      captureAnalytics("edit_build_reloaded", {
+        windowType: "main",
+        properties: {
+          project_id: getActiveProjectId() ?? undefined,
+          build_duration_ms: Date.now() - buildStartedAt,
+          success: buildOk,
+        },
+      });
       if (mainWindow && !mainWindow.isDestroyed()) {
         killAllPtyProcesses("AgentEndReload");
         mainWindow.webContents.reload();
@@ -1781,6 +1910,8 @@ app.whenReady().then(async () => {
     broadcastUpdaterEvent: (payload) => broadcastToWindows("updater:event", payload),
     prepareForUpdate: prepareProcessesForUpdate,
     restartPromotedApp: restartAfterPromotion,
+    captureAnalytics: (name, properties) =>
+      captureAnalytics(name, { windowType: "background", properties }),
   });
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
     platform: process.platform,
@@ -1904,6 +2035,14 @@ app.on("will-quit", () => {
   authCallbackServer?.close();
   updateManager?.stopPeriodicChecks();
   launcherUpdateManager?.stopPeriodicChecks();
+  if (usageHeartbeatTimer) {
+    clearInterval(usageHeartbeatTimer);
+    usageHeartbeatTimer = null;
+  }
+  captureAnalytics("app_closed", {
+    windowType: "background",
+    properties: { session_duration_ms: Date.now() - sessionStartedAt },
+  });
   void agentManager?.dispose();
   void shutdownAnalytics();
   killAllPtyProcesses("Quit");

@@ -16,6 +16,7 @@ import type {
   AcpBridgeEvent as AgentBridgeEvent,
   AcpSessionState as AgentRuntimeSnapshot,
 } from "../contracts/acp.ts";
+import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
 import type {
   InstallationMetadata,
   UpdateFailure,
@@ -193,6 +194,7 @@ export class UpdateManager {
     broadcastUpdaterEvent: (payload: AgentBridgeEvent) => void;
     prepareForUpdate: () => Promise<void>;
     restartPromotedApp: () => Promise<void>;
+    captureAnalytics?: (name: AnalyticsEventName, properties: AnalyticsProperties) => void;
   };
   private state: UpdateState;
   private running: Promise<UpdateRunResult> | null = null;
@@ -202,6 +204,8 @@ export class UpdateManager {
   private healthResolve: ((healthy: boolean) => void) | null = null;
   private currentRun: UpdateRunRecord | null = null;
   private lastTranscriptMessageCount = 0;
+  /** Last manifest version announced via `update_available`, to dedup periodic checks. */
+  private lastAnnouncedVersion: string | null = null;
 
   constructor(options: {
     manifestUrl: string | null;
@@ -212,6 +216,7 @@ export class UpdateManager {
     broadcastUpdaterEvent: (payload: AgentBridgeEvent) => void;
     prepareForUpdate: () => Promise<void>;
     restartPromotedApp: () => Promise<void>;
+    captureAnalytics?: (name: AnalyticsEventName, properties: AnalyticsProperties) => void;
   }) {
     this.options = options;
     try {
@@ -617,6 +622,14 @@ export class UpdateManager {
         this.options.repositoryUrl!,
       );
       writeManifestFileAtomic(manifest);
+      // Announce once per distinct version — periodic checks re-detect the same
+      // manifest repeatedly and must not emit a fresh event each time.
+      if (this.lastAnnouncedVersion !== manifest.version) {
+        this.lastAnnouncedVersion = manifest.version;
+        this.options.captureAnalytics?.("update_available", {
+          target_version: manifest.version,
+        });
+      }
       if (updateState) {
         this.persist(
           {
@@ -929,9 +942,14 @@ export class UpdateManager {
 
       this.progress("ready-to-promote", "Candidate passed validation");
       this.progress("promoting", "Promoting the validated update");
+      const promoteStartedAt = Date.now();
       const receipt = promoteCandidate();
       didSwap = true;
       assertPostSwapInvariants(receipt, candidateCommit);
+      this.options.captureAnalytics?.("update_promoted", {
+        target_version: manifest.version,
+        promotion_duration_ms: Date.now() - promoteStartedAt,
+      });
       this.patchRun((run) => ({
         ...run,
         promotion: {
@@ -954,12 +972,18 @@ export class UpdateManager {
       const healthSignal = new Promise<boolean>((resolve) => {
         this.healthResolve = resolve;
       });
+      const healthCheckStartedAt = Date.now();
       await this.options.restartPromotedApp();
       const healthy = await Promise.race([
         healthSignal,
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
       ]);
       this.healthResolve = null;
+      this.options.captureAnalytics?.("update_health_result", {
+        target_version: manifest.version,
+        healthy,
+        health_check_duration_ms: Date.now() - healthCheckStartedAt,
+      });
       if (!healthy) {
         appendUpdateRunLog(record.run_id, "health=false reason=timeout_or_rejected");
         throwUpdateFailure(
@@ -992,6 +1016,10 @@ export class UpdateManager {
         finished_at: new Date().toISOString(),
       }));
       appendUpdateRunLog(record.run_id, `run=completed duration_ms=${Date.now() - started}`);
+      this.options.captureAnalytics?.("update_completed", {
+        target_version: manifest.version,
+        total_duration_ms: Date.now() - started,
+      });
       this.persist({ scheduled_for_quit: false, error: null }, "completed");
       return { success: true };
     } catch (error: any) {
@@ -1004,6 +1032,10 @@ export class UpdateManager {
         try {
           this.progress("rolling-back", "Restoring the previous working version", failure.message);
           rollbackPromotion();
+          this.options.captureAnalytics?.("update_rolled_back", {
+            failure_code: failure.code,
+            phase: failure.step,
+          });
           this.patchRun((run) => ({
             ...run,
             promotion: {
