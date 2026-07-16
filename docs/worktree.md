@@ -9,14 +9,36 @@ git history — that a coding-agent session can later be bound to via
 
 **In scope this phase:** create a worktree, seed its gitignored files (`.env*`),
 run an optional per-project setup script, list existing worktrees, and bind a
-thread's session to a worktree path. Plus the security containment ("jail") that
-makes an agent stay inside its worktree.
+thread's session to a worktree path. Plus a **path guard** that keeps an
+agent's file operations inside its own worktree (see Threat model below).
 
 **Out of scope this phase (deferred):** parallel-agent orchestration, the
 tab-bar-under-tab-bar UX, the merge gate (test/review before merge), worktree
-deletion/archival, `run`/`archive` scripts, and port allocation.
+deletion/archival, `run`/`archive` scripts, port allocation, and OS-level
+terminal sandboxing (see Threat model).
 
 ---
+
+## Threat model (what "isolation" means this phase)
+
+The goal is **cross-worktree isolation**: worktree A's agent must not read or
+write into worktree B or the main checkout. It is *not* full-filesystem
+sandboxing — we are not defending `/etc/passwd` etc. Because every worktree
+lives under one root (`~/.pipper/worktrees/`), the boundary is a single subtree.
+
+This phase defends against an **honest agent wandering** (a confused cwd, a
+fat-fingered path), not a hostile/prompt-injected agent actively trying to
+escape. Concretely:
+
+- **ACP fs primitives** (`readTextFile`/`writeTextFile`) are *fully* guarded —
+  a read/write aimed at a sibling worktree is rejected. This is a hard boundary.
+- **Terminal** is **cwd-guarded only** (Option A): we jail *where* the command
+  starts, but a spawned process can still `cd ../other-worktree`. An honest
+  coding agent runs relative to cwd and won't; a hostile one could. We accept
+  this gap for the phase and wire `terminalManager.create` with a **single
+  injection point** so OS sandboxing (macOS `sandbox-exec`, deny writes outside
+  the worktree root) can be slotted in later without a redesign. **Deferred:**
+  that hard terminal boundary (Option B).
 
 ## Key decisions (and why)
 
@@ -47,14 +69,18 @@ deletion/archival, `run`/`archive` scripts, and port allocation.
      in its env. This is fine precisely because it is user-written and runs at
      create time — unlike the jailed agent.
 
-4. **The jail's allowlist is a *set* of roots, fed by `additionalDirectories`.**
+4. **The guard's allowlist is a *set* of roots, fed by `additionalDirectories`.**
    ACP `additionalDirectories` (agent-advertised capability) declares the extra
-   workspace roots for a session. Make the jail `sessionId → Set<root>` seeded
+   workspace roots for a session. Make the guard `sessionId → Set<root>` seeded
    from `cwd ∪ additionalDirectories`, so what we declare to the agent and what
-   the jail permits are the same list. Default `additionalDirectories` empty
-   (worktree only). Note: `additionalDirectories` does **not** solve env loading
-   — a spawned test process resolves `.env` from its own cwd, so the physical
-   copy is still required.
+   the guard permits are the same list. **The guard always seeds from `cwd`**
+   regardless of capability advertisement — capability gating only controls
+   whether the extra `additionalDirectories` roots get *added*, never whether the
+   session is guarded at all (a non-advertising agent must not fall through to a
+   no-op). Default `additionalDirectories` empty (worktree only). Note:
+   `additionalDirectories` does **not** solve env loading — a spawned test
+   process resolves `.env` from its own cwd, so the physical copy is still
+   required.
 
 ---
 
@@ -66,9 +92,12 @@ deletion/archival, `run`/`archive` scripts, and port allocation.
   lighter thing nested under it. Creating a worktree must NOT reload the window
   or touch `activeProjectId` (that's `launch:complete`, `main.ts:1140-1167`).
 - **Git invocation pattern** — `electron/workspace-manager.ts` shells to bare
-  `"git"` on `$PATH` via `execFile`/`execFileSync` (no binary resolution). The
-  active workspace is a normal non-bare single-worktree repo (`git init`, no
-  `--bare`, at `workspace-manager.ts:227`) — a valid `git worktree add` anchor.
+  `"git"` on `$PATH` via `execFile`/`execFileSync` (no binary resolution). NB:
+  that module is the app's **self-update** machinery (its `active`/`candidate`
+  library checkouts), *not* user worktrees — we borrow only its git/`execFile`
+  idiom. Our `git worktree add` anchor is the user's `project.path` (a repo the
+  user selected), which is a normal non-bare single-worktree repo — a valid
+  anchor. This feature is otherwise greenfield.
 - **Session cwd binding** — `agent-connection-manager.ts` `createThread`/
   `switchThread` call `sessionNew` with `project.path` as cwd (~lines 1015, 1052).
   Editor (~1407) and updater (~1668) sessions are internal — not user worktrees,
@@ -107,9 +136,19 @@ deps, plain `Error`s, `"git"` via `execFile`). Methods:
 - `listWorktrees(projectPath)` → parse `git worktree list --porcelain` live
   (path, branch, HEAD). No caching.
 
-Worktree path location: a stable per-project dir (e.g. under the project or a
-managed `worktrees/` sibling) — decide before implementing; must be outside the
-main working tree so it isn't itself tracked.
+**Worktree on-disk location (decided):** `<worktrees-root>/<project-slug>/<name>`.
+- `<worktrees-root>` is `~/.pipper/worktrees` on macOS, with platform-appropriate
+  equivalents elsewhere, honoring a `PIPPER_WORKTREES_PATH` override — mirroring
+  how `getPipperLibraryPath()` handles the self-update library. This is a **home
+  dotdir** (`~/.pipper`), distinct from the app's self-update library
+  (`~/Library/pipper` on macOS) — no filesystem collision.
+- `<project-slug>` is derived from the project **`id`** (stable, fs-safe), *not*
+  the display `name`, so two like-named projects don't stomp each other.
+- Outside the main working tree, so the worktree is never itself tracked.
+
+**Branch naming (decided, Conductor style):** auto-generate a branch at create,
+off the project's **default branch**; the agent renames it on first chat. No
+user prompt in the create flow.
 
 ### 2. `electron/db.ts`
 Add nullable `worktree_path TEXT` column on `threads` via the existing
@@ -120,18 +159,33 @@ Add nullable `worktree_path TEXT` column on `threads` via the existing
 git owns identity via path/branch.
 
 ### 4. `electron/agent-connection-manager.ts` — two independent changes
-- **Jail**: add `private readonly workspaceRoots = new Map<string, Set<string>>()`
+- **Path guard**: add `private readonly workspaceRoots = new Map<string, Set<string>>()`
   near the existing session maps (~lines 179-198). Populate in `createThread`/
-  `switchThread` (roots = `cwd ∪ additionalDirectories`, gated on the agent
-  advertising the capability). Add `assertWithinWorkspace(sessionId, path)` —
-  `realpath`, prefix-check against the session's root set, throw
-  `new Error("Path outside workspace")` on escape; no-op for sessions not in the
-  map (editor/updater). Call it in `terminal/create` (on resolved `cwd`),
-  `handleReadTextFile`, `handleWriteTextFile` (on `params.path`) before touching
-  the fs. Clean up the map entry when the thread/session is torn down.
+  `switchThread`: root set = `cwd` always, `∪ additionalDirectories` only when the
+  agent advertised the capability (never conditional on the *guard* existing —
+  see Key decision 4). Add `assertWithinWorkspace(sessionId, path)`:
+  - **containment check via `path.relative(root, resolved)`** — reject if it
+    starts with `..` or is absolute (NOT `startsWith`, which lets `/proj-evil`
+    escape root `/proj`); pass if any root in the set contains it.
+  - throw `new Error("Path outside workspace")` on escape; no-op for sessions not
+    in the map (editor/updater are internal, unguarded).
+  - Call it in `handleReadTextFile` / `handleWriteTextFile` (on `params.path`)
+    and `terminal/create` (on resolved `cwd`) before touching the fs. For the
+    two fs handlers, avoid TOCTOU by operating on the path via **`O_NOFOLLOW`**
+    (open-then-fstat on the fd) rather than resolve-then-reopen-by-path, so a
+    symlink swapped in after the check can't redirect the op.
+  - Clean up the map entry when the thread/session is torn down.
+  - **Terminal caveat (Option A):** the `cwd` check only bounds where the command
+    starts; a spawned process can still `cd` out. Route the spawn through a single
+    wrapper point in `terminalManager.create` so a future OS sandbox (Option B)
+    is a localized change. This is the accepted gap for the phase (Threat model).
 - **Worktree binding**: when a thread has a `worktree_path`, use it as the
   `sessionNew` cwd instead of `project.path` (lookup before the existing
-  `project.path` fallback at ~1015/1052).
+  `project.path` fallback at ~1015/1052). **Validate on bind**: if the stored
+  path no longer resolves to a live worktree (`git worktree list` doesn't list
+  it / dir gone), fall back to `project.path` and surface it — don't let
+  `sessionNew` fail on a stale path (git remains source of truth; the column is
+  a hint).
 
 ### 5. Include-list config (env copy)
 Read the project's gitignored-file include list, precedence:
@@ -163,16 +217,38 @@ source is not followed. Cleanup in `afterEach`.
 
 ---
 
-## Open questions
+## Implementation notes (as built)
 
-- Worktree on-disk location (under project vs. managed sibling dir).
-- Auto-name the branch, or prompt the user, at create time? (Conductor
-  auto-creates then the agent renames on first chat.)
-- Merge-with-default vs. replace-default for the include list (plan says replace;
-  confirm).
+- **`worktree-manager.ts` is plain exported functions**, not a class — it is
+  stateless with no injected deps, so it matches `projects.ts`/`threads.ts`
+  better than `subagent-manager.ts`. Kept electron-free (node builtins only) so
+  it unit-tests without mocking the app.
+- **`additionalDirectories` is not exposed by the ACP SDK in use**, so the path
+  guard seeds purely from the session cwd (the always-on safety property in Key
+  decision 4). The extra-roots union remains a documented extension point, not
+  wired this phase — the guard is still never a no-op for a user session.
+- **Added `listChildWorktrees` (realpath-aware main-tree exclusion).** git
+  canonicalizes worktree paths, so `createWorktree` returns the realpath'd path
+  and the main-tree filter compares realpaths — a plain string compare would
+  leak the main tree when the project path contains a symlink.
+- **TOCTOU hardening** uses `O_NOFOLLOW` on the read/write opens where available
+  (skipped on Windows, which lacks the flag).
+
+## Resolved decisions
+
+- **On-disk location:** `~/.pipper/worktrees/<project-slug>/<name>` (macOS;
+  platform-appropriate + `PIPPER_WORKTREES_PATH` override). No collision with
+  `~/Library/pipper`. Slug from project `id`. (§1)
+- **Branch naming:** Conductor style — auto-generate off the default branch,
+  agent renames on first chat. (§1)
+- **Include list:** replace-default (not merge) — matches Conductor. (§5)
+- **Terminal containment:** Option A (cwd-guard + wrapper injection point);
+  OS sandbox (Option B) deferred. (Threat model)
 
 ## Explicitly deferred
 
 Parallel-agent orchestration · second tab bar UX · merge gate (test + review) ·
 worktree deletion/archival + `archive` script · `run` script / port allocation ·
-`worktrees` DB table (add when merge-gate needs app-only state).
+`worktrees` DB table (add when merge-gate needs app-only state) · **hard terminal
+boundary via OS sandbox (Option B)** — slotted into the `terminalManager.create`
+wrapper point when the hostile-agent case is worth the deprecated-API cost.

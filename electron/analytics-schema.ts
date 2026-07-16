@@ -26,6 +26,7 @@ export type MutationOutcome = "success" | "error" | "cancelled";
 export type AnalyticsEventName =
   | "app_opened"
   | "project_created"
+  | "worktree_created"
   | "thread_created"
   | "component_mutation_requested"
   | "mutation_started"

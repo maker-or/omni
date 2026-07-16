@@ -1,4 +1,5 @@
 import type { Project } from "../../contracts/projects.ts";
+import type { GitBranch, Worktree } from "../../contracts/worktrees.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type {
   AcpAgentDescriptor,
@@ -97,6 +98,17 @@ declare global {
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
       };
+      worktrees: {
+        list: (projectId: string) => Promise<Worktree[]>;
+        create: (input: { projectId: string; name: string }) => Promise<Worktree>;
+        switch: (input: { projectId: string; path: string }) => Promise<Thread>;
+        listBranches: (input: { projectId: string }) => Promise<GitBranch[]>;
+        switchBranch: (input: {
+          projectId: string;
+          path: string;
+          branch: string;
+        }) => Promise<{ thread: Thread; worktree: Worktree }>;
+      };
       onboarding: {
         verifyGit: () => Promise<boolean>;
         startSetup: () => Promise<void>;
@@ -125,6 +137,7 @@ declare global {
           title: string | null,
           afterThreadId?: string | null,
           agentId?: string | null,
+          worktreePath?: string | null,
         ) => Promise<Thread>;
         rename: (id: string, title: string) => Promise<Thread>;
         delete: (id: string) => Promise<void>;
@@ -157,6 +170,7 @@ declare global {
           title: string | null,
           afterThreadId?: string | null,
           agentId?: string | null,
+          worktreePath?: string | null,
         ) => Promise<Thread>;
         getSelectedAgentIds: () => Promise<string[]>;
         setSelectedAgentIds: (agentIds: string[]) => Promise<void>;

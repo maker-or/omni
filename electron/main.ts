@@ -17,6 +17,12 @@ import {
   type PipperEditBaseline,
 } from "./pipper-edit-session";
 import { createProject, getProject, listProjects } from "./projects";
+import {
+  createWorktree,
+  listBranches,
+  listWorktrees,
+  switchWorktreeBranch,
+} from "./worktree-manager";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import {
@@ -235,6 +241,30 @@ function requireUpdateManager(): UpdateManager {
 function requireLauncherUpdateManager(): LauncherUpdateManager {
   if (!launcherUpdateManager) throw new Error("Launcher update manager is not initialized.");
   return launcherUpdateManager;
+}
+
+/** A thread owns the live ACP session and, in turn, the app's active cwd. */
+async function activateProjectWorktree(projectId: string, targetPath: string) {
+  const project = getProject(projectId);
+  if (!project) throw new Error(`Project not found: ${projectId}`);
+
+  const target = listWorktrees(project.path).find((worktree) => worktree.path === targetPath);
+  if (!target) throw new Error("Worktree is no longer available");
+
+  const worktreePath = target.isProjectRoot ? null : target.path;
+  let thread = listThreads().find(
+    (candidate) =>
+      candidate.project_id === project.id && (candidate.worktree_path ?? null) === worktreePath,
+  );
+  if (thread) {
+    await requireAgentManager().switchThread(thread.id);
+  } else {
+    thread = await requireAgentManager().createThread(project.id, null, null, null, worktreePath);
+  }
+
+  const next = await openThreadTab(thread.id);
+  broadcastOpenTabsChanged(mainWindow, next);
+  return { thread, worktree: target };
 }
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
@@ -1086,6 +1116,10 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("projects:listFiles", async () => {
+    // Follow the active worktree's cwd, not the project root, so file paths
+    // reflect the selected workspace. Falls back to the project root.
+    const cwd = requireAgentManager().getActiveCwd();
+    if (cwd) return listProjectFiles(cwd);
     const id = getActiveProjectId();
     const project = id ? getProject(id) : null;
     if (!project) return [];
@@ -1120,6 +1154,63 @@ function registerIpc(): void {
       : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.handle("worktrees:list", (_event, projectId: string) => {
+    const project = getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    // Include the project root so the title bar can show its real branch
+    // alongside the linked worktrees.
+    return listWorktrees(project.path);
+  });
+
+  ipcMain.handle("worktrees:switch", async (_event, input: { projectId: string; path: string }) => {
+    const { thread } = await activateProjectWorktree(input.projectId, input.path);
+    return thread;
+  });
+
+  ipcMain.handle("worktrees:listBranches", (_event, input: { projectId: string }) => {
+    const project = getProject(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+    return listBranches(project.path);
+  });
+
+  ipcMain.handle(
+    "worktrees:switchBranch",
+    async (_event, input: { projectId: string; path: string; branch: string }) => {
+      const project = getProject(input.projectId);
+      if (!project) throw new Error(`Project not found: ${input.projectId}`);
+
+      const worktree = switchWorktreeBranch(project.path, input.path, input.branch);
+      try {
+        const { thread } = await activateProjectWorktree(input.projectId, worktree.path);
+        return { thread, worktree };
+      } catch (err) {
+        // Activation failed: restore the worktree state to match the mutated Git branch
+        const restoredWorktree = listWorktrees(project.path).find((w) => w.path === input.path);
+        if (restoredWorktree) {
+          return { thread: null, worktree: restoredWorktree };
+        }
+        throw err;
+      }
+    },
+  );
+
+  ipcMain.handle("worktrees:create", (_event, input: { projectId: string; name: string }) => {
+    const project = getProject(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+    const worktree = createWorktree({
+      projectPath: project.path,
+      projectId: project.id,
+      name: input.name,
+    });
+    captureAnalytics("worktree_created", {
+      windowType: "main",
+      properties: { project_id: project.id },
+    });
+    // Return the same annotated Git view used by the title bar, rather than
+    // a locally invented display label for the newly-created checkout.
+    return listWorktrees(project.path).find((item) => item.path === worktree.path) ?? worktree;
   });
 
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {
@@ -1241,12 +1332,14 @@ function registerIpc(): void {
       title: string | null,
       afterThreadId?: string | null,
       agentId?: string | null,
+      worktreePath?: string | null,
     ) => {
       return requireAgentManager().createThread(
         projectId,
         title,
         afterThreadId ?? null,
         agentId ?? null,
+        worktreePath ?? null,
       );
     },
   );
@@ -1337,6 +1430,7 @@ function registerIpc(): void {
       title: string | null,
       afterThreadId?: string | null,
       agentId?: string | null,
+      worktreePath?: string | null,
     ) => {
       try {
         return requireAgentManager().createThread(
@@ -1344,6 +1438,7 @@ function registerIpc(): void {
           title,
           afterThreadId ?? null,
           agentId ?? null,
+          worktreePath ?? null,
         );
       } catch (e: any) {
         console.error("[IPC] agent:createThread error:", e);

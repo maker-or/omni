@@ -71,6 +71,30 @@ describe("terminal store session behavior", () => {
     expect(useTerminalStore.getState().activeSessionId).toBeNull();
   });
 
+  test("restarts terminals in the selected workspace", () => {
+    const ids = ["term-new-1", "term-new-2"];
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => ids.shift() ?? "term-fallback");
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    useTerminalStore.setState({
+      sessions: [
+        { id: "term-old-1", title: "Terminal 1", cwd: "/repo", history: "old output" },
+        { id: "term-old-2", title: "Terminal 2", cwd: "/repo", history: "" },
+      ],
+      activeSessionId: "term-old-2",
+    });
+
+    useTerminalStore.getState().restartSessionsIn("/repo/worktrees/feature");
+
+    expect(kill).toHaveBeenCalledWith("term-old-1");
+    expect(kill).toHaveBeenCalledWith("term-old-2");
+    expect(useTerminalStore.getState().sessions).toEqual([
+      { id: "term-new-1", title: "Terminal 1", cwd: "/repo/worktrees/feature", history: "" },
+      { id: "term-new-2", title: "Terminal 2", cwd: "/repo/worktrees/feature", history: "" },
+    ]);
+    expect(useTerminalStore.getState().activeSessionId).toBe("term-new-2");
+  });
+
   test("global data listener is registered once and appends payloads to matching history", () => {
     let onDataHandler: ((payload: { sessionId: string; data: string }) => void) | null = null;
     const onData = vi.fn((handler: (payload: { sessionId: string; data: string }) => void) => {

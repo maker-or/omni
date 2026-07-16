@@ -1,25 +1,15 @@
 "use client";
 
-import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   CheckIcon as ModelCheckIcon,
-  FolderPlusIcon,
   MagnifyingGlassIcon,
-  PlusIcon,
   PaperclipIcon,
-  TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
-import { MenuItem } from "@/components/ui/menu-item";
-import { Tabs, TabsList, TabItem } from "@/components/ui/tabs";
-import { ProjectIcon } from "@/components/ui/icon-picker";
-import { PixelGridLoader } from "@/components/ui/pixel-grid-loader";
 import { InputMessage } from "@/components/ui/input-message";
 import { SliderComfortable } from "@/components/ui/slider";
 import { ChatMessage } from "@/components/ui/chat-message";
@@ -29,6 +19,8 @@ import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
+import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { selectThread } from "@/lib/thread-actions";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
@@ -51,15 +43,6 @@ import { matchAgentCommands, mergeAgentCommands } from "@/lib/agent-commands";
 import { isSubagentTrigger, SUBAGENT_COMMAND } from "@/lib/subagent-orchestration";
 import { SubagentComposer, type SubagentComposerSubmit } from "@/components/subagent-composer";
 import { SubagentActivity } from "@/components/subagent-activity";
-import {
-  OPEN_TABS_QUERY_KEY,
-  useMergedProjectThreads,
-  useOpenTabsQuery,
-  usePrefetchRecentProjects,
-  useProjectThreadsQuery,
-  useRecentProjectsQuery,
-} from "@/lib/thread-queries";
-import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -257,32 +240,6 @@ export function ProviderMark({ provider, className }: { provider: string; classN
       <path d="M10 18.25L8.15 14.5H11.85L10 18.25Z" fill="currentColor" />
     </svg>
   );
-}
-
-// Stable component identity: this must not be recreated per-render or per-tab.
-// A fresh function reference makes React remount the icon on every unrelated
-// re-render (e.g. every streaming chunk), which restarts the CSS animation
-// before it ever completes a visible pulse cycle.
-function TabWorkingIcon(props: { className?: string; size?: number }) {
-  return <PixelGridLoader size={props.size} className={props.className} />;
-}
-
-// Cache one stable component per project icon name so switching between tabs
-// (or unrelated re-renders) doesn't remount — and reset any CSS transitions
-// on — icons that didn't actually change.
-const projectIconComponentCache = new Map<
-  string,
-  (props: { className?: string }) => ReactElement
->();
-function getProjectIconComponent(name: string) {
-  let Component = projectIconComponentCache.get(name);
-  if (!Component) {
-    Component = (props: { className?: string }) => (
-      <ProjectIcon name={name} className={props.className} />
-    );
-    projectIconComponentCache.set(name, Component);
-  }
-  return Component;
 }
 
 // Stable component identity: hoisted to module scope so it isn't recreated on
@@ -551,35 +508,24 @@ export function getRuntimeStatusItems(snapshot: AgentPanelSnapshot | null): stri
 
 export function AgentPanel() {
   "use no memo";
-  const queryClient = useQueryClient();
   const { activeProject } = useProjectStore();
-  const {
-    threads,
-    pagesByProject,
-    loadProjectThreads,
-    renameThread,
-    deleteThread,
-    error: threadError,
-  } = useThreadStore();
+  const { threads, loadProjectThreads } = useThreadStore();
   const {
     snapshot,
     error: agentError,
     isConnecting,
     uiRequest,
     uiRequestQueue,
-    runningThreadIds,
     subagentRuns,
     connect,
     refresh,
     sendPrompt,
     replacePrompt,
     abort,
-    switchThread,
     createThread,
     respondToUiRequest,
     setModel,
     setConfigOption,
-    cycleThinkingLevel,
     canAttachImage,
   } = useAgentStore();
   const showImageAttach = canAttachImage();
@@ -591,7 +537,6 @@ export function AgentPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAborting, setIsAborting] = useState(false);
   const [isRuntimeActionPending, setIsRuntimeActionPending] = useState(false);
-  const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
@@ -601,47 +546,26 @@ export function AgentPanel() {
     images: ChatImageAttachment[];
   } | null>(null);
   const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [showThinkingSlider, setShowThinkingSlider] = useState(false);
-  const [showAgentPicker, setShowAgentPicker] = useState(false);
-  const [pendingCreateProjectId, setPendingCreateProjectId] = useState<string | null>(null);
   const [modelSearch, setModelSearch] = useState("");
-  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
-  const [requestedThreadId, setRequestedThreadId] = useState<string | null>(null);
   const [dismissedAgentError, setDismissedAgentError] = useState<string | null>(null);
-  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
-  const [editingThreadTitle, setEditingThreadTitle] = useState("");
-  const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [traceDeckOpenByKey, setTraceDeckOpenByKey] = useState<Record<string, boolean>>({});
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const projectListRef = useRef<HTMLDivElement>(null);
-  const threadPaneRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const scrollRafRef = useRef<number | null>(null);
   const autoScrollPinnedRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
   const ChevronDownIcon = useIcon("chevron-down");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
-  const openTabsQuery = useOpenTabsQuery();
-  const openTabsState = openTabsQuery.data;
-  const openThreads = openTabsState?.openThreads ?? [];
-  const orderedOpenThreads = useMemo(() => {
-    const threadsById = new Map(openThreads.map((thread) => [thread.id, thread]));
-    return (openTabsState?.openThreadIds ?? [])
-      .map((threadId) => threadsById.get(threadId))
-      .filter((thread): thread is Thread => Boolean(thread));
-  }, [openTabsState?.openThreadIds, openThreads]);
-  const activeThreadId = openTabsState?.activeThreadId ?? null;
-  const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
-  const hoveredProjectThreadsQuery = useProjectThreadsQuery(hoveredProjectId);
+  // The active thread + switch machinery is owned by the header tab strip
+  // (GlobalTabBar); the panel just follows it. `requestedThreadId` is the
+  // optimistic switch target so the conversation can show a switching veil
+  // before the agent snapshot catches up.
+  const requestedThreadId = useWorkspaceViewStore((state) => state.requestedThreadId);
   const commands = useMemo(
     () => mergeAgentCommands(snapshot?.commands ?? []),
     [snapshot?.commands],
@@ -690,13 +614,6 @@ export function AgentPanel() {
     const idx = thoughtLevelValues.findIndex((v) => v.value === snapshot.thinkingLevel);
     return idx >= 0 ? idx : 0;
   }, [thoughtLevelValues, snapshot?.thinkingLevel]);
-
-  const recentProjectsQuery = useRecentProjectsQuery(
-    activeProject?.id,
-    threadSwitchHistory,
-    openThreads,
-  );
-  usePrefetchRecentProjects(recentProjectsQuery.data ?? []);
 
   const formatMessageTime = (message: MessageLike): string | undefined => {
     const meta = message as { timestamp?: number; created_at?: string };
@@ -759,58 +676,6 @@ export function AgentPanel() {
     }
   };
 
-  const startRenameThread = (threadId: string, title: string) => {
-    setEditingThreadId(threadId);
-    setEditingThreadTitle(title);
-    setEditingThreadOriginalTitle(title);
-  };
-
-  const cancelRenameThread = () => {
-    setEditingThreadId(null);
-    setEditingThreadTitle("");
-    setEditingThreadOriginalTitle("");
-  };
-
-  const commitRenameThread = async () => {
-    if (!editingThreadId) return false;
-
-    const nextTitle = editingThreadTitle.trim();
-    const originalTitle = editingThreadOriginalTitle.trim();
-
-    if (!nextTitle || nextTitle === originalTitle) {
-      cancelRenameThread();
-      return true;
-    }
-
-    const renamedThread = await renameThread(editingThreadId, nextTitle);
-    if (!renamedThread) {
-      toast({
-        icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Rename failed",
-        description: useThreadStore.getState().error ?? "The thread title was not updated.",
-      });
-      return false;
-    }
-
-    queryClient.setQueryData<
-      | {
-          openThreads: Thread[];
-        }
-      | undefined
-    >(OPEN_TABS_QUERY_KEY, (current) =>
-      current
-        ? {
-            ...current,
-            openThreads: current.openThreads.map((thread) =>
-              thread.id === renamedThread.id ? renamedThread : thread,
-            ),
-          }
-        : current,
-    );
-    cancelRenameThread();
-    return true;
-  };
-
   useEffect(() => {
     void connect();
   }, [connect]);
@@ -824,79 +689,9 @@ export function AgentPanel() {
   }, []);
 
   useEffect(() => {
-    void useAgentRegistryStore.getState().load();
-  }, []);
-
-  useEffect(() => {
-    if (!isDropdownOpen) {
-      setHoveredProjectId(null);
-    }
-    if (isDropdownOpen) {
-      setIsModelDropdownOpen(false);
-    }
-  }, [isDropdownOpen]);
-
-  useEffect(() => {
     if (!isModelDropdownOpen) return;
     setModelSearch("");
   }, [isModelDropdownOpen]);
-
-  useEffect(() => {
-    if (!hoveredProjectId) return;
-    const exists = projectsList.some((project) => project.id === hoveredProjectId);
-    if (!exists) {
-      setHoveredProjectId(projectsList[0]?.id ?? null);
-    }
-  }, [hoveredProjectId, projectsList]);
-
-  useEffect(() => {
-    if (!hoveredProjectId) return;
-    if (pagesByProject[hoveredProjectId]) return;
-    void loadProjectThreads(hoveredProjectId, { reset: true });
-  }, [hoveredProjectId, loadProjectThreads, pagesByProject]);
-
-  useEffect(() => {
-    for (const projectId of recentProjectsQuery.data ?? []) {
-      if (!pagesByProject[projectId]) {
-        void loadProjectThreads(projectId, { reset: true });
-      }
-    }
-  }, [loadProjectThreads, pagesByProject, recentProjectsQuery.data]);
-
-  useEffect(() => {
-    if (!isDropdownOpen || !hoveredProjectId) {
-      setThreadPaneStyle(null);
-      return;
-    }
-
-    const updatePosition = () => {
-      const rect = projectListRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const gap = 8;
-      const paneWidth = 320;
-      const paneHeight = 420;
-      const canFitRight = rect.right + gap + paneWidth <= window.innerWidth - gap;
-      const left = canFitRight ? rect.right + gap : Math.max(gap, rect.left - paneWidth - gap);
-      const top = Math.min(
-        Math.max(gap, rect.top),
-        Math.max(gap, window.innerHeight - paneHeight - gap),
-      );
-      setThreadPaneStyle({
-        position: "fixed",
-        top: `${Math.round(top)}px`,
-        left: `${Math.round(left)}px`,
-        zIndex: 3000,
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [isDropdownOpen, hoveredProjectId]);
 
   useEffect(() => {
     if (activeProject?.id) {
@@ -916,61 +711,8 @@ export function AgentPanel() {
   }, [respondToUiRequest, uiRequest]);
 
   useEffect(() => {
-    const currentThreadId = snapshot?.threadId;
-    if (currentThreadId) {
-      // Don't resurrect a tab the user just closed: the agent snapshot keeps
-      // pointing at the closed thread until switchThread lands, and re-opening
-      // it here is what made closing the active tab flaky.
-      if (closingTabIdsRef.current.has(currentThreadId)) return;
-      setActiveTabId(currentThreadId);
-      void window.omni.tabs.open(currentThreadId).then(() => {
-        void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
-      });
-    } else if (activeThreadId) {
-      setActiveTabId(activeThreadId);
-    } else {
-      setActiveTabId(null);
-    }
-  }, [activeThreadId, queryClient, snapshot?.threadId]);
-
-  // Revert activeTabId if thread switching fails
-  useEffect(() => {
-    if (agentError && snapshot?.threadId) {
-      setActiveTabId(snapshot.threadId);
-    }
-  }, [agentError, snapshot?.threadId]);
-
-  useEffect(() => {
-    if (requestedThreadId && snapshot?.threadId === requestedThreadId) {
-      setRequestedThreadId(null);
-    }
-  }, [requestedThreadId, snapshot?.threadId]);
-
-  useEffect(() => {
-    if (requestedThreadId && agentError) {
-      setRequestedThreadId(null);
-    }
-  }, [agentError, requestedThreadId]);
-
-  useEffect(() => {
-    if (!editingThreadId) return;
-    if (openThreads.some((thread) => thread.id === editingThreadId)) return;
-    cancelRenameThread();
-  }, [editingThreadId, openThreads]);
-
-  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
-      if (
-        isDropdownOpen &&
-        dropdownRef.current &&
-        !dropdownRef.current.contains(target) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(target)
-      ) {
-        if (threadPaneRef.current?.contains(target)) return;
-        setIsDropdownOpen(false);
-      }
       if (
         isModelDropdownOpen &&
         modelDropdownRef.current &&
@@ -981,11 +723,11 @@ export function AgentPanel() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isDropdownOpen, isModelDropdownOpen]);
+  }, [isModelDropdownOpen]);
 
   const snapshotThreadId = snapshot?.threadId ?? "";
-  const threadId = activeTabId || snapshotThreadId;
-  const isSwitchingThread = Boolean(activeTabId && activeTabId !== snapshotThreadId);
+  const threadId = requestedThreadId ?? snapshotThreadId;
+  const isSwitchingThread = Boolean(requestedThreadId && requestedThreadId !== snapshotThreadId);
   // Match by the agent session id the request carries against the session the
   // user is currently viewing — this is the identity the agent itself used, so
   // it's reliable even when the main process couldn't resolve the request's
@@ -1126,48 +868,6 @@ export function AgentPanel() {
     scrollRafRef.current = requestAnimationFrame(tick);
   }, [latestConversationScrollKey, isStreaming, allMessages.length]);
 
-  // Tabs whose close is in flight (or whose thread the agent snapshot still
-  // references after closing). Guards both the double-click-on-X case and the
-  // tab-sync effect above, which would otherwise re-open a just-closed tab
-  // because snapshot.threadId lags behind until switchThread completes.
-  const closingTabIdsRef = useRef<Set<string>>(new Set());
-
-  const handleSelectThread = async (id: string) => {
-    closingTabIdsRef.current.delete(id);
-    setActiveTabId(id);
-    if (id === snapshot?.threadId) return;
-    setRequestedThreadId(id);
-    await switchThread(id);
-  };
-
-  const handleCloseThreadTab = async (id: string) => {
-    // A rapid double-click on the X must not fire a second close (which
-    // would otherwise re-run next-active selection against stale state).
-    if (closingTabIdsRef.current.has(id)) return;
-    closingTabIdsRef.current.add(id);
-    try {
-      const wasActive = id === activeTabId;
-      // The main process is the single source of truth for which tab becomes
-      // active next (MRU switch history, then right neighbor, then left) —
-      // the renderer just follows nextState.activeThreadId.
-      const nextState = await window.omni.tabs.close(id);
-      await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
-
-      if (!wasActive) return;
-      if (nextState.activeThreadId) {
-        await handleSelectThread(nextState.activeThreadId);
-      } else {
-        setActiveTabId(null);
-      }
-    } finally {
-      // Keep the id flagged while the agent snapshot may still reference the
-      // closed thread; handleSelectThread clears it if the user reopens it.
-      if (id !== useAgentStore.getState().snapshot?.threadId) {
-        closingTabIdsRef.current.delete(id);
-      }
-    }
-  };
-
   const openOrchestration = (seed: string) => {
     setOrchestrationSeed(seed);
     setOrchestrationOpen(true);
@@ -1303,57 +1003,6 @@ export function AgentPanel() {
     }
   };
 
-  const handleDeleteThread = async (thread: Thread) => {
-    if (thread.id === snapshot?.threadId && isStreaming) return;
-    if (!window.confirm(`Permanently delete “${thread.title}” and its session history?`)) return;
-    try {
-      await deleteThread(thread.id);
-      queryClient.setQueriesData<ThreadPage>(
-        { queryKey: ["project-threads", thread.project_id] },
-        (current) => {
-          if (!current) return current;
-          const hadThread = current.threads.some((item) => item.id === thread.id);
-          return {
-            ...current,
-            threads: current.threads.filter((item) => item.id !== thread.id),
-            nextOffset: hadThread ? Math.max(0, current.nextOffset - 1) : current.nextOffset,
-          };
-        },
-      );
-      queryClient.setQueryData<OpenTabsState & { openThreads: Thread[] }>(
-        OPEN_TABS_QUERY_KEY,
-        (current) => {
-          if (!current) return current;
-          const openThreadIds = current.openThreadIds.filter((id) => id !== thread.id);
-          const openThreads = current.openThreads.filter((item) => item.id !== thread.id);
-          return {
-            ...current,
-            openThreadIds,
-            openThreads,
-            activeThreadId:
-              current.activeThreadId === thread.id
-                ? (openThreadIds[0] ?? null)
-                : current.activeThreadId,
-          };
-        },
-      );
-      setIsDropdownOpen(false);
-      await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
-      await queryClient.invalidateQueries({
-        queryKey: ["project-threads", thread.project_id],
-      });
-      const state = await window.omni.tabs.listOpen();
-      if (state.activeThreadId) await handleSelectThread(state.activeThreadId);
-      else setActiveTabId(null);
-    } catch (err) {
-      toast({
-        icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Delete failed",
-        description: err instanceof Error ? err.message : "The thread was not deleted.",
-      });
-    }
-  };
-
   const applyCommand = (commandName: string) => {
     if (commandName === SUBAGENT_COMMAND) {
       openOrchestration("");
@@ -1383,7 +1032,7 @@ export function AgentPanel() {
           orchestratorAgentId,
         );
         await loadProjectThreads(projectId, { reset: true });
-        await handleSelectThread(thread.id);
+        await selectThread(thread.id);
         threadId = thread.id;
       }
       // Fire-and-forget like handleSend: the ACP call resolves only when the
@@ -1409,73 +1058,6 @@ export function AgentPanel() {
     }
   };
 
-  const handleCreateThread = async (agentId?: string | null) => {
-    const projectId = pendingCreateProjectId ?? hoveredProjectId ?? activeProject?.id;
-    if (!projectId || isCreatingThread) return;
-    const project = projectsList.find((item) => item.id === projectId);
-    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
-    const title = `${project?.name ?? "Thread"} #${nextCount}`;
-    setIsCreatingThread(true);
-    setPendingCreateProjectId(null);
-    setShowAgentPicker(false);
-    try {
-      const thread = await createThread(
-        projectId,
-        title,
-        snapshot?.threadId ?? null,
-        agentId ?? null,
-      );
-      await loadProjectThreads(projectId, { reset: true });
-      await handleSelectThread(thread.id);
-    } catch (err) {
-      toast({
-        icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Create thread failed",
-        description: err instanceof Error ? err.message : "The thread was not created.",
-      });
-    } finally {
-      setIsCreatingThread(false);
-    }
-  };
-
-  const handleRequestCreateThread = () => {
-    const projectId = hoveredProjectId ?? activeProject?.id;
-    if (!projectId || isCreatingThread) return;
-    const registryAgents = useAgentRegistryStore.getState().agents;
-    const selectedIds = useAgentRegistryStore.getState().selectedAgentIds;
-    const availableAgents = registryAgents.filter((a) => selectedIds.includes(a.id) && a.available);
-    if (availableAgents.length === 0) {
-      toast({
-        icon: <WarningIcon className="size-5 text-amber-500" />,
-        title: "No agents selected",
-        description: "Select a coding agent in the launch window first.",
-      });
-      return;
-    }
-    setPendingCreateProjectId(projectId);
-    setShowAgentPicker(true);
-  };
-
-  const projectItems = projectsList.map((project, idx) => ({
-    id: project.id,
-    name: project.name,
-    icon: project.icon,
-    index: idx,
-  }));
-
-  const checkedIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
-  const addProjectIndex = projectItems.length;
-  const hoveredProjectThreads = useMergedProjectThreads(
-    hoveredProjectId,
-    hoveredProjectThreadsQuery.data?.threads ?? [],
-    threads,
-  );
-  const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
-  const isHoveredThreadsLoading =
-    hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
-  const hoveredThreadsHasMore = hoveredThreadPage
-    ? hoveredThreadPage.hasMore
-    : Boolean(hoveredProjectThreadsQuery.data?.hasMore);
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     return models.filter(
@@ -1526,218 +1108,7 @@ export function AgentPanel() {
         </div>
       )}
 
-      <Tabs
-        value={threadId}
-        onValueChange={handleSelectThread}
-        className="flex-1 flex flex-col min-h-0"
-      >
-        <div
-          className="h-11 flex items-center justify-between px-4 select-none shrink-0 bg-surface-1"
-          data-pipper-id="thread-tabs-container"
-        >
-          <TabsList
-            data-pipper-id="thread-tabs"
-            className="p-1 gap-1 overflow-x-auto max-w-[calc(100%-40px)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {orderedOpenThreads.map((thread) => {
-              const project = projectsList.find((item) => item.id === thread.project_id);
-              const isThreadWorking = runningThreadIds.includes(thread.id);
-              const Icon = isThreadWorking
-                ? TabWorkingIcon
-                : project
-                  ? getProjectIconComponent(project.icon)
-                  : undefined;
-              const isEditing = editingThreadId === thread.id;
-              const agentLabel = thread.agent_id
-                ? (thread.agent_id.split("@")[0] ?? thread.agent_id)
-                : null;
-              const tabTitle = thread.title ?? "New thread";
-              const labelWithAgent = agentLabel ? `${tabTitle}` : tabTitle;
-              return (
-                <TabItem
-                  key={thread.id}
-                  value={thread.id}
-                  label={labelWithAgent}
-                  scrollLabelOnHover
-                  icon={Icon}
-                  onClose={() => handleCloseThreadTab(thread.id)}
-                  editing={isEditing}
-                  editValue={isEditing ? editingThreadTitle : tabTitle}
-                  onEditValueChange={setEditingThreadTitle}
-                  onEditCommit={commitRenameThread}
-                  onEditCancel={cancelRenameThread}
-                  onDoubleClick={() => startRenameThread(thread.id, tabTitle)}
-                  data-pipper-id={`thread-tab-${thread.id}`}
-                />
-              );
-            })}
-          </TabsList>
-
-          <div className="relative">
-            <Button
-              data-pipper-id="add-thread-button"
-              ref={buttonRef}
-              variant="ghost"
-              size="icon-sm"
-              active={isDropdownOpen}
-              onClick={() =>
-                setIsDropdownOpen((prev) => {
-                  const next = !prev;
-                  if (next) {
-                    setHoveredProjectId(activeProject?.id ?? projectItems[0]?.id ?? null);
-                    setIsModelDropdownOpen(false);
-                  }
-                  return next;
-                })
-              }
-            >
-              <PlusIcon size={16} />
-            </Button>
-
-            {isDropdownOpen && (
-              <div
-                data-pipper-id="project-dropdown"
-                ref={dropdownRef}
-                className="absolute right-0 top-full mt-1.5 z-[200]"
-              >
-                <div ref={projectListRef} className="relative">
-                  <Dropdown checkedIndex={checkedIndex} className="w-72 max-h-[300px]">
-                    {projectItems.map((item) => {
-                      const project = projectsList.find((p) => p.id === item.id);
-                      const ProjectIconItem = project
-                        ? getProjectIconComponent(project.icon)
-                        : undefined;
-                      return (
-                        <MenuItem
-                          key={item.id}
-                          index={item.index}
-                          label={item.name}
-                          icon={ProjectIconItem}
-                          checked={activeProject?.id === item.id}
-                          onMouseEnter={() => setHoveredProjectId(item.id)}
-                          onFocus={() => setHoveredProjectId(item.id)}
-                          onSelect={() => setHoveredProjectId(item.id)}
-                        />
-                      );
-                    })}
-                    {projectItems.length > 0 && <DropdownSeparator />}
-                    <MenuItem
-                      index={addProjectIndex}
-                      label="Add Project"
-                      icon={FolderPlusIcon}
-                      onSelect={async () => {
-                        setIsDropdownOpen(false);
-                        await window.omni.launch.show("add");
-                      }}
-                    />
-                  </Dropdown>
-                </div>
-                {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
-                  ? createPortal(
-                      <div
-                        data-pipper-id="thread-pane"
-                        className="w-80 max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
-                        ref={threadPaneRef}
-                        style={threadPaneStyle}
-                      >
-                        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                          Threads
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          {threadError && (
-                            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-2 text-[12px] text-red-500">
-                              {threadError}
-                            </div>
-                          )}
-                          {hoveredProjectThreads.length > 0 ? (
-                            hoveredProjectThreads.map((thread) => {
-                              const isActive = thread.id === threadId;
-
-                              return (
-                                <div
-                                  key={thread.id}
-                                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted"
-                                >
-                                  <button
-                                    type="button"
-                                    className="min-w-0 flex-1 text-left"
-                                    onClick={async () => {
-                                      setIsDropdownOpen(false);
-                                      await handleSelectThread(thread.id);
-                                    }}
-                                  >
-                                    <span
-                                      className={
-                                        isActive
-                                          ? "block w-full truncate text-[13px] text-foreground font-medium"
-                                          : "block w-full truncate text-[13px] text-muted-foreground hover:text-foreground"
-                                      }
-                                    >
-                                      {thread.title}
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    aria-label={`Delete ${thread.title}`}
-                                    disabled={thread.id === snapshot?.threadId && isStreaming}
-                                    onClick={() => void handleDeleteThread(thread)}
-                                    className="text-muted-foreground hover:text-destructive disabled:opacity-30"
-                                  >
-                                    <TrashIcon size={14} />
-                                  </button>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <div className="px-2 py-3 text-[13px] text-muted-foreground">
-                              {isHoveredThreadsLoading ? "Loading threads..." : "No threads yet."}
-                            </div>
-                          )}
-                        </div>
-                        {hoveredProjectId && hoveredThreadsHasMore ? (
-                          <button
-                            type="button"
-                            className="mt-2 w-full rounded-lg px-2 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            disabled={isHoveredThreadsLoading}
-                            onClick={() => {
-                              void loadProjectThreads(hoveredProjectId).then(() => {
-                                const nextError = useThreadStore.getState().error;
-                                if (nextError) {
-                                  toast({
-                                    icon: <WarningIcon className="size-5 text-red-500" />,
-                                    title: "Threads failed to load",
-                                    description: nextError,
-                                  });
-                                }
-                              });
-                            }}
-                          >
-                            {isHoveredThreadsLoading ? "Loading..." : "Load more"}
-                          </button>
-                        ) : null}
-                        <div className="mt-2 pt-2 border-t border-border/60">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="w-full justify-center"
-                            leadingIcon={PlusIcon}
-                            disabled={isCreatingThread}
-                            onClick={async () => {
-                              setIsDropdownOpen(false);
-                              handleRequestCreateThread();
-                            }}
-                          >
-                            {isCreatingThread ? "Creating..." : "Create new thread"}
-                          </Button>
-                        </div>
-                      </div>,
-                      document.body,
-                    )
-                  : null}
-              </div>
-            )}
-          </div>
-        </div>
+      <div className="flex-1 flex flex-col min-h-0">
 
         <div className="relative flex-1 overflow-hidden mt-4  min-h-0 flex flex-col">
           {allMessages.length === 0 && (
@@ -2196,7 +1567,6 @@ export function AgentPanel() {
                           active={isModelDropdownOpen}
                           disabled={models.length === 0 || runtimeControlsDisabled}
                           onClick={() => {
-                            setIsDropdownOpen(false);
                             setIsModelDropdownOpen((prev) => !prev);
                           }}
                         >
@@ -2355,62 +1725,7 @@ export function AgentPanel() {
             </div>
           </div>
         </div>
-      </Tabs>
-
-      {showAgentPicker && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[300] flex items-center justify-center"
-              onClick={() => {
-                setShowAgentPicker(false);
-                setPendingCreateProjectId(null);
-              }}
-            >
-              <div className="absolute inset-0 bg-black/30" />
-              <div
-                className="relative z-10 w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Pick an agent for this thread
-                </div>
-                <div className="flex flex-col gap-1 mt-1">
-                  {useAgentRegistryStore
-                    .getState()
-                    .agents.filter(
-                      (a) =>
-                        useAgentRegistryStore.getState().selectedAgentIds.includes(a.id) &&
-                        a.available,
-                    )
-                    .map((agent) => (
-                      <button
-                        key={agent.id}
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-accent"
-                        onClick={() => {
-                          void handleCreateThread(agent.id);
-                        }}
-                      >
-                        <span className="flex-1 font-medium">{agent.displayName}</span>
-                        <span className="text-[11px] text-muted-foreground">{agent.name}</span>
-                      </button>
-                    ))}
-                </div>
-                <button
-                  type="button"
-                  className="mt-1 w-full rounded-lg px-2 py-1.5 text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => {
-                    setShowAgentPicker(false);
-                    setPendingCreateProjectId(null);
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      </div>
     </section>
   );
 }

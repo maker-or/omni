@@ -45,6 +45,14 @@ function migrateThreadsTable(): void {
     "ALTER TABLE threads ADD COLUMN agent_session_id TEXT;",
   );
 
+  // Worktree binding: which worktree a thread's session runs in (app-only hint;
+  // git remains source of truth). Nullable — most threads run in the project root.
+  ensureColumn(
+    "threads",
+    "worktree_path",
+    "ALTER TABLE threads ADD COLUMN worktree_path TEXT;",
+  );
+
   // Backfill from legacy session_file when present
   if (columnExists("threads", "session_file")) {
     db.exec(`

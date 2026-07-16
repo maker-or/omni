@@ -120,6 +120,7 @@ interface AgentState {
     title: string | null,
     afterThreadId?: string | null,
     agentId?: string | null,
+    worktreePath?: string | null,
   ) => Promise<Thread>;
   setConfigOption: (configId: string, value: string | boolean) => Promise<void>;
   setModel: (model: { provider?: string; modelId: string }) => Promise<boolean>;
@@ -849,12 +850,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     await threadSwitchQueue;
   },
 
-  createThread: async (projectId, title, afterThreadId, agentId) => {
+  createThread: async (projectId, title, afterThreadId, agentId, worktreePath) => {
     const thread = await window.omni.agent.createThread(
       projectId,
       title ?? null,
       afterThreadId ?? null,
       agentId ?? null,
+      worktreePath ?? null,
     );
     await get().refresh();
     return thread;
