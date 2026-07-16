@@ -68,6 +68,7 @@ export function createThread(
   agentId: string,
   agentSessionId: string,
   sortOrder?: number,
+  worktreePath?: string | null,
 ): Thread {
   const db = getDb();
   const nextSortOrder = sortOrder ?? getMaxThreadSortOrder() + 1;
@@ -84,12 +85,13 @@ export function createThread(
     agent_id: agentId,
     agent_session_id: agentSessionId,
     title: title?.trim() || null,
+    worktree_path: worktreePath ?? null,
     created_at: now,
     last_used_at: now,
   };
   const stmt = db.prepare(
-    `INSERT INTO threads (id, project_id, agent_id, agent_session_id, title, sort_order, created_at, last_used_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO threads (id, project_id, agent_id, agent_session_id, title, worktree_path, sort_order, created_at, last_used_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   stmt.run(
     row.id,
@@ -97,6 +99,7 @@ export function createThread(
     row.agent_id,
     row.agent_session_id,
     row.title,
+    row.worktree_path ?? null,
     nextSortOrder,
     row.created_at,
     row.last_used_at,

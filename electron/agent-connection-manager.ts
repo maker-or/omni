@@ -1,7 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { constants as fsConstants, existsSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
   AgentCapabilities,
@@ -33,6 +34,7 @@ import {
 } from "./threads.ts";
 import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
 import { getActivePath } from "./workspace-manager.ts";
+import { isLiveWorktree } from "./worktree-manager.ts";
 import {
   getAgentDescriptor,
   getDefaultAgentId,
@@ -126,6 +128,33 @@ function isAuthRequiredError(err: unknown): boolean {
   return err.code === -32000 && /auth(?:entication)?[\s_-]*required/i.test(err.message);
 }
 
+/**
+ * `O_NOFOLLOW` refuses to open a final path component that is a symlink, so a
+ * symlink swapped in after the containment check can't redirect an agent's
+ * read/write out of the workspace (TOCTOU). Unavailable on Windows — fall back
+ * to plain flags there.
+ */
+const NO_FOLLOW = process.platform !== "win32" && typeof fsConstants.O_NOFOLLOW === "number";
+
+function readFileOptions(): { encoding: "utf8"; flag?: number } {
+  return NO_FOLLOW
+    ? { encoding: "utf8", flag: fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW }
+    : { encoding: "utf8" };
+}
+
+function writeFileOptions(): { encoding: "utf8"; flag?: number } {
+  return NO_FOLLOW
+    ? {
+        encoding: "utf8",
+        flag:
+          fsConstants.O_WRONLY |
+          fsConstants.O_CREAT |
+          fsConstants.O_TRUNC |
+          fsConstants.O_NOFOLLOW,
+      }
+    : { encoding: "utf8" };
+}
+
 function emptySessionState(): AcpSessionState {
   return {
     projectId: null,
@@ -181,6 +210,14 @@ export class AgentConnectionManager {
   private activeThreadId: string | null = null;
   private preferredAgentId: string = getDefaultAgentId();
   private readonly sessions = new Map<string, ThreadSessionRuntime>();
+  /**
+   * Path guard: ACP session id → the set of filesystem roots that session may
+   * touch. Seeded from the session's cwd (the worktree or project root) so a
+   * worktree-bound agent can't read/write into a sibling worktree. Sessions
+   * absent from the map (editor/updater internals) are unguarded. See
+   * docs/worktree.md "Threat model".
+   */
+  private readonly workspaceRoots = new Map<string, Set<string>>();
   private readonly pendingPermissions = new Map<string, PendingPermission>();
   private readonly terminalManager: TerminalManager;
   /** Client-hosted subagent tool: lets any session spawn sibling agent sessions. */
@@ -304,6 +341,24 @@ export class AgentConnectionManager {
       };
     }
     return this.buildSessionState(threadId);
+  }
+
+  /**
+   * The active thread's working directory — its bound worktree (validated), else
+   * the project root. This is the app's single source of truth for "where am I",
+   * so file listings and other cwd-relative surfaces follow a worktree switch
+   * automatically (switching a worktree switches the active thread).
+   */
+  getActiveCwd(): string | null {
+    const threadId = this.activeThreadId;
+    if (!threadId) return null;
+    const runtime = this.sessions.get(threadId);
+    if (runtime) return runtime.cwd;
+    const thread = getThread(threadId);
+    if (!thread) return null;
+    const project = getProject(thread.project_id);
+    if (!project) return null;
+    return this.resolveThreadCwd(thread.worktree_path, project.path);
   }
 
   private authMessage(): string | null {
@@ -503,6 +558,13 @@ export class AgentConnectionManager {
         return this.handleWriteTextFile(ctx.params);
       })
       .onRequest(acp.methods.client.terminal.create, async (ctx) => {
+        // Option A path guard: bound the terminal's *starting* cwd to the
+        // session's workspace. The spawned process can still `cd` out — an
+        // honest agent won't; a hard boundary (OS sandbox) is deferred. See
+        // docs/worktree.md "Threat model".
+        if (ctx.params.cwd) {
+          this.assertWithinWorkspace(ctx.params.sessionId, ctx.params.cwd);
+        }
         const terminalId = this.terminalManager.create({
           command: ctx.params.command,
           args: ctx.params.args ?? undefined,
@@ -589,6 +651,7 @@ export class AgentConnectionManager {
   private async closeConnection(): Promise<void> {
     this.connection = null;
     this.sessions.clear();
+    this.workspaceRoots.clear();
     this.terminalManager.killAll();
     const liveConnections = [...this.connections.values()];
     this.connections.clear();
@@ -607,8 +670,11 @@ export class AgentConnectionManager {
   }
 
   private invalidateAgentSessions(agentId: string): void {
-    for (const threadId of this.sessions.keys()) {
-      if (getThread(threadId)?.agent_id === agentId) this.sessions.delete(threadId);
+    for (const [threadId, runtime] of this.sessions) {
+      if (getThread(threadId)?.agent_id === agentId) {
+        this.releaseWorkspaceRoot(runtime.agentSessionId);
+        this.sessions.delete(threadId);
+      }
     }
     if (this.editorSession?.agentId === agentId) {
       this.editorSession = null;
@@ -773,7 +839,8 @@ export class AgentConnectionManager {
   private async handleReadTextFile(
     params: acp.ReadTextFileRequest,
   ): Promise<acp.ReadTextFileResponse> {
-    const content = await readFile(params.path, "utf8");
+    this.assertWithinWorkspace(params.sessionId, params.path);
+    const content = await readFile(params.path, readFileOptions());
     if (params.line != null || params.limit != null) {
       const lines = content.split("\n");
       const start = Math.max(0, (params.line ?? 1) - 1);
@@ -786,8 +853,9 @@ export class AgentConnectionManager {
   private async handleWriteTextFile(
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse> {
+    this.assertWithinWorkspace(params.sessionId, params.path);
     await mkdir(dirname(params.path), { recursive: true });
-    await writeFile(params.path, params.content, "utf8");
+    await writeFile(params.path, params.content, writeFileOptions());
     return {};
   }
 
@@ -841,6 +909,75 @@ export class AgentConnectionManager {
       options: models.map((m) => ({ value: m.modelId, name: m.name })),
     } as unknown as SessionConfigOption;
     return [modelOption, ...options];
+  }
+
+  /**
+   * The cwd a thread's session should run in: its bound worktree when that path
+   * still resolves to a live worktree, else the project root. Validating on bind
+   * keeps git the source of truth — an externally-removed worktree degrades to
+   * the project root instead of failing `session/new` on a stale path.
+   */
+  private resolveThreadCwd(
+    worktreePath: string | null | undefined,
+    projectPath: string,
+  ): string {
+    if (worktreePath && isLiveWorktree(worktreePath)) return worktreePath;
+    return projectPath;
+  }
+
+  /** Seed the path guard for an ACP session with its (realpath'd) cwd root. */
+  private registerWorkspaceRoot(agentSessionId: string, cwd: string): void {
+    let root = resolve(cwd);
+    try {
+      root = realpathSync(root);
+    } catch {
+      // cwd may not exist yet in exotic cases; fall back to the resolved path.
+    }
+    this.workspaceRoots.set(agentSessionId, new Set([root]));
+  }
+
+  private releaseWorkspaceRoot(agentSessionId: string | null | undefined): void {
+    if (agentSessionId) this.workspaceRoots.delete(agentSessionId);
+  }
+
+  /**
+   * Resolve a target path through its deepest *existing* ancestor's realpath so
+   * a not-yet-created file still resolves through symlink-free parents (defeats
+   * `../worktree-b` and a symlinked parent), then re-append the missing tail.
+   */
+  private resolveExistingPrefix(targetPath: string): string {
+    let current = resolve(targetPath);
+    const tail: string[] = [];
+    while (!existsSync(current)) {
+      const parent = dirname(current);
+      if (parent === current) break;
+      tail.unshift(current.slice(parent.length + 1));
+      current = parent;
+    }
+    let real = current;
+    try {
+      real = realpathSync(current);
+    } catch {
+      // keep the resolved (non-real) path
+    }
+    return tail.length ? join(real, ...tail) : real;
+  }
+
+  /**
+   * Reject an agent file/terminal target that escapes its session's workspace
+   * root(s). No-op for unguarded (internal) sessions. Uses `path.relative` — not
+   * `startsWith`, which would let `/proj-evil` escape root `/proj`.
+   */
+  private assertWithinWorkspace(agentSessionId: string | undefined, targetPath: string): void {
+    if (!agentSessionId) return;
+    const roots = this.workspaceRoots.get(agentSessionId);
+    if (!roots || roots.size === 0) return;
+    const resolved = this.resolveExistingPrefix(targetPath);
+    for (const root of roots) {
+      const rel = relative(root, resolved);
+      if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return;
+    }
+    throw new Error("Path outside workspace");
   }
 
   private async sessionNew(
@@ -975,6 +1112,9 @@ export class AgentConnectionManager {
     setActiveProjectId(project.id);
     if (projectChanged) this.broadcastActiveProject?.(project.id);
 
+    // Bind the session to its worktree (validated), else the project root.
+    const cwd = this.resolveThreadCwd(thread.worktree_path, project.path);
+
     // Close previous session optionally — skip for rapid switches; load new
     if (!this.sessions.has(threadId)) {
       // Register the runtime BEFORE awaiting session/load: agents stream the
@@ -987,7 +1127,7 @@ export class AgentConnectionManager {
         agentSessionId: thread.agent_session_id,
         agentId: live.agentId,
         projectId: project.id,
-        cwd: project.path,
+        cwd,
         slice: createEmptySessionSlice(),
         editorText: "",
         promptInFlight: false,
@@ -998,7 +1138,7 @@ export class AgentConnectionManager {
         let sessionId = thread.agent_session_id;
         let configOptions: SessionConfigOption[] = [];
         try {
-          const loaded = await this.sessionLoad(live, project.path, sessionId);
+          const loaded = await this.sessionLoad(live, cwd, sessionId);
           sessionId = loaded.sessionId;
           configOptions = loaded.configOptions;
         } catch {
@@ -1007,12 +1147,12 @@ export class AgentConnectionManager {
           // doesn't append onto half a timeline.
           runtime.slice = createEmptySessionSlice();
           try {
-            const resumed = await this.sessionResume(live, thread.agent_session_id, project.path);
+            const resumed = await this.sessionResume(live, thread.agent_session_id, cwd);
             sessionId = resumed.sessionId;
             configOptions = resumed.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
           } catch {
-            const created = await this.sessionNew(live, project.path);
+            const created = await this.sessionNew(live, cwd);
             sessionId = created.sessionId;
             configOptions = created.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
@@ -1022,6 +1162,7 @@ export class AgentConnectionManager {
         // Merge instead of replacing the slice: the replay already populated
         // entries/toolCalls, only the session identity and config are new.
         runtime.agentSessionId = sessionId;
+        this.registerWorkspaceRoot(sessionId, cwd);
         if (configOptions.length > 0 || runtime.slice.configOptions.length === 0) {
           runtime.slice = { ...runtime.slice, configOptions };
         }
@@ -1043,13 +1184,20 @@ export class AgentConnectionManager {
     title: string | null,
     afterThreadId?: string | null,
     agentId?: string | null,
+    worktreePath?: string | null,
   ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
+    // Bind to the worktree when valid; store only what we actually bound to so a
+    // stale/invalid path is never persisted as this thread's worktree.
+    const cwd = this.resolveThreadCwd(worktreePath, project.path);
+    const boundWorktree = cwd === project.path ? null : cwd;
+
     const targetAgentId = agentId ?? this.preferredAgentId;
     const live = await this.ensureConnection(targetAgentId);
-    const created = await this.sessionNew(live, project.path);
+    const created = await this.sessionNew(live, cwd);
+    this.registerWorkspaceRoot(created.sessionId, cwd);
 
     let sortOrder: number | undefined;
     if (afterThreadId) {
@@ -1057,14 +1205,21 @@ export class AgentConnectionManager {
       if (afterOrder != null) sortOrder = afterOrder + 1;
     }
 
-    const thread = createThreadRow(projectId, title, live.agentId, created.sessionId, sortOrder);
+    const thread = createThreadRow(
+      projectId,
+      title,
+      live.agentId,
+      created.sessionId,
+      sortOrder,
+      boundWorktree,
+    );
 
     this.sessions.set(thread.id, {
       threadId: thread.id,
       agentSessionId: created.sessionId,
       agentId: live.agentId,
       projectId,
-      cwd: project.path,
+      cwd,
       slice: createEmptySessionSlice({ configOptions: created.configOptions }),
       editorText: "",
       promptInFlight: false,
@@ -1103,6 +1258,7 @@ export class AgentConnectionManager {
         // best effort
       }
     }
+    this.releaseWorkspaceRoot(sessionId);
     this.sessions.delete(threadId);
     removeThreadRow(threadId);
 
@@ -1127,6 +1283,7 @@ export class AgentConnectionManager {
     } catch {
       // best effort
     }
+    this.releaseWorkspaceRoot(runtime.agentSessionId);
     this.sessions.delete(threadId);
   }
 

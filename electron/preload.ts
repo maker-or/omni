@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
+import type { GitBranch, Worktree } from "../contracts/worktrees.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
 import type {
   AcpBridgeEvent,
@@ -162,6 +163,22 @@ const api = {
       };
     },
   },
+  worktrees: {
+    list: (projectId: string): Promise<Worktree[]> =>
+      ipcRenderer.invoke("worktrees:list", projectId),
+    create: (input: { projectId: string; name: string }): Promise<Worktree> =>
+      ipcRenderer.invoke("worktrees:create", input),
+    switch: (input: { projectId: string; path: string }): Promise<Thread> =>
+      ipcRenderer.invoke("worktrees:switch", input),
+    listBranches: (input: { projectId: string }): Promise<GitBranch[]> =>
+      ipcRenderer.invoke("worktrees:listBranches", input),
+    switchBranch: (input: {
+      projectId: string;
+      path: string;
+      branch: string;
+    }): Promise<{ thread: Thread; worktree: Worktree }> =>
+      ipcRenderer.invoke("worktrees:switchBranch", input),
+  },
   onboarding: {
     verifyGit: (): Promise<boolean> => ipcRenderer.invoke("onboarding:verifyGit"),
     startSetup: (): Promise<void> => ipcRenderer.invoke("onboarding:startSetup"),
@@ -186,8 +203,9 @@ const api = {
       title: string | null,
       afterThreadId?: string | null,
       agentId?: string | null,
+      worktreePath?: string | null,
     ): Promise<Thread> =>
-      ipcRenderer.invoke("threads:create", projectId, title, afterThreadId, agentId),
+      ipcRenderer.invoke("threads:create", projectId, title, afterThreadId, agentId, worktreePath),
     rename: (id: string, title: string): Promise<Thread> =>
       ipcRenderer.invoke("threads:rename", id, title),
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
@@ -232,8 +250,16 @@ const api = {
       title: string | null,
       afterThreadId?: string | null,
       agentId?: string | null,
+      worktreePath?: string | null,
     ): Promise<Thread> =>
-      ipcRenderer.invoke("agent:createThread", projectId, title, afterThreadId, agentId),
+      ipcRenderer.invoke(
+        "agent:createThread",
+        projectId,
+        title,
+        afterThreadId,
+        agentId,
+        worktreePath,
+      ),
     getSelectedAgentIds: (): Promise<string[]> => ipcRenderer.invoke("agent:getSelectedAgentIds"),
     setSelectedAgentIds: (agentIds: string[]): Promise<void> =>
       ipcRenderer.invoke("agent:setSelectedAgentIds", agentIds),

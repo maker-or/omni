@@ -45,6 +45,28 @@ afterEach(() => {
 });
 
 describe("agent store ACP bridge behavior", () => {
+  test("forwards a selected workspace when creating a thread", async () => {
+    const createThread = vi.fn(async () => ({ id: "thread-worktree" }));
+    const agentApi = {
+      createThread,
+      getState: vi.fn(async () => sessionState("thread-worktree")),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    await store
+      .getState()
+      .createThread("project-1", "Workspace thread", "after-thread", "agent-1", "/tmp/worktree");
+
+    expect(createThread).toHaveBeenCalledWith(
+      "project-1",
+      "Workspace thread",
+      "after-thread",
+      "agent-1",
+      "/tmp/worktree",
+    );
+  });
+
   test("keeps permission UI responsive while a thread switch is pending", async () => {
     let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
     let currentState = sessionState("thread-a");
