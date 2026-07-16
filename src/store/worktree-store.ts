@@ -16,6 +16,8 @@ interface WorktreeState {
   isLoadingBranches: boolean;
   isSwitchingBranch: boolean;
   error: string | null;
+  lastWorktreeRequest: string | null;
+  lastBranchRequest: string | null;
   loadWorktrees: (projectId: string) => Promise<void>;
   loadBranches: (projectId: string) => Promise<void>;
   createWorktree: (projectId: string, name: string) => Promise<Worktree | null>;
@@ -25,7 +27,7 @@ interface WorktreeState {
   clear: () => void;
 }
 
-export const useWorktreeStore = create<WorktreeState>((set) => ({
+export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   worktrees: [],
   branches: [],
   projectId: null,
@@ -37,16 +39,25 @@ export const useWorktreeStore = create<WorktreeState>((set) => ({
   isLoadingBranches: false,
   isSwitchingBranch: false,
   error: null,
+  lastWorktreeRequest: null,
+  lastBranchRequest: null,
   loadWorktrees: async (projectId) => {
-    set({ isLoading: true, error: null });
+    const requestToken = `${projectId}-${Date.now()}`;
+    set({ isLoading: true, error: null, lastWorktreeRequest: requestToken });
     try {
       const worktrees = await window.omni.worktrees.list(projectId);
-      set({ worktrees, projectId, isLoading: false });
+      // Only apply if this request is still current
+      if (get().lastWorktreeRequest === requestToken) {
+        set({ worktrees, projectId, isLoading: false });
+      }
     } catch (err) {
-      set({
-        error: err instanceof Error ? err.message : "Failed to load worktrees",
-        isLoading: false,
-      });
+      // Only apply if this request is still current
+      if (get().lastWorktreeRequest === requestToken) {
+        set({
+          error: err instanceof Error ? err.message : "Failed to load worktrees",
+          isLoading: false,
+        });
+      }
     }
   },
   createWorktree: async (projectId, name) => {
@@ -67,15 +78,22 @@ export const useWorktreeStore = create<WorktreeState>((set) => ({
     }
   },
   loadBranches: async (projectId) => {
-    set({ isLoadingBranches: true, error: null });
+    const requestToken = `${projectId}-${Date.now()}`;
+    set({ isLoadingBranches: true, error: null, lastBranchRequest: requestToken });
     try {
       const branches = await window.omni.worktrees.listBranches({ projectId });
-      set({ branches, branchProjectId: projectId, isLoadingBranches: false });
+      // Only apply if this request is still current
+      if (get().lastBranchRequest === requestToken) {
+        set({ branches, branchProjectId: projectId, isLoadingBranches: false });
+      }
     } catch (err) {
-      set({
-        error: err instanceof Error ? err.message : "Failed to load branches",
-        isLoadingBranches: false,
-      });
+      // Only apply if this request is still current
+      if (get().lastBranchRequest === requestToken) {
+        set({
+          error: err instanceof Error ? err.message : "Failed to load branches",
+          isLoadingBranches: false,
+        });
+      }
     }
   },
   switchWorktree: async (projectId, path) => {

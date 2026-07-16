@@ -148,8 +148,8 @@ describe("listWorktrees / isLiveWorktree", () => {
       workspaceName: "main",
       branch: "main",
     });
-    expect(isLiveWorktree(worktree.path)).toBe(true);
-    expect(isLiveWorktree(join(root, "does-not-exist"))).toBe(false);
+    expect(isLiveWorktree(worktree.path, projectPath)).toBe(true);
+    expect(isLiveWorktree(join(root, "does-not-exist"), projectPath)).toBe(false);
   });
 
   test("always resolves one annotated root, even when the path doesn't match an entry", () => {

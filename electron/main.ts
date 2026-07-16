@@ -1182,8 +1182,17 @@ function registerIpc(): void {
       if (!project) throw new Error(`Project not found: ${input.projectId}`);
 
       const worktree = switchWorktreeBranch(project.path, input.path, input.branch);
-      const { thread } = await activateProjectWorktree(input.projectId, worktree.path);
-      return { thread, worktree };
+      try {
+        const { thread } = await activateProjectWorktree(input.projectId, worktree.path);
+        return { thread, worktree };
+      } catch (err) {
+        // Activation failed: restore the worktree state to match the mutated Git branch
+        const restoredWorktree = listWorktrees(project.path).find((w) => w.path === input.path);
+        if (restoredWorktree) {
+          return { thread: null, worktree: restoredWorktree };
+        }
+        throw err;
+      }
     },
   );
 

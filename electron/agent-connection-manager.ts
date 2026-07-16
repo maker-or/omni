@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { constants as fsConstants, existsSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
   AgentCapabilities,
@@ -921,7 +921,7 @@ export class AgentConnectionManager {
     worktreePath: string | null | undefined,
     projectPath: string,
   ): string {
-    if (worktreePath && isLiveWorktree(worktreePath)) return worktreePath;
+    if (worktreePath && isLiveWorktree(worktreePath, projectPath)) return worktreePath;
     return projectPath;
   }
 
@@ -951,7 +951,7 @@ export class AgentConnectionManager {
     while (!existsSync(current)) {
       const parent = dirname(current);
       if (parent === current) break;
-      tail.unshift(current.slice(parent.length + 1));
+      tail.unshift(basename(current));
       current = parent;
     }
     let real = current;
@@ -969,9 +969,16 @@ export class AgentConnectionManager {
    * `startsWith`, which would let `/proj-evil` escape root `/proj`.
    */
   private assertWithinWorkspace(agentSessionId: string | undefined, targetPath: string): void {
+    // Explicit allowlist of unguarded internal session IDs that bypass validation
+    const unguardedInternalSessions = new Set<string>([]);
+
     if (!agentSessionId) return;
+    if (unguardedInternalSessions.has(agentSessionId)) return;
+
     const roots = this.workspaceRoots.get(agentSessionId);
-    if (!roots || roots.size === 0) return;
+    if (!roots || roots.size === 0) {
+      throw new Error("Path outside workspace");
+    }
     const resolved = this.resolveExistingPrefix(targetPath);
     for (const root of roots) {
       const rel = relative(root, resolved);

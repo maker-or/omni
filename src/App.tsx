@@ -5,8 +5,6 @@ import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useTerminalStore } from "@/store/terminal-store";
-import { SelectionBackground, GitDiffIcon } from "@phosphor-icons/react";
-import { Bell, ChevronDown, FolderPlus, GitBranch, Plus } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/toast";
 import { AgentView } from "@/components/agent-view";
@@ -27,6 +25,7 @@ import { UpdateDialog } from "@/components/update-dialog";
 import { useUpdateStore } from "@/store/update-store";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
+import { SelectionBackground, GitDiffIcon, Bell, FolderPlus, GitBranch, Plus } from "@phosphor-icons/react";
 
 export default function App() {
   const [stage] = useState<string | null>(() => {
@@ -193,7 +192,11 @@ export default function App() {
     if (!worktree) return;
     const thread = await switchWorktree(activeProject.id, worktree.path);
     if (!thread) return;
-    useTerminalStore.getState().restartSessionsIn(worktree.path);
+    const wasTerminalActive = workspaceMode === "terminal" && activeTerminalId;
+    const newActiveId = useTerminalStore.getState().restartSessionsIn(worktree.path);
+    if (wasTerminalActive && newActiveId) {
+      useWorkspaceViewStore.getState().showTerminal(newActiveId);
+    }
     setWorkspaceName("");
     setIsWorkspaceFormOpen(false);
     toast({
@@ -207,7 +210,11 @@ export default function App() {
     if (!activeProject || isSwitchingWorktree) return;
     const thread = await switchWorktree(activeProject.id, path);
     if (!thread) return;
-    useTerminalStore.getState().restartSessionsIn(path);
+    const wasTerminalActive = workspaceMode === "terminal" && activeTerminalId;
+    const newActiveId = useTerminalStore.getState().restartSessionsIn(path);
+    if (wasTerminalActive && newActiveId) {
+      useWorkspaceViewStore.getState().showTerminal(newActiveId);
+    }
     closeWorkspaceDropdown();
   };
 
@@ -458,7 +465,7 @@ export default function App() {
                             ? "bg-accent text-foreground"
                             : "text-muted-foreground hover:bg-hover hover:text-foreground"
                         }`}
-                        disabled={isSwitchingWorktree}
+                        disabled={isSelected || isSwitchingWorktree}
                         onClick={() => void handleSwitchWorktree(worktree.path)}
                       >
                         <GitBranch className="size-3.5 shrink-0 opacity-70" />

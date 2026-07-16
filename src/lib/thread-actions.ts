@@ -18,5 +18,14 @@ export async function selectThread(id: string): Promise<void> {
     return;
   }
   view.requestThread(id);
-  await useAgentStore.getState().switchThread(id);
+  try {
+    await useAgentStore.getState().switchThread(id);
+  } catch (err) {
+    // Clear the optimistic requestedThreadId only if it still matches the current request
+    const currentRequestedId = useWorkspaceViewStore.getState().requestedThreadId;
+    if (currentRequestedId === id) {
+      view.requestThread(null);
+    }
+    throw err;
+  }
 }

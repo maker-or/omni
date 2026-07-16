@@ -540,7 +540,7 @@ export function GlobalTabBar() {
           data-pipper-id="global-tabs"
           className="min-w-0 p-1 gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
-          {orderedOpenThreads.map((thread) => {
+          {orderedOpenThreads.map((thread, idx) => {
             const project = projectsList.find((item) => item.id === thread.project_id);
             const isThreadWorking = runningThreadIds.includes(thread.id);
             const Icon = isThreadWorking
@@ -553,6 +553,7 @@ export function GlobalTabBar() {
             return (
               <TabItem
                 key={thread.id}
+                index={idx}
                 value={thread.id}
                 label={tabTitle}
                 scrollLabelOnHover
@@ -568,9 +569,10 @@ export function GlobalTabBar() {
               />
             );
           })}
-          {terminalTabs.map((session) => (
+          {terminalTabs.map((session, idx) => (
             <TabItem
               key={session.id}
+              index={orderedOpenThreads.length + idx}
               value={`${TERMINAL_TAB_PREFIX}${session.id}`}
               label={session.title}
               scrollLabelOnHover
@@ -588,6 +590,7 @@ export function GlobalTabBar() {
             variant="ghost"
             size="icon-sm"
             active={isDropdownOpen}
+            aria-label="Add tab"
             onClick={() =>
               setIsDropdownOpen((prev) => {
                 const next = !prev;

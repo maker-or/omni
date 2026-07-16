@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -258,16 +259,36 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   // 1. Add the worktree on a new branch off the base branch.
   git(projectPath, ["worktree", "add", worktreePath, "-b", branch, base]);
 
-  // 2. Seed gitignored files (untrusted data, allowlisted, contained).
-  seedGitignoredFiles(projectPath, worktreePath, options.includeGlobs);
+  try {
+    // 2. Seed gitignored files (untrusted data, allowlisted, contained).
+    seedGitignoredFiles(projectPath, worktreePath, options.includeGlobs);
 
-  // 3. Setup script (trusted, user-authored, may touch the main checkout).
-  if (options.setupScript) {
-    runSetupScript(options.setupScript, {
-      worktreePath,
-      rootPath: projectPath,
-      name,
-    });
+    // 3. Setup script (trusted, user-authored, may touch the main checkout).
+    if (options.setupScript) {
+      runSetupScript(options.setupScript, {
+        worktreePath,
+        rootPath: projectPath,
+        name,
+      });
+    }
+  } catch (err) {
+    // Cleanup: remove the worktree and delete the newly created branch
+    try {
+      git(projectPath, ["worktree", "remove", worktreePath, "--force"]);
+    } catch {
+      // Best effort cleanup of worktree registration
+    }
+    try {
+      git(projectPath, ["branch", "-D", branch]);
+    } catch {
+      // Best effort cleanup of branch
+    }
+    try {
+      rmSync(worktreePath, { recursive: true, force: true });
+    } catch {
+      // Best effort cleanup of directory
+    }
+    throw err;
   }
 
   const head = git(worktreePath, ["rev-parse", "HEAD"]);
@@ -419,8 +440,7 @@ function canonical(path: string): string {
  * path contains a symlink.
  */
 export function listChildWorktrees(projectPath: string): Worktree[] {
-  const mainReal = canonical(projectPath);
-  return listWorktrees(projectPath).filter((w) => canonical(w.path) !== mainReal);
+  return listWorktrees(projectPath).filter((w) => !w.isProjectRoot);
 }
 
 /**
@@ -428,9 +448,11 @@ export function listChildWorktrees(projectPath: string): Worktree[] {
  * validate a thread's stored `worktree_path` before binding a session to it.
  * A linked worktree has a `.git` *file* (gitdir pointer), not a directory.
  */
-export function isLiveWorktree(worktreePath: string): boolean {
+export function isLiveWorktree(worktreePath: string, projectPath: string): boolean {
   try {
-    return existsSync(worktreePath) && existsSync(join(worktreePath, ".git"));
+    const canonicalTarget = canonical(worktreePath);
+    const worktrees = listWorktrees(projectPath);
+    return worktrees.some((w) => canonical(w.path) === canonicalTarget);
   } catch {
     return false;
   }

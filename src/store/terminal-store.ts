@@ -15,7 +15,7 @@ interface TerminalState {
   closeSession: (id: string) => void;
   clearSessions: () => void;
   /** Kill and recreate visible terminals so no shell remains in the old workspace. */
-  restartSessionsIn: (cwd: string) => void;
+  restartSessionsIn: (cwd: string) => string | null;
   setActiveSessionId: (id: string | null) => void;
   appendHistory: (id: string, data: string) => void;
   initializeGlobalListener: () => void;
@@ -74,7 +74,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   restartSessionsIn: (cwd) => {
     const { sessions, activeSessionId } = get();
-    if (sessions.length === 0) return;
+    if (sessions.length === 0) return null;
     if (window.omni?.terminal?.kill) {
       for (const session of sessions) {
         window.omni.terminal.kill(session.id);
@@ -87,10 +87,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       history: "",
     }));
     const activeIndex = sessions.findIndex((session) => session.id === activeSessionId);
+    const newActiveId = replacements[activeIndex]?.id ?? replacements[0]?.id ?? null;
     set({
       sessions: replacements,
-      activeSessionId: replacements[activeIndex]?.id ?? replacements[0]?.id ?? null,
+      activeSessionId: newActiveId,
     });
+    return newActiveId;
   },
 
   setActiveSessionId: (id: string | null) => {
