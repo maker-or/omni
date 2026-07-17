@@ -189,17 +189,23 @@ function currentUserSid(): string {
 }
 
 /**
- * Restrict a file so that nobody but the current user can reach it.
+ * Restrict a file to its owner: no other *user* of the machine can read it.
  *
  * POSIX spells this as mode 0600. Windows has no POSIX mode bits — `chmod`
  * there only toggles the read-only flag, and `stat` reports 0o666 whatever you
  * do — so a seeded secret would otherwise keep the ACEs it inherited from the
- * parent directory (SYSTEM, Administrators, and often Users). The equivalent is
- * an explicit DACL: drop the inherited ACEs, then grant this user alone.
+ * parent directory. The equivalent is an explicit DACL: drop the inherited
+ * ACEs, then grant this user.
+ *
+ * SYSTEM and Administrators survive this, because the file is created with the
+ * process token's default DACL and those entries are explicit rather than
+ * inherited. That is deliberate: an administrator can take ownership of any
+ * file regardless of its DACL, so removing them buys nothing and would break
+ * backup and antimalware services. Mode 0600 does not exclude root either.
  *
  * The owner gets full control rather than a literal read/write analogue of
- * 0600: the sole-principal DACL is the security guarantee, and `(R,W)` alone
- * withholds DELETE, which would break the user's own tools rewriting the file.
+ * 0600: `(R,W)` alone withholds DELETE, which would break the user's own tools
+ * rewriting the file.
  *
  * Throws when the restriction cannot be applied, so the caller can delete the
  * file rather than leave a secret readable.

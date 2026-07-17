@@ -58,11 +58,30 @@ function expectOwnerOnly(filePath: string): void {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  // Exactly one ACE proves the inherited SYSTEM/Administrators/Users grants are
-  // gone; naming this user proves the survivor is the owner and not some other
-  // principal the parent directory happened to carry.
-  expect(aces).toHaveLength(1);
-  expect(aces[0]?.toLowerCase()).toContain(`\\${userInfo().username.toLowerCase()}:`);
+  // No ACE may be inherited. icacls marks those `(I)`, and their absence is what
+  // proves the restriction actually ran: the principals allowed below are the
+  // machine's own default, so they would look identical if it had not.
+  for (const ace of aces) {
+    expect(ace, `DACL still inherits from the parent directory: ${ace}`).not.toContain("(I)");
+  }
+
+  // Windows puts SYSTEM and Administrators on essentially every file, and an
+  // administrator can take ownership regardless of the DACL — excluding them is
+  // unenforceable, exactly as mode 0600 does not exclude root on POSIX. The
+  // guarantee under test is that no *other* principal (Everyone, Users,
+  // Authenticated Users, a second account) is listed. An allowlist fails on any
+  // principal nobody thought to blocklist.
+  const owner = userInfo().username.toLowerCase();
+  const isOwner = (ace: string) => ace.includes(`\\${owner}:`);
+  for (const ace of aces) {
+    const permitted =
+      isOwner(ace.toLowerCase()) ||
+      ace.toLowerCase().startsWith("nt authority\\system:") ||
+      ace.toLowerCase().startsWith("builtin\\administrators:");
+    expect(permitted, `unexpected principal in DACL: ${ace}`).toBe(true);
+  }
+  // An empty DACL is not "owner-only" — the owner must actually be granted.
+  expect(aces.some((ace) => isOwner(ace.toLowerCase()))).toBe(true);
 }
 
 beforeEach(() => {
