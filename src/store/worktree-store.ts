@@ -8,8 +8,15 @@ interface WorktreeState {
   branches: GitBranch[];
   projectId: string | null;
   branchProjectId: string | null;
-  /** Active workspace target by project. The project root is stored as its path. */
+  /**
+   * Active workspace target by project. The project root is stored as its
+   * path. This is a MIRROR of the persisted canonical selection in launch
+   * state — the main process is the single writer (it reconciles on every
+   * thread activation); the renderer re-reads via `syncSelections` and only
+   * sets it optimistically on explicit picker actions.
+   */
   selectedWorktreePathByProject: Record<string, string>;
+  hasHydratedSelections: boolean;
   isLoading: boolean;
   isCreating: boolean;
   isSwitching: boolean;
@@ -18,14 +25,18 @@ interface WorktreeState {
   error: string | null;
   lastWorktreeRequest: string | null;
   lastBranchRequest: string | null;
+  /** Re-read the persisted per-project selections (boot + after activations). */
+  syncSelections: () => Promise<void>;
   loadWorktrees: (projectId: string) => Promise<void>;
   loadBranches: (projectId: string) => Promise<void>;
   createWorktree: (projectId: string, name: string) => Promise<Worktree | null>;
   switchWorktree: (projectId: string, path: string) => Promise<Thread | null>;
   switchBranch: (projectId: string, path: string, branch: string) => Promise<Worktree | null>;
-  selectWorktree: (projectId: string, path: string) => void;
   clear: () => void;
 }
+
+// Drops stale syncSelections responses: only the latest request may apply.
+let selectionsSyncToken = 0;
 
 export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   worktrees: [],
@@ -33,6 +44,7 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   projectId: null,
   branchProjectId: null,
   selectedWorktreePathByProject: {},
+  hasHydratedSelections: false,
   isLoading: false,
   isCreating: false,
   isSwitching: false,
@@ -41,6 +53,21 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   error: null,
   lastWorktreeRequest: null,
   lastBranchRequest: null,
+  syncSelections: async () => {
+    const token = ++selectionsSyncToken;
+    try {
+      const persisted = await window.omni.worktrees.getSelections();
+      if (token !== selectionsSyncToken) return;
+      // Persisted state is authoritative — the main process reconciled it on
+      // the activation that triggered this sync.
+      set({
+        selectedWorktreePathByProject: persisted,
+        hasHydratedSelections: true,
+      });
+    } catch {
+      if (token === selectionsSyncToken) set({ hasHydratedSelections: true });
+    }
+  },
   loadWorktrees: async (projectId) => {
     const requestToken = `${projectId}-${Date.now()}`;
     set({ isLoading: true, error: null, lastWorktreeRequest: requestToken });
@@ -107,6 +134,9 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
           [projectId]: path,
         },
       }));
+      // The main process persisted the canonical selection during the
+      // switch; re-read it so the mirror is exact (root realpath etc.).
+      void get().syncSelections();
       return thread;
     } catch (err) {
       set({
@@ -141,6 +171,7 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
           [projectId]: path,
         },
       }));
+      void get().syncSelections();
       return worktree;
     } catch (err) {
       set({
@@ -150,10 +181,6 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
       return null;
     }
   },
-  selectWorktree: (projectId, path) =>
-    set((state) => ({
-      selectedWorktreePathByProject: { ...state.selectedWorktreePathByProject, [projectId]: path },
-    })),
   clear: () =>
     set({ worktrees: [], branches: [], projectId: null, branchProjectId: null, error: null }),
 }));

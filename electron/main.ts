@@ -8,7 +8,13 @@ import fs from "node:fs";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as pty from "node-pty";
-import { markLaunchComplete, readLaunchState } from "./launch-state";
+import {
+  markLaunchComplete,
+  readLaunchState,
+  readWorkspaceSelections,
+  updateWorkspaceSelection,
+} from "./launch-state";
+import { pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { readCompanionState, writeCompanionState } from "./companion-state";
 import {
   capturePipperEditBaseline,
@@ -37,7 +43,7 @@ import {
   getSelectedAgentIds,
   setSelectedAgentIds,
 } from "./db";
-import { listThreads, listThreadsByIds, listProjectThreads } from "./threads";
+import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
 import { probeAgentById } from "./agents/handshake-probe.ts";
@@ -243,7 +249,13 @@ function requireLauncherUpdateManager(): LauncherUpdateManager {
   return launcherUpdateManager;
 }
 
-/** A thread owns the live ACP session and, in turn, the app's active cwd. */
+/**
+ * Enter a workspace (the project root or a linked worktree): persist it as
+ * the project's canonical workspace, then restore that workspace's own last
+ * active thread — its most-recently-used open tab, else its most recent
+ * thread from history, else a fresh thread. A workspace switch is a context
+ * change, not a collapse to one canonical thread per worktree.
+ */
 async function activateProjectWorktree(projectId: string, targetPath: string) {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -252,19 +264,49 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   if (!target) throw new Error("Worktree is no longer available");
 
   const worktreePath = target.isProjectRoot ? null : target.path;
-  let thread = listThreads().find(
-    (candidate) =>
-      candidate.project_id === project.id && (candidate.worktree_path ?? null) === worktreePath,
-  );
+  await updateWorkspaceSelection(project.id, target.path);
+
+  const tabsState = await readOpenTabsState();
+  let thread = pickWorkspaceThread({
+    projectId: project.id,
+    workspacePath: worktreePath,
+    openThreadIds: tabsState.openThreadIds,
+    threadSwitchHistory: tabsState.threadSwitchHistory,
+    threads: listThreads(),
+  });
   if (thread) {
     await requireAgentManager().switchThread(thread.id);
   } else {
     thread = await requireAgentManager().createThread(project.id, null, null, null, worktreePath);
   }
 
+  captureAnalytics("workspace_switched", {
+    windowType: "main",
+    properties: { project_id: project.id, is_main: worktreePath === null },
+  });
+
   const next = await openThreadTab(thread.id);
   broadcastOpenTabsChanged(mainWindow, next);
   return { thread, worktree: target };
+}
+
+/**
+ * Predicate for "tab in the same (project, workspace) as this thread", used
+ * to keep next-active selection inside the current workspace when a tab
+ * closes. Must be built before the thread row is deleted.
+ */
+function makeWorkspacePeerPredicate(threadId: string): ((id: string) => boolean) | undefined {
+  const closed = getThread(threadId);
+  if (!closed) return undefined;
+  const workspacePath = closed.worktree_path ?? null;
+  return (id) => {
+    const candidate = getThread(id);
+    return (
+      candidate !== null &&
+      candidate.project_id === closed.project_id &&
+      (candidate.worktree_path ?? null) === workspacePath
+    );
+  };
 }
 
 function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
@@ -1169,6 +1211,11 @@ function registerIpc(): void {
     return thread;
   });
 
+  // The persisted canonical workspace per project — the renderer hydrates its
+  // selection map from this so header, tab scoping, and new-thread/terminal
+  // targets agree after a relaunch.
+  ipcMain.handle("worktrees:getSelections", () => readWorkspaceSelections());
+
   ipcMain.handle("worktrees:listBranches", (_event, input: { projectId: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
@@ -1349,8 +1396,9 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("threads:delete", async (_event, id: string) => {
+    const isPeer = makeWorkspacePeerPredicate(id);
     await requireAgentManager().deleteThread(id);
-    const next = await closeThreadTab(id);
+    const next = await closeThreadTab(id, isPeer);
     broadcastOpenTabsChanged(mainWindow, next);
   });
 
@@ -1363,12 +1411,13 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("tabs:close", async (_event, threadId: string) => {
+    const isPeer = makeWorkspacePeerPredicate(threadId);
     try {
       await requireAgentManager().closeThreadSession(threadId);
     } catch (err) {
       console.warn("[IPC] closeThreadSession failed:", err);
     }
-    const next = await closeThreadTab(threadId);
+    const next = await closeThreadTab(threadId, isPeer);
     broadcastOpenTabsChanged(mainWindow, next);
     return next;
   });

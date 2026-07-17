@@ -24,7 +24,6 @@ jobs:
   release-windows:
     runs-on: windows-latest
     env:
-      GH_TOKEN: ${{ secrets.PIPPER_RELEASE_TOKEN || github.token }}
       PIPPER_RELEASE_REPOSITORY: ${{ github.event.inputs.release_repository || vars.PIPPER_RELEASE_REPOSITORY || github.repository }}
     steps:
       - name: Checkout
@@ -79,4 +78,6 @@ jobs:
 
       - name: Publish Windows launcher release
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PIPPER_RELEASE_TOKEN || github.token }}
         run: bun run release:launcher:publish:win -- --skip-git-check --version "${{ steps.version.outputs.version }}"

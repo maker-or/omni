@@ -1,6 +1,6 @@
 import type { BrowserWindow } from "electron";
 import type { OpenTabsState } from "../contracts/threads.ts";
-import { readLaunchState, writeLaunchState } from "./launch-state.ts";
+import { enqueueLaunchStateMutation, readLaunchState, writeLaunchState } from "./launch-state.ts";
 
 const MAX_HISTORY = 100;
 
@@ -87,24 +87,12 @@ export function broadcastOpenTabsChanged(window: BrowserWindow | null, state: Op
   }
 }
 
-// Serializes every open-tabs read-modify-write below through a single
-// in-process queue. `tabs:open`, `tabs:close`, `tabs:setActive`, and
-// `agent:switchThread` are independent IPC handlers that the renderer can
-// fire concurrently; without this queue, two overlapping calls can both read
-// launch-state.json before either writes, so the last write wins and
-// silently drops the other's change. Chaining onto `mutationQueue` ensures
-// each call's read-modify-write cycle fully completes before the next one
-// starts.
-let mutationQueue: Promise<unknown> = Promise.resolve();
-
-function enqueueMutation<T>(task: () => Promise<T>): Promise<T> {
-  const result = mutationQueue.then(task, task);
-  mutationQueue = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
+// Every open-tabs read-modify-write below goes through the shared
+// launch-state mutation queue (see launch-state.ts): `tabs:open`,
+// `tabs:close`, `tabs:setActive`, `agent:switchThread`, and workspace
+// selection updates are independent IPC handlers that the renderer can fire
+// concurrently, and they all persist into the same launch-state.json.
+const enqueueMutation = enqueueLaunchStateMutation;
 
 export async function openThreadTab(threadId: string): Promise<OpenTabsState> {
   return enqueueMutation(async () => {
@@ -117,19 +105,30 @@ export async function openThreadTab(threadId: string): Promise<OpenTabsState> {
   });
 }
 
-export async function closeThreadTab(threadId: string): Promise<OpenTabsState> {
+/**
+ * Close a thread tab. When `isPeer` is provided (same project + workspace as
+ * the closed thread), the next active tab is chosen among peers first so
+ * closing a tab never yanks the user into another workspace; only when the
+ * closed tab was the workspace's last one does selection fall back to any
+ * remaining tab.
+ */
+export async function closeThreadTab(
+  threadId: string,
+  isPeer?: (threadId: string) => boolean,
+): Promise<OpenTabsState> {
   return enqueueMutation(async () => {
     const current = await readOpenTabsState();
     const openThreadIds = current.openThreadIds.filter((id) => id !== threadId);
-    const activeThreadId =
-      current.activeThreadId === threadId
-        ? pickNextActiveThreadId(
-            current.openThreadIds,
-            openThreadIds,
-            threadId,
-            current.threadSwitchHistory,
-          )
-        : current.activeThreadId;
+    let activeThreadId = current.activeThreadId;
+    if (current.activeThreadId === threadId) {
+      const peerIds = isPeer ? openThreadIds.filter(isPeer) : openThreadIds;
+      activeThreadId = pickNextActiveThreadId(
+        current.openThreadIds,
+        peerIds.length > 0 ? peerIds : openThreadIds,
+        threadId,
+        current.threadSwitchHistory,
+      );
+    }
     return writeOpenTabsState({
       ...current,
       openThreadIds,
@@ -158,7 +157,10 @@ export async function recordThreadSwitch(threadId: string): Promise<OpenTabsStat
     return writeOpenTabsState({
       openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
       activeThreadId: threadId,
-      threadSwitchHistory: [threadId, ...current.threadSwitchHistory.filter((id) => id !== threadId)],
+      threadSwitchHistory: [
+        threadId,
+        ...current.threadSwitchHistory.filter((id) => id !== threadId),
+      ],
     });
   });
 }

@@ -34,6 +34,83 @@ function columnExists(table: string, column: string): boolean {
   return Boolean(current?.some((row) => row.name === column));
 }
 
+/**
+ * Legacy installs created `threads` with NOT NULL constraints the current
+ * model no longer has (e.g. `title TEXT NOT NULL`, while ACP threads are
+ * born untitled and named by the agent later). `CREATE TABLE IF NOT EXISTS`
+ * never updates an existing table's constraints, so inserts of a null title
+ * fail with "NOT NULL constraint failed: threads.title" on those databases.
+ * SQLite can't drop a column constraint in place — rebuild the table once.
+ */
+function rebuildThreadsTableIfLegacyConstraints(): void {
+  if (!db) return;
+
+  const info = db.prepare(`PRAGMA table_info(threads)`).all() as Array<{
+    name: string;
+    notnull: number;
+  }>;
+  // Columns the app intentionally writes NULL into (or omits on insert).
+  const mustBeNullable = new Set([
+    "title",
+    "worktree_path",
+    "sort_order",
+    "created_at",
+    "last_used_at",
+    "session_file",
+  ]);
+  const needsRebuild = info.some(
+    (column) => mustBeNullable.has(column.name) && column.notnull === 1,
+  );
+  if (!needsRebuild) return;
+
+  // Copy only the canonical columns that exist in the legacy table; legacy
+  // extras (e.g. an already-backfilled `session_file`) are dropped with it.
+  const canonicalColumns = [
+    "id",
+    "project_id",
+    "agent_id",
+    "agent_session_id",
+    "title",
+    "worktree_path",
+    "sort_order",
+    "created_at",
+    "last_used_at",
+  ];
+  const copyColumns = canonicalColumns
+    .filter((column) => info.some((existing) => existing.name === column))
+    .join(", ");
+
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      CREATE TABLE threads_rebuilt (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL,
+        agent_session_id TEXT NOT NULL,
+        title TEXT,
+        worktree_path TEXT,
+        sort_order INTEGER,
+        created_at INTEGER,
+        last_used_at INTEGER,
+        FOREIGN KEY (project_id) REFERENCES projects(id)
+      );
+    `);
+    db.exec(`INSERT INTO threads_rebuilt (${copyColumns}) SELECT ${copyColumns} FROM threads;`);
+    db.exec("DROP TABLE threads;");
+    db.exec("ALTER TABLE threads_rebuilt RENAME TO threads;");
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_threads_project ON threads(project_id);
+      CREATE INDEX IF NOT EXISTS idx_threads_project_last_used
+        ON threads(project_id, last_used_at DESC, created_at DESC);
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
 function migrateThreadsTable(): void {
   if (!db) return;
 
@@ -47,11 +124,7 @@ function migrateThreadsTable(): void {
 
   // Worktree binding: which worktree a thread's session runs in (app-only hint;
   // git remains source of truth). Nullable — most threads run in the project root.
-  ensureColumn(
-    "threads",
-    "worktree_path",
-    "ALTER TABLE threads ADD COLUMN worktree_path TEXT;",
-  );
+  ensureColumn("threads", "worktree_path", "ALTER TABLE threads ADD COLUMN worktree_path TEXT;");
 
   // Backfill from legacy session_file when present
   if (columnExists("threads", "session_file")) {
@@ -70,7 +143,10 @@ function migrateThreadsTable(): void {
     `);
   }
 
-  // Title may be null in ACP model
+  // Title may be null in ACP model. Runs after the backfill above so every
+  // row has an agent_id/agent_session_id before the rebuilt table (which
+  // requires them) copies the data over.
+  rebuildThreadsTableIfLegacyConstraints();
   db.exec(`UPDATE threads SET title = NULL WHERE title = '';`);
 
   // Drop messages table (agent is source of truth)

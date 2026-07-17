@@ -143,6 +143,25 @@ export function getMiseExecCommand(command: string): string {
   return `"${mise}" exec node@${REQUIRED_NODE_VERSION} bun@${REQUIRED_BUN_VERSION} -- ${command}`;
 }
 
+/**
+ * Env for `mise exec` children with bun's fake-node shim dirs stripped from
+ * PATH. When the app itself is launched via `bun run` / `bunx --bun` (dev),
+ * bun prepends a temp dir whose `node` is a symlink to bun; that shim wins
+ * over mise's runtime, so `node -v` reports bun and version verification
+ * fails — misrouting dev launches into the launcher with a setup error.
+ */
+export function getMiseExecEnv(): NodeJS.ProcessEnv {
+  const delimiter = pathDelimiter();
+  const path = process.env.PATH ?? "";
+  return {
+    ...process.env,
+    PATH: path
+      .split(delimiter)
+      .filter((entry) => !/[\\/]bun-node-[^\\/]*$/.test(entry))
+      .join(delimiter),
+  };
+}
+
 export async function checkMise(): Promise<boolean> {
   const globalOk = await checkMiseGlobal();
   if (globalOk) return true;
@@ -297,7 +316,7 @@ export async function installGit(): Promise<void> {
 export async function checkNode(): Promise<boolean> {
   try {
     if (!(await checkMise())) return false;
-    const { stdout } = await execAsync(getMiseExecCommand("node -v"));
+    const { stdout } = await execAsync(getMiseExecCommand("node -v"), { env: getMiseExecEnv() });
     const parsed = parseSemver(stdout.trim());
     if (!parsed) {
       console.log("[DependencyInstaller] Node version parse failed for output:", stdout);
@@ -313,7 +332,9 @@ export async function checkNode(): Promise<boolean> {
 export async function checkBun(): Promise<boolean> {
   try {
     if (!(await checkMise())) return false;
-    const { stdout } = await execAsync(getMiseExecCommand("bun --version"));
+    const { stdout } = await execAsync(getMiseExecCommand("bun --version"), {
+      env: getMiseExecEnv(),
+    });
     const parsed = parseSemver(stdout.trim());
     if (!parsed) {
       console.log("[DependencyInstaller] Bun version parse failed for output:", stdout);

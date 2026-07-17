@@ -83,8 +83,7 @@ export function AuthenticatedStage({
       >
         {stage === "agent" ? (
           <>
-            <header className="flex flex-col gap-2">
-            </header>
+            <header className="flex flex-col gap-2"></header>
             <AgentSelector
               showContinue
               onContinue={() => {

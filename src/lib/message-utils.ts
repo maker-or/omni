@@ -1,4 +1,3 @@
-import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { AcpChatMessage } from "../../contracts/acp.ts";
 
 export type MessageLike =
@@ -27,27 +26,4 @@ export function stringifyMessageContent(message: MessageLike): string {
     })
     .filter(Boolean)
     .join("\n");
-}
-
-export function stringifyContentBlocks(blocks: ContentBlock[] | undefined | null): string {
-  if (!blocks?.length) return "";
-  return blocks
-    .map((block) => {
-      if (block.type === "text") return block.text ?? "";
-      if (block.type === "image") return "[image]";
-      if (block.type === "audio") return "[audio]";
-      if (block.type === "resource_link") return block.name ?? block.uri;
-      if (block.type === "resource") {
-        const res = block.resource as { text?: string; uri?: string };
-        return res.text ?? res.uri ?? "";
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-export function messageRole(message: MessageLike): string {
-  if ("role" in message && typeof message.role === "string") return message.role;
-  return "assistant";
 }

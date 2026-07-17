@@ -352,7 +352,9 @@ export function listWorktrees(projectPath: string): Worktree[] {
   // path doesn't canonical-match any entry (e.g. project added as a subdir).
   const rootEntry =
     worktrees.find((worktree) => canonical(worktree.path) === projectRoot) ?? worktrees[0];
-  const rootLabel = rootEntry ? resolveRepositoryDefaultBranch(projectPath, rootEntry.branch) : null;
+  const rootLabel = rootEntry
+    ? resolveRepositoryDefaultBranch(projectPath, rootEntry.branch)
+    : null;
 
   return worktrees.map((worktree) => {
     // Identity, not path comparison: guarantees exactly one root entry even when

@@ -8,7 +8,6 @@ import {
   createGithubLauncherWindowsManifest,
   githubLatestWindowsManifestUrl,
   githubReleaseAssetUrl,
-  inferGithubRepositoryFromRemote,
   launcherTagName,
   normalizeGithubRepository,
   readPackageVersion,

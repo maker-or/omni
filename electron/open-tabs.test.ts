@@ -150,6 +150,33 @@ describe("closeThreadTab next-active selection", () => {
   });
 });
 
+describe("closeThreadTab workspace peers", () => {
+  test("next-active stays inside the closed tab's workspace even when another workspace's tab is more recent", async () => {
+    const { openThreadTab, recordThreadSwitch, closeThreadTab } = await import("./open-tabs.ts");
+    // "peer" shares the closed tab's workspace; "other" does not.
+    await openThreadTab("peer");
+    await openThreadTab("other");
+    await openThreadTab("closing");
+    await recordThreadSwitch("peer");
+    await recordThreadSwitch("other");
+    await recordThreadSwitch("closing");
+    const state = await closeThreadTab("closing", (id) => id === "peer" || id === "closing");
+    expect(state.openThreadIds).toEqual(["other", "peer"]);
+    expect(state.activeThreadId).toBe("peer");
+  });
+
+  test("falls back to any remaining tab when the closed tab was the workspace's last one", async () => {
+    const { openThreadTab, recordThreadSwitch, closeThreadTab } = await import("./open-tabs.ts");
+    await openThreadTab("other");
+    await openThreadTab("closing");
+    await recordThreadSwitch("other");
+    await recordThreadSwitch("closing");
+    const state = await closeThreadTab("closing", (id) => id === "closing");
+    expect(state.openThreadIds).toEqual(["other"]);
+    expect(state.activeThreadId).toBe("other");
+  });
+});
+
 describe("concurrent tab mutations", () => {
   test("closing two different tabs at the same time removes both, not just the last writer's", async () => {
     const { openThreadTab, closeThreadTab, readOpenTabsState } = await import("./open-tabs.ts");
@@ -165,9 +192,8 @@ describe("concurrent tab mutations", () => {
   });
 
   test("a switch racing a close does not resurrect the closed tab", async () => {
-    const { openThreadTab, closeThreadTab, recordThreadSwitch, readOpenTabsState } = await import(
-      "./open-tabs.ts"
-    );
+    const { openThreadTab, closeThreadTab, recordThreadSwitch, readOpenTabsState } =
+      await import("./open-tabs.ts");
     await openThreadTab("a");
     await openThreadTab("b");
     // Closing "a" while switching to "b" races a read-modify-write on the

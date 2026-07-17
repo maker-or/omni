@@ -170,6 +170,8 @@ const api = {
       ipcRenderer.invoke("worktrees:create", input),
     switch: (input: { projectId: string; path: string }): Promise<Thread> =>
       ipcRenderer.invoke("worktrees:switch", input),
+    getSelections: (): Promise<Record<string, string>> =>
+      ipcRenderer.invoke("worktrees:getSelections"),
     listBranches: (input: { projectId: string }): Promise<GitBranch[]> =>
       ipcRenderer.invoke("worktrees:listBranches", input),
     switchBranch: (input: {

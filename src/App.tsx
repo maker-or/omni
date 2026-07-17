@@ -4,7 +4,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
 import { useWorktreeStore } from "@/store/worktree-store";
-import { useTerminalStore } from "@/store/terminal-store";
+import { useAgentStore } from "@/store/agent-store";
+import { makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/toast";
 import { AgentView } from "@/components/agent-view";
@@ -14,7 +15,7 @@ import { DiffView } from "@/components/diff-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { CompanionView } from "@/components/companion-view";
 import { useDiffStore } from "@/store/diff-store";
-import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { cn } from "@/lib/utils";
 import { PipperOverlay } from "@/components/pipper-overlay";
 import { usePipperStore } from "@/store/pipper-store";
@@ -25,7 +26,17 @@ import { UpdateDialog } from "@/components/update-dialog";
 import { useUpdateStore } from "@/store/update-store";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
-import { SelectionBackground, GitDiffIcon, Bell, FolderPlus, GitBranch, Plus } from "@phosphor-icons/react";
+import {
+  SelectionBackground,
+  GitDiffIcon,
+  Bell,
+  FolderPlus,
+  GitBranch,
+  Plus,
+} from "@phosphor-icons/react";
+import type { Worktree } from "../contracts/worktrees.ts";
+
+const EMPTY_WORKTREES: Worktree[] = [];
 
 export default function App() {
   const [stage] = useState<string | null>(() => {
@@ -58,11 +69,10 @@ export default function App() {
   );
   const diffFileCount = useDiffStore((state) => state.order.length);
   const isDiffOpen = useDiffStore((state) => state.isOpen);
-  const diffUnseenCount = useDiffStore((state) => state.unseenCount);
   const openDiff = useDiffStore((state) => state.open);
   const closeDiff = useDiffStore((state) => state.close);
   const showAgent = useWorkspaceViewStore((state) => state.showAgent);
-  const showDiffSplit = workspaceMode === "agent" && isDiffOpen && diffFileCount > 0;
+  const showDiffSplit = useIsDiffSplit();
   const showTerminalView = workspaceMode === "terminal" && hasActiveTerminal;
   const toggleDiff = () => {
     if (workspaceMode !== "agent") {
@@ -74,7 +84,6 @@ export default function App() {
     else openDiff();
   };
   const initializeUpdates = useUpdateStore((state) => state.initialize);
-  const checkForUpdates = useUpdateStore((state) => state.check);
   const updateState = useUpdateStore((state) => state.state);
   const updateRun = useUpdateStore((state) => state.run);
   const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
@@ -190,13 +199,10 @@ export default function App() {
     if (!activeProject || !workspaceName.trim() || isCreatingWorktree) return;
     const worktree = await createWorktree(activeProject.id, workspaceName.trim());
     if (!worktree) return;
+    // Terminals follow via the workspace-bucket effect below once the
+    // selection map updates.
     const thread = await switchWorktree(activeProject.id, worktree.path);
     if (!thread) return;
-    const wasTerminalActive = workspaceMode === "terminal" && activeTerminalId;
-    const newActiveId = useTerminalStore.getState().restartSessionsIn(worktree.path);
-    if (wasTerminalActive && newActiveId) {
-      useWorkspaceViewStore.getState().showTerminal(newActiveId);
-    }
     setWorkspaceName("");
     setIsWorkspaceFormOpen(false);
     toast({
@@ -210,11 +216,6 @@ export default function App() {
     if (!activeProject || isSwitchingWorktree) return;
     const thread = await switchWorktree(activeProject.id, path);
     if (!thread) return;
-    const wasTerminalActive = workspaceMode === "terminal" && activeTerminalId;
-    const newActiveId = useTerminalStore.getState().restartSessionsIn(path);
-    if (wasTerminalActive && newActiveId) {
-      useWorkspaceViewStore.getState().showTerminal(newActiveId);
-    }
     closeWorkspaceDropdown();
   };
 
@@ -264,7 +265,9 @@ export default function App() {
     const idx = projectsList.findIndex((p) => p.id === activeProject?.id);
     return idx !== -1 ? idx : undefined;
   }, [activeProject?.id, projectsList]);
-  const visibleWorktrees = worktreeProjectId === activeProject?.id ? worktrees : [];
+  // Stable identity when there's nothing to show, so effects keyed on this
+  // don't re-fire on every render while another project's list is loaded.
+  const visibleWorktrees = worktreeProjectId === activeProject?.id ? worktrees : EMPTY_WORKTREES;
   const visibleBranches = branchProjectId === activeProject?.id ? branches : [];
   const storedWorktreePath = activeProject
     ? selectedWorktreePathByProject[activeProject.id]
@@ -289,6 +292,36 @@ export default function App() {
   })();
   const workspaceNameLabel = selectedWorktree?.workspaceName ?? derivedWorkspaceName;
   const branchLabel = selectedWorktree?.branch ?? (isLoadingWorktrees ? "Loading…" : "main");
+
+  // ── Workspace-first orchestration ─────────────────────────────────────
+  // The persisted per-project workspace selection is the canonical context,
+  // and the MAIN process is its single writer (it reconciles on every thread
+  // activation). The renderer mirrors it: re-read whenever the active
+  // session changes, then keep terminals bucketed to (project, workspace).
+  const hasHydratedSelections = useWorktreeStore((state) => state.hasHydratedSelections);
+  const snapshotThreadId = useAgentStore((state) => state.snapshot?.threadId ?? null);
+  const snapshotCwd = useAgentStore((state) => state.snapshot?.cwd ?? null);
+
+  useEffect(() => {
+    void useWorktreeStore.getState().syncSelections();
+  }, [snapshotThreadId, snapshotCwd]);
+
+  // Terminals belong to their workspace: entering another workspace (picker
+  // switch, project switch, cross-workspace activation) stashes the visible
+  // sessions and restores the target workspace's own terminals.
+  useEffect(() => {
+    if (!hasHydratedSelections || !activeProject || !selectedWorktreePath) return;
+    const key = makeWorkspaceKey(activeProject.id, selectedWorktreePath);
+    const terminals = useTerminalStore.getState();
+    if (terminals.workspaceKey === key) return;
+    const view = useWorkspaceViewStore.getState();
+    const wasTerminalActive = view.mode === "terminal";
+    const newActiveId = terminals.setWorkspace(key, selectedWorktreePath);
+    if (wasTerminalActive) {
+      if (newActiveId) view.showTerminal(newActiveId);
+      else view.showAgent();
+    }
+  }, [hasHydratedSelections, activeProject, selectedWorktreePath]);
 
   // Subscribe to pipper cross-window state broadcasts
   useEffect(() => {
@@ -359,7 +392,6 @@ export default function App() {
                   <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">
                     {activeProject.name}
                   </span>
-
                 </button>
                 <div className="flex max-w-[470px] items-center gap-1 text-[11px] text-muted-foreground">
                   <button
@@ -614,7 +646,6 @@ export default function App() {
               data-pipper-id="header-diff-toggle"
             >
               <GitDiffIcon className="size-4" />
-
             </button>
           )}
           <button
@@ -638,7 +669,6 @@ export default function App() {
             <SelectionBackground className="size-4" />
           </button>
 
-
           <ThemeToggle />
         </div>
       </header>
@@ -660,32 +690,20 @@ export default function App() {
             mounted) agent view.
           The agent Panel is always child #1 of the Group so AgentView never
           remounts as the layout changes. */}
-      <div
-        className="relative flex-1 flex min-h-0"
-        data-pipper-id="workspace panel"
-      >
+      <div className="relative flex-1 flex min-h-0" data-pipper-id="workspace panel">
         <Group
           orientation="horizontal"
           defaultLayout={showDiffSplit ? { agent: 40, diff: 60 } : undefined}
           className="flex-1 flex min-h-0"
           data-pipper-id="workspace split"
         >
-          <Panel
-            id="agent"
-            data-pipper-id="agent panel"
-            className="relative z-20 overflow-visible"
-          >
+          <Panel id="agent" data-pipper-id="agent panel" className="relative z-20 overflow-visible">
             {/* Stable wrapper (never conditionally swapped) so AgentView is not
-                remounted when the diff split toggles. When the agent view is
-                the full-width global view we cap its content to a centered
-                column — a full-bleed conversation reads badly; inside the diff
-                split the panel is already narrow so it uses full width. */}
-            <div
-              className={cn(
-                "flex h-full w-full flex-col",
-                !showDiffSplit && "mx-auto lg:w-[62%]",
-              )}
-            >
+                remounted when the diff split toggles. The panel is full width
+                in every state: the agent view owns the centered reading column
+                for its conversation + composer so its ambient background can
+                still span the full width behind them. */}
+            <div className="flex h-full w-full flex-col">
               <AgentView />
             </div>
           </Panel>
@@ -715,16 +733,12 @@ export default function App() {
             className="absolute inset-0 z-30 flex flex-col bg-surface-1 p-2"
             data-pipper-id="terminal panel"
           >
-            {/* Same centered column as the agent view so a selected terminal
-                tab uses the space without stretching edge-to-edge. */}
-            <div className="mx-auto flex h-full w-full flex-col lg:w-[62%]">
-              <div className="flex-1 overflow-hidden min-h-0">
-                <TerminalSession
-                  key={activeTerminalId}
-                  sessionId={activeTerminalId}
-                  cwd={activeTerminalCwd}
-                />
-              </div>
+            <div className="flex-1 overflow-hidden min-h-0">
+              <TerminalSession
+                key={activeTerminalId}
+                sessionId={activeTerminalId}
+                cwd={activeTerminalCwd}
+              />
             </div>
           </section>
         )}

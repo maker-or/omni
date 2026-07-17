@@ -7,7 +7,6 @@ import {
   createGithubLauncherManifest,
   githubLatestManifestUrl,
   githubReleaseAssetUrl,
-  inferGithubRepositoryFromRemote,
   launcherTagName,
   normalizeGithubRepository,
   readPackageVersion,

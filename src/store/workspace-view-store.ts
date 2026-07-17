@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useDiffStore } from "@/store/diff-store";
 
 /**
  * Which primary ("global") view fills the workspace area.
@@ -38,3 +39,16 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set) => ({
   showTerminal: (sessionId) => set({ mode: "terminal", activeTerminalId: sessionId }),
   requestThread: (threadId) => set({ requestedThreadId: threadId }),
 }));
+
+/**
+ * Whether the workspace is rendering the 40:60 conversation | diff split.
+ * The shell uses it to lay out the panels; the agent view uses it to decide
+ * between its centered reading column (full-width global view) and the panel's
+ * full width (already narrow inside the split).
+ */
+export function useIsDiffSplit(): boolean {
+  const mode = useWorkspaceViewStore((state) => state.mode);
+  const isDiffOpen = useDiffStore((state) => state.isOpen);
+  const diffFileCount = useDiffStore((state) => state.order.length);
+  return mode === "agent" && isDiffOpen && diffFileCount > 0;
+}

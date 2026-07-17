@@ -22,7 +22,7 @@ terminal sandboxing (see Threat model).
 ## Threat model (what "isolation" means this phase)
 
 The goal is **cross-worktree isolation**: worktree A's agent must not read or
-write into worktree B or the main checkout. It is *not* full-filesystem
+write into worktree B or the main checkout. It is _not_ full-filesystem
 sandboxing — we are not defending `/etc/passwd` etc. Because every worktree
 lives under one root (`~/.pipper/worktrees/`), the boundary is a single subtree.
 
@@ -30,9 +30,9 @@ This phase defends against an **honest agent wandering** (a confused cwd, a
 fat-fingered path), not a hostile/prompt-injected agent actively trying to
 escape. Concretely:
 
-- **ACP fs primitives** (`readTextFile`/`writeTextFile`) are *fully* guarded —
+- **ACP fs primitives** (`readTextFile`/`writeTextFile`) are _fully_ guarded —
   a read/write aimed at a sibling worktree is rejected. This is a hard boundary.
-- **Terminal** is **cwd-guarded only** (Option A): we jail *where* the command
+- **Terminal** is **cwd-guarded only** (Option A): we jail _where_ the command
   starts, but a spawned process can still `cd ../other-worktree`. An honest
   coding agent runs relative to cwd and won't; a hostile one could. We accept
   this gap for the phase and wire `terminalManager.create` with a **single
@@ -54,7 +54,7 @@ escape. Concretely:
 
 2. **Copy gitignored files, never symlink.**
    A fresh worktree only contains tracked files; `.env*` is gitignored and
-   absent. A symlink back to the main checkout's `.env` resolves *outside* the
+   absent. A symlink back to the main checkout's `.env` resolves _outside_ the
    worktree root, so the containment jail (below) would reject the agent's own
    read of it — and if we exempted it, we'd hand the agent a writable path back
    into the main checkout (cross-contamination). So we **copy**. This matches
@@ -63,19 +63,19 @@ escape. Concretely:
 3. **Two seed steps on opposite sides of the trust boundary.**
    - **File seed** (env copy): untrusted data, allowlist-driven, tightly
      contained. Copies gitignored files matching the project's include list.
-   - **Setup script**: *trusted*, user-authored, runs once at create time, and
-     *may* deliberately reach into the main checkout (e.g. symlink
+   - **Setup script**: _trusted_, user-authored, runs once at create time, and
+     _may_ deliberately reach into the main checkout (e.g. symlink
      `node_modules`). It gets `WORKSPACE_PATH` / `ROOT_PATH` / `WORKSPACE_NAME`
      in its env. This is fine precisely because it is user-written and runs at
      create time — unlike the jailed agent.
 
-4. **The guard's allowlist is a *set* of roots, fed by `additionalDirectories`.**
+4. **The guard's allowlist is a _set_ of roots, fed by `additionalDirectories`.**
    ACP `additionalDirectories` (agent-advertised capability) declares the extra
    workspace roots for a session. Make the guard `sessionId → Set<root>` seeded
    from `cwd ∪ additionalDirectories`, so what we declare to the agent and what
    the guard permits are the same list. **The guard always seeds from `cwd`**
    regardless of capability advertisement — capability gating only controls
-   whether the extra `additionalDirectories` roots get *added*, never whether the
+   whether the extra `additionalDirectories` roots get _added_, never whether the
    session is guarded at all (a non-advertising agent must not fall through to a
    no-op). Default `additionalDirectories` empty (worktree only). Note:
    `additionalDirectories` does **not** solve env loading — a spawned test
@@ -94,7 +94,7 @@ escape. Concretely:
 - **Git invocation pattern** — `electron/workspace-manager.ts` shells to bare
   `"git"` on `$PATH` via `execFile`/`execFileSync` (no binary resolution). NB:
   that module is the app's **self-update** machinery (its `active`/`candidate`
-  library checkouts), *not* user worktrees — we borrow only its git/`execFile`
+  library checkouts), _not_ user worktrees — we borrow only its git/`execFile`
   idiom. Our `git worktree add` anchor is the user's `project.path` (a repo the
   user selected), which is a normal non-bare single-worktree repo — a valid
   anchor. This feature is otherwise greenfield.
@@ -123,8 +123,10 @@ escape. Concretely:
 ## Changes by layer
 
 ### 1. `electron/worktree-manager.ts` (new)
+
 Stateless class, shape mirrors `subagent-manager.ts` (options interface, injected
 deps, plain `Error`s, `"git"` via `execFile`). Methods:
+
 - `createWorktree(projectPath, branch)` → ordered steps:
   1. `git worktree add <worktreePath> -b <branch>` off the base branch.
   2. **Seed files**: copy gitignored files matching the project's include list
@@ -137,12 +139,13 @@ deps, plain `Error`s, `"git"` via `execFile`). Methods:
   (path, branch, HEAD). No caching.
 
 **Worktree on-disk location (decided):** `<worktrees-root>/<project-slug>/<name>`.
+
 - `<worktrees-root>` is `~/.pipper/worktrees` on macOS, with platform-appropriate
   equivalents elsewhere, honoring a `PIPPER_WORKTREES_PATH` override — mirroring
   how `getPipperLibraryPath()` handles the self-update library. This is a **home
   dotdir** (`~/.pipper`), distinct from the app's self-update library
   (`~/Library/pipper` on macOS) — no filesystem collision.
-- `<project-slug>` is derived from the project **`id`** (stable, fs-safe), *not*
+- `<project-slug>` is derived from the project **`id`** (stable, fs-safe), _not_
   the display `name`, so two like-named projects don't stomp each other.
 - Outside the main working tree, so the worktree is never itself tracked.
 
@@ -151,18 +154,21 @@ off the project's **default branch**; the agent renames it on first chat. No
 user prompt in the create flow.
 
 ### 2. `electron/db.ts`
+
 Add nullable `worktree_path TEXT` column on `threads` via the existing
 `ensureColumn` migration pattern (`db.ts:41-46`). No new table.
 
 ### 3. `contracts/worktrees.ts` (new)
+
 `Worktree { path, branch, head }` (shape of a parsed porcelain entry). No `id` —
 git owns identity via path/branch.
 
 ### 4. `electron/agent-connection-manager.ts` — two independent changes
+
 - **Path guard**: add `private readonly workspaceRoots = new Map<string, Set<string>>()`
   near the existing session maps (~lines 179-198). Populate in `createThread`/
   `switchThread`: root set = `cwd` always, `∪ additionalDirectories` only when the
-  agent advertised the capability (never conditional on the *guard* existing —
+  agent advertised the capability (never conditional on the _guard_ existing —
   see Key decision 4). Add `assertWithinWorkspace(sessionId, path)`:
   - **containment check via `path.relative(root, resolved)`** — reject if it
     starts with `..` or is absolute (NOT `startsWith`, which lets `/proj-evil`
@@ -188,6 +194,7 @@ git owns identity via path/branch.
   a hint).
 
 ### 5. Include-list config (env copy)
+
 Read the project's gitignored-file include list, precedence:
 `.worktreeinclude` (repo root, gitignore syntax) → `file_include_globs` setting →
 default `.env*`. **Custom patterns replace the default** (match Conductor;
@@ -195,11 +202,13 @@ predictable-but-surprising beats a hidden always-add). Never copy `node_modules`
 `dist` — those are the setup script's job.
 
 ### 6. `electron/main.ts` + `electron/preload.ts`
+
 New IPC channels `worktrees:create`, `worktrees:list`, following the
 `projects:create`/`projects:list` convention exactly. No auth/reload ceremony —
 this is not a project switch. Add to `registerIpc()` and the preload bridge.
 
 ### 7. Renderer
+
 - `src/store/worktree-store.ts` — zustand, mirrors `project-store.ts` shape
   (list, loading, error, create/list actions over the new IPC).
 - A "Create Workspace" affordance near the project/thread listing
@@ -209,6 +218,7 @@ this is not a project switch. Add to `registerIpc()` and the preload bridge.
   phase).
 
 ### 8. Tests — `electron/worktree-manager.test.ts` (new)
+
 Follow `workspace-manager.test.ts` fixtures exactly: `mkdtempSync` temp repo,
 `execFileSync("git", ["init"])`, initial commit, then assert `createWorktree`
 produces a new dir on the expected branch (`git worktree list --porcelain`),
@@ -252,3 +262,52 @@ worktree deletion/archival + `archive` script · `run` script / port allocation 
 `worktrees` DB table (add when merge-gate needs app-only state) · **hard terminal
 boundary via OS sandbox (Option B)** — slotted into the `terminalManager.create`
 wrapper point when the hostile-agent case is worth the deprecated-API cost.
+
+---
+
+## Phase 2 — Workspace-first navigation (as built, 2026-07-16)
+
+The workspace picker in the title bar is now the primary navigation context:
+everything visible and creatable in the shell — threads, terminals, agent cwd —
+belongs to the currently selected workspace.
+
+**Canonical state.** `LaunchState.selectedWorktreePathByProject` (launch-state
+persisted) is the single source of truth for "which workspace is this project
+in". The project root is stored as its path and normalizes to `null` via
+`contracts/workspace-scope.ts` (`normalizeWorkspacePath`), the same shape
+threads store in `worktree_path`. All launch-state writers share one mutation
+queue (`enqueueLaunchStateMutation`) so tab and selection updates can't clobber
+each other.
+
+**Workspace switch** (`activateProjectWorktree`) persists the selection, then
+restores that workspace's own context via `pickWorkspaceThread`: MRU open tab
+in the workspace → any open tab there → its most recent thread → create one.
+Multiple threads per workspace survive switching away and back (hide, not
+close). Emits `workspace_switched` analytics.
+
+**Scoping.** The tab strip and the project-menu thread pane filter to the
+project's current workspace (`isThreadInWorkspace`); the active thread's tab is
+never hidden. Closing a tab picks the next active tab among same-workspace
+peers first (`closeThreadTab(threadId, isPeer)`).
+
+**Terminals** are bucketed per `(projectId, workspacePath)`
+(`terminal-store.setWorkspace`): leaving a workspace kills its PTYs and stashes
+titles + scrollback; returning restores them with fresh PTYs in the workspace
+cwd. App.tsx owns the bucket-sync effect keyed on the canonical selection.
+
+**Creation.** Every create-thread path binds to the current workspace
+(tab bar, orchestration composer; the legacy root-bound
+`thread-store.createThread` was removed). Subagents inherit the orchestrator's
+session cwd and therefore the workspace.
+
+**Single writer + mirror.** The MAIN process is the only writer of the
+persisted selection: `switchThread`/`createThread` reconcile it to the
+activated session's cwd on every activation (stale worktrees degrade to
+root), and `activateProject` prefers the persisted workspace's thread when
+no explicit thread is requested. The renderer never writes the selection
+from async state — it mirrors it via `worktrees:getSelections`
+(`syncSelections`, token-guarded), re-reading whenever the active session
+changes, plus an optimistic local set on explicit picker actions. A
+renderer-side "adopt the snapshot cwd" effect was tried first and reverted:
+it raced in-flight switches (stale snapshot cwd overwrote the fresh
+selection) and made workspace switching appear to do nothing.

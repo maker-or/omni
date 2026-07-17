@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { useTerminalStore } from "./terminal-store";
+import { makeWorkspaceKey, useTerminalStore } from "./terminal-store";
 
 function resetStore() {
   useTerminalStore.setState({
     sessions: [],
     activeSessionId: null,
+    workspaceKey: null,
+    stashByWorkspace: {},
     listenerInitialized: false,
   });
 }
@@ -71,28 +73,83 @@ describe("terminal store session behavior", () => {
     expect(useTerminalStore.getState().activeSessionId).toBeNull();
   });
 
-  test("restarts terminals in the selected workspace", () => {
-    const ids = ["term-new-1", "term-new-2"];
+  test("switching workspace kills the visible ptys and stashes their sessions", () => {
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    const keyA = makeWorkspaceKey("project-1", "/repo");
+    const keyB = makeWorkspaceKey("project-1", "/repo/worktrees/feature");
+    useTerminalStore.setState({
+      workspaceKey: keyA,
+      sessions: [
+        { id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "old output" },
+        { id: "term-a-2", title: "Terminal 2", cwd: "/repo", history: "" },
+      ],
+      activeSessionId: "term-a-2",
+    });
+
+    const newActiveId = useTerminalStore.getState().setWorkspace(keyB, "/repo/worktrees/feature");
+
+    expect(kill).toHaveBeenCalledWith("term-a-1");
+    expect(kill).toHaveBeenCalledWith("term-a-2");
+    // Workspace B has no stash: the bucket starts empty.
+    expect(newActiveId).toBeNull();
+    expect(useTerminalStore.getState().sessions).toEqual([]);
+    expect(useTerminalStore.getState().workspaceKey).toBe(keyB);
+    expect(useTerminalStore.getState().stashByWorkspace[keyA]).toEqual([
+      { title: "Terminal 1", history: "old output" },
+      { title: "Terminal 2", history: "" },
+    ]);
+  });
+
+  test("returning to a workspace restores its stashed sessions with fresh ptys in the workspace cwd", () => {
+    const ids = ["term-b-1", "term-a-new-1", "term-a-new-2"];
     vi.spyOn(crypto, "randomUUID").mockImplementation(() => ids.shift() ?? "term-fallback");
     const kill = vi.fn();
     (globalThis as any).window = { omni: { terminal: { kill } } };
+    const keyA = makeWorkspaceKey("project-1", "/repo");
+    const keyB = makeWorkspaceKey("project-1", "/repo/worktrees/feature");
     useTerminalStore.setState({
+      workspaceKey: keyA,
       sessions: [
-        { id: "term-old-1", title: "Terminal 1", cwd: "/repo", history: "old output" },
-        { id: "term-old-2", title: "Terminal 2", cwd: "/repo", history: "" },
+        { id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "root scrollback" },
+        { id: "term-a-2", title: "Terminal 2", cwd: "/repo", history: "" },
       ],
-      activeSessionId: "term-old-2",
+      activeSessionId: "term-a-1",
     });
 
-    useTerminalStore.getState().restartSessionsIn("/repo/worktrees/feature");
+    useTerminalStore.getState().setWorkspace(keyB, "/repo/worktrees/feature");
+    useTerminalStore.getState().createSession("/repo/worktrees/feature");
+    const restoredActiveId = useTerminalStore.getState().setWorkspace(keyA, "/repo");
 
-    expect(kill).toHaveBeenCalledWith("term-old-1");
-    expect(kill).toHaveBeenCalledWith("term-old-2");
     expect(useTerminalStore.getState().sessions).toEqual([
-      { id: "term-new-1", title: "Terminal 1", cwd: "/repo/worktrees/feature", history: "" },
-      { id: "term-new-2", title: "Terminal 2", cwd: "/repo/worktrees/feature", history: "" },
+      { id: "term-a-new-1", title: "Terminal 1", cwd: "/repo", history: "root scrollback" },
+      { id: "term-a-new-2", title: "Terminal 2", cwd: "/repo", history: "" },
     ]);
-    expect(useTerminalStore.getState().activeSessionId).toBe("term-new-2");
+    expect(restoredActiveId).toBe("term-a-new-1");
+    expect(useTerminalStore.getState().workspaceKey).toBe(keyA);
+    // A's stash was consumed; B's terminal is stashed for its own return.
+    expect(useTerminalStore.getState().stashByWorkspace[keyA]).toBeUndefined();
+    expect(useTerminalStore.getState().stashByWorkspace[keyB]).toEqual([
+      { title: "Terminal 1", history: "" },
+    ]);
+    expect(kill).toHaveBeenCalledWith("term-b-1");
+  });
+
+  test("re-entering the current workspace is a no-op", () => {
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    const keyA = makeWorkspaceKey("project-1", "/repo");
+    useTerminalStore.setState({
+      workspaceKey: keyA,
+      sessions: [{ id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "keep" }],
+      activeSessionId: "term-a-1",
+    });
+
+    const activeId = useTerminalStore.getState().setWorkspace(keyA, "/repo");
+
+    expect(activeId).toBe("term-a-1");
+    expect(kill).not.toHaveBeenCalled();
+    expect(useTerminalStore.getState().sessions.map((session) => session.id)).toEqual(["term-a-1"]);
   });
 
   test("global data listener is registered once and appends payloads to matching history", () => {

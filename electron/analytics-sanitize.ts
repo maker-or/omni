@@ -119,6 +119,7 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
   sanitized.heartbeat_seconds = sanitizeCount(properties.heartbeat_seconds);
 
   // ─── v2: boolean flags ───────────────────────────────────────────────────
+  if (typeof properties.is_main === "boolean") sanitized.is_main = properties.is_main;
   if (typeof properties.healthy === "boolean") sanitized.healthy = properties.healthy;
   if (typeof properties.has_images === "boolean") sanitized.has_images = properties.has_images;
   if (typeof properties.has_resources === "boolean") {

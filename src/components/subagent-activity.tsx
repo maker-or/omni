@@ -108,9 +108,7 @@ export function SubagentActivity({
             <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
               Subagents
             </span>
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {visible.length}
-            </span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{visible.length}</span>
           </div>
 
           <Accordion type="multiple" className="w-full">
@@ -126,10 +124,7 @@ export function SubagentActivity({
                           <span className="absolute inline-flex size-1.5 animate-ping rounded-full bg-blue-500/60" />
                         )}
                         <span
-                          className={cn(
-                            "relative size-1.5 rounded-full",
-                            STATUS_DOT[run.status],
-                          )}
+                          className={cn("relative size-1.5 rounded-full", STATUS_DOT[run.status])}
                         />
                       </span>
                       <span

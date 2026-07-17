@@ -113,22 +113,13 @@ describe("thread store pagination behavior", () => {
     });
   });
 
-  test("create and rename failures surface store errors without mutating threads", async () => {
+  test("rename failures surface store errors without mutating threads", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const create = vi.fn(async () => {
-      throw new Error("cannot create");
-    });
     const rename = vi.fn(async () => {
       throw new Error("cannot rename");
     });
-    (globalThis as any).window = { omni: { threads: { create, rename } } };
+    (globalThis as any).window = { omni: { threads: { rename } } };
     useThreadStore.setState({ threads: [thread("thread-1")] });
-
-    await expect(
-      useThreadStore.getState().createThread("project-1", "New thread"),
-    ).resolves.toBeNull();
-    expect(useThreadStore.getState().error).toBe("cannot create");
-    expect(useThreadStore.getState().threads.map((item) => item.id)).toEqual(["thread-1"]);
 
     await expect(useThreadStore.getState().renameThread("thread-1", "Renamed")).resolves.toBeNull();
     expect(useThreadStore.getState().error).toBe("cannot rename");

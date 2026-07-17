@@ -29,7 +29,7 @@ import { SurfaceProvider } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PipperBeam } from "@/components/ui/pipper-beam";
-import { Dropdown, DropdownLabel } from "@/components/ui/dropdown";
+import { Dropdown } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 
 function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
@@ -356,27 +356,24 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       [fileMention, onValueChange, value],
     );
 
-    const refreshFileMention = useCallback(
-      (nextValue: string, cursor: number) => {
-        const nextMention = getFileMentionState(nextValue, cursor);
-        setFileMention(nextMention);
-        setActiveFileMentionIndex(0);
-        if (nextMention && projectFiles.length === 0 && fileFetchStatusRef.current === "idle") {
-          fileFetchStatusRef.current = "loading";
-          void window.omni?.projects
-            ?.listFiles?.()
-            .then((files) => {
-              setProjectFiles(files);
-              fileFetchStatusRef.current = "done";
-            })
-            .catch(() => {
-              setProjectFiles([]);
-              fileFetchStatusRef.current = "idle";
-            });
-        }
-      },
-      [],
-    );
+    const refreshFileMention = useCallback((nextValue: string, cursor: number) => {
+      const nextMention = getFileMentionState(nextValue, cursor);
+      setFileMention(nextMention);
+      setActiveFileMentionIndex(0);
+      if (nextMention && projectFiles.length === 0 && fileFetchStatusRef.current === "idle") {
+        fileFetchStatusRef.current = "loading";
+        void window.omni?.projects
+          ?.listFiles?.()
+          .then((files) => {
+            setProjectFiles(files);
+            fileFetchStatusRef.current = "done";
+          })
+          .catch(() => {
+            setProjectFiles([]);
+            fileFetchStatusRef.current = "idle";
+          });
+      }
+    }, []);
 
     const handleTextareaChange = useCallback(
       (e: ChangeEvent<HTMLTextAreaElement>) => {

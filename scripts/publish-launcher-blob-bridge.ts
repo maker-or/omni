@@ -1,10 +1,8 @@
 import { put } from "@vercel/blob";
-import { spawnSync } from "node:child_process";
 import { PIPPER_RELEASE_REPOSITORY } from "../contracts/launcher-release-urls.ts";
 import {
   createGithubLauncherManifest,
   githubLatestManifestUrl,
-  inferGithubRepositoryFromRemote,
   normalizeGithubRepository,
   readPackageVersion,
   resolveReleaseDmg,

@@ -1,14 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactElement,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   FolderPlusIcon,
@@ -41,6 +34,7 @@ import {
   useRecentProjectsQuery,
 } from "@/lib/thread-queries";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
+import { isThreadInWorkspace, normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 
 const TERMINAL_TAB_PREFIX = "terminal:";
 
@@ -121,10 +115,8 @@ export function GlobalTabBar() {
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
   const createSession = useTerminalStore((state) => state.createSession);
   const closeSession = useTerminalStore((state) => state.closeSession);
-  const clearSessions = useTerminalStore((state) => state.clearSessions);
   const setActiveSessionId = useTerminalStore((state) => state.setActiveSessionId);
   const initializeGlobalListener = useTerminalStore((state) => state.initializeGlobalListener);
-  const previousProjectKeyRef = useRef<string | null>(null);
 
   const selectedWorktreePathByProject = useWorktreeStore(
     (state) => state.selectedWorktreePathByProject,
@@ -165,6 +157,33 @@ export function GlobalTabBar() {
   const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
   const snapshotThreadId = snapshot?.threadId ?? null;
 
+  // Workspace-first: the strip shows only threads that belong to their
+  // project's current workspace. Hidden tabs stay open (hide, not close) and
+  // reappear when the user switches back. The active thread is never hidden —
+  // whatever produced it, its conversation is on screen and needs a tab.
+  const visibleOpenThreads = useMemo(() => {
+    const alwaysVisibleId = requestedThreadId ?? activeThreadId ?? snapshotThreadId;
+    return orderedOpenThreads.filter((thread) => {
+      if (thread.id === alwaysVisibleId) return true;
+      const project = projectsList.find((item) => item.id === thread.project_id);
+      // Until the project's path is known we can't tell root from worktree;
+      // show rather than hide.
+      if (!project?.path) return true;
+      const workspacePath = normalizeWorkspacePath(
+        selectedWorktreePathByProject[thread.project_id],
+        project.path,
+      );
+      return isThreadInWorkspace(thread, workspacePath);
+    });
+  }, [
+    orderedOpenThreads,
+    projectsList,
+    selectedWorktreePathByProject,
+    requestedThreadId,
+    activeThreadId,
+    snapshotThreadId,
+  ]);
+
   const recentProjectsQuery = useRecentProjectsQuery(
     activeProject?.id,
     threadSwitchHistory,
@@ -192,18 +211,9 @@ export function GlobalTabBar() {
     initializeGlobalListener();
   }, [initializeGlobalListener]);
 
-  // Terminals are cwd-bound and ephemeral, so drop them when the active project
-  // changes (a worktree switch instead restarts them in place, in App).
-  useEffect(() => {
-    const projectKey = activeProject?.id ?? activeProject?.path ?? "";
-    const previousProjectKey = previousProjectKeyRef.current;
-    previousProjectKeyRef.current = projectKey;
-    if (previousProjectKey === null || previousProjectKey === projectKey) return;
-    if (useTerminalStore.getState().sessions.length > 0) {
-      clearSessions();
-      if (useWorkspaceViewStore.getState().mode === "terminal") showAgent();
-    }
-  }, [activeProject?.id, activeProject?.path, clearSessions, showAgent]);
+  // Terminals are cwd-bound and workspace-scoped: App's workspace-bucket
+  // effect stashes/restores them whenever the (project, workspace) context
+  // changes, so no project-switch cleanup is needed here anymore.
 
   useEffect(() => {
     if (!isDropdownOpen) setHoveredProjectId(null);
@@ -331,15 +341,17 @@ export function GlobalTabBar() {
       });
       return false;
     }
-    queryClient.setQueryData<{ openThreads: Thread[] } | undefined>(OPEN_TABS_QUERY_KEY, (current) =>
-      current
-        ? {
-            ...current,
-            openThreads: current.openThreads.map((thread) =>
-              thread.id === renamedThread.id ? renamedThread : thread,
-            ),
-          }
-        : current,
+    queryClient.setQueryData<{ openThreads: Thread[] } | undefined>(
+      OPEN_TABS_QUERY_KEY,
+      (current) =>
+        current
+          ? {
+              ...current,
+              openThreads: current.openThreads.map((thread) =>
+                thread.id === renamedThread.id ? renamedThread : thread,
+              ),
+            }
+          : current,
     );
     cancelRenameThread();
     return true;
@@ -426,9 +438,11 @@ export function GlobalTabBar() {
     const projectId = pendingCreateProjectId ?? hoveredProjectId ?? activeProject?.id;
     if (!projectId || isCreatingThread) return;
     const project = projectsList.find((item) => item.id === projectId);
-    const selectedWorktreePath = selectedWorktreePathByProject[projectId];
-    const worktreePath =
-      selectedWorktreePath && selectedWorktreePath !== project?.path ? selectedWorktreePath : null;
+    // New threads always bind to the project's current workspace.
+    const worktreePath = normalizeWorkspacePath(
+      selectedWorktreePathByProject[projectId],
+      project?.path ?? null,
+    );
     const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
     const title = `${project?.name ?? "Thread"} #${nextCount}`;
     setIsCreatingThread(true);
@@ -480,9 +494,7 @@ export function GlobalTabBar() {
 
   const handleNewTerminal = () => {
     const project = activeProject;
-    const cwd = project
-      ? (selectedWorktreePathByProject[project.id] ?? project.path)
-      : undefined;
+    const cwd = project ? (selectedWorktreePathByProject[project.id] ?? project.path) : undefined;
     const id = createSession(cwd);
     showTerminal(id);
   };
@@ -507,11 +519,30 @@ export function GlobalTabBar() {
   const activeProjectItemIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
   const checkedIndex = activeProjectItemIndex >= 0 ? activeProjectItemIndex + 1 : undefined;
   const addProjectIndex = projectItems.length + 1;
-  const hoveredProjectThreads = useMergedProjectThreads(
+  const mergedHoveredProjectThreads = useMergedProjectThreads(
     hoveredProjectId,
     hoveredProjectThreadsQuery.data?.threads ?? [],
     threads,
   );
+  // The picker only offers threads in the hovered project's current
+  // workspace; cross-workspace threads require switching workspace first.
+  const hoveredProject = projectsList.find((item) => item.id === hoveredProjectId);
+  const hoveredWorkspacePath = normalizeWorkspacePath(
+    hoveredProjectId ? selectedWorktreePathByProject[hoveredProjectId] : null,
+    hoveredProject?.path ?? null,
+  );
+  const hoveredProjectThreads = useMemo(
+    () =>
+      hoveredProject?.path
+        ? mergedHoveredProjectThreads.filter((thread) =>
+            isThreadInWorkspace(thread, hoveredWorkspacePath),
+          )
+        : mergedHoveredProjectThreads,
+    [mergedHoveredProjectThreads, hoveredProject?.path, hoveredWorkspacePath],
+  );
+  const hoveredWorkspaceLabel = hoveredWorkspacePath
+    ? (hoveredWorkspacePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "workspace")
+    : "main";
   const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
   const isHoveredThreadsLoading =
     hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
@@ -540,7 +571,7 @@ export function GlobalTabBar() {
           data-pipper-id="global-tabs"
           className="min-w-0 p-1 gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
-          {orderedOpenThreads.map((thread, idx) => {
+          {visibleOpenThreads.map((thread, idx) => {
             const project = projectsList.find((item) => item.id === thread.project_id);
             const isThreadWorking = runningThreadIds.includes(thread.id);
             const Icon = isThreadWorking
@@ -572,7 +603,7 @@ export function GlobalTabBar() {
           {terminalTabs.map((session, idx) => (
             <TabItem
               key={session.id}
-              index={orderedOpenThreads.length + idx}
+              index={visibleOpenThreads.length + idx}
               value={`${TERMINAL_TAB_PREFIX}${session.id}`}
               label={session.title}
               scrollLabelOnHover
@@ -659,7 +690,7 @@ export function GlobalTabBar() {
                       style={threadPaneStyle}
                     >
                       <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Threads
+                        Threads · {hoveredWorkspaceLabel}
                       </div>
                       <div className="flex flex-col gap-1">
                         {threadError && (

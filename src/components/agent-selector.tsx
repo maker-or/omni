@@ -33,13 +33,11 @@ export function AgentSelector({
   onSelected,
   showContinue,
   onContinue,
-  compact = false,
 }: {
   className?: string;
   onSelected?: (agentIds: string[]) => void;
   showContinue?: boolean;
   onContinue?: () => void | Promise<void>;
-  compact?: boolean;
 }) {
   const {
     agents,
@@ -224,7 +222,10 @@ export function AgentSelector({
 
       {showContinue && (
         <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 text-sm text-muted-foreground" data-pipper-id="agent-selector-summary">
+          <div
+            className="min-w-0 text-sm text-muted-foreground"
+            data-pipper-id="agent-selector-summary"
+          >
             {selectedAgentIds.length > 0 ? (
               <>
                 <span className="font-medium text-foreground">
@@ -239,7 +240,7 @@ export function AgentSelector({
           </div>
           <Button
             type="button"
-            size="default"
+            size="md"
             data-pipper-id="agent-selector-continue"
             className="shrink-0 sm:min-w-[140px]"
             disabled={!canContinue}
@@ -353,7 +354,6 @@ function AgentOption({
 }) {
   const unavailable = agent.available === false;
   const metaText = !agent.available ? agent.installHint : agent.statusMessage;
-  const statusLabel = selected ? "Selected" : agent.available ? "Ready" : "Setup";
 
   return (
     <div
@@ -384,7 +384,6 @@ function AgentOption({
               <SquareIcon size={20} />
             )}
           </span>
-
         </div>
 
         <div className="flex min-w-0 flex-col gap-1">
@@ -397,7 +396,9 @@ function AgentOption({
             )}
           </span>
           {agent.description ? (
-            <span className="text-xs leading-relaxed text-muted-foreground">{agent.description}</span>
+            <span className="text-xs leading-relaxed text-muted-foreground">
+              {agent.description}
+            </span>
           ) : null}
           {metaText ? (
             <span className="text-xs leading-snug text-muted-foreground/90">{metaText}</span>

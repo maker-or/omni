@@ -83,11 +83,11 @@ Enables the **open → sign-in** funnel.
 
 Three signals because "how long is it used" has three meanings.
 
-| Event | Where | Properties | Answers |
-|---|---|---|---|
-| `app_closed` | `before-quit` / `shutdownAnalytics` (`main.ts:1908`) | `session_duration_ms` | wall-clock open time |
-| `app_heartbeat` | interval, gated on window focus | `heartbeat_seconds`, `active_agent_id` | active/attention time, per agent |
-| `turn_completed` | see §3 | `turn_duration_ms` | work time |
+| Event            | Where                                                | Properties                             | Answers                          |
+| ---------------- | ---------------------------------------------------- | -------------------------------------- | -------------------------------- |
+| `app_closed`     | `before-quit` / `shutdownAnalytics` (`main.ts:1908`) | `session_duration_ms`                  | wall-clock open time             |
+| `app_heartbeat`  | interval, gated on window focus                      | `heartbeat_seconds`, `active_agent_id` | active/attention time, per agent |
+| `turn_completed` | see §3                                               | `turn_duration_ms`                     | work time                        |
 
 **Heartbeat mechanics:** emit every 60s **only while a BrowserWindow is focused**
 (hook `browserWindow.on("focus"/"blur")`). Count × interval = active minutes.
@@ -134,7 +134,7 @@ Each subagent `RunState` has `agentId`, `task`, `status`, `startedAt`,
 (where `finishedAt` is set):
 
 - `subagent_run_completed` — `{ agent_id, parent_agent_id, duration_ms:
-  finishedAt - startedAt, status, depth, task_category }`. Use the existing
+finishedAt - startedAt, status, depth, task_category }`. Use the existing
   `categorizeIntent` helper (`analytics-sanitize.ts:15`) on `task` — never send
   the raw task string.
 

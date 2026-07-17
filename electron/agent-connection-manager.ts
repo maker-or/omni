@@ -32,7 +32,12 @@ import {
   getThreadSortOrder,
   deleteThread as removeThreadRow,
 } from "./threads.ts";
-import { updateLaunchSelection, readLaunchState } from "./launch-state.ts";
+import {
+  updateLaunchSelection,
+  updateWorkspaceSelection,
+  readLaunchState,
+} from "./launch-state.ts";
+import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { getActivePath } from "./workspace-manager.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
 import {
@@ -147,10 +152,7 @@ function writeFileOptions(): { encoding: "utf8"; flag?: number } {
     ? {
         encoding: "utf8",
         flag:
-          fsConstants.O_WRONLY |
-          fsConstants.O_CREAT |
-          fsConstants.O_TRUNC |
-          fsConstants.O_NOFOLLOW,
+          fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW,
       }
     : { encoding: "utf8" };
 }
@@ -735,7 +737,11 @@ export class AgentConnectionManager {
     // non-streaming so the composer's stop button and the tab's working icon
     // reflect only genuine in-flight turns. Scoped to thread sessions; the
     // editor/updater sessions manage their own turn lifecycle.
-    if (this.sessions.has(runtime.threadId) && !runtime.promptInFlight && runtime.slice.isStreaming) {
+    if (
+      this.sessions.has(runtime.threadId) &&
+      !runtime.promptInFlight &&
+      runtime.slice.isStreaming
+    ) {
       runtime.slice = { ...runtime.slice, isStreaming: false };
     }
     // A background thread's streaming can flip via updates without a pushState; keep tabs in sync.
@@ -917,10 +923,7 @@ export class AgentConnectionManager {
    * keeps git the source of truth — an externally-removed worktree degrades to
    * the project root instead of failing `session/new` on a stale path.
    */
-  private resolveThreadCwd(
-    worktreePath: string | null | undefined,
-    projectPath: string,
-  ): string {
+  private resolveThreadCwd(worktreePath: string | null | undefined, projectPath: string): string {
     if (worktreePath && isLiveWorktree(worktreePath, projectPath)) return worktreePath;
     return projectPath;
   }
@@ -1077,18 +1080,39 @@ export class AgentConnectionManager {
     this.broadcastActiveProject?.(projectId);
 
     const threads = listThreads().filter((t) => t.project_id === projectId);
-    let thread: Thread | null = preferredThreadId
-      ? getThread(preferredThreadId)
-      : (threads[0] ?? null);
+    let thread: Thread | null = preferredThreadId ? getThread(preferredThreadId) : null;
+    if (!thread) {
+      // No explicit thread: enter the project's persisted workspace context —
+      // its most-recently-used open tab there, else its most recent thread —
+      // before falling back to any project thread.
+      const state = await readLaunchState();
+      const workspacePath = normalizeWorkspacePath(
+        state.selectedWorktreePathByProject[projectId],
+        project.path,
+      );
+      thread =
+        pickWorkspaceThread({
+          projectId,
+          workspacePath,
+          openThreadIds: state.openThreadIds,
+          threadSwitchHistory: state.threadSwitchHistory,
+          threads,
+        }) ??
+        threads[0] ??
+        null;
+    }
 
     if (!thread) {
       this.activeThreadId = null;
       await updateLaunchSelection({ projectId, threadId: null });
       this.pushState(null);
       return;
-    } else {
-      await this.switchThread(thread.id);
     }
+
+    // switchThread reconciles the persisted workspace to the activated
+    // thread's cwd, so header/tabs/terminals agree after restart and after
+    // project switches.
+    await this.switchThread(thread.id);
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
@@ -1182,6 +1206,12 @@ export class AgentConnectionManager {
     }
 
     touchThread(threadId);
+    // Every thread activation reconciles the persisted workspace to the
+    // session's actual cwd — the main process is the single writer for the
+    // canonical selection, and the renderer only mirrors it. This keeps
+    // header, tab scoping, and terminals coherent for tab clicks, close
+    // fallbacks, and orchestration switches alike.
+    await updateWorkspaceSelection(project.id, cwd);
     await updateLaunchSelection({ projectId: project.id, threadId });
     this.pushState(threadId);
   }
@@ -1237,6 +1267,7 @@ export class AgentConnectionManager {
     this.publishActiveAgentContext(live.agentId);
     setActiveProjectId(projectId);
     touchThread(thread.id);
+    await updateWorkspaceSelection(projectId, cwd);
     await updateLaunchSelection({ projectId, threadId: thread.id });
 
     this.captureAnalytics?.("thread_created", {
@@ -1244,6 +1275,7 @@ export class AgentConnectionManager {
       thread_id: thread.id,
       agent_id: live.agentId,
       agent_name: getAgentDescriptor(live.agentId)?.name,
+      is_main: boundWorktree === null,
     } as AnalyticsProperties);
 
     this.pushState(thread.id);
@@ -1359,10 +1391,7 @@ export class AgentConnectionManager {
         thread_id: threadId,
         stop_reason: result.stopReason,
         turn_duration_ms: Date.now() - turnStartedAt,
-        tool_call_count: Math.max(
-          0,
-          Object.keys(runtime.slice.toolCalls).length - toolCallsBefore,
-        ),
+        tool_call_count: Math.max(0, Object.keys(runtime.slice.toolCalls).length - toolCallsBefore),
       });
       this.reportTokens(runtime, agentProps, threadId);
       this.emit({
@@ -1414,7 +1443,7 @@ export class AgentConnectionManager {
     if (!runtime || !live) throw new Error("No session for thread");
 
     runtime.promptInFlight = true;
-    runtime.slice = appendLocalUserMessage(runtime.slice, input.text);
+    runtime.slice = appendLocalUserMessage(runtime.slice, input.message);
     runtime.slice = { ...runtime.slice, isStreaming: true };
     this.pushState(threadId);
 
@@ -1422,8 +1451,8 @@ export class AgentConnectionManager {
       // Custom extension method
       await live.agent.request("_pipper/replace_prompt", {
         sessionId: runtime.agentSessionId,
-        promptId: input.promptId,
-        text: input.text,
+        promptId: input.targetUserEntryId,
+        text: input.message,
       });
       runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
@@ -1433,7 +1462,7 @@ export class AgentConnectionManager {
       // Fallback: regular prompt
       await this.sendPrompt({
         threadId,
-        message: input.text,
+        message: input.message,
         images: input.images,
       });
     }
@@ -1465,10 +1494,13 @@ export class AgentConnectionManager {
     // `session/set_config_option`. Route the synthesized "model" option there and
     // update the local option optimistically (the agent acks via `_meta.model.Ok`).
     if (configId === "model" && this.connection.modelState) {
-      await this.connection.agent.request("session/set_model" as never, {
-        sessionId: runtime.agentSessionId,
-        modelId: value,
-      } as never);
+      await this.connection.agent.request(
+        "session/set_model" as never,
+        {
+          sessionId: runtime.agentSessionId,
+          modelId: value,
+        } as never,
+      );
       const options = runtime.slice.configOptions.map((o) =>
         o.id === "model" || o.category === "model"
           ? ({ ...o, currentValue: value } as SessionConfigOption)
@@ -1727,10 +1759,13 @@ export class AgentConnectionManager {
       // Grok-style agents switch models via the custom `session/set_model` method
       // rather than `session/set_config_option` (see setConfigOption).
       if (live.modelState) {
-        await live.agent.request("session/set_model" as never, {
-          sessionId: this.editorSession.agentSessionId,
-          modelId: model.modelId,
-        } as never);
+        await live.agent.request(
+          "session/set_model" as never,
+          {
+            sessionId: this.editorSession.agentSessionId,
+            modelId: model.modelId,
+          } as never,
+        );
       } else {
         await live.agent.request(acp.methods.agent.session.setConfigOption, {
           sessionId: this.editorSession.agentSessionId,

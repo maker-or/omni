@@ -19,7 +19,9 @@ import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
-import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { useWorktreeStore } from "@/store/worktree-store";
+import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import { selectThread } from "@/lib/thread-actions";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
@@ -249,12 +251,7 @@ function CopyButton({ isCopied, onCopy }: { isCopied: boolean; onCopy: () => voi
   const CopyIcon = useIcon("copy");
   const CheckIcon = useIcon("check");
   return (
-    <button
-      type="button"
-      aria-label="Copy message"
-      className={iconButtonClass}
-      onClick={onCopy}
-    >
+    <button type="button" aria-label="Copy message" className={iconButtonClass} onClick={onCopy}>
       {isCopied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
     </button>
   );
@@ -566,6 +563,7 @@ export function AgentPanel() {
   // optimistic switch target so the conversation can show a switching veil
   // before the agent snapshot catches up.
   const requestedThreadId = useWorkspaceViewStore((state) => state.requestedThreadId);
+  const isDiffSplit = useIsDiffSplit();
   const commands = useMemo(
     () => mergeAgentCommands(snapshot?.commands ?? []),
     [snapshot?.commands],
@@ -1025,11 +1023,19 @@ export function AgentPanel() {
         const projectId = activeProject?.id;
         if (!projectId) throw new Error("Open a project before orchestrating subagents.");
         const count = threads.filter((thread) => thread.project_id === projectId).length + 1;
+        // Orchestration threads bind to the current workspace like any other
+        // thread, so the orchestrator (and its subagents, which inherit the
+        // session cwd) runs in the tree the user is looking at.
+        const worktreePath = normalizeWorkspacePath(
+          useWorktreeStore.getState().selectedWorktreePathByProject[projectId],
+          activeProject?.path ?? null,
+        );
         const thread = await createThread(
           projectId,
           `Orchestration #${count}`,
           snapshot?.threadId ?? null,
           orchestratorAgentId,
+          worktreePath,
         );
         await loadProjectThreads(projectId, { reset: true });
         await selectThread(thread.id);
@@ -1109,8 +1115,9 @@ export function AgentPanel() {
       )}
 
       <div className="flex-1 flex flex-col min-h-0">
-
         <div className="relative flex-1 overflow-hidden mt-4  min-h-0 flex flex-col">
+          {/* Full-bleed: the ambient field spans the whole panel, while the
+              reading column below keeps the conversation and composer centred. */}
           {allMessages.length === 0 && (
             <AmbientPixelField
               pixelSize={6}
@@ -1122,605 +1129,626 @@ export function AgentPanel() {
             />
           )}
           <div
-            ref={messagesScrollRef}
-            className="relative flex-1 overflow-y-auto min-h-0 z-10"
-            aria-busy={isSwitchingThread}
-          >
-            <div className="min-h-full ">
-              {allMessages.length === 0 ? (
-                <div
-                  data-pipper-id="empty-state"
-                  className="h-full min-h-[280px] flex items-center justify-center p-6 select-none"
-                >
-                  <h2 className="relative z-10 flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65 pointer-events-none">
-                    <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                      What should we cook in
-                    </span>
-                    <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                      {emptyStateSubject}
-                    </span>
-                  </h2>
-                </div>
-              ) : (
-                <div
-                  data-pipper-id="messages-list"
-                  className="relative p-4"
-                  style={{
-                    height: `${conversationVirtualizer.getTotalSize()}px`,
-                  }}
-                >
-                  {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const entry = allMessages[virtualRow.index];
-                    if (!entry) return null;
-                    const { key, role, messages, originalIndex, isStreaming } = entry;
-                    const from = role;
-                    const msgId = key;
-                    const bodyText = messages
-                      .map((m) => stringifyMessageContent(m))
-                      .filter(Boolean)
-                      .join("\n\n");
-                    const timeStr = isStreaming
-                      ? undefined
-                      : formatMessageTime(messages[messages.length - 1]);
-                    const hasContent =
-                      bodyText.trim() !== "" ||
-                      extractGroupedMessageImages(messages).length > 0 ||
-                      (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
-
-                    const actions =
-                      from === "user" ? (
-                        <div data-pipper-id="user-actions-buttons">
-                          <CopyButton
-                            isCopied={copiedMessageId === msgId}
-                            onCopy={() => void handleCopy(msgId, bodyText)}
-                          />
-                          <button
-                            type="button"
-                            aria-label="Edit message"
-                            title={
-                              messages.length > 1
-                                ? "Grouped messages cannot be edited together"
-                                : "Edit message"
-                            }
-                            className={iconButtonClass}
-                            disabled={
-                              isStreaming ||
-                              isSubmitting ||
-                              messages.length > 1 ||
-                              !snapshot?.messageEntryRefs[originalIndex]
-                            }
-                            onClick={() => {
-                              setInputValue(bodyText);
-                              setAttachedFiles([]);
-                              setEditState({
-                                targetEntryId: snapshot!.messageEntryRefs[originalIndex]!.entryId,
-                                images: extractGroupedMessageImages(messages),
-                              });
-                              if (composerTextareaRef.current) {
-                                composerTextareaRef.current.focus();
-                              }
-                            }}
-                          >
-                            <PencilIcon size={13} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div data-pipper-id="agent-actions-buttons">
-                          <CopyButton
-                            isCopied={copiedMessageId === msgId}
-                            onCopy={() => void handleCopy(msgId, bodyText)}
-                          />
-                          {!isStreaming && (
-                            <button
-                              type="button"
-                              aria-label="Regenerate response"
-                              className={iconButtonClass}
-                              disabled={
-                                isSubmitting || snapshot?.isCompacting || snapshot?.isRetrying
-                              }
-                              onClick={() => handleRegenerate(originalIndex)}
-                            >
-                              <RotateCcwIcon size={13} />
-                            </button>
-                          )}
-                        </div>
-                      );
-
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        ref={conversationVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        className="absolute left-0 top-0 w-full px-4 pb-3"
-                        style={{
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        <ChatMessage from={from} time={timeStr} actions={actions}>
-                          {hasContent ? (
-                            <MessageBody
-                              messages={messages}
-                              isStreaming={isStreaming}
-                              activeMessages={activeMessages}
-                              traceDeckOpen={traceDeckOpenByKey[msgId] ?? isStreaming}
-                              onTraceDeckOpenChange={(open) =>
-                                setTraceDeckOpenByKey((current) => ({
-                                  ...current,
-                                  [msgId]: open,
-                                }))
-                              }
-                            />
-                          ) : undefined}
-                          {extractGroupedMessageImages(messages).length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {extractGroupedMessageImages(messages).map((image) => (
-                                <button
-                                  key={image.id}
-                                  type="button"
-                                  onClick={() => setPreviewImage(image)}
-                                >
-                                  <img
-                                    src={`data:${image.mimeType};base64,${image.data}`}
-                                    alt="Message attachment"
-                                    className="size-24 rounded-md object-cover border border-border"
-                                    onLoad={() => conversationVirtualizer.measure()}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </ChatMessage>
-                      </div>
-                    );
-                  })}
-
-                  {isStreaming && !streamingMessage && (
-                    <div
-                      className="absolute left-0 flex justify-start px-8 py-2"
-                      style={{
-                        top: `${conversationVirtualizer.getTotalSize()}px`,
-                      }}
-                      data-pipper-id="Thinking-indicator"
-                    >
-                      <ThinkingIndicator />
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} aria-hidden="true" />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            data-pipper-id="input-area"
+            data-pipper-id="reading-column"
             className={cn(
-              "relative z-10 p-3 transition-colors duration-300",
-              allMessages.length === 0 ? "bg-transparent" : "bg-surface-1",
+              "relative z-10 flex min-h-0 w-full flex-1 flex-col",
+              // A full-bleed conversation reads badly, so the global view caps
+              // it to a centred column. Inside the diff split the panel is
+              // already narrow, so it uses the full width.
+              !isDiffSplit && "mx-auto lg:w-[62%]",
             )}
           >
-            <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
-              {visibleAgentError && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
-                  <WarningIcon className="mt-0.5 size-4 shrink-0" />
-                  <span className="min-w-0 flex-1">{visibleAgentError}</span>
-                  <button
-                    type="button"
-                    className="shrink-0 text-red-500/80 hover:text-red-500"
-                    onClick={() => setDismissedAgentError(visibleAgentError)}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
-              {isConnecting && (
-                <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[12px] text-muted-foreground">
-                  Connecting to agent runtime...
-                </div>
-              )}
-              {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
-                <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
-                  {snapshot.queue.steering.length > 0 && (
-                    <div>
-                      <span className="font-medium">Steering</span>
-                      {snapshot.queue.steering.map((item, index) => (
-                        <div
-                          key={index}
-                          className="line-clamp-2 text-muted-foreground"
-                          title={item}
-                        >
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {snapshot.queue.followUp.length > 0 && (
-                    <div className="mt-1">
-                      <span className="font-medium">Next</span>
-                      {snapshot.queue.followUp.map((item, index) => (
-                        <div
-                          key={index}
-                          className="line-clamp-2 text-muted-foreground"
-                          title={item}
-                        >
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-              {editState && (
-                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
-                  <span>Editing message · {editState.images.length} retained image(s)</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setEditState(null);
-                      setInputValue("");
-                      setAttachedFiles([]);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              )}
-              <div className="relative isolate">
-                {snapshot?.plan && snapshot.plan.length > 0 && isStreaming ? (
+            <div
+              ref={messagesScrollRef}
+              className="relative flex-1 overflow-y-auto min-h-0"
+              aria-busy={isSwitchingThread}
+            >
+              <div className="min-h-full ">
+                {allMessages.length === 0 ? (
                   <div
-                    data-pipper-id="plan-popover"
-                    className="absolute right-0 bottom-full mb-1.5 z-[240] w-[280px]"
+                    data-pipper-id="empty-state"
+                    className="h-full min-h-[280px] flex items-center justify-center p-6 select-none"
                   >
-                    <Elevated
-                      offset={2}
-                      shadowLevel={4}
-                      className="rounded-xl border border-border/80 p-2"
-                    >
-                      <div className="px-1.5 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Plan
-                      </div>
-                      <ul className="flex flex-col gap-1">
-                        {snapshot.plan.map((entry, index) => (
-                          <li
-                            key={`${entry.content}-${index}`}
-                            className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-foreground"
-                          >
-                            <span className="mt-0.5 size-3.5 shrink-0 text-muted-foreground">
-                              {entry.status === "completed" ? (
-                                <ModelCheckIcon size={14} className="text-emerald-500" />
-                              ) : (
-                                <span className="inline-block size-2.5 rounded-full border border-border" />
-                              )}
-                            </span>
-                            <span
-                              className={
-                                entry.status === "completed"
-                                  ? "text-muted-foreground line-through"
-                                  : undefined
-                              }
-                            >
-                              {entry.content}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </Elevated>
+                    <h2 className="relative z-10 flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65 pointer-events-none">
+                      <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                        What should we cook in
+                      </span>
+                      <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
+                        {emptyStateSubject}
+                      </span>
+                    </h2>
                   </div>
-                ) : null}
-                <AgentSlashCommandMenu
-                  commands={slashMatches}
-                  selectedIndex={selectedCommandIndex}
-                  onSelect={applyCommand}
-                />
-
-                <SubagentActivity
-                  runs={subagentRuns}
-                  agents={registryAgents}
-                  activeSessionId={activeSessionId}
-                  className="relative z-10 mb-1.5"
-                />
-
-                {inlineRequest ? (
-                  <AgentQuestionCard request={inlineRequest} className="relative z-10" />
-                ) : orchestrationOpen ? (
-                  <SubagentComposer
-                    className="relative z-10"
-                    agents={registryAgents}
-                    defaultOrchestratorId={snapshot?.agentId ?? null}
-                    initialGoal={orchestrationSeed}
-                    isSubmitting={isSubmitting}
-                    onSubmit={(payload) => void handleOrchestrationSubmit(payload)}
-                    onCancel={() => {
-                      setOrchestrationOpen(false);
-                      setOrchestrationSeed("");
-                    }}
-                  />
                 ) : (
-                  <>
-                  <AnimatePresence>
-                    {showThinkingSlider && thoughtLevelValues.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="pb-2">
-                          <SliderComfortable
-                            value={currentThoughtIndex}
-                            onChange={(index) => {
-                              const val = thoughtLevelValues[index];
-                              if (val && thoughtLevelConfigId) {
-                                setConfigOption(thoughtLevelConfigId, val.value).catch(
-                                  (err) => {
-                                    toast({
-                                      icon: <WarningIcon className="size-5 text-red-500" />,
-                                      title: "Reasoning level failed",
-                                      description:
-                                        err instanceof Error
-                                          ? err.message
-                                          : "The reasoning level was not changed.",
-                                    });
-                                  },
-                                );
-                              }
-                            }}
-                            min={0}
-                            max={thoughtLevelValues.length - 1}
-                            step={1}
-                            variant="pips"
-                            label="Reasoning"
-                            formatValue={(v) => thoughtLevelValues[v]?.name ?? String(v)}
-                            disabled={runtimeControlsDisabled}
-                          />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <InputMessage
-                    className="relative z-10"
-                    textareaRef={composerTextareaRef}
-                    value={inputValue}
-                    onValueChange={setInputValue}
-                    placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
-                    onSend={handleSend}
-                    disabled={composerDisabled}
-                    canSendWhenEmpty={Boolean(editState?.images.length)}
-                    files={attachedFiles}
-                    onFilesChange={handleFilesChange}
-                    onFilesRejected={handleFilesRejected}
-                    accept="image/png,image/jpeg,image/gif,image/webp"
-                    maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
-                    isStreaming={isStreaming}
-                    onStop={() => void handleAbort()}
-                    isStopping={isAborting}
-                    sendLabel={isSubmitting ? "Sending" : "Send"}
-                    leftSlot={({ openFilePicker }) =>
-                      showImageAttach ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          data-pipper-id="attach-image-button"
-                          aria-label="Attach images"
-                          onClick={() =>
-                            openFilePicker("image/png,image/jpeg,image/gif,image/webp")
-                          }
-                        >
-                          <PaperclipIcon size={15} />
-                        </Button>
-                      ) : null
-                    }
-                    textareaProps={{
-                      onKeyDown: (event) => {
-                        if (
-                          slashMatches.length &&
-                          (event.key === "ArrowDown" || event.key === "ArrowUp")
-                        ) {
-                          event.preventDefault();
-                          setSelectedCommandIndex(
-                            (current) =>
-                              (current +
-                                (event.key === "ArrowDown" ? 1 : -1) +
-                                slashMatches.length) %
-                              slashMatches.length,
-                          );
-                          return;
-                        }
-                        if (
-                          slashMatches.length &&
-                          (event.key === "Tab" ||
-                            (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
-                        ) {
-                          event.preventDefault();
-                          applyCommand(
-                            slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
-                          );
-                          return;
-                        }
-                        if (event.key === "Escape") {
-                          setSelectedCommandIndex(0);
-                        }
-                      },
+                  <div
+                    data-pipper-id="messages-list"
+                    className="relative p-4"
+                    style={{
+                      height: `${conversationVirtualizer.getTotalSize()}px`,
                     }}
-                    rightSlot={
-                      <div ref={modelDropdownRef} className="relative flex items-center gap-1.5">
-                        {" "}
-                        {thoughtLevelValues.length > 0 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={runtimeControlsDisabled}
-                              onClick={() => setShowThinkingSlider((v) => !v)}
+                  >
+                    {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const entry = allMessages[virtualRow.index];
+                      if (!entry) return null;
+                      const { key, role, messages, originalIndex, isStreaming } = entry;
+                      const from = role;
+                      const msgId = key;
+                      const bodyText = messages
+                        .map((m) => stringifyMessageContent(m))
+                        .filter(Boolean)
+                        .join("\n\n");
+                      const timeStr = isStreaming
+                        ? undefined
+                        : formatMessageTime(messages[messages.length - 1]);
+                      const hasContent =
+                        bodyText.trim() !== "" ||
+                        extractGroupedMessageImages(messages).length > 0 ||
+                        (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
+
+                      const actions =
+                        from === "user" ? (
+                          <div data-pipper-id="user-actions-buttons">
+                            <CopyButton
+                              isCopied={copiedMessageId === msgId}
+                              onCopy={() => void handleCopy(msgId, bodyText)}
+                            />
+                            <button
+                              type="button"
+                              aria-label="Edit message"
+                              title={
+                                messages.length > 1
+                                  ? "Grouped messages cannot be edited together"
+                                  : "Edit message"
+                              }
+                              className={iconButtonClass}
+                              disabled={
+                                isStreaming ||
+                                isSubmitting ||
+                                messages.length > 1 ||
+                                !snapshot?.messageEntryRefs[originalIndex]
+                              }
+                              onClick={() => {
+                                setInputValue(bodyText);
+                                setAttachedFiles([]);
+                                setEditState({
+                                  targetEntryId: snapshot!.messageEntryRefs[originalIndex]!.entryId,
+                                  images: extractGroupedMessageImages(messages),
+                                });
+                                if (composerTextareaRef.current) {
+                                  composerTextareaRef.current.focus();
+                                }
+                              }}
                             >
-                              {thoughtLevelValues[currentThoughtIndex]?.name ??
-                                snapshot?.thinkingLevel ??
-                                "Reasoning"}
-                            </Button>
-                          )}
-                        <Button
-                          data-pipper-id="model-selector"
-                          variant="ghost"
-                          size="sm"
-                          trailingIcon={ChevronDownIcon}
-                          active={isModelDropdownOpen}
-                          disabled={models.length === 0 || runtimeControlsDisabled}
-                          onClick={() => {
-                            setIsModelDropdownOpen((prev) => !prev);
+                              <PencilIcon size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div data-pipper-id="agent-actions-buttons">
+                            <CopyButton
+                              isCopied={copiedMessageId === msgId}
+                              onCopy={() => void handleCopy(msgId, bodyText)}
+                            />
+                            {!isStreaming && (
+                              <button
+                                type="button"
+                                aria-label="Regenerate response"
+                                className={iconButtonClass}
+                                disabled={
+                                  isSubmitting || snapshot?.isCompacting || snapshot?.isRetrying
+                                }
+                                onClick={() => handleRegenerate(originalIndex)}
+                              >
+                                <RotateCcwIcon size={13} />
+                              </button>
+                            )}
+                          </div>
+                        );
+
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          ref={conversationVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className="absolute left-0 top-0 w-full px-4 pb-3"
+                          style={{
+                            transform: `translateY(${virtualRow.start}px)`,
                           }}
                         >
-                          <span className="inline-flex min-w-0 items-center gap-1.5">
-                            {selectedModelProvider && (
-                              <ProviderMark
-                                provider={selectedModelProvider}
-                                className="h-3.5 w-3.5 opacity-85"
+                          <ChatMessage from={from} time={timeStr} actions={actions}>
+                            {hasContent ? (
+                              <MessageBody
+                                messages={messages}
+                                isStreaming={isStreaming}
+                                activeMessages={activeMessages}
+                                traceDeckOpen={traceDeckOpenByKey[msgId] ?? isStreaming}
+                                onTraceDeckOpenChange={(open) =>
+                                  setTraceDeckOpenByKey((current) => ({
+                                    ...current,
+                                    [msgId]: open,
+                                  }))
+                                }
                               />
-                            )}
-                            <span className="truncate">{modelName}</span>
-                          </span>
-                        </Button>
-                        {isModelDropdownOpen && models.length > 0 && (
-                          <div
-                            data-pipper-id="model-dropdown"
-                            className="absolute right-0 bottom-full mb-1.5 z-[250]"
-                          >
-                            <Elevated
-                              offset={2}
-                              shadowLevel={5}
-                              className="flex h-[360px] w-[320px] flex-col overflow-hidden rounded-xl border border-border/80 p-1.5"
-                            >
-                              <label className="flex h-9 shrink-0 items-center gap-2 px-2.5 text-muted-foreground focus-within:text-foreground">
-                                <MagnifyingGlassIcon size={14} />
-                                <input
-                                  value={modelSearch}
-                                  onChange={(event) => setModelSearch(event.target.value)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Escape") setIsModelDropdownOpen(false);
-                                  }}
-                                  placeholder="Find a model"
-                                  aria-label="Find a model"
-                                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60"
-                                  autoFocus
-                                />
-                              </label>
-                              <div className="mx-2 border-t border-border/60" />
-                              <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                                {visibleModels.map((model) => {
-                                  const isSelected =
-                                    model.provider === snapshot?.model?.provider &&
-                                    model.modelId === snapshot?.model?.modelId;
-                                  const providerLabel = formatProviderName(model.provider);
-                                  return (
-                                    <button
-                                      type="button"
-                                      key={`${model.provider}:${model.modelId}`}
-                                      aria-label={`${model.name}, ${providerLabel}`}
-                                      title={`${model.name} · ${providerLabel}`}
-                                      disabled={isRuntimeActionPending}
-                                      className={cn(
-                                        "group/model-row flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-                                        isSelected
-                                          ? "bg-accent text-foreground"
-                                          : "text-muted-foreground hover:bg-hover hover:text-foreground",
-                                        isRuntimeActionPending && "opacity-50",
-                                      )}
-                                      onClick={async () => {
-                                        if (isRuntimeActionPending) return;
-                                        setIsRuntimeActionPending(true);
-                                        try {
-                                          const success = await setModel({
-                                            provider: model.provider,
-                                            modelId: model.modelId,
-                                          });
-                                          if (success) {
-                                            setIsModelDropdownOpen(false);
-                                          } else {
-                                            toast({
-                                              icon: <WarningIcon className="size-5 text-red-500" />,
-                                              title: "Model change failed",
-                                              description: "The selected model was not applied.",
-                                            });
-                                          }
-                                        } catch (err) {
-                                          toast({
-                                            icon: <WarningIcon className="size-5 text-red-500" />,
-                                            title: "Model change failed",
-                                            description:
-                                              err instanceof Error
-                                                ? err.message
-                                                : "The selected model was not applied.",
-                                          });
-                                        } finally {
-                                          setIsRuntimeActionPending(false);
-                                        }
-                                      }}
-                                    >
-                                      <span
-                                        className={cn(
-                                          "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
-                                          isSelected
-                                            ? "border-border/70 bg-surface-4 text-foreground"
-                                            : "border-transparent bg-transparent text-muted-foreground/70 group-hover/model-row:bg-surface-3 group-hover/model-row:text-foreground",
-                                        )}
-                                      >
-                                        <ProviderMark provider={model.provider} />
-                                      </span>
-                                      <span className="min-w-0 flex-1 truncate">{model.name}</span>
-                                      {isSelected && (
-                                        <ModelCheckIcon
-                                          className="shrink-0"
-                                          size={13}
-                                          weight="bold"
-                                        />
-                                      )}
-                                    </button>
-                                  );
-                                })}
-                                {visibleModelCount === 0 && (
-                                  <div className="flex h-24 items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
-                                    No matching models
-                                  </div>
-                                )}
+                            ) : undefined}
+                            {extractGroupedMessageImages(messages).length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {extractGroupedMessageImages(messages).map((image) => (
+                                  <button
+                                    key={image.id}
+                                    type="button"
+                                    onClick={() => setPreviewImage(image)}
+                                  >
+                                    <img
+                                      src={`data:${image.mimeType};base64,${image.data}`}
+                                      alt="Message attachment"
+                                      className="size-24 rounded-md object-cover border border-border"
+                                      onLoad={() => conversationVirtualizer.measure()}
+                                    />
+                                  </button>
+                                ))}
                               </div>
-                            </Elevated>
-                          </div>
-                        )}
-                      </div>
-                    }
-                  />
-                  </>
-                )}
-              </div>
+                            )}
+                          </ChatMessage>
+                        </div>
+                      );
+                    })}
 
-              <div
-                data-pipper-id="stats-bar"
-                className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
-              >
-                {snapshot?.stats && (
-                  <div className="ml-auto flex w-full items-center justify-between gap-2">
-                    <ContextWindowRing
-                      contextUsage={
-                        snapshot.stats.size > 0
-                          ? {
-                              tokens: snapshot.stats.used,
-                              contextWindow: snapshot.stats.size,
-                              percent: (snapshot.stats.used / snapshot.stats.size) * 100,
-                            }
-                          : undefined
-                      }
-                      modelName={snapshot.model?.name}
-                      autoCompactionEnabled={snapshot.autoCompactionEnabled}
-                      sessionTokens={snapshot.stats.used}
-                      sessionCost={snapshot.stats.cost?.amount}
-                    />
-                    {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
-                      <span className="tabular-nums opacity-70">
-                        (${snapshot.stats.cost.amount.toFixed(4)})
-                      </span>
+                    {isStreaming && !streamingMessage && (
+                      <div
+                        className="absolute left-0 flex justify-start px-8 py-2"
+                        style={{
+                          top: `${conversationVirtualizer.getTotalSize()}px`,
+                        }}
+                        data-pipper-id="Thinking-indicator"
+                      >
+                        <ThinkingIndicator />
+                      </div>
                     )}
+                    <div ref={messagesEndRef} aria-hidden="true" />
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div
+              data-pipper-id="input-area"
+              className={cn(
+                "relative z-10 p-3 transition-colors duration-300",
+                allMessages.length === 0 ? "bg-transparent" : "bg-surface-1",
+              )}
+            >
+              <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+                {visibleAgentError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
+                    <WarningIcon className="mt-0.5 size-4 shrink-0" />
+                    <span className="min-w-0 flex-1">{visibleAgentError}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-red-500/80 hover:text-red-500"
+                      onClick={() => setDismissedAgentError(visibleAgentError)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+                {isConnecting && (
+                  <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[12px] text-muted-foreground">
+                    Connecting to agent runtime...
+                  </div>
+                )}
+                {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
+                  <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
+                    {snapshot.queue.steering.length > 0 && (
+                      <div>
+                        <span className="font-medium">Steering</span>
+                        {snapshot.queue.steering.map((item, index) => (
+                          <div
+                            key={index}
+                            className="line-clamp-2 text-muted-foreground"
+                            title={item}
+                          >
+                            {item}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {snapshot.queue.followUp.length > 0 && (
+                      <div className="mt-1">
+                        <span className="font-medium">Next</span>
+                        {snapshot.queue.followUp.map((item, index) => (
+                          <div
+                            key={index}
+                            className="line-clamp-2 text-muted-foreground"
+                            title={item}
+                          >
+                            {item}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {editState && (
+                  <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
+                    <span>Editing message · {editState.images.length} retained image(s)</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditState(null);
+                        setInputValue("");
+                        setAttachedFiles([]);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+                <div className="relative isolate">
+                  {snapshot?.plan && snapshot.plan.length > 0 && isStreaming ? (
+                    <div
+                      data-pipper-id="plan-popover"
+                      className="absolute right-0 bottom-full mb-1.5 z-[240] w-[280px]"
+                    >
+                      <Elevated
+                        offset={2}
+                        shadowLevel={4}
+                        className="rounded-xl border border-border/80 p-2"
+                      >
+                        <div className="px-1.5 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Plan
+                        </div>
+                        <ul className="flex flex-col gap-1">
+                          {snapshot.plan.map((entry, index) => (
+                            <li
+                              key={`${entry.content}-${index}`}
+                              className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-foreground"
+                            >
+                              <span className="mt-0.5 size-3.5 shrink-0 text-muted-foreground">
+                                {entry.status === "completed" ? (
+                                  <ModelCheckIcon size={14} className="text-emerald-500" />
+                                ) : (
+                                  <span className="inline-block size-2.5 rounded-full border border-border" />
+                                )}
+                              </span>
+                              <span
+                                className={
+                                  entry.status === "completed"
+                                    ? "text-muted-foreground line-through"
+                                    : undefined
+                                }
+                              >
+                                {entry.content}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </Elevated>
+                    </div>
+                  ) : null}
+                  <AgentSlashCommandMenu
+                    commands={slashMatches}
+                    selectedIndex={selectedCommandIndex}
+                    onSelect={applyCommand}
+                  />
+
+                  <SubagentActivity
+                    runs={subagentRuns}
+                    agents={registryAgents}
+                    activeSessionId={activeSessionId}
+                    className="relative z-10 mb-1.5"
+                  />
+
+                  {inlineRequest ? (
+                    <AgentQuestionCard request={inlineRequest} className="relative z-10" />
+                  ) : orchestrationOpen ? (
+                    <SubagentComposer
+                      className="relative z-10"
+                      agents={registryAgents}
+                      defaultOrchestratorId={snapshot?.agentId ?? null}
+                      initialGoal={orchestrationSeed}
+                      isSubmitting={isSubmitting}
+                      onSubmit={(payload) => void handleOrchestrationSubmit(payload)}
+                      onCancel={() => {
+                        setOrchestrationOpen(false);
+                        setOrchestrationSeed("");
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <AnimatePresence>
+                        {showThinkingSlider && thoughtLevelValues.length > 0 && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="pb-2">
+                              <SliderComfortable
+                                value={currentThoughtIndex}
+                                onChange={(index) => {
+                                  const val = thoughtLevelValues[index];
+                                  if (val && thoughtLevelConfigId) {
+                                    setConfigOption(thoughtLevelConfigId, val.value).catch(
+                                      (err) => {
+                                        toast({
+                                          icon: <WarningIcon className="size-5 text-red-500" />,
+                                          title: "Reasoning level failed",
+                                          description:
+                                            err instanceof Error
+                                              ? err.message
+                                              : "The reasoning level was not changed.",
+                                        });
+                                      },
+                                    );
+                                  }
+                                }}
+                                min={0}
+                                max={thoughtLevelValues.length - 1}
+                                step={1}
+                                variant="pips"
+                                label="Reasoning"
+                                formatValue={(v) => thoughtLevelValues[v]?.name ?? String(v)}
+                                disabled={runtimeControlsDisabled}
+                              />
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      <InputMessage
+                        className="relative z-10"
+                        textareaRef={composerTextareaRef}
+                        value={inputValue}
+                        onValueChange={setInputValue}
+                        placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
+                        onSend={handleSend}
+                        disabled={composerDisabled}
+                        canSendWhenEmpty={Boolean(editState?.images.length)}
+                        files={attachedFiles}
+                        onFilesChange={handleFilesChange}
+                        onFilesRejected={handleFilesRejected}
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
+                        isStreaming={isStreaming}
+                        onStop={() => void handleAbort()}
+                        isStopping={isAborting}
+                        sendLabel={isSubmitting ? "Sending" : "Send"}
+                        leftSlot={({ openFilePicker }) =>
+                          showImageAttach ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              data-pipper-id="attach-image-button"
+                              aria-label="Attach images"
+                              onClick={() =>
+                                openFilePicker("image/png,image/jpeg,image/gif,image/webp")
+                              }
+                            >
+                              <PaperclipIcon size={15} />
+                            </Button>
+                          ) : null
+                        }
+                        textareaProps={{
+                          onKeyDown: (event) => {
+                            if (
+                              slashMatches.length &&
+                              (event.key === "ArrowDown" || event.key === "ArrowUp")
+                            ) {
+                              event.preventDefault();
+                              setSelectedCommandIndex(
+                                (current) =>
+                                  (current +
+                                    (event.key === "ArrowDown" ? 1 : -1) +
+                                    slashMatches.length) %
+                                  slashMatches.length,
+                              );
+                              return;
+                            }
+                            if (
+                              slashMatches.length &&
+                              (event.key === "Tab" ||
+                                (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
+                            ) {
+                              event.preventDefault();
+                              applyCommand(
+                                slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
+                              );
+                              return;
+                            }
+                            if (event.key === "Escape") {
+                              setSelectedCommandIndex(0);
+                            }
+                          },
+                        }}
+                        rightSlot={
+                          <div
+                            ref={modelDropdownRef}
+                            className="relative flex items-center gap-1.5"
+                          >
+                            {" "}
+                            {thoughtLevelValues.length > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={runtimeControlsDisabled}
+                                onClick={() => setShowThinkingSlider((v) => !v)}
+                              >
+                                {thoughtLevelValues[currentThoughtIndex]?.name ??
+                                  snapshot?.thinkingLevel ??
+                                  "Reasoning"}
+                              </Button>
+                            )}
+                            <Button
+                              data-pipper-id="model-selector"
+                              variant="ghost"
+                              size="sm"
+                              trailingIcon={ChevronDownIcon}
+                              active={isModelDropdownOpen}
+                              disabled={models.length === 0 || runtimeControlsDisabled}
+                              onClick={() => {
+                                setIsModelDropdownOpen((prev) => !prev);
+                              }}
+                            >
+                              <span className="inline-flex min-w-0 items-center gap-1.5">
+                                {selectedModelProvider && (
+                                  <ProviderMark
+                                    provider={selectedModelProvider}
+                                    className="h-3.5 w-3.5 opacity-85"
+                                  />
+                                )}
+                                <span className="truncate">{modelName}</span>
+                              </span>
+                            </Button>
+                            {isModelDropdownOpen && models.length > 0 && (
+                              <div
+                                data-pipper-id="model-dropdown"
+                                className="absolute right-0 bottom-full mb-1.5 z-[250]"
+                              >
+                                <Elevated
+                                  offset={2}
+                                  shadowLevel={5}
+                                  className="flex h-[360px] w-[320px] flex-col overflow-hidden rounded-xl border border-border/80 p-1.5"
+                                >
+                                  <label className="flex h-9 shrink-0 items-center gap-2 px-2.5 text-muted-foreground focus-within:text-foreground">
+                                    <MagnifyingGlassIcon size={14} />
+                                    <input
+                                      value={modelSearch}
+                                      onChange={(event) => setModelSearch(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Escape") setIsModelDropdownOpen(false);
+                                      }}
+                                      placeholder="Find a model"
+                                      aria-label="Find a model"
+                                      className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60"
+                                      autoFocus
+                                    />
+                                  </label>
+                                  <div className="mx-2 border-t border-border/60" />
+                                  <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                                    {visibleModels.map((model) => {
+                                      const isSelected =
+                                        model.provider === snapshot?.model?.provider &&
+                                        model.modelId === snapshot?.model?.modelId;
+                                      const providerLabel = formatProviderName(model.provider);
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={`${model.provider}:${model.modelId}`}
+                                          aria-label={`${model.name}, ${providerLabel}`}
+                                          title={`${model.name} · ${providerLabel}`}
+                                          disabled={isRuntimeActionPending}
+                                          className={cn(
+                                            "group/model-row flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
+                                            isSelected
+                                              ? "bg-accent text-foreground"
+                                              : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                                            isRuntimeActionPending && "opacity-50",
+                                          )}
+                                          onClick={async () => {
+                                            if (isRuntimeActionPending) return;
+                                            setIsRuntimeActionPending(true);
+                                            try {
+                                              const success = await setModel({
+                                                provider: model.provider,
+                                                modelId: model.modelId,
+                                              });
+                                              if (success) {
+                                                setIsModelDropdownOpen(false);
+                                              } else {
+                                                toast({
+                                                  icon: (
+                                                    <WarningIcon className="size-5 text-red-500" />
+                                                  ),
+                                                  title: "Model change failed",
+                                                  description:
+                                                    "The selected model was not applied.",
+                                                });
+                                              }
+                                            } catch (err) {
+                                              toast({
+                                                icon: (
+                                                  <WarningIcon className="size-5 text-red-500" />
+                                                ),
+                                                title: "Model change failed",
+                                                description:
+                                                  err instanceof Error
+                                                    ? err.message
+                                                    : "The selected model was not applied.",
+                                              });
+                                            } finally {
+                                              setIsRuntimeActionPending(false);
+                                            }
+                                          }}
+                                        >
+                                          <span
+                                            className={cn(
+                                              "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
+                                              isSelected
+                                                ? "border-border/70 bg-surface-4 text-foreground"
+                                                : "border-transparent bg-transparent text-muted-foreground/70 group-hover/model-row:bg-surface-3 group-hover/model-row:text-foreground",
+                                            )}
+                                          >
+                                            <ProviderMark provider={model.provider} />
+                                          </span>
+                                          <span className="min-w-0 flex-1 truncate">
+                                            {model.name}
+                                          </span>
+                                          {isSelected && (
+                                            <ModelCheckIcon
+                                              className="shrink-0"
+                                              size={13}
+                                              weight="bold"
+                                            />
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                    {visibleModelCount === 0 && (
+                                      <div className="flex h-24 items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
+                                        No matching models
+                                      </div>
+                                    )}
+                                  </div>
+                                </Elevated>
+                              </div>
+                            )}
+                          </div>
+                        }
+                      />
+                    </>
+                  )}
+                </div>
+
+                <div
+                  data-pipper-id="stats-bar"
+                  className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
+                >
+                  {snapshot?.stats && (
+                    <div className="ml-auto flex w-full items-center justify-between gap-2">
+                      <ContextWindowRing
+                        contextUsage={
+                          snapshot.stats.size > 0
+                            ? {
+                                tokens: snapshot.stats.used,
+                                contextWindow: snapshot.stats.size,
+                                percent: (snapshot.stats.used / snapshot.stats.size) * 100,
+                              }
+                            : undefined
+                        }
+                        modelName={snapshot.model?.name}
+                        autoCompactionEnabled={snapshot.autoCompactionEnabled}
+                        sessionTokens={snapshot.stats.used}
+                        sessionCost={snapshot.stats.cost?.amount}
+                      />
+                      {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
+                        <span className="tabular-nums opacity-70">
+                          (${snapshot.stats.cost.amount.toFixed(4)})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

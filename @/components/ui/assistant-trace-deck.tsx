@@ -269,7 +269,11 @@ function AssistantTraceDeck({
     const map = new Map<string, ToolResultMessage & { terminalIds?: string[] }>();
     for (const m of activeMessages) {
       const candidate = m as ToolResultMessage & { terminalIds?: string[] };
-      if (candidate.role === "toolResult" && candidate.toolCallId && !map.has(candidate.toolCallId)) {
+      if (
+        candidate.role === "toolResult" &&
+        candidate.toolCallId &&
+        !map.has(candidate.toolCallId)
+      ) {
         map.set(candidate.toolCallId, candidate); // keep first match, matching Array.find's behavior
       }
     }

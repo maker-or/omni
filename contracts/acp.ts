@@ -187,12 +187,18 @@ export interface AcpPromptInput {
     mimeType?: string;
     text?: string;
   }>;
+  /**
+   * Steer or follow-up behavior when a prompt is submitted while the agent is
+   * mid-turn. Omitted for a normal (non-streaming) submit.
+   */
+  streamingBehavior?: "followUp" | "steer";
 }
 
 export interface AcpReplacePromptInput {
   threadId: string;
-  promptId: string;
-  text: string;
+  /** Timeline entry id of the user message being replaced. */
+  targetUserEntryId: string;
+  message: string;
   images?: Array<{ data: string; mimeType: string }>;
 }
 

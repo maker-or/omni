@@ -27,6 +27,7 @@ export type AnalyticsEventName =
   | "app_opened"
   | "project_created"
   | "worktree_created"
+  | "workspace_switched"
   | "thread_created"
   | "component_mutation_requested"
   | "mutation_started"
@@ -127,6 +128,8 @@ export interface AnalyticsProperties {
   heartbeat_seconds?: number;
 
   // v2 — boolean flags
+  /** Workspace context: true when the event happened on the project root ("main"). */
+  is_main?: boolean;
   healthy?: boolean;
   has_images?: boolean;
   has_resources?: boolean;

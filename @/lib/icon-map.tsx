@@ -320,14 +320,6 @@ export const iconLibraryOrder: IconLibrary[] = [
   "untitledui",
 ];
 
-export const iconLibraryLabels: Record<IconLibrary, string> = {
-  lucide: "Lucide",
-  tabler: "Tabler",
-  phosphor: "Phosphor",
-  hugeicons: "HugeIcons",
-  untitledui: "Untitled UI",
-};
-
 // ── Adapter Factories ───────────────────────────────────────
 
 // Tabler: `strokeWidth` → `stroke` prop

@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useRef,
-  useState,
-  useEffect,
-  useMemo,
-  useCallback,
-  type ComponentPropsWithoutRef,
-} from "react";
+import { useRef, useState, useMemo, useCallback, type ComponentPropsWithoutRef } from "react";
 import { Elevated } from "@/lib/elevated";
 import { cn } from "@/lib/utils";
 import { LazyMotion, m, domAnimation } from "framer-motion";

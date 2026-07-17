@@ -7,12 +7,6 @@
       "skillPath": "skills/productivity/grill-me/SKILL.md",
       "computedHash": "f321507f77702a54af1db66549ec1685fc625390d06c57d7949cdcda8eb1b5c7"
     },
-    "instrument-product-analytics": {
-      "source": "posthog/skills",
-      "sourceType": "github",
-      "skillPath": "skills/omnibus/instrument-product-analytics/SKILL.md",
-      "computedHash": "e374ad2584a6c7eb1c3be856e655838fabe697d86ab7ceff603ea70051f19253"
-    },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",

@@ -102,6 +102,7 @@ declare global {
         list: (projectId: string) => Promise<Worktree[]>;
         create: (input: { projectId: string; name: string }) => Promise<Worktree>;
         switch: (input: { projectId: string; path: string }) => Promise<Thread>;
+        getSelections: () => Promise<Record<string, string>>;
         listBranches: (input: { projectId: string }) => Promise<GitBranch[]>;
         switchBranch: (input: {
           projectId: string;
