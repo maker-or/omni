@@ -16,7 +16,12 @@ beforeEach(() => {
   process.env.PIPPER_LIBRARY_PATH = root;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Close before unlinking: the module-level handle outlives the test, and
+  // Windows refuses to remove a sqlite file that is still open. Imported here
+  // (not via resetModules) so this reaches the same instance the test opened.
+  const { closeDb } = await import("./db.ts");
+  closeDb();
   delete process.env.PIPPER_LIBRARY_PATH;
   if (root) rmSync(root, { recursive: true, force: true });
   root = null;

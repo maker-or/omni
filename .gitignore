@@ -30,6 +30,9 @@ out
 app-template
 release
 
+# Test coverage report (`bun run test:coverage`)
+coverage
+
 # Agent skills
 .agents/skills/
 .agent/skills/

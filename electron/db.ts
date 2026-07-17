@@ -252,6 +252,17 @@ export function getDb(): DatabaseSync {
   return db;
 }
 
+/**
+ * Release the sqlite handle so the next `getDb()` reopens from disk. Windows
+ * refuses to unlink a file with a live handle, so tests that delete their temp
+ * library must close first — `rmSync(..., { force: true })` only swallows
+ * ENOENT, not EBUSY.
+ */
+export function closeDb(): void {
+  db?.close();
+  db = null;
+}
+
 export interface AuthUserRecord {
   provider: string;
   provider_user_id: string;

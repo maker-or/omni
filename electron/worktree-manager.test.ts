@@ -4,13 +4,14 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { realpathSync } from "node:fs";
 import {
@@ -39,8 +40,36 @@ function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", env: GIT_ENV }).trim();
 }
 
+/**
+ * Assert the OS itself grants nobody but the current user access to `filePath`.
+ * The two platforms model access differently, so the same guarantee is read
+ * back in each one's own terms — POSIX mode bits, or the Windows DACL.
+ */
+function expectOwnerOnly(filePath: string): void {
+  if (process.platform !== "win32") {
+    expect(statSync(filePath).mode & 0o777).toBe(0o600);
+    return;
+  }
+  // `icacls <file>` prints the path followed by one `PRINCIPAL:(rights)` ACE
+  // per line, then a blank line before its summary.
+  const stdout = execFileSync("icacls", [filePath], { encoding: "utf8" });
+  const aces = (stdout.split(/\r?\n\s*\r?\n/)[0] ?? "")
+    .replace(filePath, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  // Exactly one ACE proves the inherited SYSTEM/Administrators/Users grants are
+  // gone; naming this user proves the survivor is the owner and not some other
+  // principal the parent directory happened to carry.
+  expect(aces).toHaveLength(1);
+  expect(aces[0]?.toLowerCase()).toContain(`\\${userInfo().username.toLowerCase()}:`);
+}
+
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "pipper-worktree-"));
+  // Canonicalize the root: Windows TEMP is an 8.3 short path
+  // (`C:\Users\RUNNER~1\...`) while git reports the expanded long name, so a
+  // raw mkdtemp path would never compare equal to a worktree git reports.
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), "pipper-worktree-")));
   // Worktrees land under this root instead of ~/.pipper/worktrees.
   process.env.PIPPER_WORKTREES_PATH = join(root, "worktrees");
 
@@ -72,7 +101,9 @@ describe("createWorktree", () => {
         encoding: "utf8",
       }),
     );
-    const entry = listed.find((w) => w.path === worktree.path);
+    // Porcelain paths are raw git output — POSIX separators and long names on
+    // Windows — so they only compare against a canonical path once resolved.
+    const entry = listed.find((w) => realpathSync.native(w.path) === worktree.path);
     expect(entry?.branch).toBe("pipper/feature-x");
     expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
   });
@@ -84,7 +115,7 @@ describe("createWorktree", () => {
     expect(worktree.branch).toBe("pipper/dup-2");
   });
 
-  test("seeds gitignored .env files with mode 0600", () => {
+  test("seeds gitignored .env files restricted to the owner", () => {
     writeFileSync(join(projectPath, ".env"), "SECRET=1");
     writeFileSync(join(projectPath, ".env.local"), "LOCAL=1");
 
@@ -92,9 +123,12 @@ describe("createWorktree", () => {
 
     const seeded = join(worktree.path, ".env");
     expect(existsSync(seeded)).toBe(true);
+    expect(readFileSync(seeded, "utf8")).toBe("SECRET=1");
     expect(existsSync(join(worktree.path, ".env.local"))).toBe(true);
-    // Owner read/write only.
-    expect(statSync(seeded).mode & 0o777).toBe(0o600);
+    // The seed carries secrets out of the project checkout, so no other account
+    // may read them — asserted in each platform's own access-control terms.
+    expectOwnerOnly(seeded);
+    expectOwnerOnly(join(worktree.path, ".env.local"));
   });
 
   test("does not follow a symlinked source during the seed", () => {
@@ -111,10 +145,13 @@ describe("createWorktree", () => {
   });
 
   test("does not clobber a tracked file of the same name", () => {
-    // Track a .keep file matching a custom include glob, with distinct content.
+    // Track a file matching a custom include glob.
     writeFileSync(join(projectPath, "config.tracked"), "TRACKED");
     git(projectPath, ["add", "-A"]);
     git(projectPath, ["commit", "-m", "add tracked"]);
+    // Diverge the seed source from the committed content, so a clobber is
+    // visible in the file itself rather than inferred from its mode.
+    writeFileSync(join(projectPath, "config.tracked"), "SEEDED");
 
     const worktree = createWorktree({
       projectPath,
@@ -124,7 +161,7 @@ describe("createWorktree", () => {
     });
 
     // The worktree's tracked copy is preserved (not overwritten by the seed).
-    expect(statSync(join(worktree.path, "config.tracked")).mode & 0o777).not.toBe(0o600);
+    expect(readFileSync(join(worktree.path, "config.tracked"), "utf8")).toBe("TRACKED");
   });
 
   test("rejects a non-git directory", () => {
@@ -139,7 +176,7 @@ describe("createWorktree", () => {
 describe("listWorktrees / isLiveWorktree", () => {
   test("lists the main tree plus created worktrees", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "listed" });
-    const mainReal = realpathSync(projectPath);
+    const mainReal = realpathSync.native(projectPath);
     const all = listWorktrees(projectPath);
     expect(all.some((w) => w.path === mainReal)).toBe(true);
     expect(all.some((w) => w.path === worktree.path)).toBe(true);
@@ -170,7 +207,7 @@ describe("listWorktrees / isLiveWorktree", () => {
   test("listChildWorktrees excludes the main working tree", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "child" });
     const children = listChildWorktrees(projectPath);
-    const mainReal = realpathSync(projectPath);
+    const mainReal = realpathSync.native(projectPath);
     expect(children.some((w) => w.path === mainReal)).toBe(false);
     expect(children.some((w) => w.path === worktree.path)).toBe(true);
   });
@@ -179,7 +216,10 @@ describe("listWorktrees / isLiveWorktree", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "branch-owner" });
     const branches = listBranches(projectPath);
 
-    expect(branches).toContainEqual({ name: "main", worktreePath: realpathSync(projectPath) });
+    expect(branches).toContainEqual({
+      name: "main",
+      worktreePath: realpathSync.native(projectPath),
+    });
     expect(branches).toContainEqual({ name: "pipper/branch-owner", worktreePath: worktree.path });
   });
 

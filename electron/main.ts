@@ -27,6 +27,7 @@ import {
   createWorktree,
   listBranches,
   listWorktrees,
+  samePath,
   switchWorktreeBranch,
 } from "./worktree-manager";
 import { getActiveProjectId, setActiveProjectId } from "./session";
@@ -260,7 +261,9 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
 
-  const target = listWorktrees(project.path).find((worktree) => worktree.path === targetPath);
+  const target = listWorktrees(project.path).find((worktree) =>
+    samePath(worktree.path, targetPath),
+  );
   if (!target) throw new Error("Worktree is no longer available");
 
   const worktreePath = target.isProjectRoot ? null : target.path;
@@ -1234,7 +1237,9 @@ function registerIpc(): void {
         return { thread, worktree };
       } catch (err) {
         // Activation failed: restore the worktree state to match the mutated Git branch
-        const restoredWorktree = listWorktrees(project.path).find((w) => w.path === input.path);
+        const restoredWorktree = listWorktrees(project.path).find((w) =>
+          samePath(w.path, input.path),
+        );
         if (restoredWorktree) {
           return { thread: null, worktree: restoredWorktree };
         }
@@ -1257,7 +1262,9 @@ function registerIpc(): void {
     });
     // Return the same annotated Git view used by the title bar, rather than
     // a locally invented display label for the newly-created checkout.
-    return listWorktrees(project.path).find((item) => item.path === worktree.path) ?? worktree;
+    return (
+      listWorktrees(project.path).find((item) => samePath(item.path, worktree.path)) ?? worktree
+    );
   });
 
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {

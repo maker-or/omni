@@ -1,14 +1,16 @@
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -168,11 +170,60 @@ function resolveIncludeGlobs(projectPath: string, override?: string[]): string[]
   return DEFAULT_INCLUDE_GLOBS;
 }
 
+let cachedUserSid: string | null = null;
+
+/** The current user's SID (`S-1-5-…`). Cached: it cannot change mid-process. */
+function currentUserSid(): string {
+  if (cachedUserSid) return cachedUserSid;
+  // `whoami /user /fo csv /nh` prints `"HOST\user","S-1-5-21-…"`.
+  const stdout = execFileSync("whoami", ["/user", "/fo", "csv", "/nh"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  // The SID is the trailing field; take the last match so an exotic host or
+  // account name in the leading `HOST\user` field can't shadow it.
+  const sid = stdout.match(/S-1-[\d-]+/g)?.at(-1);
+  if (!sid) throw new Error("Could not resolve the current user's SID");
+  cachedUserSid = sid;
+  return sid;
+}
+
+/**
+ * Restrict a file so that nobody but the current user can reach it.
+ *
+ * POSIX spells this as mode 0600. Windows has no POSIX mode bits — `chmod`
+ * there only toggles the read-only flag, and `stat` reports 0o666 whatever you
+ * do — so a seeded secret would otherwise keep the ACEs it inherited from the
+ * parent directory (SYSTEM, Administrators, and often Users). The equivalent is
+ * an explicit DACL: drop the inherited ACEs, then grant this user alone.
+ *
+ * The owner gets full control rather than a literal read/write analogue of
+ * 0600: the sole-principal DACL is the security guarantee, and `(R,W)` alone
+ * withholds DELETE, which would break the user's own tools rewriting the file.
+ *
+ * Throws when the restriction cannot be applied, so the caller can delete the
+ * file rather than leave a secret readable.
+ */
+function restrictToOwner(filePath: string): void {
+  if (process.platform !== "win32") {
+    chmodSync(filePath, 0o600);
+    return;
+  }
+  // Grant against the SID rather than the account name: it is unambiguous
+  // across domains and immune to the localized names icacls prints. Numeric
+  // SIDs must carry the `*` prefix. Exit status, not the localized stdout, is
+  // what signals failure here.
+  execFileSync("icacls", [filePath, "/inheritance:r", "/grant:r", `*${currentUserSid()}:(F)`], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
 /**
  * Copy gitignored files matching the include list from the project root into the
- * worktree: allowlist-driven, top-level only, mode 0600, destination asserted
- * inside the worktree root, symlinked sources not followed, existing (tracked)
- * files never clobbered.
+ * worktree: allowlist-driven, top-level only, restricted to the owner,
+ * destination asserted inside the worktree root, symlinked sources not
+ * followed, existing (tracked) files never clobbered.
  */
 function seedGitignoredFiles(projectPath: string, worktreePath: string, override?: string[]): void {
   const globs = resolveIncludeGlobs(projectPath, override).map(globToRegExp);
@@ -207,11 +258,33 @@ function seedGitignoredFiles(projectPath: string, worktreePath: string, override
     // Don't clobber blindly — a tracked file of the same name is already present.
     if (existsSync(dest)) continue;
 
+    let created = false;
     try {
-      copyFileSync(src, dest);
-      chmodSync(dest, 0o600);
+      const contents = readFileSync(src);
+      // Create the destination owner-only *before* the secret lands in it, and
+      // write through the handle: `copyFileSync` would reset the mode to the
+      // source's, leaving the secret briefly world-readable. `wx` also makes
+      // the no-clobber rule above atomic rather than check-then-act.
+      const fd = openSync(dest, "wx", 0o600);
+      created = true;
+      try {
+        writeFileSync(fd, contents);
+      } finally {
+        closeSync(fd);
+      }
+      // Windows ignores the mode above; this is what actually restricts it
+      // there, and normalizes an unusual umask on POSIX.
+      restrictToOwner(dest);
     } catch {
-      // best effort per file — one unreadable secret shouldn't abort create
+      // Fail closed: a secret we could not restrict to its owner must not be
+      // left behind. One bad file still doesn't abort the create.
+      if (created) {
+        try {
+          rmSync(dest, { force: true });
+        } catch {
+          // nothing further we can do for this file
+        }
+      }
     }
   }
 }
@@ -292,15 +365,9 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   }
 
   const head = git(worktreePath, ["rev-parse", "HEAD"]);
-  // git canonicalizes worktree paths (realpath); return the same form git
-  // reports so callers can match/exclude entries from `git worktree list`.
-  let canonical = worktreePath;
-  try {
-    canonical = realpathSync(worktreePath);
-  } catch {
-    // keep the constructed path
-  }
-  return { path: canonical, branch, head };
+  // Same canonical form `listWorktrees` returns, so callers can match/exclude
+  // entries from `git worktree list`.
+  return { path: canonical(worktreePath), branch, head };
 }
 
 /** Parse `git worktree list --porcelain` into structured entries. */
@@ -346,12 +413,19 @@ export function listWorktrees(projectPath: string): Worktree[] {
     cwd: projectPath,
     encoding: "utf8",
   });
-  const projectRoot = canonical(projectPath);
-  const worktrees = parseWorktreePorcelain(stdout);
+  const projectRoot = pathKey(projectPath);
+  // Canonicalize up front so every path this module hands out is in one form.
+  // Git reports POSIX separators and long names on Windows; callers compare
+  // these against `createWorktree` results and stored paths, so the two must
+  // agree exactly.
+  const worktrees = parseWorktreePorcelain(stdout).map((worktree) => ({
+    ...worktree,
+    path: canonical(worktree.path),
+  }));
   // git lists the main working tree first; use it as the root when the project
   // path doesn't canonical-match any entry (e.g. project added as a subdir).
   const rootEntry =
-    worktrees.find((worktree) => canonical(worktree.path) === projectRoot) ?? worktrees[0];
+    worktrees.find((worktree) => pathKey(worktree.path) === projectRoot) ?? worktrees[0];
   const rootLabel = rootEntry
     ? resolveRepositoryDefaultBranch(projectPath, rootEntry.branch)
     : null;
@@ -410,9 +484,9 @@ export function switchWorktreeBranch(
   worktreePath: string,
   branch: string,
 ): Worktree {
-  const targetPath = canonical(worktreePath);
+  const targetPath = pathKey(worktreePath);
   const target = listWorktrees(projectPath).find(
-    (worktree) => canonical(worktree.path) === targetPath,
+    (worktree) => pathKey(worktree.path) === targetPath,
   );
   if (!target) throw new Error("Worktree is no longer available");
   if (!branchExists(projectPath, branch)) throw new Error(`Branch does not exist: ${branch}`);
@@ -421,18 +495,40 @@ export function switchWorktreeBranch(
   // this to a local ref, so no shell interpretation is possible here.
   git(target.path, ["switch", branch]);
   const switched = listWorktrees(projectPath).find(
-    (worktree) => canonical(worktree.path) === targetPath,
+    (worktree) => pathKey(worktree.path) === targetPath,
   );
   if (!switched) throw new Error("Worktree disappeared after switching branches");
   return switched;
 }
 
+/**
+ * The OS's canonical form of a real path. `realpathSync.native` is required
+ * rather than the JS implementation: on Windows only the native call expands
+ * 8.3 short names (`RUNNER~1` → `runneradmin`) and resolves true on-disk
+ * casing, which is the form `git worktree list` reports. Falls back to
+ * `resolve` for paths that don't exist (they match no live worktree anyway).
+ */
 function canonical(path: string): string {
   try {
-    return realpathSync(path);
+    return realpathSync.native(path);
   } catch {
     return resolve(path);
   }
+}
+
+/**
+ * Comparison key for a path. Canonicalization alone isn't enough on Windows,
+ * where the filesystem is case-insensitive and git and the OS may disagree on
+ * casing. Never use this as a value — it is lossy; return `canonical` instead.
+ */
+function pathKey(path: string): string {
+  const real = canonical(path);
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
+/** True when two paths denote the same location on this platform. */
+export function samePath(a: string, b: string): boolean {
+  return pathKey(a) === pathKey(b);
 }
 
 /**
@@ -452,9 +548,9 @@ export function listChildWorktrees(projectPath: string): Worktree[] {
  */
 export function isLiveWorktree(worktreePath: string, projectPath: string): boolean {
   try {
-    const canonicalTarget = canonical(worktreePath);
+    const canonicalTarget = pathKey(worktreePath);
     const worktrees = listWorktrees(projectPath);
-    return worktrees.some((w) => canonical(w.path) === canonicalTarget);
+    return worktrees.some((w) => pathKey(w.path) === canonicalTarget);
   } catch {
     return false;
   }

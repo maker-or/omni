@@ -60,11 +60,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Validate
-        run: |
-          bun run fmt:check
-          bun run lint
-          bun run test
+      # Separate steps on purpose: the default Windows shell (pwsh) only
+      # propagates the *last* command's exit code, so a `run: |` block would
+      # let a failing fmt:check or lint pass silently as long as tests passed.
+      - name: Check formatting
+        run: bun run fmt:check
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun run test
 
       - name: Build application
         env:
