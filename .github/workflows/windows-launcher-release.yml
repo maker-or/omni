@@ -77,6 +77,10 @@ jobs:
           VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL: https://github.com/${{ env.PIPPER_RELEASE_REPOSITORY }}/releases/latest/download/latest-windows.json
         run: bun run build
 
+      # Packaging only. `dist:win` pins `--publish never`, because electron-builder
+      # otherwise auto-publishes on a tagged CI build and would cut its own
+      # `v${version}` release — a stray one, next to the `win/v*` tag the step
+      # below actually owns. That step uploads the installer and manifest itself.
       - name: Build Windows installer
         run: |
           if (Test-Path release) { Remove-Item -Recurse -Force release }
