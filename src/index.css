@@ -283,17 +283,18 @@
     --pipper-beam-angle: 360deg;
   }
 }
+/* Edit-mode hover outline — uses design-system --ring (neutral gray), not a tinted hue */
 @keyframes pipper-highlight-pulse {
   0%,
   100% {
     opacity: 1;
     box-shadow:
-      0 0 0 1px oklch(0.65 0.2 260 / 0.25),
-      inset 0 0 0 1px oklch(0.65 0.2 260 / 0.1);
+      0 0 0 1px color-mix(in oklch, var(--ring) 45%, transparent),
+      inset 0 0 0 1px color-mix(in oklch, var(--ring) 18%, transparent);
   }
   50% {
     opacity: 0.75;
-    box-shadow: 0 0 0 3px oklch(0.65 0.2 260 / 0.12);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 22%, transparent);
   }
 }
 @keyframes fade-in {
