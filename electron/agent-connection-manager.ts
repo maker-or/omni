@@ -1262,10 +1262,16 @@ export class AgentConnectionManager {
       promptInFlight: false,
     });
 
+    const projectChanged = this.activeProjectId !== projectId;
     this.activeProjectId = projectId;
     this.activeThreadId = thread.id;
     this.publishActiveAgentContext(live.agentId);
     setActiveProjectId(projectId);
+    // Creating a thread for another project (tab-bar dropdown) is a project
+    // switch: without this broadcast the renderer's project store — and with
+    // it the header's project name, workspace, and branch — keeps showing
+    // the previous project while the agent panel already follows the new one.
+    if (projectChanged) this.broadcastActiveProject?.(projectId);
     touchThread(thread.id);
     await updateWorkspaceSelection(projectId, cwd);
     await updateLaunchSelection({ projectId, threadId: thread.id });
