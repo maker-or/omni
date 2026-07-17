@@ -519,10 +519,13 @@ export function GlobalTabBar() {
   const activeProjectItemIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
   const checkedIndex = activeProjectItemIndex >= 0 ? activeProjectItemIndex + 1 : undefined;
   const addProjectIndex = projectItems.length + 1;
+  // openThreads last so broadcast-fresh rows (e.g. a thread auto-created by
+  // a workspace switch, not yet in the 2-min-stale project query) win.
+  const hoveredStoreThreads = useMemo(() => [...threads, ...openThreads], [threads, openThreads]);
   const mergedHoveredProjectThreads = useMergedProjectThreads(
     hoveredProjectId,
     hoveredProjectThreadsQuery.data?.threads ?? [],
-    threads,
+    hoveredStoreThreads,
   );
   // The picker only offers threads in the hovered project's current
   // workspace; cross-workspace threads require switching workspace first.
@@ -625,7 +628,13 @@ export function GlobalTabBar() {
             onClick={() =>
               setIsDropdownOpen((prev) => {
                 const next = !prev;
-                if (next) setHoveredProjectId(activeProject?.id ?? projectItems[0]?.id ?? null);
+                if (next) {
+                  setHoveredProjectId(activeProject?.id ?? projectItems[0]?.id ?? null);
+                  // Refresh on open (like the header project dropdown does) so
+                  // projects added via the launch window appear without an
+                  // active-project change.
+                  void window.omni.projects.list().then(setProjectsList);
+                }
                 return next;
               })
             }

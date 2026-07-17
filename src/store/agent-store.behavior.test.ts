@@ -196,6 +196,52 @@ describe("agent store ACP bridge behavior", () => {
     await switching;
   });
 
+  test("follows a main-initiated activation into another thread", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    const agentApi = {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
+        bridgeHandler = handler;
+        return vi.fn();
+      }),
+      getState: vi.fn(async () => sessionState("thread-a")),
+      getCapabilities: vi.fn(async () => null),
+      switchThread: vi.fn(),
+      respondToPermission: vi.fn(),
+      sendPrompt: vi.fn(),
+      replacePrompt: vi.fn(),
+      abort: vi.fn(),
+      createThread: vi.fn(),
+      setConfigOption: vi.fn(),
+      setEditorText: vi.fn(),
+      pasteToEditor: vi.fn(),
+      reportEditorText: vi.fn(),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    await store.getState().connect();
+    expect(store.getState().state?.threadId).toBe("thread-a");
+
+    // No renderer switch is pending, so this arrives from the main process:
+    // a workspace switch, a delete replacement, or a launch restore. The main
+    // process only emits session-state for the thread it made active, so the
+    // view must follow it rather than treat it as background noise.
+    bridgeHandler?.({
+      type: "session-state",
+      state: sessionState("thread-b", {
+        cwd: "/tmp/worktree",
+        entries: [{ type: "user_text", id: "m1", messageId: null, text: "hi" }],
+      }),
+    });
+
+    expect(store.getState().state?.threadId).toBe("thread-b");
+    expect(store.getState().state?.cwd).toBe("/tmp/worktree");
+    expect(store.getState().snapshot?.threadId).toBe("thread-b");
+    expect(
+      store.getState().state?.entries.some((e) => e.type === "user_text" && e.text === "hi"),
+    ).toBe(true);
+  });
+
   test("tracks which threads are running across open tabs", async () => {
     let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
     let resolveSwitch: (() => void) | null = null;

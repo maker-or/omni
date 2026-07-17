@@ -419,16 +419,12 @@ function applyBridgeEvent(
       if (isResolvingSwitch) {
         pendingThreadTarget = null;
       }
-      // Same reasoning as "session-update"/"stop": a background thread's own
-      // pushState (e.g. its turn starting or ending) must never clobber the
-      // state of whichever thread the user is actually looking at.
-      if (
-        !isResolvingSwitch &&
-        state.state?.threadId &&
-        payload.state.threadId !== state.state.threadId
-      ) {
-        return {};
-      }
+      // A session-state for a different thread than the displayed one is a
+      // MAIN-INITIATED activation (workspace switch, delete replacement,
+      // launch restore) and must re-target the view. Background threads can
+      // no longer clobber this: the main process only emits session-state
+      // for its active thread (see AgentConnectionManager.pushState); their
+      // streaming flags arrive via "running-threads" instead.
       return {
         state: payload.state,
         slice: createEmptySessionSlice({

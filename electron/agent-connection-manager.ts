@@ -409,6 +409,15 @@ export class AgentConnectionManager {
 
   private pushState(threadId?: string | null): void {
     const id = threadId ?? this.activeThreadId;
+    // Only the ACTIVE thread's state may become the renderer's snapshot. A
+    // background thread's turn completing — or an abandoned session settling
+    // after a switch — must not clobber the view the user is looking at
+    // (snapshot cwd/thread drive the header workspace mirror and tab focus).
+    // Its streaming flags still reach the tab strip via running-threads.
+    if (id && id !== this.activeThreadId) {
+      this.emitRunningThreads();
+      return;
+    }
     if (!id) {
       this.emit({ type: "session-state", state: this.getState() });
     } else {
@@ -1310,8 +1319,22 @@ export class AgentConnectionManager {
     if (this.activeThreadId === threadId) {
       this.activeThreadId = null;
       const remaining = listThreads().filter((t) => t.project_id === thread.project_id);
-      if (remaining[0]) {
-        await this.switchThread(remaining[0].id);
+      // Stay in the deleted thread's workspace when it still has threads —
+      // falling back to the project-wide MRU would yank the whole shell
+      // (header, tabs, terminals) into another workspace.
+      const state = await readLaunchState();
+      const replacement =
+        pickWorkspaceThread({
+          projectId: thread.project_id,
+          workspacePath: thread.worktree_path ?? null,
+          openThreadIds: state.openThreadIds,
+          threadSwitchHistory: state.threadSwitchHistory,
+          threads: remaining,
+        }) ??
+        remaining[0] ??
+        null;
+      if (replacement) {
+        await this.switchThread(replacement.id);
       } else {
         this.pushState();
       }
