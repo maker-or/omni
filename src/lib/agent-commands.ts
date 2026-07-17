@@ -8,11 +8,20 @@ export interface AgentCommand {
   source: "agent" | "client";
 }
 
+/** Client command: fork this conversation onto another agent. */
+export const CONTINUE_COMMAND = "continue";
+
 /** Commands the composer handles itself — never forwarded to the agent. */
 export const CLIENT_COMMANDS: AgentCommand[] = [
   {
     name: SUBAGENT_COMMAND,
     description: "Orchestrate subagents across your installed agents",
+    inputHint: null,
+    source: "client",
+  },
+  {
+    name: CONTINUE_COMMAND,
+    description: "Continue this conversation with another agent",
     inputHint: null,
     source: "client",
   },

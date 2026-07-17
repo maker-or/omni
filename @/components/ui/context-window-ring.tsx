@@ -9,11 +9,67 @@ import { Elevated } from "@/lib/elevated";
 import { fontWeights } from "@/lib/font-weight";
 import { shapeMap } from "@/lib/shape-context";
 import { springs } from "@/lib/springs";
+import type { AcpRateLimitInfo } from "../../../contracts/acp.ts";
 
 export interface ContextUsageSnapshot {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+}
+
+/** Human label for a rate-limit window; falls back to prettifying the raw id. */
+function rateLimitLabel(type?: string): string {
+  switch (type) {
+    case "five_hour":
+      return "5-hour limit";
+    case "seven_day":
+    case "seven_day_overage_included":
+      return "Weekly limit";
+    case "seven_day_opus":
+      return "Weekly limit (Opus)";
+    case "seven_day_sonnet":
+      return "Weekly limit (Sonnet)";
+    case "overage":
+      return "Overage";
+    default:
+      return type
+        ? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+        : "Rate limit";
+  }
+}
+
+/** Percent of the window remaining (0–100), or null when utilization is absent. */
+function rateLimitPercentLeft(utilization?: number): number | null {
+  if (typeof utilization !== "number" || Number.isNaN(utilization)) return null;
+  // Utilization may arrive as a 0–1 fraction or an already-scaled 0–100 percent.
+  const usedPct = utilization <= 1 ? utilization * 100 : utilization;
+  return Math.min(100, Math.max(0, Math.round(100 - usedPct)));
+}
+
+/** Relative "resets in …" text; null when no reset timestamp is provided. */
+function formatRateLimitReset(resetsAt?: number): string | null {
+  if (typeof resetsAt !== "number" || resetsAt <= 0) return null;
+  // Accept seconds or milliseconds since epoch.
+  const epochMs = resetsAt > 1e12 ? resetsAt : resetsAt * 1000;
+  const deltaMs = epochMs - Date.now();
+  if (deltaMs <= 0) return "resets soon";
+  const totalMin = Math.round(deltaMs / 60_000);
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const restHours = hours % 24;
+    return `resets in ${days}d${restHours ? ` ${restHours}h` : ""}`;
+  }
+  if (hours > 0) return `resets in ${hours}h${mins ? ` ${mins}m` : ""}`;
+  return `resets in ${mins}m`;
+}
+
+function rateLimitColor(status: AcpRateLimitInfo["status"], percentLeft: number | null): string {
+  if (status === "rejected") return "text-destructive";
+  if (status === "allowed_warning") return "text-amber-500 dark:text-amber-400";
+  if (percentLeft !== null && percentLeft <= 10) return "text-amber-500 dark:text-amber-400";
+  return "text-foreground/80";
 }
 
 interface ContextWindowRingProps {
@@ -24,6 +80,8 @@ interface ContextWindowRingProps {
   autoCompactionEnabled?: boolean;
   sessionTokens?: number;
   sessionCost?: number;
+  /** Subscription rate limit, when the agent reports one. Section is hidden otherwise. */
+  rateLimit?: AcpRateLimitInfo | null;
   size?: number;
   className?: string;
 }
@@ -54,6 +112,7 @@ interface ContextUsagePanelProps {
   autoCompactionEnabled?: boolean;
   sessionTokens?: number;
   sessionCost?: number;
+  rateLimit?: AcpRateLimitInfo | null;
   fillColor: string;
 }
 
@@ -63,6 +122,7 @@ function ContextUsagePanel({
   autoCompactionEnabled,
   sessionTokens,
   sessionCost,
+  rateLimit,
   fillColor,
 }: ContextUsagePanelProps) {
   const { tokens, contextWindow, percent } = contextUsage;
@@ -71,6 +131,13 @@ function ContextUsagePanel({
     (typeof sessionTokens === "number" && sessionTokens > 0) ||
     (typeof sessionCost === "number" && sessionCost > 0);
   const showDetails = Boolean(modelName || autoCompactionEnabled);
+  const rateLimitPercentLeftValue = rateLimit
+    ? rateLimitPercentLeft(rateLimit.utilization)
+    : null;
+  const rateLimitReset = rateLimit ? formatRateLimitReset(rateLimit.resetsAt) : null;
+  const rateLimitTextColor = rateLimit
+    ? rateLimitColor(rateLimit.status, rateLimitPercentLeftValue)
+    : "";
 
   return (
     <Elevated
@@ -170,6 +237,44 @@ function ContextUsagePanel({
             </dl>
           </>
         )}
+
+        {rateLimit && (
+          <>
+            <div className="border-t border-border/60" />
+            <div>
+              <p
+                className="text-muted-foreground"
+                style={{ fontVariationSettings: fontWeights.medium }}
+              >
+                {rateLimitLabel(rateLimit.rateLimitType)}
+              </p>
+              {rateLimitPercentLeftValue !== null ? (
+                <p
+                  className={cn("mt-1 tabular-nums", rateLimitTextColor)}
+                  style={{ fontVariationSettings: fontWeights.medium }}
+                >
+                  {rateLimitPercentLeftValue}% left
+                </p>
+              ) : (
+                <p
+                  className={cn("mt-1", rateLimitTextColor)}
+                  style={{ fontVariationSettings: fontWeights.medium }}
+                >
+                  {rateLimit.status === "rejected"
+                    ? "Limit reached"
+                    : rateLimit.status === "allowed_warning"
+                      ? "Approaching limit"
+                      : "Within limit"}
+                </p>
+              )}
+              {rateLimitReset && (
+                <p className="mt-1 text-muted-foreground/80">
+                  {rateLimitReset.charAt(0).toUpperCase() + rateLimitReset.slice(1)}
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </Elevated>
   );
@@ -182,6 +287,7 @@ export function ContextWindowRing({
   autoCompactionEnabled,
   sessionTokens,
   sessionCost,
+  rateLimit,
   size = 20,
   className,
 }: ContextWindowRingProps) {
@@ -284,6 +390,7 @@ export function ContextWindowRing({
                   autoCompactionEnabled={autoCompactionEnabled}
                   sessionTokens={sessionTokens}
                   sessionCost={sessionCost}
+                  rateLimit={rateLimit}
                   fillColor={fillColor}
                 />
               </motion.div>

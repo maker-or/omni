@@ -5,9 +5,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   CheckIcon as ModelCheckIcon,
+  ChatCircleTextIcon,
   MagnifyingGlassIcon,
   PaperclipIcon,
   WarningIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { InputMessage } from "@/components/ui/input-message";
@@ -29,10 +31,20 @@ import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { ContextWindowRing } from "@/components/ui/context-window-ring";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
+import { AgentContinueMenu } from "@/components/agent-continue-menu";
 import { AgentQuestionCard, AgentQuestionDock } from "@/components/agent-question";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
+import { useContinuationStore } from "@/store/continuation-store";
+import {
+  buildContinuationText,
+  extractConversation,
+  formatTranscript,
+  hasConversation,
+  type TranscriptSourceMessage,
+} from "@/lib/acp-transcript";
+import type { ContentBlock } from "../../contracts/acp.ts";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import {
   extractGroupedMessageImages,
@@ -41,7 +53,7 @@ import {
   partitionValidImageFiles,
   type ChatImageAttachment,
 } from "@/lib/agent-message-images";
-import { matchAgentCommands, mergeAgentCommands } from "@/lib/agent-commands";
+import { CONTINUE_COMMAND, matchAgentCommands, mergeAgentCommands } from "@/lib/agent-commands";
 import { isSubagentTrigger, SUBAGENT_COMMAND } from "@/lib/subagent-orchestration";
 import { SubagentComposer, type SubagentComposerSubmit } from "@/components/subagent-composer";
 import { SubagentActivity } from "@/components/subagent-activity";
@@ -536,6 +548,8 @@ export function AgentPanel() {
   const [isRuntimeActionPending, setIsRuntimeActionPending] = useState(false);
   const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [continuePickerOpen, setContinuePickerOpen] = useState(false);
+  const [continueSelectedIndex, setContinueSelectedIndex] = useState(0);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [orchestrationSeed, setOrchestrationSeed] = useState("");
   const [editState, setEditState] = useState<{
@@ -569,6 +583,15 @@ export function AgentPanel() {
     [snapshot?.commands],
   );
   const registryAgents = useAgentRegistryStore((state) => state.agents);
+  // Agents offered by `/continue` — only ones the user can actually connect to.
+  const continuableAgents = useMemo(
+    () => registryAgents.filter((agent) => agent.available !== false),
+    [registryAgents],
+  );
+  // Carry-over transcript staged for the currently-viewed thread, if any.
+  const pendingContinuation = useContinuationStore((state) =>
+    snapshot?.threadId ? (state.pendingByThreadId[snapshot.threadId] ?? null) : null,
+  );
   const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
 
@@ -918,6 +941,13 @@ export function AgentPanel() {
         });
         return;
       }
+      // A `/continue` thread carries an unsent transcript: send it as its own
+      // content block alongside the user's message so the agent gets the prior
+      // context, while `message` (the optimistic bubble) stays just the user's
+      // own text — the transcript never renders as a giant user bubble.
+      const pendingTranscript = operationThreadId
+        ? useContinuationStore.getState().getPending(operationThreadId)
+        : null;
       // The underlying ACP call only resolves once the agent finishes its
       // entire turn, so we deliberately don't await it here — awaiting would
       // hold composerDisabled (and this stale draft text) for the whole turn.
@@ -932,12 +962,27 @@ export function AgentPanel() {
               message: trimmed,
               images,
             })
-          : sendPrompt({
-              threadId: operationThreadId,
-              message: trimmed,
-              images: newImages.length ? newImages : undefined,
-              streamingBehavior: isStreaming ? streamingBehavior : undefined,
-            });
+          : pendingTranscript
+            ? sendPrompt({
+                threadId: operationThreadId,
+                message: trimmed,
+                prompt: [
+                  { type: "text", text: buildContinuationText(pendingTranscript) },
+                  ...(trimmed ? [{ type: "text", text: trimmed }] : []),
+                  ...newImages.map((img) => ({
+                    type: "image",
+                    data: img.data,
+                    mimeType: img.mimeType,
+                  })),
+                ] as ContentBlock[],
+                streamingBehavior: isStreaming ? streamingBehavior : undefined,
+              })
+            : sendPrompt({
+                threadId: operationThreadId,
+                message: trimmed,
+                images: newImages.length ? newImages : undefined,
+                streamingBehavior: isStreaming ? streamingBehavior : undefined,
+              });
       sendOp.catch((err) => {
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
@@ -949,6 +994,12 @@ export function AgentPanel() {
         setInputValue("");
         setAttachedFiles([]);
         setEditState(null);
+        // Chip is consumed on send. Optimistic clear: the message is already
+        // in flight, and a failed first send is recoverable by re-running
+        // `/continue` from the source thread.
+        if (pendingTranscript && operationThreadId) {
+          useContinuationStore.getState().clearPending(operationThreadId);
+        }
       }
       setStreamingBehavior("followUp");
     } catch (err) {
@@ -1006,7 +1057,78 @@ export function AgentPanel() {
       openOrchestration("");
       return;
     }
+    if (commandName === CONTINUE_COMMAND) {
+      if (!hasConversation(activeMessages as TranscriptSourceMessage[])) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Nothing to continue",
+          description: "This conversation has no messages to carry over yet.",
+        });
+        setInputValue("");
+        return;
+      }
+      setInputValue("");
+      setSelectedCommandIndex(0);
+      setContinueSelectedIndex(0);
+      setContinuePickerOpen(true);
+      return;
+    }
     setInputValue(`/${commandName} `);
+  };
+
+  // `/continue` picks a target agent, snapshots this thread's user/assistant
+  // transcript, and opens a fresh thread on that agent seeded with the
+  // transcript (staged as a composer chip until the user sends).
+  const handleContinueWithAgent = async (agentId: string) => {
+    setContinuePickerOpen(false);
+    const turns = extractConversation(activeMessages as TranscriptSourceMessage[]);
+    if (turns.length === 0) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Nothing to continue",
+        description: "This conversation has no messages to carry over yet.",
+      });
+      return;
+    }
+    const projectId = activeProject?.id ?? snapshot?.projectId ?? null;
+    if (!projectId) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "No project",
+        description: "Open a project before continuing a conversation.",
+      });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      // The new thread binds to the workspace the user is looking at, like any
+      // other new thread.
+      const worktreePath = normalizeWorkspacePath(
+        useWorktreeStore.getState().selectedWorktreePathByProject[projectId],
+        activeProject?.path ?? null,
+      );
+      const thread = await createThread(
+        projectId,
+        `Continued: ${snapshot?.title ?? "conversation"}`,
+        snapshot?.threadId ?? null,
+        agentId,
+        worktreePath,
+      );
+      // Stage the transcript before selecting the thread so the chip is present
+      // the moment its composer renders.
+      useContinuationStore.getState().setPending(thread.id, formatTranscript(turns));
+      await loadProjectThreads(projectId, { reset: true });
+      await selectThread(thread.id);
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Continue failed",
+        description:
+          err instanceof Error ? err.message : "Could not start the new conversation.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOrchestrationSubmit = async ({
@@ -1430,6 +1552,14 @@ export function AgentPanel() {
                     onSelect={applyCommand}
                   />
 
+                  {continuePickerOpen ? (
+                    <AgentContinueMenu
+                      agents={continuableAgents}
+                      selectedIndex={continueSelectedIndex}
+                      onSelect={(agentId) => void handleContinueWithAgent(agentId)}
+                    />
+                  ) : null}
+
                   <SubagentActivity
                     runs={subagentRuns}
                     agents={registryAgents}
@@ -1495,6 +1625,30 @@ export function AgentPanel() {
                           </motion.div>
                         )}
                       </AnimatePresence>
+                      {pendingContinuation ? (
+                        <div
+                          className="relative z-10 mb-1.5 flex flex-wrap items-center gap-1.5"
+                          data-pipper-id="continuation-chip"
+                        >
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 py-1 pl-2.5 pr-1.5 text-xs text-muted-foreground">
+                            <ChatCircleTextIcon size={13} />
+                            Transcript from previous conversation
+                            <button
+                              type="button"
+                              aria-label="Remove transcript"
+                              data-pipper-id="continuation-chip-remove"
+                              className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
+                              onClick={() => {
+                                if (snapshot?.threadId) {
+                                  useContinuationStore.getState().clearPending(snapshot.threadId);
+                                }
+                              }}
+                            >
+                              <XIcon size={11} />
+                            </button>
+                          </span>
+                        </div>
+                      ) : null}
                       <InputMessage
                         className="relative z-10"
                         textareaRef={composerTextareaRef}
@@ -1531,6 +1685,32 @@ export function AgentPanel() {
                         }
                         textareaProps={{
                           onKeyDown: (event) => {
+                            // `/continue` agent picker owns the keys while open.
+                            if (continuePickerOpen && continuableAgents.length) {
+                              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                                event.preventDefault();
+                                setContinueSelectedIndex(
+                                  (current) =>
+                                    (current +
+                                      (event.key === "ArrowDown" ? 1 : -1) +
+                                      continuableAgents.length) %
+                                    continuableAgents.length,
+                                );
+                                return;
+                              }
+                              if (event.key === "Enter" || event.key === "Tab") {
+                                event.preventDefault();
+                                const agent =
+                                  continuableAgents[continueSelectedIndex] ?? continuableAgents[0];
+                                if (agent) void handleContinueWithAgent(agent.id);
+                                return;
+                              }
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                setContinuePickerOpen(false);
+                                return;
+                              }
+                            }
                             if (
                               slashMatches.length &&
                               (event.key === "ArrowDown" || event.key === "ArrowUp")
@@ -1740,6 +1920,7 @@ export function AgentPanel() {
                         autoCompactionEnabled={snapshot.autoCompactionEnabled}
                         sessionTokens={snapshot.stats.used}
                         sessionCost={snapshot.stats.cost?.amount}
+                        rateLimit={snapshot.usage?.rateLimit}
                       />
                       {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
                         <span className="tabular-nums opacity-70">
