@@ -5,7 +5,6 @@ import { InputMessage } from "@/components/ui/input-message";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 import { BorderBeam } from "border-beam";
-import { Elevated } from "@/lib/elevated";
 import { toast } from "@/components/ui/toast";
 
 interface HighlightRect {

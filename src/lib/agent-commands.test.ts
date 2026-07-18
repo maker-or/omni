@@ -32,6 +32,12 @@ describe("agent slash commands", () => {
         inputHint: null,
         source: "client",
       },
+      {
+        name: "continue",
+        description: "Continue this conversation with another agent",
+        inputHint: null,
+        source: "client",
+      },
     ]);
     expect(commandsFromAvailable([])).toEqual([]);
   });
