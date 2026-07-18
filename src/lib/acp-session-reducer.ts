@@ -265,11 +265,18 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
       const rateLimitMeta = (update as { _meta?: Record<string, unknown> })._meta?.[
         "_claude/rateLimit"
       ] as Partial<AcpRateLimitInfo> | undefined;
+      // Claude reports utilization as a 0–1 fraction; normalize to a canonical
+      // 0–100 percent here so downstream consumers never have to guess the scale.
+      const rawUtilization = rateLimitMeta?.utilization;
+      const utilization =
+        typeof rawUtilization === "number" && !Number.isNaN(rawUtilization)
+          ? rawUtilization * 100
+          : undefined;
       const rateLimit: AcpUsageState["rateLimit"] = rateLimitMeta
         ? {
             status: rateLimitMeta.status ?? "allowed",
             rateLimitType: rateLimitMeta.rateLimitType,
-            utilization: rateLimitMeta.utilization,
+            utilization,
             resetsAt: rateLimitMeta.resetsAt,
           }
         : (state.usage?.rateLimit ?? null);

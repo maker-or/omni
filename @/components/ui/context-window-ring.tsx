@@ -41,9 +41,8 @@ function rateLimitLabel(type?: string): string {
 /** Percent of the window remaining (0–100), or null when utilization is absent. */
 function rateLimitPercentLeft(utilization?: number): number | null {
   if (typeof utilization !== "number" || Number.isNaN(utilization)) return null;
-  // Utilization may arrive as a 0–1 fraction or an already-scaled 0–100 percent.
-  const usedPct = utilization <= 1 ? utilization * 100 : utilization;
-  return Math.min(100, Math.max(0, Math.round(100 - usedPct)));
+  // `utilization` is already a canonical 0–100 percent (normalized at the reducer).
+  return Math.min(100, Math.max(0, Math.round(100 - utilization)));
 }
 
 /** Relative "resets in …" text; null when no reset timestamp is provided. */

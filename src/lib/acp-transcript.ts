@@ -18,16 +18,24 @@ export interface TranscriptTurn {
   text: string;
 }
 
-/** Visible text of a message: the string itself, or the joined `text` parts. */
+/**
+ * Visible text of a message: the string itself, or the `text` parts joined.
+ * Assistant runs emit a separate text part on each side of a tool call, so the
+ * parts must be joined with a separator — concatenating with "" would fuse
+ * sentences ("I'll check." + "Tests passed." → "I'll check.Tests passed.").
+ * "\n\n" matches how the app's own projection concatenates visible segments.
+ */
 function messageText(content: TranscriptSourceMessage["content"]): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const part of content) {
     const typed = part as { type?: string; text?: string };
-    if (typed.type === "text" && typeof typed.text === "string") parts.push(typed.text);
+    if (typed.type === "text" && typeof typed.text === "string" && typed.text) {
+      parts.push(typed.text);
+    }
   }
-  return parts.join("").trim();
+  return parts.join("\n\n").trim();
 }
 
 /** User/assistant turns with non-empty visible text, in timeline order. */
@@ -54,6 +62,53 @@ export function formatTranscript(turns: readonly TranscriptTurn[]): string {
   return turns
     .map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.text}`)
     .join("\n\n");
+}
+
+/** Rough characters-per-token; conversational text averages ~4. */
+const CHARS_PER_TOKEN = 4;
+
+/**
+ * Target token budget for a carried-over transcript. Deliberately conservative
+ * so a long source thread can't swallow the new thread's whole context window
+ * on the very first message.
+ */
+export const CONTINUATION_TOKEN_BUDGET = 12_000;
+
+export interface BudgetedTranscript {
+  /** Transcript text, trimmed to the newest turns that fit the budget. */
+  text: string;
+  /** True when older turns were dropped to fit. */
+  omittedHistory: boolean;
+}
+
+/**
+ * Format a transcript bounded to a token budget: keep the newest turns that
+ * fit (a conversation is most useful from its tail), drop older ones, and — when
+ * anything was dropped — prepend a marker so the receiving agent knows earlier
+ * history is missing rather than assuming it has the full thread.
+ */
+export function budgetTranscript(
+  turns: readonly TranscriptTurn[],
+  tokenBudget: number = CONTINUATION_TOKEN_BUDGET,
+): BudgetedTranscript {
+  const charBudget = Math.max(0, tokenBudget) * CHARS_PER_TOKEN;
+  const kept: TranscriptTurn[] = [];
+  let total = 0;
+  // Walk newest → oldest, keeping turns until the next one would overflow.
+  // Always keep at least the most recent turn, even if it alone exceeds budget.
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i]!;
+    const cost = turn.text.length + turn.role.length + 4; // + framing overhead
+    if (kept.length > 0 && total + cost > charBudget) break;
+    kept.unshift(turn);
+    total += cost;
+  }
+  const omittedHistory = kept.length < turns.length;
+  const body = formatTranscript(kept);
+  const text = omittedHistory
+    ? `[Earlier messages were omitted to fit the context window.]\n\n${body}`
+    : body;
+  return { text, omittedHistory };
 }
 
 /**

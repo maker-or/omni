@@ -100,7 +100,11 @@ export interface AcpRateLimitInfo {
   status: "allowed" | "allowed_warning" | "rejected" | (string & {});
   /** Which limit window this describes, e.g. `five_hour` | `seven_day`. */
   rateLimitType?: string;
-  /** Fraction of the window consumed. May arrive as 0–1 or 0–100; normalized at render. */
+  /**
+   * Percent of the window consumed, 0–100. Normalized to this scale at the
+   * reducer boundary from whatever native scale the source reports (Claude
+   * emits a 0–1 fraction), so consumers can use it directly without guessing.
+   */
   utilization?: number;
   /** Unix epoch seconds when the window resets. */
   resetsAt?: number;

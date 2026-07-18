@@ -38,13 +38,14 @@ import { toast } from "@/components/ui/toast";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
 import { useContinuationStore } from "@/store/continuation-store";
 import {
+  budgetTranscript,
   buildContinuationText,
   extractConversation,
-  formatTranscript,
   hasConversation,
   type TranscriptSourceMessage,
 } from "@/lib/acp-transcript";
 import type { ContentBlock } from "../../contracts/acp.ts";
+import { assemblePromptBlocks } from "@/lib/acp-session-reducer";
 import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import {
   extractGroupedMessageImages,
@@ -57,6 +58,8 @@ import { CONTINUE_COMMAND, matchAgentCommands, mergeAgentCommands } from "@/lib/
 import { isSubagentTrigger, SUBAGENT_COMMAND } from "@/lib/subagent-orchestration";
 import { SubagentComposer, type SubagentComposerSubmit } from "@/components/subagent-composer";
 import { SubagentActivity } from "@/components/subagent-activity";
+/** Max agents shown in (and selectable from) the `/continue` picker. */
+const MAX_CONTINUE_AGENTS = 8;
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -583,9 +586,14 @@ export function AgentPanel() {
     [snapshot?.commands],
   );
   const registryAgents = useAgentRegistryStore((state) => state.agents);
-  // Agents offered by `/continue` — only ones the user can actually connect to.
+  // Agents offered by `/continue` — only ones the user can actually connect to,
+  // bounded to what the picker renders so display and keyboard selection share
+  // one collection (no selecting an off-list, invisible agent).
   const continuableAgents = useMemo(
-    () => registryAgents.filter((agent) => agent.available !== false),
+    () =>
+      registryAgents
+        .filter((agent) => agent.available !== false)
+        .slice(0, MAX_CONTINUE_AGENTS),
     [registryAgents],
   );
   // Carry-over transcript staged for the currently-viewed thread, if any.
@@ -966,14 +974,18 @@ export function AgentPanel() {
             ? sendPrompt({
                 threadId: operationThreadId,
                 message: trimmed,
+                // Lead with the transcript as its own context block, then reuse
+                // the shared block builder for the user's message + images so the
+                // target agent's image capability is honored. Building the image
+                // blocks by hand here would bypass that filter (a supplied
+                // `prompt` short-circuits assemblePromptBlocks in the main path).
                 prompt: [
                   { type: "text", text: buildContinuationText(pendingTranscript) },
-                  ...(trimmed ? [{ type: "text", text: trimmed }] : []),
-                  ...newImages.map((img) => ({
-                    type: "image",
-                    data: img.data,
-                    mimeType: img.mimeType,
-                  })),
+                  ...assemblePromptBlocks({
+                    message: trimmed,
+                    images: newImages,
+                    allowImage: canAttachImage(),
+                  }),
                 ] as ContentBlock[],
                 streamingBehavior: isStreaming ? streamingBehavior : undefined,
               })
@@ -1067,6 +1079,15 @@ export function AgentPanel() {
         setInputValue("");
         return;
       }
+      if (continuableAgents.length === 0) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "No agents available",
+          description: "Install or sign in to another agent to continue this conversation.",
+        });
+        setInputValue("");
+        return;
+      }
       setInputValue("");
       setSelectedCommandIndex(0);
       setContinueSelectedIndex(0);
@@ -1115,8 +1136,9 @@ export function AgentPanel() {
         worktreePath,
       );
       // Stage the transcript before selecting the thread so the chip is present
-      // the moment its composer renders.
-      useContinuationStore.getState().setPending(thread.id, formatTranscript(turns));
+      // the moment its composer renders. Bounded to a token budget so a long
+      // source thread can't blow the new thread's context on the first send.
+      useContinuationStore.getState().setPending(thread.id, budgetTranscript(turns).text);
       await loadProjectThreads(projectId, { reset: true });
       await selectThread(thread.id);
     } catch (err) {

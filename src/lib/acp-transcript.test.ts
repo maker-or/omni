@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  budgetTranscript,
   buildContinuationText,
   extractConversation,
   formatTranscript,
   hasConversation,
   type TranscriptSourceMessage,
+  type TranscriptTurn,
 } from "./acp-transcript";
 
 describe("extractConversation", () => {
@@ -49,19 +51,19 @@ describe("extractConversation", () => {
     expect(extractConversation(messages)).toEqual([{ role: "assistant", text: "kept" }]);
   });
 
-  it("joins multiple text parts within one assistant message", () => {
+  it("separates text parts split by a tool call instead of fusing sentences", () => {
     const messages: TranscriptSourceMessage[] = [
       {
         role: "assistant",
         content: [
-          { type: "text", text: "part one " },
+          { type: "text", text: "I'll check." },
           { type: "toolCall", id: "t1", name: "bash" },
-          { type: "text", text: "part two" },
+          { type: "text", text: "Tests passed." },
         ],
       },
     ];
     expect(extractConversation(messages)).toEqual([
-      { role: "assistant", text: "part one part two" },
+      { role: "assistant", text: "I'll check.\n\nTests passed." },
     ]);
   });
 });
@@ -96,5 +98,41 @@ describe("formatTranscript / buildContinuationText", () => {
     expect(wrapped).toContain("earlier conversation");
     expect(wrapped).toContain("User: q");
     expect(wrapped).toContain("Assistant: a");
+  });
+});
+
+describe("budgetTranscript", () => {
+  it("keeps everything and flags no omission when under budget", () => {
+    const turns: TranscriptTurn[] = [
+      { role: "user", text: "q" },
+      { role: "assistant", text: "a" },
+    ];
+    const result = budgetTranscript(turns, 1_000);
+    expect(result.omittedHistory).toBe(false);
+    expect(result.text).toBe("User: q\n\nAssistant: a");
+  });
+
+  it("drops the oldest turns, keeps the newest, and marks omission", () => {
+    const turns: TranscriptTurn[] = [
+      { role: "user", text: "oldest" },
+      { role: "assistant", text: "middle" },
+      { role: "user", text: "newest" },
+    ];
+    // ~4 chars/token: a 2-token budget (~8 chars) only fits the last turn.
+    const result = budgetTranscript(turns, 2);
+    expect(result.omittedHistory).toBe(true);
+    expect(result.text).toContain("omitted");
+    expect(result.text).toContain("newest");
+    expect(result.text).not.toContain("oldest");
+  });
+
+  it("always keeps at least the most recent turn even if it alone exceeds budget", () => {
+    const turns: TranscriptTurn[] = [
+      { role: "user", text: "old" },
+      { role: "assistant", text: "a very long final answer that exceeds the tiny budget" },
+    ];
+    const result = budgetTranscript(turns, 1);
+    expect(result.text).toContain("a very long final answer");
+    expect(result.omittedHistory).toBe(true);
   });
 });
