@@ -201,7 +201,7 @@ function ContextUsagePanel({
                   </dd>
                 </div>
               )}
-              {autoCompactionEnabled && (
+              {/*{autoCompactionEnabled && (
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-muted-foreground">Auto-compaction</dt>
                   <dd
@@ -211,23 +211,15 @@ function ContextUsagePanel({
                     On
                   </dd>
                 </div>
-              )}
+              )}*/}
             </dl>
           </>
         )}
 
         {showSession && (
           <>
-            <div className="border-t border-border/60" />
+
             <dl className="space-y-1.5">
-              {typeof sessionTokens === "number" && sessionTokens > 0 && (
-                <div className="flex items-baseline justify-between gap-3">
-                  <dt className="text-muted-foreground">Session tokens</dt>
-                  <dd className="tabular-nums text-foreground">
-                    {formatTokenCount(sessionTokens)}
-                  </dd>
-                </div>
-              )}
               {typeof sessionCost === "number" && sessionCost > 0 && (
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-muted-foreground">Session cost</dt>
@@ -255,18 +247,7 @@ function ContextUsagePanel({
                 >
                   {rateLimitPercentLeftValue}% left
                 </p>
-              ) : (
-                <p
-                  className={cn("mt-1", rateLimitTextColor)}
-                  style={{ fontVariationSettings: fontWeights.medium }}
-                >
-                  {rateLimit.status === "rejected"
-                    ? "Limit reached"
-                    : rateLimit.status === "allowed_warning"
-                      ? "Approaching limit"
-                      : "Within limit"}
-                </p>
-              )}
+              ) : null}
               {rateLimitReset && (
                 <p className="mt-1 text-muted-foreground/80">
                   {rateLimitReset.charAt(0).toUpperCase() + rateLimitReset.slice(1)}
