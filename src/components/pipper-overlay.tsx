@@ -410,8 +410,6 @@ export function PipperOverlay() {
           <BorderBeam size="line" colorVariant="mono" className="w-full h-full">
             <div className="absolute inset-0 rounded-sm" />
           </BorderBeam>
-
-
         </div>
       )}
 
@@ -428,71 +426,67 @@ export function PipperOverlay() {
           onClick={(e) => e.stopPropagation()}
         >
           <BorderBeam size="pulse-inner" colorVariant="mono">
-
-              <InputMessage
-                value={commentText}
-                onValueChange={setCommentText}
-                onSend={(text) => {
-                  if (!popup || !text.trim()) return;
-                  const { pipperId, label } = popup;
-                  (async () => {
-                    try {
-                      await window.omni?.pipper?.addComment(pipperId, text.trim());
-                    } catch (err) {
-                      console.error("[PipperOverlay] addComment failed:", err);
-                      await window.omni?.pipper?.setProcessing?.(null).catch(() => undefined);
-                      toast({
-                        icon: <WarningIcon className="size-5 text-red-500" />,
-                        title: "Could not send edit",
-                        description:
-                          err instanceof Error ? err.message : "The companion did not receive it.",
-                      });
-                      return;
-                    }
-                    try {
-                      await window.omni?.pipper?.setProcessing?.(pipperId);
-                    } catch (err) {
-                      console.error("[PipperOverlay] setProcessing failed:", err);
-                      toast({
-                        icon: <WarningIcon className="size-5 text-yellow-500" />,
-                        title: "Edit sent without highlight",
-                        description:
-                          err instanceof Error
-                            ? err.message
-                            : "The companion received the request.",
-                      });
-                    }
-                    setPopup(null);
-                    setCommentText("");
-                    setHighlight({
-                      top: popup.elementRect.top,
-                      left: popup.elementRect.left,
-                      width: popup.elementRect.width,
-                      height: popup.elementRect.height,
-                      pipperId,
-                      label,
+            <InputMessage
+              value={commentText}
+              onValueChange={setCommentText}
+              onSend={(text) => {
+                if (!popup || !text.trim()) return;
+                const { pipperId, label } = popup;
+                (async () => {
+                  try {
+                    await window.omni?.pipper?.addComment(pipperId, text.trim());
+                  } catch (err) {
+                    console.error("[PipperOverlay] addComment failed:", err);
+                    await window.omni?.pipper?.setProcessing?.(null).catch(() => undefined);
+                    toast({
+                      icon: <WarningIcon className="size-5 text-red-500" />,
+                      title: "Could not send edit",
+                      description:
+                        err instanceof Error ? err.message : "The companion did not receive it.",
                     });
-                  })();
-                }}
-                placeholder="Describe the change…"
-                textareaRef={inputRef}
-                leftSlot={() => (
-                  <>
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-md px-1.5 py-0.5",
-                        "text-[10px] font-bold text-foreground tracking-wide",
-                        surfaceClasses(7, 4),
-                      )}
-                    >
-                      @ {popup.label}
-                    </span>
-                  </>
-                )}
-                minRows={1}
-                maxRows={4}
-              />
-
+                    return;
+                  }
+                  try {
+                    await window.omni?.pipper?.setProcessing?.(pipperId);
+                  } catch (err) {
+                    console.error("[PipperOverlay] setProcessing failed:", err);
+                    toast({
+                      icon: <WarningIcon className="size-5 text-yellow-500" />,
+                      title: "Edit sent without highlight",
+                      description:
+                        err instanceof Error ? err.message : "The companion received the request.",
+                    });
+                  }
+                  setPopup(null);
+                  setCommentText("");
+                  setHighlight({
+                    top: popup.elementRect.top,
+                    left: popup.elementRect.left,
+                    width: popup.elementRect.width,
+                    height: popup.elementRect.height,
+                    pipperId,
+                    label,
+                  });
+                })();
+              }}
+              placeholder="Describe the change…"
+              textareaRef={inputRef}
+              leftSlot={() => (
+                <>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-md px-1.5 py-0.5",
+                      "text-[10px] font-bold text-foreground tracking-wide",
+                      surfaceClasses(7, 4),
+                    )}
+                  >
+                    @ {popup.label}
+                  </span>
+                </>
+              )}
+              minRows={1}
+              maxRows={4}
+            />
           </BorderBeam>
         </div>
       )}

@@ -310,7 +310,9 @@ async function installWorktreeDependencies(
   worktreePath: string,
   workspaceName: string,
 ): Promise<void> {
-  const report = (progress: Omit<WorktreeSetupProgress, "projectId" | "worktreePath" | "workspaceName">) =>
+  const report = (
+    progress: Omit<WorktreeSetupProgress, "projectId" | "worktreePath" | "workspaceName">,
+  ) =>
     broadcastToWindows("worktrees:setupProgress", {
       projectId,
       worktreePath,
@@ -357,9 +359,7 @@ async function installWorktreeDependencies(
         if (code === 0) resolvePromise();
         else {
           const tail = outputTail.trim().split("\n").slice(-8).join("\n");
-          rejectPromise(
-            new Error(`${install.manager} install exited with code ${code}.\n${tail}`),
-          );
+          rejectPromise(new Error(`${install.manager} install exited with code ${code}.\n${tail}`));
         }
       });
     });

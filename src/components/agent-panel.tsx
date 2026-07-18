@@ -590,10 +590,7 @@ export function AgentPanel() {
   // bounded to what the picker renders so display and keyboard selection share
   // one collection (no selecting an off-list, invisible agent).
   const continuableAgents = useMemo(
-    () =>
-      registryAgents
-        .filter((agent) => agent.available !== false)
-        .slice(0, MAX_CONTINUE_AGENTS),
+    () => registryAgents.filter((agent) => agent.available !== false).slice(0, MAX_CONTINUE_AGENTS),
     [registryAgents],
   );
   // Carry-over transcript staged for the currently-viewed thread, if any.
@@ -1145,8 +1142,7 @@ export function AgentPanel() {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
         title: "Continue failed",
-        description:
-          err instanceof Error ? err.message : "Could not start the new conversation.",
+        description: err instanceof Error ? err.message : "Could not start the new conversation.",
       });
     } finally {
       setIsSubmitting(false);

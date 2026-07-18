@@ -32,9 +32,7 @@ function rateLimitLabel(type?: string): string {
     case "overage":
       return "Overage";
     default:
-      return type
-        ? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-        : "Rate limit";
+      return type ? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Rate limit";
   }
 }
 
@@ -130,9 +128,7 @@ function ContextUsagePanel({
     (typeof sessionTokens === "number" && sessionTokens > 0) ||
     (typeof sessionCost === "number" && sessionCost > 0);
   const showDetails = Boolean(modelName || autoCompactionEnabled);
-  const rateLimitPercentLeftValue = rateLimit
-    ? rateLimitPercentLeft(rateLimit.utilization)
-    : null;
+  const rateLimitPercentLeftValue = rateLimit ? rateLimitPercentLeft(rateLimit.utilization) : null;
   const rateLimitReset = rateLimit ? formatRateLimitReset(rateLimit.resetsAt) : null;
   const rateLimitTextColor = rateLimit
     ? rateLimitColor(rateLimit.status, rateLimitPercentLeftValue)
@@ -217,7 +213,6 @@ function ContextUsagePanel({
 
         {showSession && (
           <>
-
             <dl className="space-y-1.5">
               {typeof sessionCost === "number" && sessionCost > 0 && (
                 <div className="flex items-baseline justify-between gap-3">
