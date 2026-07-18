@@ -15,7 +15,12 @@ import type {
   SessionConfigOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import type { AcpEntry, AcpToolCallState, AcpUsageState } from "../../contracts/acp.ts";
+import type {
+  AcpEntry,
+  AcpRateLimitInfo,
+  AcpToolCallState,
+  AcpUsageState,
+} from "../../contracts/acp.ts";
 
 export interface AcpSessionSlice {
   entries: AcpEntry[];
@@ -253,12 +258,35 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
           ? (update as { size: number }).size
           : (state.usage?.size ?? 0);
       const cost = (update as { cost?: AcpUsageState["cost"] }).cost;
+      // Vendor-specific subscription rate limit, when present. The Claude ACP
+      // adapter attaches its `rate_limit_info` here on a `usage_update`. Absent
+      // on ordinary token-usage updates, so preserve the last known value rather
+      // than clearing it every turn; other agents never set it (stays null).
+      const rateLimitMeta = (update as { _meta?: Record<string, unknown> })._meta?.[
+        "_claude/rateLimit"
+      ] as Partial<AcpRateLimitInfo> | undefined;
+      // Claude reports utilization as a 0–1 fraction; normalize to a canonical
+      // 0–100 percent here so downstream consumers never have to guess the scale.
+      const rawUtilization = rateLimitMeta?.utilization;
+      const utilization =
+        typeof rawUtilization === "number" && !Number.isNaN(rawUtilization)
+          ? rawUtilization * 100
+          : undefined;
+      const rateLimit: AcpUsageState["rateLimit"] = rateLimitMeta
+        ? {
+            status: rateLimitMeta.status ?? "allowed",
+            rateLimitType: rateLimitMeta.rateLimitType,
+            utilization,
+            resetsAt: rateLimitMeta.resetsAt,
+          }
+        : (state.usage?.rateLimit ?? null);
       return {
         ...state,
         usage: {
           used: (update as { used?: number }).used ?? used,
           size,
           cost: cost ?? state.usage?.cost,
+          rateLimit,
         },
         titleChanged: false,
       };

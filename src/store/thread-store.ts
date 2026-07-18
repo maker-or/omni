@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Thread } from "../../contracts/threads.ts";
+import { useContinuationStore } from "@/store/continuation-store";
 
 const THREAD_PAGE_SIZE = 10;
 
@@ -129,6 +130,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const existingThread = get().threads.find((thread) => thread.id === id);
     try {
       await window.omni.threads.delete(id);
+      // Drop any unsent `/continue` transcript staged for this thread.
+      useContinuationStore.getState().clearPending(id);
       set((state) => ({
         threads: state.threads.filter((t) => t.id !== id),
         pagesByProject: existingThread

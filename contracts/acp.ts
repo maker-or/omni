@@ -87,10 +87,35 @@ export interface AgentProbeResult {
   authMethods?: AuthMethod[];
 }
 
+/**
+ * Account-level subscription rate limit for a session, when the agent reports
+ * one. Distinct from `used`/`size` (per-turn context window): this describes the
+ * plan's rolling usage window (e.g. Claude's 5-hour / weekly limits). Today only
+ * the Claude ACP adapter surfaces this — it rides a `usage_update` whose
+ * `_meta["_claude/rateLimit"]` carries the SDK's `rate_limit_info`. Other agents
+ * leave it null, so the UI simply omits the section for them.
+ */
+export interface AcpRateLimitInfo {
+  /** Gate state for the account's subscription limits. */
+  status: "allowed" | "allowed_warning" | "rejected" | (string & {});
+  /** Which limit window this describes, e.g. `five_hour` | `seven_day`. */
+  rateLimitType?: string;
+  /**
+   * Percent of the window consumed, 0–100. Normalized to this scale at the
+   * reducer boundary from whatever native scale the source reports (Claude
+   * emits a 0–1 fraction), so consumers can use it directly without guessing.
+   */
+  utilization?: number;
+  /** Unix epoch seconds when the window resets. */
+  resetsAt?: number;
+}
+
 export interface AcpUsageState {
   used: number;
   size: number;
   cost?: { amount: number; currency: string };
+  /** Subscription rate limit, when the agent reports one; null otherwise. */
+  rateLimit?: AcpRateLimitInfo | null;
 }
 
 export interface AcpToolCallState {

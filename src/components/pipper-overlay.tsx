@@ -412,17 +412,7 @@ export function PipperOverlay() {
             <div className="absolute inset-0 rounded-sm" />
           </BorderBeam>
 
-          {/* "Editing…" label chip */}
-          <div
-            className={cn(
-              "absolute -top-7 left-0 flex items-center gap-1.5 rounded-md px-2 py-1",
-              "text-[11px] font-semibold text-foreground whitespace-nowrap",
-              surfaceClasses(5, 4),
-            )}
-          >
-            <span className="size-1.5 rounded-full bg-foreground animate-pulse" />
-            Editing {highlight.label}…
-          </div>
+
         </div>
       )}
 
@@ -438,8 +428,8 @@ export function PipperOverlay() {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <BorderBeam size="pulse-outside" colorVariant="mono">
-            <Elevated offset={4} shadowLevel={5} className="rounded-xl p-1.5">
+          <BorderBeam size="pulse-inner" colorVariant="mono">
+
               <InputMessage
                 value={commentText}
                 onValueChange={setCommentText}
@@ -503,7 +493,7 @@ export function PipperOverlay() {
                 minRows={1}
                 maxRows={4}
               />
-            </Elevated>
+
           </BorderBeam>
         </div>
       )}
