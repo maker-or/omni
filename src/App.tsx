@@ -306,6 +306,34 @@ export default function App() {
     void useWorktreeStore.getState().syncSelections();
   }, [snapshotThreadId, snapshotCwd]);
 
+  // Surface the background dependency install that follows a worktree create,
+  // so the user knows when the workspace is actually ready to run.
+  useEffect(() => {
+    if (!window.omni?.worktrees?.onSetupProgress) return;
+    return window.omni.worktrees.onSetupProgress((progress) => {
+      if (progress.status === "installing") {
+        toast({
+          icon: <GitBranch className="size-5 text-foreground" />,
+          title: "Installing dependencies",
+          description: `Running ${progress.manager} install in ${progress.workspaceName}…`,
+        });
+      } else if (progress.status === "installed") {
+        toast({
+          icon: <GitBranch className="size-5 text-foreground" />,
+          title: "Workspace ready",
+          description: `${progress.workspaceName}: dependencies installed.`,
+        });
+      } else if (progress.status === "failed") {
+        toast({
+          icon: <Bell className="size-5 text-red-500" />,
+          title: "Dependency install failed",
+          description: `${progress.workspaceName}: ${progress.message ?? "Install did not complete."}`,
+        });
+      }
+      // "skipped" (no package.json) is intentionally silent.
+    });
+  }, []);
+
   // Terminals belong to their workspace: entering another workspace (picker
   // switch, project switch, cross-workspace activation) stashes the visible
   // sessions and restores the target workspace's own terminals.

@@ -27,9 +27,11 @@ import {
   createWorktree,
   listBranches,
   listWorktrees,
+  resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
 } from "./worktree-manager";
+import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import {
@@ -64,6 +66,7 @@ import {
   installNodeAndBunWithMise,
   getMisePath,
   getMiseExecArgs,
+  getMiseExecEnv,
   prependStandardPaths,
   type DependencyStatus,
 } from "./dependency-installer";
@@ -291,6 +294,84 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   const next = await openThreadTab(thread.id);
   broadcastOpenTabsChanged(mainWindow, next);
   return { thread, worktree: target };
+}
+
+const WORKTREE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * Install a freshly created worktree's dependencies in the background so the
+ * workspace is ready to run without a manual install. The package manager is
+ * detected from the worktree's lockfile; progress is broadcast to the
+ * renderer (`worktrees:setupProgress`) for toasts. Never throws — a failed
+ * install must not undo the created worktree, it just reports.
+ */
+async function installWorktreeDependencies(
+  projectId: string,
+  worktreePath: string,
+  workspaceName: string,
+): Promise<void> {
+  const report = (progress: Omit<WorktreeSetupProgress, "projectId" | "worktreePath" | "workspaceName">) =>
+    broadcastToWindows("worktrees:setupProgress", {
+      projectId,
+      worktreePath,
+      workspaceName,
+      ...progress,
+    } satisfies WorktreeSetupProgress);
+
+  const install = resolveInstallCommand(worktreePath);
+  if (!install) {
+    report({ status: "skipped" });
+    return;
+  }
+
+  report({ status: "installing", manager: install.manager });
+  try {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      // getMiseExecEnv strips bun's fake-node shim so postinstall scripts that
+      // invoke `node` get the real runtime. Windows package managers are .cmd
+      // shims, hence shell there; the command/args are app-authored constants.
+      const child = spawn(install.command, install.args, {
+        cwd: worktreePath,
+        env: getMiseExecEnv(),
+        shell: process.platform === "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let outputTail = "";
+      const collect = (chunk: Buffer) => {
+        outputTail = (outputTail + chunk.toString()).slice(-4000);
+      };
+      child.stdout?.on("data", collect);
+      child.stderr?.on("data", collect);
+      const timeout = setTimeout(() => {
+        child.kill();
+        rejectPromise(new Error(`${install.manager} install timed out after 10 minutes.`));
+      }, WORKTREE_INSTALL_TIMEOUT_MS);
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        rejectPromise(
+          new Error(`Could not run ${install.manager}: ${err.message}. Is it installed?`),
+        );
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        if (code === 0) resolvePromise();
+        else {
+          const tail = outputTail.trim().split("\n").slice(-8).join("\n");
+          rejectPromise(
+            new Error(`${install.manager} install exited with code ${code}.\n${tail}`),
+          );
+        }
+      });
+    });
+    report({ status: "installed", manager: install.manager });
+  } catch (err) {
+    console.error(`[Worktree] Dependency install failed for ${worktreePath}:`, err);
+    report({
+      status: "failed",
+      manager: install.manager,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -1260,6 +1341,10 @@ function registerIpc(): void {
       windowType: "main",
       properties: { project_id: project.id },
     });
+    // A fresh worktree must be usable without a manual `bun/npm install` —
+    // kick that off in the background (installs can take minutes; the create
+    // itself stays snappy) and stream progress to the renderer for toasts.
+    void installWorktreeDependencies(project.id, worktree.path, input.name);
     // Return the same annotated Git view used by the title bar, rather than
     // a locally invented display label for the newly-created checkout.
     return (

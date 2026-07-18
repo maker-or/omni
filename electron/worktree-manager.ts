@@ -295,6 +295,40 @@ function seedGitignoredFiles(projectPath: string, worktreePath: string, override
   }
 }
 
+/** How a worktree's dependencies get installed, detected from its lockfile. */
+export interface WorktreeInstallCommand {
+  /** Package manager binary (resolved via PATH). */
+  command: string;
+  args: string[];
+  /** Display name for progress UI. */
+  manager: "bun" | "pnpm" | "yarn" | "npm";
+}
+
+/**
+ * The install command for a freshly created worktree, or null when the project
+ * has no Node dependency manifest (non-JS projects install nothing). Lockfile
+ * wins over any default so the install matches how the project is actually
+ * managed; a bare `package.json` falls back to npm (ships with node, which the
+ * app guarantees via mise).
+ */
+export function resolveInstallCommand(worktreePath: string): WorktreeInstallCommand | null {
+  const has = (file: string) => existsSync(join(worktreePath, file));
+  if (!has("package.json")) return null;
+  if (has("bun.lock") || has("bun.lockb")) {
+    return { command: "bun", args: ["install"], manager: "bun" };
+  }
+  if (has("pnpm-lock.yaml")) {
+    return { command: "pnpm", args: ["install"], manager: "pnpm" };
+  }
+  if (has("yarn.lock")) {
+    return { command: "yarn", args: ["install"], manager: "yarn" };
+  }
+  if (has("package-lock.json") || has("npm-shrinkwrap.json")) {
+    return { command: "npm", args: ["install"], manager: "npm" };
+  }
+  return { command: "npm", args: ["install"], manager: "npm" };
+}
+
 function runSetupScript(
   script: string,
   ctx: { worktreePath: string; rootPath: string; name: string },

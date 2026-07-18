@@ -21,6 +21,7 @@ import {
   listChildWorktrees,
   listWorktrees,
   parseWorktreePorcelain,
+  resolveInstallCommand,
   switchWorktreeBranch,
 } from "./worktree-manager.ts";
 
@@ -270,5 +271,56 @@ describe("parseWorktreePorcelain", () => {
       { path: "/repo/main", head: "abc123", branch: "main" },
       { path: "/repo/wt", head: "def456", branch: null },
     ]);
+  });
+});
+
+describe("resolveInstallCommand", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "pipper-install-detect-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("no package.json means nothing to install", () => {
+    expect(resolveInstallCommand(dir)).toBeNull();
+  });
+
+  test("lockfile decides the package manager", () => {
+    writeFileSync(join(dir, "package.json"), "{}");
+
+    writeFileSync(join(dir, "bun.lock"), "");
+    expect(resolveInstallCommand(dir)).toEqual({
+      command: "bun",
+      args: ["install"],
+      manager: "bun",
+    });
+    rmSync(join(dir, "bun.lock"));
+
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "");
+    expect(resolveInstallCommand(dir)?.manager).toBe("pnpm");
+    rmSync(join(dir, "pnpm-lock.yaml"));
+
+    writeFileSync(join(dir, "yarn.lock"), "");
+    expect(resolveInstallCommand(dir)?.manager).toBe("yarn");
+    rmSync(join(dir, "yarn.lock"));
+
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    expect(resolveInstallCommand(dir)?.manager).toBe("npm");
+  });
+
+  test("bun's lockfile outranks npm's when both exist", () => {
+    writeFileSync(join(dir, "package.json"), "{}");
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    writeFileSync(join(dir, "bun.lockb"), "");
+    expect(resolveInstallCommand(dir)?.manager).toBe("bun");
+  });
+
+  test("a bare package.json falls back to npm", () => {
+    writeFileSync(join(dir, "package.json"), "{}");
+    expect(resolveInstallCommand(dir)?.manager).toBe("npm");
   });
 });

@@ -35,3 +35,19 @@ export interface CreateWorktreeInput {
   /** Human label; used to derive the on-disk dir name and default branch. */
   name: string;
 }
+
+/**
+ * Progress of the background dependency install that follows a worktree
+ * create, broadcast to the renderer for toasts. `skipped` means the project
+ * has no Node dependency manifest.
+ */
+export interface WorktreeSetupProgress {
+  projectId: string;
+  worktreePath: string;
+  workspaceName: string;
+  status: "installing" | "installed" | "failed" | "skipped";
+  /** Package manager used (bun/pnpm/yarn/npm) when installing. */
+  manager?: string;
+  /** Failure detail (last lines of install output). */
+  message?: string;
+}

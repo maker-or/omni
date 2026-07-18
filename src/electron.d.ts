@@ -1,5 +1,5 @@
 import type { Project } from "../../contracts/projects.ts";
-import type { GitBranch, Worktree } from "../../contracts/worktrees.ts";
+import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts/worktrees.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type {
   AcpAgentDescriptor,
@@ -103,6 +103,7 @@ declare global {
         create: (input: { projectId: string; name: string }) => Promise<Worktree>;
         switch: (input: { projectId: string; path: string }) => Promise<Thread>;
         getSelections: () => Promise<Record<string, string>>;
+        onSetupProgress: (callback: (progress: WorktreeSetupProgress) => void) => () => void;
         listBranches: (input: { projectId: string }) => Promise<GitBranch[]>;
         switchBranch: (input: {
           projectId: string;

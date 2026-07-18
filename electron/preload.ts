@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project } from "../contracts/projects.ts";
-import type { GitBranch, Worktree } from "../contracts/worktrees.ts";
+import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
 import type {
   AcpBridgeEvent,
@@ -172,6 +172,13 @@ const api = {
       ipcRenderer.invoke("worktrees:switch", input),
     getSelections: (): Promise<Record<string, string>> =>
       ipcRenderer.invoke("worktrees:getSelections"),
+    onSetupProgress: (callback: (progress: WorktreeSetupProgress) => void) => {
+      const listener = (_event: unknown, progress: WorktreeSetupProgress) => callback(progress);
+      ipcRenderer.on("worktrees:setupProgress", listener);
+      return () => {
+        ipcRenderer.removeListener("worktrees:setupProgress", listener);
+      };
+    },
     listBranches: (input: { projectId: string }): Promise<GitBranch[]> =>
       ipcRenderer.invoke("worktrees:listBranches", input),
     switchBranch: (input: {
