@@ -10,12 +10,21 @@ import type {
   AnalyticsWindowType,
 } from "./analytics-schema.ts";
 import { sanitizeAnalyticsProperties, sanitizeIdentifier } from "./analytics-sanitize.ts";
+import {
+  buildPersonProperties,
+  type AnalyticsUserIdentity,
+} from "./analytics-person.ts";
+
+export type { AnalyticsUserIdentity } from "./analytics-person.ts";
+export { buildPersonProperties } from "./analytics-person.ts";
 
 const sessionId = randomUUID();
 
 let client: PostHog | null = null;
 /** Clerk provider user id once authenticated; null before sign-in. */
 let identifiedUserId: string | null = null;
+/** Last identity used for person-profile `$set` (re-stamped on later identifies). */
+let lastIdentity: AnalyticsUserIdentity | null = null;
 /** Stable per-install id used as distinctId before sign-in (pre-auth funnel). */
 let deviceId: string | null = null;
 let appOpenedSent = false;
@@ -120,39 +129,51 @@ function ensureDeviceId(): string | null {
   }
 }
 
-export interface AnalyticsUserIdentity {
-  providerUserId: string;
-  email?: string | null;
-  name?: string | null;
-  avatarUrl?: string | null;
-}
-
-function buildPersonProperties(identity: AnalyticsUserIdentity): Record<string, string> {
-  const properties: Record<string, string> = {};
-  const email = identity.email?.trim();
-  const name = identity.name?.trim();
-  const avatar = identity.avatarUrl?.trim();
-  if (email) properties.$email = email;
-  if (name) properties.$name = name;
-  if (avatar) properties.$avatar = avatar;
-  return properties;
-}
-
 export function identifyAnalyticsUser(identity: AnalyticsUserIdentity): void {
   const trimmed = identity.providerUserId.trim();
   if (!trimmed) return;
   const previousId = deviceId ?? ensureDeviceId();
   identifiedUserId = trimmed;
+  lastIdentity = {
+    providerUserId: trimmed,
+    email: identity.email ?? null,
+    name: identity.name ?? null,
+    avatarUrl: identity.avatarUrl ?? null,
+  };
   const posthog = getClient();
   if (!posthog) return;
+
+  const personProperties = buildPersonProperties(lastIdentity);
+
   // Stitch pre-auth device activity onto the now-known user.
   if (previousId && previousId !== trimmed) {
     posthog.alias({ distinctId: trimmed, alias: previousId });
   }
+
+  // Person-profile fields ($email / $name / $avatar + bare aliases). posthog-node
+  // wraps plain keys in $set automatically.
   posthog.identify({
     distinctId: trimmed,
-    properties: buildPersonProperties(identity),
+    properties: personProperties,
   });
+
+  // Belt-and-suspenders: also emit an explicit $set capture so profile fields
+  // still land if a consumer only inspects $set events, and so later health
+  // stamps cannot be the sole person write for this distinct id.
+  if (Object.keys(personProperties).length > 0) {
+    posthog.capture({
+      distinctId: trimmed,
+      event: "$set",
+      properties: { $set: personProperties },
+    });
+  }
+
+  // Don't wait for flushAt/flushInterval — profile props should hit PostHog as
+  // soon as the user is known (short sessions used to drop them on quit).
+  void posthog.flush().catch((err) => {
+    console.error("[Analytics] Failed to flush person profile identify:", err);
+  });
+
   if (!appOpenedSent) {
     appOpenedSent = true;
     captureAnalytics("app_opened", { windowType: "launch" });
@@ -162,16 +183,26 @@ export function identifyAnalyticsUser(identity: AnalyticsUserIdentity): void {
 /**
  * Set person-level properties on the current distinct id (e.g. installed_version,
  * has_customizations). No-op before a distinct id is available.
+ *
+ * When an authenticated identity is known, identity profile fields are merged
+ * into the same $set so a later stamp cannot leave a person with only health
+ * metadata and no email/avatar.
  */
 export function setAnalyticsPersonProperties(properties: Record<string, unknown>): void {
   const id = currentDistinctId();
   if (!id) return;
   const posthog = getClient();
   if (!posthog) return;
+  const identityProps = lastIdentity ? buildPersonProperties(lastIdentity) : {};
   posthog.capture({
     distinctId: id,
     event: "$set",
-    properties: { $set: properties },
+    properties: {
+      $set: {
+        ...identityProps,
+        ...properties,
+      },
+    },
   });
 }
 

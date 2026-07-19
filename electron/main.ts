@@ -2267,7 +2267,19 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("will-quit", () => {
+/** Prevents re-entrant will-quit after we flush analytics and call app.quit(). */
+let analyticsQuitFlushed = false;
+/** True while the async dispose/flush chain from will-quit is in flight. */
+let analyticsQuitInProgress = false;
+
+app.on("will-quit", (event) => {
+  // Ensure PostHog identify / $set person-profile batches flush before the
+  // process exits. Without this, short sessions can drop email/avatar entirely.
+  if (analyticsQuitFlushed) return;
+  event.preventDefault();
+  if (analyticsQuitInProgress) return;
+  analyticsQuitInProgress = true;
+
   authCallbackServer?.close();
   updateManager?.stopPeriodicChecks();
   launcherUpdateManager?.stopPeriodicChecks();
@@ -2279,8 +2291,6 @@ app.on("will-quit", () => {
     windowType: "background",
     properties: { session_duration_ms: Date.now() - sessionStartedAt },
   });
-  void agentManager?.dispose();
-  void shutdownAnalytics();
   killAllPtyProcesses("Quit");
 
   if (viteProcess) {
@@ -2291,4 +2301,21 @@ app.on("will-quit", () => {
     }
     viteProcess = null;
   }
+
+  void (async () => {
+    try {
+      await agentManager?.dispose();
+    } catch (err) {
+      console.error("[Main] Failed to dispose agent manager on quit:", err);
+    }
+    try {
+      await shutdownAnalytics();
+    } catch (err) {
+      console.error("[Main] Failed to flush analytics on quit:", err);
+    } finally {
+      analyticsQuitFlushed = true;
+      analyticsQuitInProgress = false;
+      app.quit();
+    }
+  })();
 });
