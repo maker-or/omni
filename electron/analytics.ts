@@ -10,10 +10,7 @@ import type {
   AnalyticsWindowType,
 } from "./analytics-schema.ts";
 import { sanitizeAnalyticsProperties, sanitizeIdentifier } from "./analytics-sanitize.ts";
-import {
-  buildPersonProperties,
-  type AnalyticsUserIdentity,
-} from "./analytics-person.ts";
+import { buildPersonProperties, type AnalyticsUserIdentity } from "./analytics-person.ts";
 
 export type { AnalyticsUserIdentity } from "./analytics-person.ts";
 export { buildPersonProperties } from "./analytics-person.ts";
