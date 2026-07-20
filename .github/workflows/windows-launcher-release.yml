@@ -60,17 +60,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Separate steps on purpose: the default Windows shell (pwsh) only
-      # propagates the *last* command's exit code, so a `run: |` block would
-      # let a failing fmt:check or lint pass silently as long as tests passed.
-      - name: Check formatting
-        run: bun run fmt:check
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Test
-        run: bun run test
+      # fmt / lint / test live in .github/workflows/ci.yml (every PR + main push).
+      # This workflow only builds and publishes the Windows launcher.
 
       - name: Build application
         env:

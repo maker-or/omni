@@ -475,6 +475,8 @@ function applyBridgeEvent(
       if (payload.threadId !== displayedThreadId) {
         return {};
       }
+      // applyTurnStop clears plan (turn-scoped); keep state + slice aligned so a
+      // later session-state cannot rehydrate the prior plan into the next turn.
       const nextSlice = applyTurnStop(state.slice);
       const base = state.state ?? emptyState();
       return {
@@ -483,7 +485,7 @@ function applyBridgeEvent(
           ...base,
           entries: nextSlice.entries,
           isStreaming: false,
-          plan: null, // plan popover auto-closes on turn complete
+          plan: null,
         },
       };
     }
@@ -768,6 +770,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             ...base,
             entries: nextSlice.entries,
             isStreaming: true,
+            // Match slice: prior-turn plan must not flash open during the new turn.
+            plan: nextSlice.plan,
           },
         });
       });

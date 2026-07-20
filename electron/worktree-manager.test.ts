@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { realpathSync } from "node:fs";
 import {
   createWorktree,
@@ -36,6 +36,11 @@ const GIT_ENV = {
 let root: string;
 let projectPath: string;
 const PROJECT_ID = "proj-abc";
+
+/** Same path form production code returns — realpath + normalize (Windows `/` vs `\`). */
+function realPath(p: string): string {
+  return normalize(realpathSync.native(p));
+}
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", env: GIT_ENV }).trim();
@@ -89,7 +94,7 @@ beforeEach(() => {
   // Canonicalize the root: Windows TEMP is an 8.3 short path
   // (`C:\Users\RUNNER~1\...`) while git reports the expanded long name, so a
   // raw mkdtemp path would never compare equal to a worktree git reports.
-  root = realpathSync.native(mkdtempSync(join(tmpdir(), "pipper-worktree-")));
+  root = realPath(mkdtempSync(join(tmpdir(), "pipper-worktree-")));
   // Worktrees land under this root instead of ~/.pipper/worktrees.
   process.env.PIPPER_WORKTREES_PATH = join(root, "worktrees");
 
@@ -123,7 +128,7 @@ describe("createWorktree", () => {
     );
     // Porcelain paths are raw git output — POSIX separators and long names on
     // Windows — so they only compare against a canonical path once resolved.
-    const entry = listed.find((w) => realpathSync.native(w.path) === worktree.path);
+    const entry = listed.find((w) => realPath(w.path) === worktree.path);
     expect(entry?.branch).toBe("pipper/feature-x");
     expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
   });
@@ -196,7 +201,7 @@ describe("createWorktree", () => {
 describe("listWorktrees / isLiveWorktree", () => {
   test("lists the main tree plus created worktrees", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "listed" });
-    const mainReal = realpathSync.native(projectPath);
+    const mainReal = realPath(projectPath);
     const all = listWorktrees(projectPath);
     expect(all.some((w) => w.path === mainReal)).toBe(true);
     expect(all.some((w) => w.path === worktree.path)).toBe(true);
@@ -227,7 +232,7 @@ describe("listWorktrees / isLiveWorktree", () => {
   test("listChildWorktrees excludes the main working tree", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "child" });
     const children = listChildWorktrees(projectPath);
-    const mainReal = realpathSync.native(projectPath);
+    const mainReal = realPath(projectPath);
     expect(children.some((w) => w.path === mainReal)).toBe(false);
     expect(children.some((w) => w.path === worktree.path)).toBe(true);
   });
@@ -238,7 +243,7 @@ describe("listWorktrees / isLiveWorktree", () => {
 
     expect(branches).toContainEqual({
       name: "main",
-      worktreePath: realpathSync.native(projectPath),
+      worktreePath: realPath(projectPath),
     });
     expect(branches).toContainEqual({ name: "pipper/branch-owner", worktreePath: worktree.path });
   });

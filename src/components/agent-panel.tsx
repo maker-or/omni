@@ -518,7 +518,16 @@ export function getRuntimeStatusItems(snapshot: AgentPanelSnapshot | null): stri
   return items.filter((item, index, all) => all.indexOf(item) === index);
 }
 
-export function AgentPanel() {
+export interface AgentPanelProps {
+  /**
+   * Static preview support for environments such as Remotion. The production
+   * workspace never supplies this value; its composer remains fully
+   * interactive and controlled by local user input.
+   */
+  demoInputValue?: string;
+}
+
+export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   "use no memo";
   const { activeProject } = useProjectStore();
   const { threads, loadProjectThreads } = useThreadStore();
@@ -544,7 +553,7 @@ export function AgentPanel() {
   const [projectsList, setProjectsList] = useState<
     Array<{ id: string; name: string; icon: string }>
   >([]);
-  const [inputValue, setInputValue] = useState("");
+  const [inputValue, setInputValue] = useState(demoInputValue ?? "");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAborting, setIsAborting] = useState(false);
@@ -575,6 +584,12 @@ export function AgentPanel() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
+
+  // Remotion (and other static previews) can supply a deterministic composer
+  // value without adding a separate visual clone of this component.
+  useEffect(() => {
+    if (demoInputValue !== undefined) setInputValue(demoInputValue);
+  }, [demoInputValue]);
   // The active thread + switch machinery is owned by the header tab strip
   // (GlobalTabBar); the panel just follows it. `requestedThreadId` is the
   // optimistic switch target so the conversation can show a switching veil

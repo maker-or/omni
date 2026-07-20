@@ -27,8 +27,6 @@ const STATUS_LABEL: Record<SubagentRunSnapshot["status"], string> = {
   cancelled: "Cancelled",
 };
 
-const SETTLED_SHOWN = 3;
-
 function isActive(status: SubagentRunSnapshot["status"]): boolean {
   return status === "queued" || status === "running";
 }
@@ -46,12 +44,11 @@ interface SubagentActivityProps {
 }
 
 /**
- * Floating panel of subagent runs for the active thread, styled like the slash
- * command menu and fed by "subagent-runs" bridge events
- * (useAgentStore().subagentRuns). Each run is one accordion item: the trigger
- * shows a status dot + agent name + task; expanding reveals the full task and
- * result preview. Active runs always show; settled runs are trimmed to the most
- * recent few so the panel never grows unbounded.
+ * Floating panel of *in-flight* subagent runs for the active thread, styled
+ * like the slash command menu and fed by "subagent-runs" bridge events
+ * (useAgentStore().subagentRuns). Only queued/running runs render — finished,
+ * failed, and cancelled runs disappear as soon as they settle so the next
+ * turn does not carry prior-turn activity. Each run is one accordion item.
  */
 export function SubagentActivity({
   runs,
@@ -64,15 +61,9 @@ export function SubagentActivity({
   const visible = useMemo(() => {
     // Scope to the thread that spawned these runs. Without a session id we
     // can't attribute runs to a thread, so show nothing rather than leak.
-    const scoped = activeSessionId
-      ? runs.filter((run) => run.parentSessionId === activeSessionId)
-      : [];
-    const active = scoped.filter((run) => isActive(run.status));
-    const settled = scoped
-      .filter((run) => !isActive(run.status))
-      .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
-      .slice(0, SETTLED_SHOWN);
-    return [...active, ...settled];
+    // Active only: settled runs must not linger across turns.
+    if (!activeSessionId) return [];
+    return runs.filter((run) => run.parentSessionId === activeSessionId && isActive(run.status));
   }, [runs, activeSessionId]);
 
   const agentName = (agentId: string) =>

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, symlinkSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -113,23 +113,21 @@ describe("ACP agent registry", () => {
     test("skips a foreign `agent` binary earlier on PATH and finds the real Cursor CLI", () => {
       // On Windows, resolution only probes PATHEXT-suffixed names (agent.exe,
       // agent.cmd, ...), never the bare filename — match that shape here.
+      // Put the real CLI under a path containing "cursor" so looksLikeCursorAgentBinary
+      // accepts it without needing a symlink (Windows CI often lacks symlink privilege).
       const ext = process.platform === "win32" ? ".cmd" : "";
       const fakeDir = join(dir, "fake-bin");
-      const realDir = join(dir, "real-bin");
-      const realTargetDir = join(dir, "install");
+      const realDir = join(dir, "cursor-bin");
       mkdirSync(fakeDir, { recursive: true });
       mkdirSync(realDir, { recursive: true });
-      mkdirSync(realTargetDir, { recursive: true });
 
       const fakeAgent = join(fakeDir, `agent${ext}`);
       writeFileSync(fakeAgent, "#!/bin/sh\necho fake\n");
       chmodSync(fakeAgent, 0o755);
 
-      const realTarget = join(realTargetDir, `cursor-agent${ext}`);
-      writeFileSync(realTarget, "#!/bin/sh\necho real\n");
-      chmodSync(realTarget, 0o755);
       const realAgent = join(realDir, `agent${ext}`);
-      symlinkSync(realTarget, realAgent);
+      writeFileSync(realAgent, "#!/bin/sh\necho real\n");
+      chmodSync(realAgent, 0o755);
 
       originalPath = process.env.PATH;
       process.env.PATH = [fakeDir, realDir].join(process.platform === "win32" ? ";" : ":");

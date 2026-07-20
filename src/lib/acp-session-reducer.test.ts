@@ -320,18 +320,22 @@ describe("acp-session-reducer", () => {
     expect(state.titleChanged).toBe(true);
   });
 
-  test("applyTurnStop clears streaming", () => {
+  test("applyTurnStop clears streaming and drops the turn-scoped plan", () => {
     let state = createEmptySessionSlice({
       isStreaming: true,
+      plan: [{ content: "step 1", priority: "high", status: "completed" }],
       entries: [{ type: "agent_text", id: "e1", messageId: null, text: "done" }],
     });
     state = applyTurnStop(state);
     expect(state.isStreaming).toBe(false);
+    expect(state.plan).toBeNull();
     expect(state.entries).toHaveLength(1);
   });
 
   test("appendLocalUserMessage and assemblePromptBlocks", () => {
-    let state = createEmptySessionSlice();
+    let state = createEmptySessionSlice({
+      plan: [{ content: "old step", priority: "medium", status: "completed" }],
+    });
     state = appendLocalUserMessage(state, "Hello", "u1");
     expect(state.entries[0]).toMatchObject({
       type: "user_text",
@@ -339,6 +343,8 @@ describe("acp-session-reducer", () => {
       text: "Hello",
     });
     expect(state.isStreaming).toBe(true);
+    // Prior-turn plan must not ride into the new turn.
+    expect(state.plan).toBeNull();
 
     const blocks = assemblePromptBlocks({
       message: "look at this",

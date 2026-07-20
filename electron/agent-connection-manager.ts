@@ -1393,7 +1393,9 @@ export class AgentConnectionManager {
     }
 
     runtime.promptInFlight = true;
-    runtime.slice = { ...runtime.slice, isStreaming: true };
+    // New turn: drop prior plan so the popover only reappears when this turn
+    // emits a plan update (applyTurnStop also clears; this covers image-only prompts).
+    runtime.slice = { ...runtime.slice, isStreaming: true, plan: null };
     this.pushState(threadId);
     touchThread(threadId);
 

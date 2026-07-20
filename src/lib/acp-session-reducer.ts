@@ -328,11 +328,16 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
   }
 }
 
-/** Mark turn complete. Streaming presentation derives from `isStreaming`. */
+/**
+ * Mark turn complete. Streaming presentation derives from `isStreaming`.
+ * Plan is turn-scoped UI (popover) — drop it so a later turn does not reopen
+ * the previous plan the moment streaming starts again.
+ */
 export function applyTurnStop(state: AcpSessionSlice): AcpSessionSlice {
   return {
     ...state,
     isStreaming: false,
+    plan: null,
     titleChanged: false,
   };
 }
@@ -348,6 +353,8 @@ export function appendLocalUserMessage(
     ...state,
     entries: [...state.entries, { type: "user_text", id: entryId, messageId: null, text }],
     isStreaming: true,
+    // New turn: do not inherit prior-turn plan while waiting for a fresh one.
+    plan: null,
     titleChanged: false,
   };
 }

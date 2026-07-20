@@ -84,7 +84,7 @@ describe("SubagentActivity", () => {
     ).toBe("");
   });
 
-  test("shows every active run but only the most recent settled ones", () => {
+  test("shows only in-flight runs and hides settled ones immediately", () => {
     const runs = [
       runSnapshot("a1", "running"),
       runSnapshot("a2", "queued"),
@@ -96,17 +96,26 @@ describe("SubagentActivity", () => {
     const html = renderToStaticMarkup(
       <SubagentActivity runs={runs} agents={AGENTS} activeSessionId="parent" />,
     );
-    // Both active runs are visible…
+    // In-flight runs for this turn…
     expect(html).toContain("task for a1");
     expect(html).toContain("task for a2");
-    // …but only the 3 most recently settled, so the panel stays bounded.
-    expect(html).toContain("task for s4");
-    expect(html).toContain("task for s3");
-    expect(html).toContain("task for s2");
+    // …settled runs never linger (next turn must not show prior activity).
     expect(html).not.toContain("task for s1");
+    expect(html).not.toContain("task for s2");
+    expect(html).not.toContain("task for s3");
+    expect(html).not.toContain("task for s4");
     // Items show the agent's display name and expose status for styling/tests.
     expect(html).toContain("Codex");
     expect(html).toContain('data-status="running"');
+  });
+
+  test("renders nothing once every run has settled", () => {
+    const runs = [runSnapshot("s1", "finished", 10), runSnapshot("s2", "failed", 20)];
+    expect(
+      renderToStaticMarkup(
+        <SubagentActivity runs={runs} agents={AGENTS} activeSessionId="parent" />,
+      ),
+    ).toBe("");
   });
 
   test("scopes runs to the active thread's orchestrator session", () => {

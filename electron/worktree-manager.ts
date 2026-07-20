@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, normalize, relative, resolve } from "node:path";
 import type { GitBranch, Worktree } from "../contracts/worktrees.ts";
 
 /**
@@ -547,12 +547,15 @@ export function switchWorktreeBranch(
  * 8.3 short names (`RUNNER~1` → `runneradmin`) and resolves true on-disk
  * casing, which is the form `git worktree list` reports. Falls back to
  * `resolve` for paths that don't exist (they match no live worktree anyway).
+ *
+ * Always run through `normalize` so git porcelain (forward slashes on Windows)
+ * and Node `join` (backslashes) compare equal — `C:/...` vs `C:\...`.
  */
 function canonical(path: string): string {
   try {
-    return realpathSync.native(path);
+    return normalize(realpathSync.native(path));
   } catch {
-    return resolve(path);
+    return normalize(resolve(path));
   }
 }
 

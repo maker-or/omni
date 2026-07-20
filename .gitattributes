@@ -1,19 +1,1 @@
-# The Windows runner checks out with core.autocrlf=true, which rewrites every
-# text file to CRLF and makes `oxfmt --check` reject the entire tree. The
-# formatter is LF-only, so pin the working tree to LF on every platform.
 * text=auto eol=lf
-
-# Never touch binaries, regardless of git's content heuristic.
-*.png binary
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.ico binary
-*.icns binary
-*.woff binary
-*.woff2 binary
-*.ttf binary
-*.otf binary
-*.zip binary
-*.node binary
-*.sqlite binary

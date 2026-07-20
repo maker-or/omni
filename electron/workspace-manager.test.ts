@@ -8,6 +8,12 @@ vi.mock("electron", () => ({
   app: { getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp" },
 }));
 
+// Unit tests must not require a real mise install (absent on many CI images).
+// Pass the command through so callers exercise the install path with system bun.
+vi.mock("./dependency-installer", () => ({
+  getMiseExecCommand: (command: string) => command,
+}));
+
 let root: string | null = null;
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });

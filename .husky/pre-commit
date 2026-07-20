@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Hooks live in .githooks/ (package.json prepare sets core.hooksPath).
+exec "$(dirname "$0")/../.githooks/pre-commit"

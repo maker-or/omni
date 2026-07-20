@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "bunx --bun electron-vite dev",
     "postinstall": "install-electron",
+    "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'});require('fs').chmodSync('.githooks/pre-commit',0o755)}catch{}\"",
     "build": "node scripts/build.js",
     "dist": "electron-builder --mac --arm64 --publish never",
     "dist:win": "electron-builder --win --x64 --publish never",
