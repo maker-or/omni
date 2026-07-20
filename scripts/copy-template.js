@@ -30,6 +30,7 @@ const filesToCopy = [
   "scripts/build.js",
   "patch.md",
   "AGENT.md",
+  "CLAUDE.md",
   "DESIGN.md",
 ];
 

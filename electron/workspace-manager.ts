@@ -130,7 +130,7 @@ const TEMPLATE_EXCLUSIONS = new Set([
   "updates",
   "installation.json",
 ]);
-const MANAGED_MARKDOWN_ALLOWLIST = new Set(["AGENT.md", "DESIGN.md", "patch.md"]);
+const MANAGED_MARKDOWN_ALLOWLIST = new Set(["AGENT.md", "CLAUDE.md", "DESIGN.md", "patch.md"]);
 
 function shouldExclude(name: string, policy: CopyPolicy): boolean {
   if (COMMON_EXCLUSIONS.has(name) || name.endsWith(".log")) return true;
