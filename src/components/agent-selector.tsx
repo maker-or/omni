@@ -1,20 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowSquareOutIcon,
-  ArrowsClockwiseIcon,
-  CheckCircleIcon,
-  CircleNotch,
-  SquareIcon,
-  CheckSquareIcon,
-  WarningCircleIcon,
-  XCircleIcon,
-} from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, CheckCircleIcon, CircleNotch } from "@phosphor-icons/react";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
-import { Elevated } from "@/lib/elevated";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import {
+  Card,
+  CardFooter,
+  CardGroup,
+  CardHeader,
+  CardMedia,
+  CardTitle,
+} from "@/components/ui/card";
+import { createProviderLogoIcon } from "@/components/provider-logos";
 import { cn } from "@/lib/utils";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 
@@ -46,11 +46,9 @@ export function AgentSelector({
     authRequiredMessage,
     error,
     probeResults,
-    skippedAgentIds,
     load,
     toggleAgent,
     probeAgents,
-    skipAgentSetup,
     skipAllSetup,
     resetSetupWalkthrough,
   } = useAgentRegistryStore();
@@ -64,63 +62,53 @@ export function AgentSelector({
   const canContinue =
     selectedAgentIds.length > 0 && connectionState !== "connecting" && connectionState !== "error";
 
-  const pendingAgentIds = useMemo(
-    () =>
-      selectedAgentIds.filter((id) => {
-        if (skippedAgentIds.includes(id)) return false;
-        const status = probeResults[id]?.status;
-        return status !== "ready" && status !== undefined;
-      }),
-    [selectedAgentIds, skippedAgentIds, probeResults],
-  );
-  const allSettled = selectedAgentIds.every((id) => probeResults[id] !== undefined);
-  const canFinish = allSettled && pendingAgentIds.length === 0;
+  // Continue only when no agent is still probing, and at least one is ready.
+  // Failures don't block; "Skip setup for now" covers the all-failed case.
+  const canFinish = useMemo(() => {
+    if (selectedAgentIds.length === 0) return false;
+    const anyStillLoading = selectedAgentIds.some((id) => {
+      const status = probeResults[id]?.status;
+      return status === undefined || status === "probing";
+    });
+    if (anyStillLoading) return false;
+    return selectedAgentIds.some((id) => probeResults[id]?.status === "ready");
+  }, [selectedAgentIds, probeResults]);
+
 
   if (phase === "walkthrough") {
-    const cards = selectedAgentIds
-      .filter((id) => !skippedAgentIds.includes(id))
-      .map((id) => {
-        const descriptor = agents.find((a) => a.id === id);
-        const result = probeResults[id];
-        if (!descriptor || !result || result.status === "ready") return null;
-        return (
-          <AgentSetupCard
-            key={id}
-            descriptor={descriptor}
-            result={result}
-            onSkip={() => skipAgentSetup(id)}
-            onRecheck={() => void probeAgents([id])}
-          />
-        );
-      });
+    // Keep every selected agent on screen for the whole walkthrough so the
+    // user always sees progress: spinner → check (ready) or retry (failed).
+    const setupCards = selectedAgentIds.flatMap((id) => {
+      const descriptor = agents.find((a) => a.id === id);
+      if (!descriptor) return [];
+      const result = probeResults[id] ?? { agentId: id, status: "probing" as const };
+      return [
+        <AgentSetupCard
+          key={id}
+          descriptor={descriptor}
+          result={result}
+          onRetry={() => void probeAgents([id])}
+        />,
+      ];
+    });
 
     return (
-      <Elevated
-        offset={1}
-        data-pipper-id="agent-setup-walkthrough"
-        className={cn("rounded-xl border border-border p-5", className)}
-      >
-        <div className="mb-1 text-sm font-medium text-foreground">Finishing setup</div>
-        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-          Checking your selected agents. Anything that needs installing or signing in shows up below
-          — skip any of them and set it up later.
-        </p>
+      <div className={cn("flex flex-col gap-4", className)}>
+        <h3 className="text-sm text-muted-foreground">Finishing setup</h3>
 
         <ScrollArea className="max-h-[380px]" viewportClassName="max-h-[380px] pr-2">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {cards}
-            {canFinish && (
-              <div
-                className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-[12px] text-emerald-600 dark:text-emerald-400"
-                data-pipper-id="agent-setup-all-clear"
-              >
-                All set — your agents are ready to use.
-              </div>
-            )}
-          </div>
+          <CardGroup
+            orientation="inline"
+            columns={2}
+            separated
+            border="outlined"
+            data-pipper-id="agent-setup-group"
+          >
+            {setupCards}
+          </CardGroup>
         </ScrollArea>
 
-        <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-4">
           <Button
             type="button"
             variant="ghost"
@@ -151,7 +139,7 @@ export function AgentSelector({
             Continue to Pipper
           </Button>
         </div>
-      </Elevated>
+      </div>
     );
   }
 
@@ -166,62 +154,51 @@ export function AgentSelector({
     .map((a) => a.displayName);
 
   return (
-    <Elevated
-      offset={1}
-      data-pipper-id="agent-selector"
-      className={cn("flex flex-col gap-4 rounded-xl border border-border p-5", className)}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Install and sign in to each agent outside Pipper, then select the ones you want here.
-        </p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          data-pipper-id="agent-selector-refresh"
-          className="h-8 shrink-0 text-xs"
-          onClick={() => void load()}
-        >
-          Refresh
-        </Button>
-      </div>
+    <div className={cn("flex flex-col gap-4", className)}>
+      <h3 className="text-sm text-muted-foreground">Choose agents</h3>
 
       <ScrollArea className="max-h-[420px]" viewportClassName="max-h-[420px] pr-2">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {visibleAgents.map((agent) => (
-            <AgentOption
-              key={agent.id}
-              agent={agent}
-              selected={selectedAgentIds.includes(agent.id)}
-              onToggle={async () => {
-                await toggleAgent(agent.id);
-                const next = useAgentRegistryStore.getState().selectedAgentIds;
-                onSelected?.(next);
-              }}
-            />
-          ))}
-          {agents.length === 0 && (
-            <div className="col-span-full px-2 py-6 text-center text-sm text-muted-foreground">
-              No ACP agents in the registry.
-            </div>
-          )}
-        </div>
+        {visibleAgents.length > 0 ? (
+          <CardGroup
+            orientation="inline"
+            columns={2}
+            separated
+            border="outlined"
+            data-pipper-id="agent-selector-group"
+          >
+            {visibleAgents.map((agent) => (
+              <AgentOption
+                key={agent.id}
+                agent={agent}
+                selected={selectedAgentIds.includes(agent.id)}
+                onToggle={async () => {
+                  await toggleAgent(agent.id);
+                  const next = useAgentRegistryStore.getState().selectedAgentIds;
+                  onSelected?.(next);
+                }}
+              />
+            ))}
+          </CardGroup>
+        ) : (
+          <div className="col-span-full px-2 py-6 text-center text-sm text-muted-foreground">
+            No ACP agents in the registry.
+          </div>
+        )}
       </ScrollArea>
 
       {authRequiredMessage && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-600 dark:text-amber-400">
+        <p className="text-sm text-muted-foreground" role="status">
           {authRequiredMessage}
-        </div>
+        </p>
       )}
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-500">
+        <p className="text-sm text-destructive" role="alert">
           {error}
-        </div>
+        </p>
       )}
 
       {showContinue && (
-        <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div
             className="min-w-0 text-sm text-muted-foreground"
             data-pipper-id="agent-selector-summary"
@@ -256,93 +233,23 @@ export function AgentSelector({
               void probeAgents(ids);
             }}
           >
-            Continue{selectedAgentIds.length > 0 ? ` (${selectedAgentIds.length})` : ""}
+            Continue
           </Button>
         </div>
       )}
-    </Elevated>
-  );
-}
-
-function AgentSetupCard({
-  descriptor,
-  result,
-  onSkip,
-  onRecheck,
-}: {
-  descriptor: AcpAgentDescriptor;
-  result: AgentProbeResult;
-  onSkip: () => void;
-  onRecheck: () => void;
-}) {
-  const statusLabel =
-    result.status === "probing"
-      ? "Checking…"
-      : result.status === "needs-install"
-        ? "Install needed"
-        : result.status === "needs-auth"
-          ? "Sign-in needed"
-          : "Couldn't connect";
-
-  return (
-    <div
-      className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5"
-      data-pipper-id={`agent-setup-card-${descriptor.id}`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
-          {result.status === "probing" ? (
-            <CircleNotch size={14} className="animate-spin text-muted-foreground" />
-          ) : result.status === "error" ? (
-            <XCircleIcon size={14} weight="fill" className="text-red-500" />
-          ) : (
-            <WarningCircleIcon size={14} weight="fill" className="text-amber-500" />
-          )}
-          {descriptor.displayName}
-        </span>
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {statusLabel}
-        </span>
-      </div>
-
-      {result.message ? (
-        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">{result.message}</p>
-      ) : null}
-
-      <div className="mt-2 flex items-center gap-3">
-        {descriptor.docsUrl ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-            data-pipper-id={`agent-setup-docs-${descriptor.id}`}
-            onClick={() => void window.omni?.shell?.openExternal?.(descriptor.docsUrl!)}
-          >
-            Docs <ArrowSquareOutIcon size={11} />
-          </button>
-        ) : null}
-        {result.status !== "probing" && (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-            data-pipper-id={`agent-setup-recheck-${descriptor.id}`}
-            onClick={onRecheck}
-          >
-            <ArrowsClockwiseIcon size={11} /> Check again
-          </button>
-        )}
-        <button
-          type="button"
-          className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
-          data-pipper-id={`agent-setup-skip-${descriptor.id}`}
-          onClick={onSkip}
-        >
-          Skip
-        </button>
-      </div>
     </div>
   );
 }
 
+function agentLogoKey(agent: AcpAgentDescriptor): string {
+  return agent.icon ?? agent.id ?? agent.name;
+}
+
+/**
+ * Select card — Fluid Functionalism Card anatomy:
+ * CardMedia (logo) + CardHeader/CardTitle + CardFooter with Switch
+ * (Switch stands in for CardButton as the card action).
+ */
 function AgentOption({
   agent,
   selected,
@@ -352,70 +259,94 @@ function AgentOption({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const unavailable = agent.available === false;
-  const metaText = !agent.available ? agent.installHint : agent.statusMessage;
+  const BrandIcon = useMemo(
+    () => createProviderLogoIcon(agentLogoKey(agent), agent.displayName),
+    [agent.id, agent.icon, agent.name, agent.displayName],
+  );
 
   return (
-    <div
-      className={cn(
-        "flex h-full flex-col gap-2 rounded-xl border p-4 transition-colors",
-        selected
-          ? "border-accent bg-accent/80 text-foreground"
-          : "border-border/50 bg-surface-1/40 text-muted-foreground",
-        unavailable && !selected && "opacity-80",
-      )}
+    <Card selected={selected} data-pipper-id={`agent-option-${agent.id}`}>
+      {/* Inline anatomy: media leading, header center, footer trailing (Switch). */}
+      <CardMedia icon={BrandIcon} />
+      <CardHeader>
+        <CardTitle>{agent.displayName}</CardTitle>
+      </CardHeader>
+      <CardFooter>
+        <Switch
+          label={selected ? `Disable ${agent.displayName}` : `Enable ${agent.displayName}`}
+          checked={selected}
+          onToggle={onToggle}
+          // Hide only the text label (last child span). Do not target the
+          // switch root — Base UI renders it as a span too.
+          className="px-0 py-0 gap-0 [&>span:last-of-type]:sr-only"
+          data-pipper-id={`agent-option-switch-${agent.id}`}
+        />
+      </CardFooter>
+    </Card>
+  );
+}
+
+/**
+ * Setup card — stays visible for the whole walkthrough.
+ * Inline: logo + name + trailing status (spinner | check | retry).
+ */
+function AgentSetupCard({
+  descriptor,
+  result,
+  onRetry,
+}: {
+  descriptor: AcpAgentDescriptor;
+  result: AgentProbeResult;
+  onRetry: () => void;
+}) {
+  const BrandIcon = useMemo(
+    () => createProviderLogoIcon(agentLogoKey(descriptor), descriptor.displayName),
+    [descriptor.id, descriptor.icon, descriptor.name, descriptor.displayName],
+  );
+
+  const status =
+    result.status === "probing" || result.status === undefined
+      ? "probing"
+      : result.status === "ready"
+        ? "ready"
+        : "retry";
+
+  return (
+    <Card
+      selected={status === "ready"}
+      data-pipper-id={`agent-setup-card-${descriptor.id}`}
     >
-      <button
-        type="button"
-        data-pipper-id={`agent-option-${agent.id}`}
-        className={cn(
-          "flex w-full flex-1 flex-col gap-2 text-left",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg",
-          !selected && "hover:opacity-90",
-          unavailable && "cursor-not-allowed",
+      <CardMedia icon={BrandIcon} />
+      <CardHeader>
+        <CardTitle>{descriptor.displayName}</CardTitle>
+      </CardHeader>
+      <CardFooter>
+        {status === "probing" ? (
+          <CircleNotch
+            size={16}
+            className="animate-spin text-muted-foreground"
+            aria-label={`Checking ${descriptor.displayName}`}
+          />
+        ) : status === "ready" ? (
+          <CheckCircleIcon
+            size={18}
+            weight="fill"
+            className="text-foreground"
+            aria-label={`${descriptor.displayName} is ready`}
+            data-pipper-id={`agent-setup-ready-${descriptor.id}`}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={onRetry}
+            aria-label={`Retry ${descriptor.displayName}`}
+            data-pipper-id={`agent-setup-retry-${descriptor.id}`}
+            className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <ArrowsClockwiseIcon size={16} />
+          </button>
         )}
-        onClick={() => void onToggle()}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <span className="shrink-0 text-muted-foreground/70">
-            {selected ? (
-              <CheckSquareIcon size={20} weight="fill" className="text-primary" />
-            ) : (
-              <SquareIcon size={20} />
-            )}
-          </span>
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            {agent.displayName}
-            {agent.available ? (
-              <CheckCircleIcon className="shrink-0 text-emerald-500" size={14} weight="fill" />
-            ) : (
-              <WarningCircleIcon className="shrink-0 text-amber-500" size={14} weight="fill" />
-            )}
-          </span>
-          {agent.description ? (
-            <span className="text-xs leading-relaxed text-muted-foreground">
-              {agent.description}
-            </span>
-          ) : null}
-          {metaText ? (
-            <span className="text-xs leading-snug text-muted-foreground/90">{metaText}</span>
-          ) : null}
-        </div>
-      </button>
-
-      {agent.docsUrl ? (
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
-          data-pipper-id={`agent-docs-${agent.id}`}
-          onClick={() => void window.omni?.shell?.openExternal?.(agent.docsUrl!)}
-        >
-          Docs <ArrowSquareOutIcon size={12} />
-        </button>
-      ) : null}
-    </div>
+      </CardFooter>
+    </Card>
   );
 }
