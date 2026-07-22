@@ -95,17 +95,14 @@ function ShapeProvider({
     void root.offsetHeight;
     callback();
     if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
-    transitionTimeoutRef.current = setTimeout(
-      () => root.classList.remove("transitioning"),
-      200
-    );
+    transitionTimeoutRef.current = setTimeout(() => root.classList.remove("transitioning"), 200);
   }, []);
 
   const setShape = useCallback(
     (next: ShapeVariant) => {
       transitionShape(() => setShapeState(next));
     },
-    [transitionShape]
+    [transitionShape],
   );
 
   // Publish the current element radius as a CSS custom property so plain-CSS
@@ -115,20 +112,13 @@ function ShapeProvider({
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--shape-input-radius",
-      `${shapeMap[shape].bgRadius}px`
+      `${shapeMap[shape].bgRadius}px`,
     );
   }, [shape]);
 
-  const value = useMemo(
-    () => ({ shape, setShape, classes: shapeMap[shape] }),
-    [shape, setShape]
-  );
+  const value = useMemo(() => ({ shape, setShape, classes: shapeMap[shape] }), [shape, setShape]);
 
-  return (
-    <ShapeContext.Provider value={value}>
-      {children}
-    </ShapeContext.Provider>
-  );
+  return <ShapeContext.Provider value={value}>{children}</ShapeContext.Provider>;
 }
 
 export { ShapeProvider, useShape, useShapeContext, shapeMap };

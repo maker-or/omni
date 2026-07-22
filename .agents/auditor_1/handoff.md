@@ -18,13 +18,13 @@ Direct empirical observations from inspecting `/Users/harshithpasupuleti/code/om
 
 ## 2. Logic Chain
 
-1. *Premise*: An architecture map document is clean if its factual claims accurately map to real implementation code, it contains no fake or hardcoded shortcuts/cheating, and the codebase passes its test suite.
-2. *Verification of Functionality*: Executing `bun run test` ran 285 tests across 54 files, all of which passed.
-3. *Verification of Claims*:
+1. _Premise_: An architecture map document is clean if its factual claims accurately map to real implementation code, it contains no fake or hardcoded shortcuts/cheating, and the codebase passes its test suite.
+2. _Verification of Functionality_: Executing `bun run test` ran 285 tests across 54 files, all of which passed.
+3. _Verification of Claims_:
    - Package versioning, multi-process window handles, database table definitions, agent descriptors, Zustand stores, and utility helper files were all located and verified in their exact paths in the repository.
    - IPC channels were enumerated line-by-line from `electron/preload.ts`, matching the claimed count of 111 request-response channels and 21 push events.
-4. *Integrity Check*: No hardcoded PASS/FAIL strings, fake output mocks, dummy descriptions, or synthetic placeholders were detected in `ARCHITECTURE_MAP.md` or test files.
-5. *Conclusion*: Because all claims are empirically accurate and no integrity violations exist, `ARCHITECTURE_MAP.md` is clean.
+4. _Integrity Check_: No hardcoded PASS/FAIL strings, fake output mocks, dummy descriptions, or synthetic placeholders were detected in `ARCHITECTURE_MAP.md` or test files.
+5. _Conclusion_: Because all claims are empirically accurate and no integrity violations exist, `ARCHITECTURE_MAP.md` is clean.
 
 ---
 
@@ -48,12 +48,15 @@ Direct empirical observations from inspecting `/Users/harshithpasupuleti/code/om
 To independently verify this audit:
 
 1. **Run Test Suite**:
+
    ```bash
    bun run test
    ```
-   *Expected Output*: 54 passed test files, 285 passed tests.
+
+   _Expected Output_: 54 passed test files, 285 passed tests.
 
 2. **Verify IPC Channel Counts**:
+
    ```bash
    grep -E "ipcRenderer\.(invoke|send)\(" electron/preload.ts | wc -l
    # Expected: 111
@@ -62,6 +65,7 @@ To independently verify this audit:
    ```
 
 3. **Verify Store File Count**:
+
    ```bash
    ls src/store/*-store.ts src/store/continuation-store.ts | wc -l
    # Expected: 13

@@ -3,7 +3,7 @@
 **Agent**: Reviewer 1 (Technical & Architectural Reviewer)  
 **Working Directory**: `/Users/harshithpasupuleti/code/omni/.agents/reviewer_1`  
 **Target File**: `/Users/harshithpasupuleti/code/omni/ARCHITECTURE_MAP.md`  
-**Target Codebase**: `/Users/harshithpasupuleti/code/omni`  
+**Target Codebase**: `/Users/harshithpasupuleti/code/omni`
 
 ---
 
@@ -75,6 +75,7 @@ The document `/Users/harshithpasupuleti/code/omni/ARCHITECTURE_MAP.md` is **APPR
 ## 5. Verification Method
 
 To independently verify this review:
+
 1. **Run Test Suite**:
    ```bash
    npx vitest run

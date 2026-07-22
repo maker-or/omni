@@ -1,9 +1,11 @@
 # Orchestrator Execution Plan
 
 ## Mission
+
 Generate a comprehensive architecture and codebase map for `omni` and output to `/Users/harshithpasupuleti/code/omni/ARCHITECTURE_MAP.md`.
 
 ## Milestones & Strategy
+
 1. **Phase 1: Exploration**
    - Milestone 1: Dispatch Explorer 1 to investigate main process, preload scripts, IPC bridges, backend services, config, and build system. Output report to `.agents/explorer_1/analysis.md`.
    - Milestone 2: Dispatch Explorer 2 to investigate renderer process, React components, state management (Zustand/Redux/Context), routes, hooks, utilities. Output report to `.agents/explorer_2/analysis.md`.
@@ -13,6 +15,7 @@ Generate a comprehensive architecture and codebase map for `omni` and output to 
    - Milestone 4: Dispatch Reviewer and Forensic Auditor to verify `ARCHITECTURE_MAP.md` for accuracy, completeness, diagram validity, and integrity.
 
 ## Subagent Dispatch Plan
+
 - Explorer 1 (`teamwork_preview_explorer`): Main process, Preload, IPC, Config, Backend
 - Explorer 2 (`teamwork_preview_explorer`): Renderer process, UI Component Catalog, State, Router, Utilities
 - Worker 1 (`teamwork_preview_worker`): Generate `ARCHITECTURE_MAP.md`

@@ -49,6 +49,7 @@
 ## 5. Verification Method
 
 To independently verify this review:
+
 1. **Run Test Suite**: `bun run test` (or `vitest run`). Confirm all 54 test files and 285 tests pass.
 2. **Inspect Preload Bridge**: `view_file` at `/Users/harshithpasupuleti/code/omni/electron/preload.ts` line 62. Confirm method name is `isReady`.
 3. **Inspect Store Directory**: List non-test `.ts` files in `/Users/harshithpasupuleti/code/omni/src/store/`. Confirm exactly 13 store files.

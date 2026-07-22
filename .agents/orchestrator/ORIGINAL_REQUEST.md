@@ -8,6 +8,7 @@ Working directory: /Users/harshithpasupuleti/code/omni/.agents/orchestrator
 Original request: /Users/harshithpasupuleti/code/omni/.agents/ORIGINAL_REQUEST.md
 
 Requirements & Acceptance Criteria:
+
 - R1. Architecture & Data Flow Mapping: Detailed map of system components including Electron main/preload/renderer process architecture, IPC channels, state management, and contracts. Must include mermaid diagrams.
 - R2. Core Subsystems & Component Catalog: Breakdown of major subsystems, UI component structure, utility modules, and routing/layout logic.
 - R3. Comprehensive Technical Documentation Output: Produce a complete, structured markdown report (`ARCHITECTURE_MAP.md`) documenting system architecture, module boundaries, data flow diagrams, and key extension points.

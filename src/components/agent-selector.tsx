@@ -74,7 +74,6 @@ export function AgentSelector({
     return selectedAgentIds.some((id) => probeResults[id]?.status === "ready");
   }, [selectedAgentIds, probeResults]);
 
-
   if (phase === "walkthrough") {
     // Keep every selected agent on screen for the whole walkthrough so the
     // user always sees progress: spinner → check (ready) or retry (failed).
@@ -312,10 +311,7 @@ function AgentSetupCard({
         : "retry";
 
   return (
-    <Card
-      selected={status === "ready"}
-      data-pipper-id={`agent-setup-card-${descriptor.id}`}
-    >
+    <Card selected={status === "ready"} data-pipper-id={`agent-setup-card-${descriptor.id}`}>
       <CardMedia icon={BrandIcon} />
       <CardHeader>
         <CardTitle>{descriptor.displayName}</CardTitle>

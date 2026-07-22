@@ -1,4 +1,5 @@
 ## 2026-07-21T21:20:23Z
+
 You are Explorer 2 (Renderer & UI Architecture Explorer).
 Working directory: /Users/harshithpasupuleti/code/omni/.agents/explorer_2
 Target codebase: /Users/harshithpasupuleti/code/omni
@@ -6,6 +7,7 @@ Target codebase: /Users/harshithpasupuleti/code/omni
 Your objective is to thoroughly analyze the Renderer Process, React/TypeScript Component Tree, State Management, Routing/Layout, Styling, Custom Hooks, Utility Modules, and Assets for the `omni` project.
 
 Specific tasks:
+
 1. Explore renderer entry points: index.html, main.tsx / App.tsx, root layout, provider hierarchy (theme, state, query providers).
 2. Catalog UI components: major pages/views, layout components, navigation, sidebar, chat/editor/terminal interfaces, modal system, UI component framework (e.g. Tailwind, Radix/shadcn, Lucide icons, etc.).
 3. Map State Management: store implementations (Zustand, Redux, Context, Jotai, TanStack Query), state persistence, reactivity models, state slices, and how state syncs with main process via IPC.

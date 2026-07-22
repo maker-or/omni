@@ -2,7 +2,7 @@
 
 **App Identity:** `pipper-code-alpha` (Version `0.0.22`)  
 **Target Path:** `/Users/harshithpasupuleti/code/omni/ARCHITECTURE_MAP.md`  
-**Generated Date:** July 21, 2026  
+**Generated Date:** July 21, 2026
 
 ---
 
@@ -12,19 +12,19 @@
 
 ### Tech Stack Matrix
 
-| Layer / Subsystem | Technology | Version / Specification | Purpose & Key Details |
-|---|---|---|---|
-| **Runtime Environment** | **Electron** | `v42.3.3` | Cross-platform desktop app framework supporting Chromium + Node.js integration. |
-| **Package & Script Runtime**| **Bun** & **Node.js** | ES2023 ESM (`"type": "module"`) | Fast JavaScript runtime, package manager, and dependency engine. |
-| **UI Framework** | **React** | `v19.2.6` (with React Compiler) | Component UI tree with compiler optimization via Babel/Rolldown. |
-| **Build & Bundler Tooling** | **Vite** & **electron-vite** | Vite `v8.0.12`, `electron-vite` `v5.0.0` | Multi-target HMR & production bundler (`main`, `preload`, `renderer`). |
-| **CSS & Styling System** | **Tailwind CSS** | `v4.3.0` (`@tailwindcss/vite`) | Semantic theme tokenization, dark/light surface elevation systems. |
-| **Database & Persistence** | **Node Native SQLite** | `node:sqlite` (`DatabaseSync`) | Synchronous, embedded relational database for projects, threads, users, MCP. |
-| **Agent Protocol** | **ACP (Agent Client Protocol)**| `@agentclientprotocol/sdk` | Stdio JSON-RPC protocol bridging Electron main process to LLM agent processes. |
-| **Terminal Integration** | **node-pty** & **@wterm** | `node-pty` native C++ binding | Pseudoterminal execution engine connected to `@wterm/react` & xterm canvas renderer. |
-| **State Management** | **Zustand** & **TanStack Query**| Zustand `v5.0.14`, `@tanstack/react-query` | 13 specialized client stores combined with reactive query caching and IPC patching. |
-| **UI Primitive Suite** | **Base UI**, **Radix UI**, **Lucide** | `@base-ui/react`, `@radix-ui/*`, `lucide-react` | Accessible headless primitives, icon sets (`lucide`, `phosphor`, `hugeicons`, `tabler`). |
-| **Packaging & Distribution**| **electron-builder** | `v26.15.2` | ASAR packaging with native module unpacking for macOS DMG (`arm64`) & Windows NSIS. |
+| Layer / Subsystem            | Technology                            | Version / Specification                         | Purpose & Key Details                                                                    |
+| ---------------------------- | ------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Runtime Environment**      | **Electron**                          | `v42.3.3`                                       | Cross-platform desktop app framework supporting Chromium + Node.js integration.          |
+| **Package & Script Runtime** | **Bun** & **Node.js**                 | ES2023 ESM (`"type": "module"`)                 | Fast JavaScript runtime, package manager, and dependency engine.                         |
+| **UI Framework**             | **React**                             | `v19.2.6` (with React Compiler)                 | Component UI tree with compiler optimization via Babel/Rolldown.                         |
+| **Build & Bundler Tooling**  | **Vite** & **electron-vite**          | Vite `v8.0.12`, `electron-vite` `v5.0.0`        | Multi-target HMR & production bundler (`main`, `preload`, `renderer`).                   |
+| **CSS & Styling System**     | **Tailwind CSS**                      | `v4.3.0` (`@tailwindcss/vite`)                  | Semantic theme tokenization, dark/light surface elevation systems.                       |
+| **Database & Persistence**   | **Node Native SQLite**                | `node:sqlite` (`DatabaseSync`)                  | Synchronous, embedded relational database for projects, threads, users, MCP.             |
+| **Agent Protocol**           | **ACP (Agent Client Protocol)**       | `@agentclientprotocol/sdk`                      | Stdio JSON-RPC protocol bridging Electron main process to LLM agent processes.           |
+| **Terminal Integration**     | **node-pty** & **@wterm**             | `node-pty` native C++ binding                   | Pseudoterminal execution engine connected to `@wterm/react` & xterm canvas renderer.     |
+| **State Management**         | **Zustand** & **TanStack Query**      | Zustand `v5.0.14`, `@tanstack/react-query`      | 13 specialized client stores combined with reactive query caching and IPC patching.      |
+| **UI Primitive Suite**       | **Base UI**, **Radix UI**, **Lucide** | `@base-ui/react`, `@radix-ui/*`, `lucide-react` | Accessible headless primitives, icon sets (`lucide`, `phosphor`, `hugeicons`, `tabler`). |
+| **Packaging & Distribution** | **electron-builder**                  | `v26.15.2`                                      | ASAR packaging with native module unpacking for macOS DMG (`arm64`) & Windows NSIS.      |
 
 ---
 
@@ -169,151 +169,160 @@ The preload script (`electron/preload.ts`) bridges Main and Renderer processes b
 ### 4.1 Request-Response & One-Way IPC Channels (111 Total)
 
 #### 1. Launcher Update Subsystem (`launcher-update:*` — 13 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `launcher-update:check` | `omni.launcherUpdate.check()` | None | `Promise<LauncherUpdateState>` | Checks remote repository for new launcher app binary release. |
-| `launcher-update:getState` | `omni.launcherUpdate.getState()` | None | `Promise<LauncherUpdateState>` | Gets current launcher auto-updater state. |
-| `launcher-update:isDismissedForSession` | `omni.launcherUpdate.isDismissedForSession()` | None | `Promise<boolean>` | Returns whether user dismissed update prompt for active session. |
-| `launcher-update:download` | `omni.launcherUpdate.download()` | None | `Promise<LauncherUpdateState>` | Begins background download of binary installer package. |
-| `launcher-update:cancelDownload` | `omni.launcherUpdate.cancelDownload()` | None | `Promise<LauncherUpdateState>` | Aborts active binary installer download. |
-| `launcher-update:dismissForSession` | `omni.launcherUpdate.dismissForSession()` | None | `Promise<LauncherUpdateState>` | Dismisses launcher update notification for current app session. |
-| `launcher-update:retryDownload` | `omni.launcherUpdate.retryDownload()` | None | `Promise<LauncherUpdateState>` | Retries downloading installer after previous failure. |
-| `launcher-update:openDownloadFolder` | `omni.launcherUpdate.openDownloadFolder()` | None | `Promise<void>` | Opens OS file explorer at installer download directory. |
-| `launcher-update:downloadInBrowser` | `omni.launcherUpdate.downloadInBrowser()` | None | `Promise<void>` | Opens default web browser to direct download link. |
-| `launcher-update:clearDownloadedUpdate` | `omni.launcherUpdate.clearDownloadedUpdate()` | None | `Promise<LauncherUpdateState>` | Removes cached binary installer file from local storage. |
-| `launcher-update:getDiagnostics` | `omni.launcherUpdate.getDiagnostics()` | None | `Promise<LauncherUpdateDiagnostics>` | Retrieves internal diagnostic logs for updater troubleshooting. |
-| `launcher-update:copyDiagnostics` | `omni.launcherUpdate.copyDiagnostics()` | None | `Promise<void>` | Copies updater diagnostic details to system clipboard. |
-| `launcher-update:installAndQuit` | `omni.launcherUpdate.installAndQuit()` | None | `Promise<{ success: boolean; error?: string }>` | Triggers installer execution and quits current app process. |
+
+| Channel                                 | Preload API Method                            | Arguments | Return Type                                     | Description                                                      |
+| --------------------------------------- | --------------------------------------------- | --------- | ----------------------------------------------- | ---------------------------------------------------------------- |
+| `launcher-update:check`                 | `omni.launcherUpdate.check()`                 | None      | `Promise<LauncherUpdateState>`                  | Checks remote repository for new launcher app binary release.    |
+| `launcher-update:getState`              | `omni.launcherUpdate.getState()`              | None      | `Promise<LauncherUpdateState>`                  | Gets current launcher auto-updater state.                        |
+| `launcher-update:isDismissedForSession` | `omni.launcherUpdate.isDismissedForSession()` | None      | `Promise<boolean>`                              | Returns whether user dismissed update prompt for active session. |
+| `launcher-update:download`              | `omni.launcherUpdate.download()`              | None      | `Promise<LauncherUpdateState>`                  | Begins background download of binary installer package.          |
+| `launcher-update:cancelDownload`        | `omni.launcherUpdate.cancelDownload()`        | None      | `Promise<LauncherUpdateState>`                  | Aborts active binary installer download.                         |
+| `launcher-update:dismissForSession`     | `omni.launcherUpdate.dismissForSession()`     | None      | `Promise<LauncherUpdateState>`                  | Dismisses launcher update notification for current app session.  |
+| `launcher-update:retryDownload`         | `omni.launcherUpdate.retryDownload()`         | None      | `Promise<LauncherUpdateState>`                  | Retries downloading installer after previous failure.            |
+| `launcher-update:openDownloadFolder`    | `omni.launcherUpdate.openDownloadFolder()`    | None      | `Promise<void>`                                 | Opens OS file explorer at installer download directory.          |
+| `launcher-update:downloadInBrowser`     | `omni.launcherUpdate.downloadInBrowser()`     | None      | `Promise<void>`                                 | Opens default web browser to direct download link.               |
+| `launcher-update:clearDownloadedUpdate` | `omni.launcherUpdate.clearDownloadedUpdate()` | None      | `Promise<LauncherUpdateState>`                  | Removes cached binary installer file from local storage.         |
+| `launcher-update:getDiagnostics`        | `omni.launcherUpdate.getDiagnostics()`        | None      | `Promise<LauncherUpdateDiagnostics>`            | Retrieves internal diagnostic logs for updater troubleshooting.  |
+| `launcher-update:copyDiagnostics`       | `omni.launcherUpdate.copyDiagnostics()`       | None      | `Promise<void>`                                 | Copies updater diagnostic details to system clipboard.           |
+| `launcher-update:installAndQuit`        | `omni.launcherUpdate.installAndQuit()`        | None      | `Promise<{ success: boolean; error?: string }>` | Triggers installer execution and quits current app process.      |
 
 #### 2. Workspace Code Update Subsystem (`update:*` — 13 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `update:check` | `omni.update.check()` | None | `Promise<UpdateState>` | Checks remote Git repository for available workspace code updates. |
-| `update:getState` | `omni.update.getState()` | None | `Promise<UpdateState>` | Returns current workspace updater state. |
-| `update:getManifest` | `omni.update.getManifest()` | None | `Promise<UpdateManifest \| null>` | Retrieves remote workspace update manifest metadata. |
-| `update:getInstallation` | `omni.update.getInstallation()` | None | `Promise<InstallationMetadata>` | Fetches local workspace installation metadata and Git commit hash. |
-| `update:getRun` | `omni.update.getRun(runId)` | `runId: string` | `Promise<UpdateRunRecord \| null>` | Gets transcript log and status of specific update run ID. |
-| `update:getUpdaterSnapshot` | `omni.update.getUpdaterSnapshot()` | None | `Promise<AcpSessionState>` | Gets state snapshot of background update agent session. |
-| `update:scheduleForQuit` | `omni.update.scheduleForQuit()` | None | `Promise<UpdateState>` | Schedules code update promotion when application closes. |
-| `update:startNow` | `omni.update.startNow()` | None | `Promise<UpdateRunResult>` | Executes workspace code update process immediately. |
-| `update:retryFailedUpdate` | `omni.update.retryFailedUpdate()` | None | `Promise<UpdateState>` | Retries workspace update after previous failure. |
-| `update:dismiss` | `omni.update.dismiss()` | None | `Promise<UpdateState>` | Dismisses workspace update notification toast/banner. |
-| `update:cancel` | `omni.update.cancel()` | None | `Promise<UpdateRunResult>` | Cancels running workspace update operation. |
-| `update:markActiveHealthy` | `omni.update.markActiveHealthy(version)` | `version: string` | `Promise<boolean>` | Marks specified version as verified healthy after boot test. |
-| `update:quitWithoutUpdating` | `omni.update.quitWithoutUpdating()` | None | `Promise<void>` | Cancels any scheduled updates and immediately terminates app. |
+
+| Channel                      | Preload API Method                       | Arguments         | Return Type                        | Description                                                        |
+| ---------------------------- | ---------------------------------------- | ----------------- | ---------------------------------- | ------------------------------------------------------------------ |
+| `update:check`               | `omni.update.check()`                    | None              | `Promise<UpdateState>`             | Checks remote Git repository for available workspace code updates. |
+| `update:getState`            | `omni.update.getState()`                 | None              | `Promise<UpdateState>`             | Returns current workspace updater state.                           |
+| `update:getManifest`         | `omni.update.getManifest()`              | None              | `Promise<UpdateManifest \| null>`  | Retrieves remote workspace update manifest metadata.               |
+| `update:getInstallation`     | `omni.update.getInstallation()`          | None              | `Promise<InstallationMetadata>`    | Fetches local workspace installation metadata and Git commit hash. |
+| `update:getRun`              | `omni.update.getRun(runId)`              | `runId: string`   | `Promise<UpdateRunRecord \| null>` | Gets transcript log and status of specific update run ID.          |
+| `update:getUpdaterSnapshot`  | `omni.update.getUpdaterSnapshot()`       | None              | `Promise<AcpSessionState>`         | Gets state snapshot of background update agent session.            |
+| `update:scheduleForQuit`     | `omni.update.scheduleForQuit()`          | None              | `Promise<UpdateState>`             | Schedules code update promotion when application closes.           |
+| `update:startNow`            | `omni.update.startNow()`                 | None              | `Promise<UpdateRunResult>`         | Executes workspace code update process immediately.                |
+| `update:retryFailedUpdate`   | `omni.update.retryFailedUpdate()`        | None              | `Promise<UpdateState>`             | Retries workspace update after previous failure.                   |
+| `update:dismiss`             | `omni.update.dismiss()`                  | None              | `Promise<UpdateState>`             | Dismisses workspace update notification toast/banner.              |
+| `update:cancel`              | `omni.update.cancel()`                   | None              | `Promise<UpdateRunResult>`         | Cancels running workspace update operation.                        |
+| `update:markActiveHealthy`   | `omni.update.markActiveHealthy(version)` | `version: string` | `Promise<boolean>`                 | Marks specified version as verified healthy after boot test.       |
+| `update:quitWithoutUpdating` | `omni.update.quitWithoutUpdating()`      | None              | `Promise<void>`                    | Cancels any scheduled updates and immediately terminates app.      |
 
 #### 3. Projects Subsystem (`projects:*` & `dialog:*` — 6 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `projects:list` | `omni.projects.list()` | None | `Promise<Project[]>` | Lists all registered workspace projects from SQLite database. |
-| `projects:getActive` | `omni.projects.getActive()` | None | `Promise<Project \| null>` | Gets currently active workspace project record. |
-| `projects:listFiles` | `omni.projects.listFiles()` | None | `Promise<string[]>` | Lists all git-tracked files in active project workspace. |
-| `projects:create` | `omni.projects.create(input)` | `input: CreateProjectInput` | `Promise<Project>` | Registers new project path in SQLite DB. |
-| `projects:setActive` | `omni.projects.setActive(id)` | `projectId: string` | `Promise<void>` | Switches active workspace project ID. |
-| `dialog:pickDirectory` | `omni.dialog.pickDirectory()` | None | `Promise<string \| null>` | Opens OS native folder picker dialog. |
+
+| Channel                | Preload API Method            | Arguments                   | Return Type                | Description                                                   |
+| ---------------------- | ----------------------------- | --------------------------- | -------------------------- | ------------------------------------------------------------- |
+| `projects:list`        | `omni.projects.list()`        | None                        | `Promise<Project[]>`       | Lists all registered workspace projects from SQLite database. |
+| `projects:getActive`   | `omni.projects.getActive()`   | None                        | `Promise<Project \| null>` | Gets currently active workspace project record.               |
+| `projects:listFiles`   | `omni.projects.listFiles()`   | None                        | `Promise<string[]>`        | Lists all git-tracked files in active project workspace.      |
+| `projects:create`      | `omni.projects.create(input)` | `input: CreateProjectInput` | `Promise<Project>`         | Registers new project path in SQLite DB.                      |
+| `projects:setActive`   | `omni.projects.setActive(id)` | `projectId: string`         | `Promise<void>`            | Switches active workspace project ID.                         |
+| `dialog:pickDirectory` | `omni.dialog.pickDirectory()` | None                        | `Promise<string \| null>`  | Opens OS native folder picker dialog.                         |
 
 #### 4. Git Worktrees & Branching (`worktrees:*` — 6 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `worktrees:list` | `omni.worktrees.list(id)` | `projectId: string` | `Promise<Worktree[]>` | Lists all git worktrees associated with project. |
-| `worktrees:switch` | `omni.worktrees.switch(input)` | `input: { projectId: string; path: string }` | `Promise<Thread>` | Switches active worktree context path. |
-| `worktrees:getSelections` | `omni.worktrees.getSelections()` | None | `Promise<Record<string, string>>` | Gets map of selected worktrees per project ID. |
-| `worktrees:listBranches` | `omni.worktrees.listBranches(input)` | `input: { projectId: string }` | `Promise<GitBranch[]>` | Lists local and remote git branches. |
-| `worktrees:switchBranch` | `omni.worktrees.switchBranch(input)` | `input: { projectId: string; path: string; branch: string }` | `Promise<{ thread: Thread; worktree: Worktree }>` | Switches git branch within given worktree directory. |
-| `worktrees:create` | `omni.worktrees.create(input)` | `input: { projectId: string; name: string }` | `Promise<Worktree>` | Creates new git worktree directory and branch. |
+
+| Channel                   | Preload API Method                   | Arguments                                                    | Return Type                                       | Description                                          |
+| ------------------------- | ------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------- | ---------------------------------------------------- |
+| `worktrees:list`          | `omni.worktrees.list(id)`            | `projectId: string`                                          | `Promise<Worktree[]>`                             | Lists all git worktrees associated with project.     |
+| `worktrees:switch`        | `omni.worktrees.switch(input)`       | `input: { projectId: string; path: string }`                 | `Promise<Thread>`                                 | Switches active worktree context path.               |
+| `worktrees:getSelections` | `omni.worktrees.getSelections()`     | None                                                         | `Promise<Record<string, string>>`                 | Gets map of selected worktrees per project ID.       |
+| `worktrees:listBranches`  | `omni.worktrees.listBranches(input)` | `input: { projectId: string }`                               | `Promise<GitBranch[]>`                            | Lists local and remote git branches.                 |
+| `worktrees:switchBranch`  | `omni.worktrees.switchBranch(input)` | `input: { projectId: string; path: string; branch: string }` | `Promise<{ thread: Thread; worktree: Worktree }>` | Switches git branch within given worktree directory. |
+| `worktrees:create`        | `omni.worktrees.create(input)`       | `input: { projectId: string; name: string }`                 | `Promise<Worktree>`                               | Creates new git worktree directory and branch.       |
 
 #### 5. Shell & Window Utilities (`shell:*`, `launch:*`, `companion:*` — 9 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `shell:openExternal` | `omni.shell.openExternal(url)` | `url: string` | `Promise<void>` | Safely opens URL in external system browser. |
-| `launch:complete` | `omni.launch.complete(id)` | `projectId: string` | `Promise<void>` | Completes onboarding flow and transitions to main window. |
-| `launch:show` | `omni.launch.show(stage)` | `stage?: "list" \| "add" \| "onboarding"` | `Promise<void>` | Displays launcher window at specified stage view. |
-| `launch:isWorkspaceReady` | `omni.launch.isReady()` | None | `Promise<boolean>` | Checks runtime dependencies and workspace readiness. |
-| `launch:getUser` | `omni.launch.getUser()` | None | `Promise<{ name: string \| null; email: string \| null } \| null>` | Retrieves authenticated user profile record. |
-| `companion:open` | `omni.companion.open()` | None | `Promise<void>` | Opens floating companion visual editor window. |
-| `companion:minimize` | `omni.companion.minimize()` | None | (one-way) | Minimizes companion overlay window. |
-| `companion:close` | `omni.companion.close()` | None | (one-way) | Requests closing companion window with dirty check prompt. |
-| `onboarding:verifyGit` | `omni.onboarding.verifyGit()` | None | `Promise<boolean>` | Verifies Git executable availability on host machine. |
-| `onboarding:startSetup` | `omni.onboarding.startSetup()` | None | `Promise<void>` | Starts automated dependency setup process. |
+
+| Channel                   | Preload API Method             | Arguments                                 | Return Type                                                        | Description                                                |
+| ------------------------- | ------------------------------ | ----------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `shell:openExternal`      | `omni.shell.openExternal(url)` | `url: string`                             | `Promise<void>`                                                    | Safely opens URL in external system browser.               |
+| `launch:complete`         | `omni.launch.complete(id)`     | `projectId: string`                       | `Promise<void>`                                                    | Completes onboarding flow and transitions to main window.  |
+| `launch:show`             | `omni.launch.show(stage)`      | `stage?: "list" \| "add" \| "onboarding"` | `Promise<void>`                                                    | Displays launcher window at specified stage view.          |
+| `launch:isWorkspaceReady` | `omni.launch.isReady()`        | None                                      | `Promise<boolean>`                                                 | Checks runtime dependencies and workspace readiness.       |
+| `launch:getUser`          | `omni.launch.getUser()`        | None                                      | `Promise<{ name: string \| null; email: string \| null } \| null>` | Retrieves authenticated user profile record.               |
+| `companion:open`          | `omni.companion.open()`        | None                                      | `Promise<void>`                                                    | Opens floating companion visual editor window.             |
+| `companion:minimize`      | `omni.companion.minimize()`    | None                                      | (one-way)                                                          | Minimizes companion overlay window.                        |
+| `companion:close`         | `omni.companion.close()`       | None                                      | (one-way)                                                          | Requests closing companion window with dirty check prompt. |
+| `onboarding:verifyGit`    | `omni.onboarding.verifyGit()`  | None                                      | `Promise<boolean>`                                                 | Verifies Git executable availability on host machine.      |
+| `onboarding:startSetup`   | `omni.onboarding.startSetup()` | None                                      | `Promise<void>`                                                    | Starts automated dependency setup process.                 |
 
 #### 6. Threads & Tab Management (`threads:*`, `tabs:*` — 11 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `threads:list` | `omni.threads.list()` | None | `Promise<Thread[]>` | Lists all stored threads across all projects. |
-| `threads:listByIds` | `omni.threads.listByIds(ids)` | `ids: string[]` | `Promise<Thread[]>` | Fetches specific thread records matching given ID list. |
-| `threads:listProject` | `omni.threads.listProject(input)` | `input: { projectId: string; limit?: number; offset?: number }` | `Promise<ThreadPage>` | Retrieves paginated thread list for project. |
-| `threads:create` | `omni.threads.create(...)` | `projectId, title, afterThreadId, agentId, worktreePath` | `Promise<Thread>` | Creates new thread entry in SQLite and initializes session. |
-| `threads:rename` | `omni.threads.rename(id, title)` | `id: string, title: string` | `Promise<Thread>` | Renames thread title in SQLite DB. |
-| `threads:delete` | `omni.threads.delete(id)` | `id: string` | `Promise<void>` | Deletes thread record and associated agent session. |
-| `tabs:listOpen` | `omni.tabs.listOpen()` | None | `Promise<OpenTabsState>` | Retrieves open thread tabs state object. |
-| `tabs:open` | `omni.tabs.open(threadId)` | `threadId: string` | `Promise<OpenTabsState>` | Adds thread ID to active open tabs list. |
-| `tabs:close` | `omni.tabs.close(threadId)` | `threadId: string` | `Promise<OpenTabsState>` | Removes thread ID from open tabs list. |
-| `tabs:setActive` | `omni.tabs.setActive(threadId)` | `threadId: string \| null` | `Promise<OpenTabsState>` | Sets focused thread tab ID. |
-| `tabs:getActive` | `omni.tabs.getActive()` | None | `Promise<string \| null>` | Returns active thread tab ID. |
+
+| Channel               | Preload API Method                | Arguments                                                       | Return Type               | Description                                                 |
+| --------------------- | --------------------------------- | --------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------- |
+| `threads:list`        | `omni.threads.list()`             | None                                                            | `Promise<Thread[]>`       | Lists all stored threads across all projects.               |
+| `threads:listByIds`   | `omni.threads.listByIds(ids)`     | `ids: string[]`                                                 | `Promise<Thread[]>`       | Fetches specific thread records matching given ID list.     |
+| `threads:listProject` | `omni.threads.listProject(input)` | `input: { projectId: string; limit?: number; offset?: number }` | `Promise<ThreadPage>`     | Retrieves paginated thread list for project.                |
+| `threads:create`      | `omni.threads.create(...)`        | `projectId, title, afterThreadId, agentId, worktreePath`        | `Promise<Thread>`         | Creates new thread entry in SQLite and initializes session. |
+| `threads:rename`      | `omni.threads.rename(id, title)`  | `id: string, title: string`                                     | `Promise<Thread>`         | Renames thread title in SQLite DB.                          |
+| `threads:delete`      | `omni.threads.delete(id)`         | `id: string`                                                    | `Promise<void>`           | Deletes thread record and associated agent session.         |
+| `tabs:listOpen`       | `omni.tabs.listOpen()`            | None                                                            | `Promise<OpenTabsState>`  | Retrieves open thread tabs state object.                    |
+| `tabs:open`           | `omni.tabs.open(threadId)`        | `threadId: string`                                              | `Promise<OpenTabsState>`  | Adds thread ID to active open tabs list.                    |
+| `tabs:close`          | `omni.tabs.close(threadId)`       | `threadId: string`                                              | `Promise<OpenTabsState>`  | Removes thread ID from open tabs list.                      |
+| `tabs:setActive`      | `omni.tabs.setActive(threadId)`   | `threadId: string \| null`                                      | `Promise<OpenTabsState>`  | Sets focused thread tab ID.                                 |
+| `tabs:getActive`      | `omni.tabs.getActive()`           | None                                                            | `Promise<string \| null>` | Returns active thread tab ID.                               |
 
 #### 7. Agent Client Protocol Subsystem (`agent:*` — 25 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `agent:getState` | `omni.agent.getState()` | None | `Promise<AcpSessionState>` | Retrieves ACP session state for active thread. |
-| `agent:getCommands` | `omni.agent.getCommands()` | None | `Promise<AvailableCommand[]>` | Gets available slash commands for active agent engine. |
-| `agent:getConfigOptions` | `omni.agent.getConfigOptions()` | None | `Promise<SessionConfigOption[]>` | Retrieves configurable agent parameters (models, temperature). |
-| `agent:getCapabilities` | `omni.agent.getCapabilities()` | None | `Promise<AgentCapabilities \| null>` | Gets capability matrix (tool support, image attachments). |
-| `agent:getStats` | `omni.agent.getStats()` | None | `Promise<{ used: number; size: number; cost?: ... } \| null>` | Returns token usage and cost metrics. |
-| `agent:getRunningThreads` | `omni.agent.getRunningThreads()` | None | `Promise<string[]>` | Gets array of thread IDs with running agent processes. |
-| `agent:sendPrompt` | `omni.agent.sendPrompt(input)` | `input: AcpPromptInput` | `Promise<void>` | Sends user prompt text and optional images to active agent. |
-| `agent:replacePrompt` | `omni.agent.replacePrompt(input)` | `input: AcpReplacePromptInput` | `Promise<void>` | Replaces/steers current prompt stream. |
-| `agent:abort` | `omni.agent.abort()` | None | `Promise<void>` | Aborts current agent generation turn. |
-| `agent:switchThread` | `omni.agent.switchThread(id)` | `threadId: string` | `Promise<void>` | Switches agent session focus to target thread ID. |
-| `agent:createThread` | `omni.agent.createThread(...)` | `projectId, title, afterThreadId, agentId, worktreePath` | `Promise<Thread>` | Creates new thread session via `AgentManager`. |
-| `agent:setConfigOption` | `omni.agent.setConfigOption(id, val)`| `configId: string, value: string \| boolean` | `Promise<SessionConfigOption[]>` | Updates agent session option setting. |
-| `agent:respondToPermission` | `omni.agent.respondToPermission(resp)`| `resp: { sessionId: string; optionId?: string; cancelled?: boolean }` | `Promise<void>` | Submits user response to agent tool permission request. |
-| `agent:listAgents` | `omni.agent.listAgents()` | None | `Promise<AcpAgentDescriptor[]>` | Lists all available ACP agent engines. |
-| `agent:probeAgent` | `omni.agent.probeAgent(agentId)` | `agentId: string` | `Promise<AgentProbeResult>` | Executes live availability check on agent binary. |
-| `agent:switchAgent` | `omni.agent.switchAgent(agentId)` | `agentId: string` | `Promise<void>` | Hot-swaps active ACP agent backend engine. |
-| `agent:getPreferredAgentId` | `omni.agent.getPreferredAgentId()` | None | `Promise<string>` | Gets user's preferred default agent ID. |
-| `agent:setPreferredAgentId` | `omni.agent.setPreferredAgentId(id)`| `agentId: string` | `Promise<void>` | Saves user's preferred agent ID. |
-| `agent:getSelectedAgentIds` | `omni.agent.getSelectedAgentIds()` | None | `Promise<string[]>` | Retrieves enabled agent ID selection list. |
-| `agent:setSelectedAgentIds` | `omni.agent.setSelectedAgentIds(ids)`| `ids: string[]` | `Promise<void>` | Updates enabled agent selection list in SQLite. |
-| `agent:closeThreadSession` | `omni.agent.closeThreadSession(id)` | `threadId: string` | `Promise<void>` | Terminates and cleans up agent session resources. |
-| `agent:setEditorText` | `omni.agent.setEditorText(text)` | `text: string` | `Promise<void>` | Updates scratchpad editor content draft in main process. |
-| `agent:getEditorText` | `omni.agent.getEditorText()` | None | `Promise<string>` | Reads active scratchpad draft text. |
-| `agent:pasteToEditor` | `omni.agent.pasteToEditor(text)` | `text: string` | `Promise<void>` | Pastes text string into prompt scratchpad. |
-| `agent:reportEditorText` | `omni.agent.reportEditorText(text)`| `text: string` | (one-way) | Syncs local prompt text edits to main process state. |
+
+| Channel                     | Preload API Method                     | Arguments                                                             | Return Type                                                   | Description                                                    |
+| --------------------------- | -------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| `agent:getState`            | `omni.agent.getState()`                | None                                                                  | `Promise<AcpSessionState>`                                    | Retrieves ACP session state for active thread.                 |
+| `agent:getCommands`         | `omni.agent.getCommands()`             | None                                                                  | `Promise<AvailableCommand[]>`                                 | Gets available slash commands for active agent engine.         |
+| `agent:getConfigOptions`    | `omni.agent.getConfigOptions()`        | None                                                                  | `Promise<SessionConfigOption[]>`                              | Retrieves configurable agent parameters (models, temperature). |
+| `agent:getCapabilities`     | `omni.agent.getCapabilities()`         | None                                                                  | `Promise<AgentCapabilities \| null>`                          | Gets capability matrix (tool support, image attachments).      |
+| `agent:getStats`            | `omni.agent.getStats()`                | None                                                                  | `Promise<{ used: number; size: number; cost?: ... } \| null>` | Returns token usage and cost metrics.                          |
+| `agent:getRunningThreads`   | `omni.agent.getRunningThreads()`       | None                                                                  | `Promise<string[]>`                                           | Gets array of thread IDs with running agent processes.         |
+| `agent:sendPrompt`          | `omni.agent.sendPrompt(input)`         | `input: AcpPromptInput`                                               | `Promise<void>`                                               | Sends user prompt text and optional images to active agent.    |
+| `agent:replacePrompt`       | `omni.agent.replacePrompt(input)`      | `input: AcpReplacePromptInput`                                        | `Promise<void>`                                               | Replaces/steers current prompt stream.                         |
+| `agent:abort`               | `omni.agent.abort()`                   | None                                                                  | `Promise<void>`                                               | Aborts current agent generation turn.                          |
+| `agent:switchThread`        | `omni.agent.switchThread(id)`          | `threadId: string`                                                    | `Promise<void>`                                               | Switches agent session focus to target thread ID.              |
+| `agent:createThread`        | `omni.agent.createThread(...)`         | `projectId, title, afterThreadId, agentId, worktreePath`              | `Promise<Thread>`                                             | Creates new thread session via `AgentManager`.                 |
+| `agent:setConfigOption`     | `omni.agent.setConfigOption(id, val)`  | `configId: string, value: string \| boolean`                          | `Promise<SessionConfigOption[]>`                              | Updates agent session option setting.                          |
+| `agent:respondToPermission` | `omni.agent.respondToPermission(resp)` | `resp: { sessionId: string; optionId?: string; cancelled?: boolean }` | `Promise<void>`                                               | Submits user response to agent tool permission request.        |
+| `agent:listAgents`          | `omni.agent.listAgents()`              | None                                                                  | `Promise<AcpAgentDescriptor[]>`                               | Lists all available ACP agent engines.                         |
+| `agent:probeAgent`          | `omni.agent.probeAgent(agentId)`       | `agentId: string`                                                     | `Promise<AgentProbeResult>`                                   | Executes live availability check on agent binary.              |
+| `agent:switchAgent`         | `omni.agent.switchAgent(agentId)`      | `agentId: string`                                                     | `Promise<void>`                                               | Hot-swaps active ACP agent backend engine.                     |
+| `agent:getPreferredAgentId` | `omni.agent.getPreferredAgentId()`     | None                                                                  | `Promise<string>`                                             | Gets user's preferred default agent ID.                        |
+| `agent:setPreferredAgentId` | `omni.agent.setPreferredAgentId(id)`   | `agentId: string`                                                     | `Promise<void>`                                               | Saves user's preferred agent ID.                               |
+| `agent:getSelectedAgentIds` | `omni.agent.getSelectedAgentIds()`     | None                                                                  | `Promise<string[]>`                                           | Retrieves enabled agent ID selection list.                     |
+| `agent:setSelectedAgentIds` | `omni.agent.setSelectedAgentIds(ids)`  | `ids: string[]`                                                       | `Promise<void>`                                               | Updates enabled agent selection list in SQLite.                |
+| `agent:closeThreadSession`  | `omni.agent.closeThreadSession(id)`    | `threadId: string`                                                    | `Promise<void>`                                               | Terminates and cleans up agent session resources.              |
+| `agent:setEditorText`       | `omni.agent.setEditorText(text)`       | `text: string`                                                        | `Promise<void>`                                               | Updates scratchpad editor content draft in main process.       |
+| `agent:getEditorText`       | `omni.agent.getEditorText()`           | None                                                                  | `Promise<string>`                                             | Reads active scratchpad draft text.                            |
+| `agent:pasteToEditor`       | `omni.agent.pasteToEditor(text)`       | `text: string`                                                        | `Promise<void>`                                               | Pastes text string into prompt scratchpad.                     |
+| `agent:reportEditorText`    | `omni.agent.reportEditorText(text)`    | `text: string`                                                        | (one-way)                                                     | Syncs local prompt text edits to main process state.           |
 
 #### 8. Subagents, MCP & Terminal (`subagents:*`, `mcp:*`, `terminal:*` — 11 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `subagents:getConfig` | `omni.subagents.getConfig()` | None | `Promise<SubagentConfig>` | Retrieves subagent framework settings (max depth, timeout). |
-| `subagents:setConfig` | `omni.subagents.setConfig(cfg)` | `partial: Partial<SubagentConfig>` | `Promise<SubagentConfig>` | Updates subagent configuration values. |
-| `subagents:listRuns` | `omni.subagents.listRuns()` | None | `Promise<SubagentRunSnapshot[]>` | Lists active and recent subagent execution runs. |
-| `mcp:list` | `omni.mcp.list()` | None | `Promise<McpServerRecord[]>` | Lists all registered MCP servers from SQLite DB. |
-| `mcp:create` | `omni.mcp.create(input)` | `input: McpServerInput` | `Promise<McpServerRecord>` | Registers new MCP tool server config. |
-| `mcp:update` | `omni.mcp.update(id, input)` | `id: string, input: Partial<McpServerInput>` | `Promise<McpServerRecord \| null>` | Updates MCP server parameters. |
-| `mcp:delete` | `omni.mcp.delete(id)` | `id: string` | `Promise<void>` | Removes MCP server configuration. |
-| `terminal:create` | `omni.terminal.create(id, cwd)` | `sessionId: string, cwd?: string` | `Promise<void>` | Spawns interactive PTY session process. |
-| `terminal:kill` | `omni.terminal.kill(sessionId)` | `sessionId: string` | `Promise<void>` | Terminates PTY session process. |
-| `terminal:write` | `omni.terminal.write(id, data)` | `{ sessionId: string; data: string }` | (one-way) | Sends terminal keystroke data to PTY process. |
-| `terminal:resize` | `omni.terminal.resize(id, c, r)`| `{ sessionId: string; cols: number; rows: number }` | (one-way) | Resizes PTY terminal column and row grid dimensions. |
+
+| Channel               | Preload API Method               | Arguments                                           | Return Type                        | Description                                                 |
+| --------------------- | -------------------------------- | --------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------- |
+| `subagents:getConfig` | `omni.subagents.getConfig()`     | None                                                | `Promise<SubagentConfig>`          | Retrieves subagent framework settings (max depth, timeout). |
+| `subagents:setConfig` | `omni.subagents.setConfig(cfg)`  | `partial: Partial<SubagentConfig>`                  | `Promise<SubagentConfig>`          | Updates subagent configuration values.                      |
+| `subagents:listRuns`  | `omni.subagents.listRuns()`      | None                                                | `Promise<SubagentRunSnapshot[]>`   | Lists active and recent subagent execution runs.            |
+| `mcp:list`            | `omni.mcp.list()`                | None                                                | `Promise<McpServerRecord[]>`       | Lists all registered MCP servers from SQLite DB.            |
+| `mcp:create`          | `omni.mcp.create(input)`         | `input: McpServerInput`                             | `Promise<McpServerRecord>`         | Registers new MCP tool server config.                       |
+| `mcp:update`          | `omni.mcp.update(id, input)`     | `id: string, input: Partial<McpServerInput>`        | `Promise<McpServerRecord \| null>` | Updates MCP server parameters.                              |
+| `mcp:delete`          | `omni.mcp.delete(id)`            | `id: string`                                        | `Promise<void>`                    | Removes MCP server configuration.                           |
+| `terminal:create`     | `omni.terminal.create(id, cwd)`  | `sessionId: string, cwd?: string`                   | `Promise<void>`                    | Spawns interactive PTY session process.                     |
+| `terminal:kill`       | `omni.terminal.kill(sessionId)`  | `sessionId: string`                                 | `Promise<void>`                    | Terminates PTY session process.                             |
+| `terminal:write`      | `omni.terminal.write(id, data)`  | `{ sessionId: string; data: string }`               | (one-way)                          | Sends terminal keystroke data to PTY process.               |
+| `terminal:resize`     | `omni.terminal.resize(id, c, r)` | `{ sessionId: string; cols: number; rows: number }` | (one-way)                          | Resizes PTY terminal column and row grid dimensions.        |
 
 #### 9. Theme, Visual Editor & Analytics (`theme:*`, `editor:*`, `analytics:*`, `pipper:*` — 17 channels)
-| Channel | Preload API Method | Arguments | Return Type | Description |
-|---|---|---|---|---|
-| `theme:getCurrent` | `omni.theme.getCurrent()` | None | `Promise<string>` | Gets active theme string (`"light"` \| `"dark"` \| `"system"`). |
-| `theme:changed` | `omni.theme.changed(theme)` | `theme: string` | (one-way) | Broadcasts user theme preference change. |
-| `editor:activate` | `omni.editor.activate()` | None | `Promise<void>` | Initializes companion visual edit session. |
-| `editor:getState` | `omni.editor.getState()` | None | `Promise<AcpSessionState>` | Retrieves companion visual editor session state. |
-| `editor:sendPrompt` | `omni.editor.sendPrompt(input)` | `input: { message: string; images?: ... }` | `Promise<void>` | Sends prompt to companion editing agent. |
-| `editor:abort` | `omni.editor.abort()` | None | `Promise<void>` | Aborts companion visual edit generation turn. |
-| `editor:setModel` | `omni.editor.setModel(model)` | `model: { provider?: string; modelId: string }` | `Promise<boolean>` | Changes AI model for companion visual editor. |
-| `editor:dispose` | `omni.editor.dispose()` | None | `Promise<void>` | Closes companion visual editor agent session. |
-| `analytics:componentMutationRequested` | `omni.analytics.componentMutationRequested(input)` | `input: { componentId?: string; source?: ... }` | `Promise<void>` | Telemetry event for component visual edit requests. |
-| `pipper:setProcessing` | `omni.pipper.setProcessing(id)` | `processingId: string \| null` | `Promise<void>` | Sets visual edit processing indicator state. |
-| `pipper:setOverlayVisible` | `omni.pipper.setOverlayVisible(v)` | `visible: boolean` | `Promise<void>` | Toggles visual component overlay highlight canvas. |
-| `pipper:enterEditMode` | `omni.pipper.enterEditMode()` | None | `Promise<void>` | Enters element-level visual edit mode. |
-| `pipper:exitEditMode` | `omni.pipper.exitEditMode()` | None | `Promise<void>` | Exits element-level visual edit mode. |
-| `pipper:addComment` | `omni.pipper.addComment(id, text)`| `pipperId: string, text: string` | `Promise<void>` | Attaches visual prompt comment tag to element. |
-| `pipper:acceptChanges` | `omni.pipper.acceptChanges(intent)`| `intent?: string` | `Promise<{ committed: boolean; filesChanged: string[] }>` | Commits companion visual edits to Git workspace. |
-| `pipper:rejectChanges` | `omni.pipper.rejectChanges()` | None | `Promise<void>` | Reverts visual edit changes back to baseline commit. |
+
+| Channel                                | Preload API Method                                 | Arguments                                       | Return Type                                               | Description                                                     |
+| -------------------------------------- | -------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| `theme:getCurrent`                     | `omni.theme.getCurrent()`                          | None                                            | `Promise<string>`                                         | Gets active theme string (`"light"` \| `"dark"` \| `"system"`). |
+| `theme:changed`                        | `omni.theme.changed(theme)`                        | `theme: string`                                 | (one-way)                                                 | Broadcasts user theme preference change.                        |
+| `editor:activate`                      | `omni.editor.activate()`                           | None                                            | `Promise<void>`                                           | Initializes companion visual edit session.                      |
+| `editor:getState`                      | `omni.editor.getState()`                           | None                                            | `Promise<AcpSessionState>`                                | Retrieves companion visual editor session state.                |
+| `editor:sendPrompt`                    | `omni.editor.sendPrompt(input)`                    | `input: { message: string; images?: ... }`      | `Promise<void>`                                           | Sends prompt to companion editing agent.                        |
+| `editor:abort`                         | `omni.editor.abort()`                              | None                                            | `Promise<void>`                                           | Aborts companion visual edit generation turn.                   |
+| `editor:setModel`                      | `omni.editor.setModel(model)`                      | `model: { provider?: string; modelId: string }` | `Promise<boolean>`                                        | Changes AI model for companion visual editor.                   |
+| `editor:dispose`                       | `omni.editor.dispose()`                            | None                                            | `Promise<void>`                                           | Closes companion visual editor agent session.                   |
+| `analytics:componentMutationRequested` | `omni.analytics.componentMutationRequested(input)` | `input: { componentId?: string; source?: ... }` | `Promise<void>`                                           | Telemetry event for component visual edit requests.             |
+| `pipper:setProcessing`                 | `omni.pipper.setProcessing(id)`                    | `processingId: string \| null`                  | `Promise<void>`                                           | Sets visual edit processing indicator state.                    |
+| `pipper:setOverlayVisible`             | `omni.pipper.setOverlayVisible(v)`                 | `visible: boolean`                              | `Promise<void>`                                           | Toggles visual component overlay highlight canvas.              |
+| `pipper:enterEditMode`                 | `omni.pipper.enterEditMode()`                      | None                                            | `Promise<void>`                                           | Enters element-level visual edit mode.                          |
+| `pipper:exitEditMode`                  | `omni.pipper.exitEditMode()`                       | None                                            | `Promise<void>`                                           | Exits element-level visual edit mode.                           |
+| `pipper:addComment`                    | `omni.pipper.addComment(id, text)`                 | `pipperId: string, text: string`                | `Promise<void>`                                           | Attaches visual prompt comment tag to element.                  |
+| `pipper:acceptChanges`                 | `omni.pipper.acceptChanges(intent)`                | `intent?: string`                               | `Promise<{ committed: boolean; filesChanged: string[] }>` | Commits companion visual edits to Git workspace.                |
+| `pipper:rejectChanges`                 | `omni.pipper.rejectChanges()`                      | None                                            | `Promise<void>`                                           | Reverts visual edit changes back to baseline commit.            |
 
 ---
 
@@ -321,29 +330,29 @@ The preload script (`electron/preload.ts`) bridges Main and Renderer processes b
 
 These events are emitted by the Main process via `webContents.send` and subscribed to in the Renderer via preload listener hooks.
 
-| Channel Name | Preload Hook Method | Payload Interface / Type | Description |
-|---|---|---|---|
-| `launch:workspaceReady` | `omni.launch.onWorkspaceReady(cb)` | `{}` | Emitted when system runtime dependencies and workspace are fully ready. |
-| `launch:workspaceError` | `omni.launch.onWorkspaceError(cb)` | `{ message: string }` | Emitted when background workspace setup encounters an error. |
-| `launch:authComplete` | `omni.launch.onAuthComplete(cb)` | `AuthUserRecord` | Emitted when OAuth authentication completes in Clerk server. |
-| `update:stateChanged` | `omni.update.onStateChanged(cb)` | `UpdateState` | Emitted when workspace code updater state transitions. |
-| `update:progress` | `omni.update.onProgress(cb)` | `UpdateProgress` | Broadcasts workspace update git fetch/promotion progress. |
-| `updater:event` | `omni.update.onUpdaterEvent(cb)` | `AcpBridgeEvent` | Broadcasts stream events from background update agent. |
-| `launcher-update:stateChanged` | `omni.launcherUpdate.onStateChanged(cb)` | `LauncherUpdateState` | Emitted when binary launcher updater state changes. |
-| `launcher-update:progress` | `omni.launcherUpdate.onProgress(cb)` | `LauncherDownloadProgress` | Broadcasts download progress percentage and bytes. |
-| `launcher-update:openDetails` | `omni.launcherUpdate.onOpenDetails(cb)` | `{}` | Signals renderer to display update details modal dialog. |
-| `launcher-update:dismissedForSession` | `omni.launcherUpdate.onDismissedForSession(cb)` | `{}` | Signals launcher update prompt was dismissed for current session. |
-| `projects:activeChanged` | `omni.projects.onActiveChanged(cb)` | `projectId: string` | Signals that active project ID changed. |
-| `worktrees:setupProgress` | `omni.worktrees.onSetupProgress(cb)` | `WorktreeSetupProgress` | Broadcasts background dependency installation progress for new worktree. |
-| `onboarding:progress` | `omni.onboarding.onProgress(cb)` | `{ step: string; status: string; error?: string; gitInstalled?: boolean }` | Broadcasts step-by-step progress during first-run setup. |
-| `tabs:changed` | `omni.tabs.onChanged(cb)` | `OpenTabsState` | Broadcasts changes to open thread tabs state. |
-| `agent:event` | `omni.agent.onEvent(cb)` | `AcpBridgeEvent` | Primary ACP event stream (text tokens, tool call executions, permission prompts). |
-| `editor:event` | `omni.editor.onEvent(cb)` | `AcpBridgeEvent` | Event stream for companion visual editing agent. |
-| `terminal:data` | `omni.terminal.onData(cb)` | `{ sessionId: string; data: string }` | Streams raw terminal stdout/stderr output chunks to xterm grid. |
-| `terminal:exit` | `omni.terminal.onExit(cb)` | `{ sessionId: string; exitCode: number; signal?: number }` | Emitted when interactive PTY shell process terminates. |
-| `pipper:stateChanged` | `omni.pipper.onStateChanged(cb)` | `{ processingId?: string \| null; editMode?: boolean; overlayVisible?: boolean }` | Broadcasts visual element editor mode transitions. |
-| `pipper:commentAdded` | `omni.pipper.onCommentAdded(cb)` | `{ pipperId: string; text: string }` | Signals that a visual element comment annotation was added. |
-| `theme:changed` | `omni.theme.onChanged(cb)` | `theme: string` | Emitted when global UI theme transitions (`"light"` / `"dark"`). |
+| Channel Name                          | Preload Hook Method                             | Payload Interface / Type                                                          | Description                                                                       |
+| ------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `launch:workspaceReady`               | `omni.launch.onWorkspaceReady(cb)`              | `{}`                                                                              | Emitted when system runtime dependencies and workspace are fully ready.           |
+| `launch:workspaceError`               | `omni.launch.onWorkspaceError(cb)`              | `{ message: string }`                                                             | Emitted when background workspace setup encounters an error.                      |
+| `launch:authComplete`                 | `omni.launch.onAuthComplete(cb)`                | `AuthUserRecord`                                                                  | Emitted when OAuth authentication completes in Clerk server.                      |
+| `update:stateChanged`                 | `omni.update.onStateChanged(cb)`                | `UpdateState`                                                                     | Emitted when workspace code updater state transitions.                            |
+| `update:progress`                     | `omni.update.onProgress(cb)`                    | `UpdateProgress`                                                                  | Broadcasts workspace update git fetch/promotion progress.                         |
+| `updater:event`                       | `omni.update.onUpdaterEvent(cb)`                | `AcpBridgeEvent`                                                                  | Broadcasts stream events from background update agent.                            |
+| `launcher-update:stateChanged`        | `omni.launcherUpdate.onStateChanged(cb)`        | `LauncherUpdateState`                                                             | Emitted when binary launcher updater state changes.                               |
+| `launcher-update:progress`            | `omni.launcherUpdate.onProgress(cb)`            | `LauncherDownloadProgress`                                                        | Broadcasts download progress percentage and bytes.                                |
+| `launcher-update:openDetails`         | `omni.launcherUpdate.onOpenDetails(cb)`         | `{}`                                                                              | Signals renderer to display update details modal dialog.                          |
+| `launcher-update:dismissedForSession` | `omni.launcherUpdate.onDismissedForSession(cb)` | `{}`                                                                              | Signals launcher update prompt was dismissed for current session.                 |
+| `projects:activeChanged`              | `omni.projects.onActiveChanged(cb)`             | `projectId: string`                                                               | Signals that active project ID changed.                                           |
+| `worktrees:setupProgress`             | `omni.worktrees.onSetupProgress(cb)`            | `WorktreeSetupProgress`                                                           | Broadcasts background dependency installation progress for new worktree.          |
+| `onboarding:progress`                 | `omni.onboarding.onProgress(cb)`                | `{ step: string; status: string; error?: string; gitInstalled?: boolean }`        | Broadcasts step-by-step progress during first-run setup.                          |
+| `tabs:changed`                        | `omni.tabs.onChanged(cb)`                       | `OpenTabsState`                                                                   | Broadcasts changes to open thread tabs state.                                     |
+| `agent:event`                         | `omni.agent.onEvent(cb)`                        | `AcpBridgeEvent`                                                                  | Primary ACP event stream (text tokens, tool call executions, permission prompts). |
+| `editor:event`                        | `omni.editor.onEvent(cb)`                       | `AcpBridgeEvent`                                                                  | Event stream for companion visual editing agent.                                  |
+| `terminal:data`                       | `omni.terminal.onData(cb)`                      | `{ sessionId: string; data: string }`                                             | Streams raw terminal stdout/stderr output chunks to xterm grid.                   |
+| `terminal:exit`                       | `omni.terminal.onExit(cb)`                      | `{ sessionId: string; exitCode: number; signal?: number }`                        | Emitted when interactive PTY shell process terminates.                            |
+| `pipper:stateChanged`                 | `omni.pipper.onStateChanged(cb)`                | `{ processingId?: string \| null; editMode?: boolean; overlayVisible?: boolean }` | Broadcasts visual element editor mode transitions.                                |
+| `pipper:commentAdded`                 | `omni.pipper.onCommentAdded(cb)`                | `{ pipperId: string; text: string }`                                              | Signals that a visual element comment annotation was added.                       |
+| `theme:changed`                       | `omni.theme.onChanged(cb)`                      | `theme: string`                                                                   | Emitted when global UI theme transitions (`"light"` / `"dark"`).                  |
 
 ---
 
@@ -358,12 +367,19 @@ These events are emitted by the Main process via `webContents.send` and subscrib
 ### 5.2 Provider Hierarchy
 
 #### Main IDE Window Provider Stack (`src/main.tsx`)
+
 ```tsx
 <StrictMode>
   <ErrorBoundary>
-    <AppQueryProvider>           {/* TanStack QueryClientProvider */}
-      <ThemeProvider>            {/* Theme context & window.omni.theme sync */}
-        <IconProvider defaultLibrary="lucide">  {/* Lucide / Phosphor / Hugeicons / Tabler */}
+    <AppQueryProvider>
+      {" "}
+      {/* TanStack QueryClientProvider */}
+      <ThemeProvider>
+        {" "}
+        {/* Theme context & window.omni.theme sync */}
+        <IconProvider defaultLibrary="lucide">
+          {" "}
+          {/* Lucide / Phosphor / Hugeicons / Tabler */}
           <App />
         </IconProvider>
       </ThemeProvider>
@@ -373,12 +389,17 @@ These events are emitted by the Main process via `webContents.send` and subscrib
 ```
 
 #### Launcher Window Provider Stack (`src/launch.tsx`)
+
 ```tsx
 <StrictMode>
   <ErrorBoundary>
     <ThemeProvider>
-      <SurfaceProvider value={1}>    {/* Surface elevation hierarchy depth */}
-        <ShapeProvider defaultShape="rounded">  {/* UI border-radius shape rules */}
+      <SurfaceProvider value={1}>
+        {" "}
+        {/* Surface elevation hierarchy depth */}
+        <ShapeProvider defaultShape="rounded">
+          {" "}
+          {/* UI border-radius shape rules */}
           <IconProvider defaultLibrary="lucide">
             <LaunchApp />
             <Toaster />
@@ -453,21 +474,21 @@ State is distributed across **13 Zustand stores** residing in `src/store/`, inte
 
 ### 6.1 Catalog of All 13 Zustand Stores
 
-| Store File (`src/store/`) | Responsibility & Reactive State Model | IPC & Cache Synchronization Model |
-|---|---|---|
-| **1. `agent-store.ts`** | Manages active ACP session, streaming timeline entries, active tool calls, permission request queue (`uiRequestQueue`), prompt submission, model selection, and thinking budget settings. | Subscribes to `window.omni.agent.onEvent`. Patches TanStack Query cache (`OPEN_TABS_QUERY_KEY`) directly when an agent renames a thread title. |
-| **2. `project-store.ts`** | Tracks active project metadata, path, registered projects list, and project switching loading flags. | Calls `window.omni.projects.getActive()`. Listens to `projects:activeChanged` push events. |
-| **3. `worktree-store.ts`** | Tracks git worktrees, local branch lists, and per-project active worktree path mappings. | Synchronizes with `window.omni.worktrees.getSelections()`. Listens to `worktrees:setupProgress`. |
-| **4. `workspace-view-store.ts`** | Manages active view mode (`"agent"` vs `"terminal"`), active terminal ID, optimistic thread switch targets (`requestedThreadId`), and `useIsDiffSplit()` state. | Pure renderer UI layout store driven by tab bar clicks and view toggle shortcuts. |
-| **5. `terminal-store.ts`** | Manages open PTY sessions, active terminal tab, workspace-keyed terminal sets (`makeWorkspaceKey`), and scrollback log buffer (capped at 200,000 characters). | Invokes `window.omni.terminal.create/write/resize/kill`. Listens to `terminal:data` and `terminal:exit` push events. |
-| **6. `agent-terminal-store.ts`** | Buffers terminal execution logs for sub-commands executed directly by ACP agents. | Listens to `terminal-output` bridge events from `agent-connection-manager`. |
-| **7. `diff-store.ts`** | Ingests file diff payloads generated by agent tool call executions. Manages active file diff selection and file tree ordering. | Headlessly populated by `<DiffIngestor />` component observing tool call completions in `agent-store.ts`. |
-| **8. `thread-store.ts`** | Stores project thread catalog, paginated thread dictionary (`pagesByProject`), and thread mutations (rename, delete, create). | Invokes `window.omni.threads.listProject/rename/delete`. |
-| **9. `continuation-store.ts`** | Temporarily stashes carry-over transcripts for `/continue` slash command threads until initial prompt submission. | Pure renderer memory store. |
-| **10. `agent-registry-store.ts`** | Manages available ACP agent descriptors, user-selected agent ID list, and live binary probe results (`probeAgents`). | Calls `window.omni.agent.listAgents/probeAgent/setSelectedAgentIds`. |
-| **11. `pipper-store.ts`** | Manages visual element edit mode state, overlay canvas visibility, comment tags, and active processing element ID. | Subscribes to `window.omni.pipper.onStateChanged` broadcasts across windows. |
-| **12. `update-store.ts`** | Tracks workspace code auto-updater state (`UpdateState`), run history records, update manifests, and health check validation. | Subscribes to `window.omni.update.onStateChanged` and `update:progress`. |
-| **13. `launcher-update-store.ts`** | Manages Electron binary launcher app auto-updater state, download progress metrics, and diagnostic logs. | Subscribes to `window.omni.launcherUpdate.onStateChanged` and `onProgress`. |
+| Store File (`src/store/`)          | Responsibility & Reactive State Model                                                                                                                                                     | IPC & Cache Synchronization Model                                                                                                              |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. `agent-store.ts`**            | Manages active ACP session, streaming timeline entries, active tool calls, permission request queue (`uiRequestQueue`), prompt submission, model selection, and thinking budget settings. | Subscribes to `window.omni.agent.onEvent`. Patches TanStack Query cache (`OPEN_TABS_QUERY_KEY`) directly when an agent renames a thread title. |
+| **2. `project-store.ts`**          | Tracks active project metadata, path, registered projects list, and project switching loading flags.                                                                                      | Calls `window.omni.projects.getActive()`. Listens to `projects:activeChanged` push events.                                                     |
+| **3. `worktree-store.ts`**         | Tracks git worktrees, local branch lists, and per-project active worktree path mappings.                                                                                                  | Synchronizes with `window.omni.worktrees.getSelections()`. Listens to `worktrees:setupProgress`.                                               |
+| **4. `workspace-view-store.ts`**   | Manages active view mode (`"agent"` vs `"terminal"`), active terminal ID, optimistic thread switch targets (`requestedThreadId`), and `useIsDiffSplit()` state.                           | Pure renderer UI layout store driven by tab bar clicks and view toggle shortcuts.                                                              |
+| **5. `terminal-store.ts`**         | Manages open PTY sessions, active terminal tab, workspace-keyed terminal sets (`makeWorkspaceKey`), and scrollback log buffer (capped at 200,000 characters).                             | Invokes `window.omni.terminal.create/write/resize/kill`. Listens to `terminal:data` and `terminal:exit` push events.                           |
+| **6. `agent-terminal-store.ts`**   | Buffers terminal execution logs for sub-commands executed directly by ACP agents.                                                                                                         | Listens to `terminal-output` bridge events from `agent-connection-manager`.                                                                    |
+| **7. `diff-store.ts`**             | Ingests file diff payloads generated by agent tool call executions. Manages active file diff selection and file tree ordering.                                                            | Headlessly populated by `<DiffIngestor />` component observing tool call completions in `agent-store.ts`.                                      |
+| **8. `thread-store.ts`**           | Stores project thread catalog, paginated thread dictionary (`pagesByProject`), and thread mutations (rename, delete, create).                                                             | Invokes `window.omni.threads.listProject/rename/delete`.                                                                                       |
+| **9. `continuation-store.ts`**     | Temporarily stashes carry-over transcripts for `/continue` slash command threads until initial prompt submission.                                                                         | Pure renderer memory store.                                                                                                                    |
+| **10. `agent-registry-store.ts`**  | Manages available ACP agent descriptors, user-selected agent ID list, and live binary probe results (`probeAgents`).                                                                      | Calls `window.omni.agent.listAgents/probeAgent/setSelectedAgentIds`.                                                                           |
+| **11. `pipper-store.ts`**          | Manages visual element edit mode state, overlay canvas visibility, comment tags, and active processing element ID.                                                                        | Subscribes to `window.omni.pipper.onStateChanged` broadcasts across windows.                                                                   |
+| **12. `update-store.ts`**          | Tracks workspace code auto-updater state (`UpdateState`), run history records, update manifests, and health check validation.                                                             | Subscribes to `window.omni.update.onStateChanged` and `update:progress`.                                                                       |
+| **13. `launcher-update-store.ts`** | Manages Electron binary launcher app auto-updater state, download progress metrics, and diagnostic logs.                                                                                  | Subscribes to `window.omni.launcherUpdate.onStateChanged` and `onProgress`.                                                                    |
 
 ### 6.2 TanStack Query Cache Patching & Optimistic Updates
 
@@ -522,7 +543,7 @@ graph TD
         PTY_MGR["Terminal Session Manager (node-pty)"]
         MCP_MGR["MCP Server Engine (electron/mcp/)"]
         UPDATER_MGR["Dual Auto-Updaters (Launcher & Workspace)"]
-        
+
         MAIN_ENTRY --> SQLITE_DB
         MAIN_ENTRY --> AGENT_MGR
         MAIN_ENTRY --> SUBAGENT_MGR
@@ -694,4 +715,5 @@ flowchart TD
 ```
 
 ---
-*End of System Architecture Map — Omni (`pipper-code-alpha` v0.0.22)*
+
+_End of System Architecture Map — Omni (`pipper-code-alpha` v0.0.22)_

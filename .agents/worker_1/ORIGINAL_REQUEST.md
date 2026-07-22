@@ -1,4 +1,5 @@
 ## 2026-07-21T15:59:24Z
+
 You are Worker 1 (Architecture Documentation Writer).
 Working directory: /Users/harshithpasupuleti/code/omni/.agents/worker_1
 Target file to write: /Users/harshithpasupuleti/code/omni/ARCHITECTURE_MAP.md
@@ -9,6 +10,7 @@ DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results,
 Your task is to synthesize the detailed analysis reports from Explorer 1 (`/Users/harshithpasupuleti/code/omni/.agents/explorer_1/analysis.md`) and Explorer 2 (`/Users/harshithpasupuleti/code/omni/.agents/explorer_2/analysis.md`) and generate the complete, production-grade `ARCHITECTURE_MAP.md` at `/Users/harshithpasupuleti/code/omni/ARCHITECTURE_MAP.md`.
 
 Requirements & Structure for `ARCHITECTURE_MAP.md`:
+
 1. **Executive Overview & Tech Stack**: App identity (`pipper-code-alpha` v0.0.22), Electron 42, React 19, Vite 8, Bun, Tailwind CSS v4, Node native SQLite (`node:sqlite`), ACP (`@agentclientprotocol/sdk`), `node-pty`.
 2. **Process Architecture & Security Model**: Dual-window (`mainWindow`, `launchWindow`) & companion window (`companionWindow`), `webPreferences` security configuration (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: false`), navigation URL origin checks.
 3. **Main Process Core Subsystems**:
