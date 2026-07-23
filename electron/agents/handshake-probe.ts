@@ -1,26 +1,54 @@
 /**
  * Confirms an ACP agent actually works, rather than just trusting that a
- * binary was found on PATH: spawns it, performs a real `initialize`
- * handshake, classifies the result, then tears the process down.
+ * binary was found on PATH: spawns it, performs a real `initialize` + a
+ * throwaway `session/new`, classifies the result, then tears the process down.
  *
  * `probeAgentAvailability` (registry.ts) only proves a command *exists* — it
  * can still be the wrong binary (see the cursor-acp PATH collision fix) or
  * one that never responds. This is the signal onboarding and the agent panel
  * use to decide whether an agent needs an install/auth step before use.
+ *
+ * Auth is only proven by `session/new`. Advertising `authMethods` at
+ * `initialize` is NOT a sign-in signal (signed-in agents advertise them too).
  */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 import { getAgentDescriptor, resolveAgentSpawn } from "./registry.ts";
 
-const DEFAULT_PROBE_TIMEOUT_MS = 15_000;
+/** Covers initialize + throwaway session/new (Codex init alone can take a few seconds). */
+const DEFAULT_PROBE_TIMEOUT_MS = 20_000;
 
 export interface ProbeOptions {
   timeoutMs?: number;
 }
 
-/** Spawns `descriptor`, runs a real ACP `initialize`, and always kills the process afterward. */
+/**
+ * True when an ACP request rejected with the protocol's `auth_required` error.
+ * Mirrors the check used when the real app opens a session.
+ *
+ * Prefer `instanceof`, but also duck-type so a duplicated SDK graph (tests /
+ * bundlers) cannot mis-classify auth failures as generic errors.
+ */
+function isAuthRequiredError(err: unknown): boolean {
+  if (err instanceof acp.RequestError) {
+    return err.code === -32000 && /auth(?:entication)?[\s_-]*required/i.test(err.message);
+  }
+  if (!err || typeof err !== "object") return false;
+  const candidate = err as { code?: unknown; message?: unknown; name?: unknown };
+  if (candidate.name !== "RequestError" && typeof candidate.code !== "number") return false;
+  return (
+    candidate.code === -32000 &&
+    typeof candidate.message === "string" &&
+    /auth(?:entication)?[\s_-]*required/i.test(candidate.message)
+  );
+}
+
+/** Spawns `descriptor`, runs ACP `initialize` + throwaway `session/new`, then kills the process. */
 export async function probeAgentHandshake(
   descriptor: AcpAgentDescriptor,
   options: ProbeOptions = {},
@@ -50,11 +78,15 @@ export async function probeAgentHandshake(
   }
 
   let stderrText = "";
-  child.stderr.on("data", (buf: Buffer) => {
+  const onStderr = (buf: Buffer) => {
     stderrText += buf.toString("utf8");
-  });
+  };
+  child.stderr.on("data", onStderr);
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let probeCwd: string | null = null;
+  /** Once true, exit/error listeners must not reject — teardown kill is expected. */
+  let settled = false;
 
   try {
     const input = Writable.toWeb(child.stdin);
@@ -63,43 +95,73 @@ export async function probeAgentHandshake(
     const connection = acp.client({ name: "pipper" }).connect(stream);
 
     const exitedEarly = new Promise<never>((_, reject) => {
-      child.once("error", (err) => reject(err));
-      child.once("exit", (code) => {
-        if (code !== 0) {
-          reject(
-            new Error(
-              stderrText.trim() ||
-                `${descriptor.displayName} exited (code ${code}) before responding.`,
-            ),
-          );
-        }
+      const fail = (err: Error) => {
+        if (!settled) reject(err);
+      };
+      child.once("error", fail);
+      child.once("exit", (code, signal) => {
+        if (settled || code === 0) return;
+        fail(
+          new Error(
+            stderrText.trim() ||
+              `${descriptor.displayName} exited (code ${code}${
+                signal ? `, signal ${signal}` : ""
+              }) before responding.`,
+          ),
+        );
       });
     });
 
     const timedOut = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
+        if (settled) return;
         reject(new Error("__pipper_probe_timeout__"));
       }, options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS);
     });
 
-    await Promise.race([
-      connection.agent.request(acp.methods.agent.initialize, {
+    const run = async () => {
+      await connection.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: true, writeTextFile: true },
           terminal: true,
         },
         clientInfo: { name: "pipper", title: "Pipper", version: "0.0.20" },
-      }),
-      exitedEarly,
-      timedOut,
-    ]);
+      });
 
-    // `authMethods` advertises the authentication flows an agent supports; it
-    // does not indicate whether the user is currently signed in. A successful
-    // initialize response therefore proves the agent is ready for onboarding.
+      // Throwaway session proves the agent will accept work in Pipper — including
+      // that the user is authenticated when the agent requires it. No prompt is
+      // sent; success is "session/new returned", not "model replied".
+      probeCwd = mkdtempSync(join(tmpdir(), "pipper-probe-session-"));
+      const created = (await connection.agent.request(acp.methods.agent.session.new, {
+        cwd: probeCwd,
+        mcpServers: [],
+      })) as { sessionId?: string };
+
+      const sessionId = created?.sessionId;
+      if (sessionId) {
+        try {
+          await connection.agent.request(acp.methods.agent.session.close, { sessionId });
+        } catch {
+          // Best-effort cleanup; process kill in finally is the hard guarantee.
+        }
+      }
+    };
+
+    await Promise.race([run(), exitedEarly, timedOut]);
+    settled = true;
     return { agentId: descriptor.id, status: "ready" };
   } catch (err) {
+    settled = true;
+    if (isAuthRequiredError(err)) {
+      return {
+        agentId: descriptor.id,
+        status: "needs-auth",
+        message:
+          descriptor.authHint ??
+          `${descriptor.displayName} requires authentication. Sign in from your terminal first.`,
+      };
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (message === "__pipper_probe_timeout__") {
       return {
@@ -110,8 +172,21 @@ export async function probeAgentHandshake(
     }
     return { agentId: descriptor.id, status: "error", message };
   } finally {
+    settled = true;
     if (timeoutHandle) clearTimeout(timeoutHandle);
-    if (!child.killed) child.kill();
+    child.stderr.off("data", onStderr);
+    child.removeAllListeners("error");
+    child.removeAllListeners("exit");
+    if (!child.killed) {
+      try {
+        child.kill();
+      } catch {
+        // Process may already be gone.
+      }
+    }
+    // probeCwd is intentionally left on disk briefly; OS temp cleaner removes it.
+    // Avoid recursive rm here so a hostile agent cannot trick us into deleting more.
+    void probeCwd;
   }
 }
 

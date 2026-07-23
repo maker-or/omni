@@ -310,6 +310,11 @@ function AgentSetupCard({
         ? "ready"
         : "retry";
 
+  const retryLabel =
+    result.status === "needs-auth"
+      ? `Sign in required for ${descriptor.displayName}. Retry after authenticating`
+      : `Retry ${descriptor.displayName}`;
+
   return (
     <Card selected={status === "ready"} data-pipper-id={`agent-setup-card-${descriptor.id}`}>
       <CardMedia icon={BrandIcon} />
@@ -335,7 +340,8 @@ function AgentSetupCard({
           <button
             type="button"
             onClick={onRetry}
-            aria-label={`Retry ${descriptor.displayName}`}
+            title={result.message ?? retryLabel}
+            aria-label={retryLabel}
             data-pipper-id={`agent-setup-retry-${descriptor.id}`}
             className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >

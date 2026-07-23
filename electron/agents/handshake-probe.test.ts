@@ -24,8 +24,79 @@ function nodeScriptDescriptor(scriptPath: string): AcpAgentDescriptor {
   };
 }
 
+/** Minimal agent script: initialize + session/new (+ optional auth fail). */
+function scriptedAgentBody(opts: {
+  authMethodsOnInit?: boolean;
+  sessionNewAuthRequired?: boolean;
+  sessionNewOk?: boolean;
+}): string {
+  const authMethods = opts.authMethodsOnInit
+    ? `authMethods: [{ id: "login", name: "Log in" }],`
+    : `authMethods: [],`;
+  const sessionHandler = opts.sessionNewAuthRequired
+    ? `
+        if (msg.method === "session/new") {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32000, message: "Authentication required" },
+          }) + "\\n");
+          return;
+        }
+      `
+    : opts.sessionNewOk === false
+      ? `
+        if (msg.method === "session/new") {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32001, message: "session boom" },
+          }) + "\\n");
+          return;
+        }
+      `
+      : `
+        if (msg.method === "session/new") {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: { sessionId: "probe-session-1" },
+          }) + "\\n");
+          return;
+        }
+        if (msg.method === "session/close") {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: null,
+          }) + "\\n");
+          return;
+        }
+      `;
+
+  return `
+      import { createInterface } from "node:readline";
+      const rl = createInterface({ input: process.stdin });
+      rl.on("line", (line) => {
+        const msg = JSON.parse(line);
+        if (msg.method === "initialize") {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              protocolVersion: 1,
+              ${authMethods}
+            },
+          }) + "\\n");
+          return;
+        }
+        ${sessionHandler}
+      });
+      `;
+}
+
 describe("probeAgentHandshake", () => {
-  test("pipper-mock reports ready", async () => {
+  test("pipper-mock reports ready after initialize + session/new", async () => {
     const result = await probeAgentById("pipper-mock");
     expect(result.status).toBe("ready");
   });
@@ -44,32 +115,45 @@ describe("probeAgentHandshake", () => {
     expect(result.message).toContain("Install the thing first");
   });
 
-  test("agent reporting supported authMethods is still classified ready", async () => {
+  test("agent reporting supported authMethods is still classified ready when session/new succeeds", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipper-probe-"));
     const script = writeScript(
       dir,
-      "auth-required-agent.mjs",
-      `
-      import { createInterface } from "node:readline";
-      const rl = createInterface({ input: process.stdin });
-      rl.on("line", (line) => {
-        const msg = JSON.parse(line);
-        if (msg.method === "initialize") {
-          process.stdout.write(JSON.stringify({
-            jsonrpc: "2.0",
-            id: msg.id,
-            result: {
-              protocolVersion: 1,
-              authMethods: [{ id: "login", name: "Log in" }],
-            },
-          }) + "\\n");
-        }
-      });
-      `,
+      "auth-methods-ok-agent.mjs",
+      scriptedAgentBody({ authMethodsOnInit: true, sessionNewOk: true }),
     );
 
     const result = await probeAgentHandshake(nodeScriptDescriptor(script));
     expect(result).toEqual({ agentId: "test-agent", status: "ready" });
+  });
+
+  test("session/new auth_required is classified as needs-auth", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipper-probe-"));
+    const script = writeScript(
+      dir,
+      "auth-required-session-agent.mjs",
+      scriptedAgentBody({ authMethodsOnInit: true, sessionNewAuthRequired: true }),
+    );
+
+    const result = await probeAgentHandshake({
+      ...nodeScriptDescriptor(script),
+      authHint: "Run login first.",
+    });
+    expect(result.status).toBe("needs-auth");
+    expect(result.message).toContain("Run login first");
+  });
+
+  test("session/new non-auth failure is classified as error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pipper-probe-"));
+    const script = writeScript(
+      dir,
+      "session-fail-agent.mjs",
+      scriptedAgentBody({ sessionNewOk: false }),
+    );
+
+    const result = await probeAgentHandshake(nodeScriptDescriptor(script));
+    expect(result.status).toBe("error");
+    expect(result.message).toBeTruthy();
   });
 
   test("agent that never responds is classified as an error after the timeout", async () => {
