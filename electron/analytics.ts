@@ -59,6 +59,7 @@ function getClient(): PostHog | null {
     host: resolvePostHogHost(),
     flushAt: 10,
     flushInterval: 5000,
+    enableExceptionAutocapture: true,
   });
   return client;
 }
@@ -220,6 +221,26 @@ export function captureAnalytics(
       ...sanitizeAnalyticsProperties(properties),
     },
   });
+}
+
+/** Capture handled failures that would not reach Node's global error hooks. */
+export function captureAnalyticsException(
+  error: unknown,
+  properties: AnalyticsProperties = {},
+): void {
+  const id = currentDistinctId();
+  const posthog = getClient();
+  if (!id || !posthog) return;
+  const exception = error instanceof Error ? error : new Error(String(error));
+  posthog.captureException(exception, id, {
+    ...buildBaseProperties("background"),
+    ...sanitizeAnalyticsProperties(properties),
+  });
+}
+
+/** Flush queued events while the app remains open (the normal macOS lifecycle). */
+export async function flushAnalytics(): Promise<void> {
+  await client?.flush();
 }
 
 export async function shutdownAnalytics(): Promise<void> {

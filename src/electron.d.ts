@@ -243,6 +243,11 @@ declare global {
           componentId?: string | null;
           source?: "overlay" | "companion";
         }) => Promise<void>;
+        captureException: (input: {
+          name: string;
+          message: string;
+          stack?: string;
+        }) => Promise<void>;
       };
       pipper: {
         enterEditMode: () => Promise<void>;

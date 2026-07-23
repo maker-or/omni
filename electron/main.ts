@@ -72,11 +72,19 @@ import {
 } from "./dependency-installer";
 import {
   captureAnalytics,
+  captureAnalyticsException,
+  flushAnalytics,
   identifyAnalyticsUser,
   setActiveAgentContext,
   setAnalyticsPersonProperties,
   shutdownAnalytics,
 } from "./analytics";
+import {
+  flushTelemetry,
+  initializeTelemetry,
+  logTelemetryError,
+  shutdownTelemetry,
+} from "./telemetry";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { categorizeIntent, sanitizeErrorType, sanitizeIdentifier } from "./analytics-sanitize";
 
@@ -181,6 +189,8 @@ let currentTheme: "light" | "dark" | "system" = "system";
 
 const isDev = !app.isPackaged;
 
+initializeTelemetry();
+
 if (isDev && !process.env.PIPPER_LIBRARY_PATH) {
   const devUserDataPath =
     process.env.PIPPER_DEV_USER_DATA_PATH ?? join(app.getPath("appData"), "pipper-dev");
@@ -198,9 +208,20 @@ if (!gotSingleInstanceLock) {
 // every window down with it. Log and keep running instead.
 process.on("uncaughtException", (err) => {
   console.error("[main] Uncaught exception:", err);
+  captureAnalyticsException(err, { source: "agent_runtime", error_type: sanitizeErrorType(err) });
+  logTelemetryError("Uncaught exception in Electron main process", {
+    error_type: sanitizeErrorType(err) ?? "Error",
+  });
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[main] Unhandled rejection:", reason);
+  captureAnalyticsException(reason, {
+    source: "agent_runtime",
+    error_type: sanitizeErrorType(reason),
+  });
+  logTelemetryError("Unhandled rejection in Electron main process", {
+    error_type: sanitizeErrorType(reason) ?? "Error",
+  });
 });
 
 function generateRandomId(): string {
@@ -1782,6 +1803,22 @@ function registerIpc(): void {
     },
   );
 
+  ipcMain.handle(
+    "analytics:captureException",
+    (_event, input: { name?: string; message?: string; stack?: string }) => {
+      const error = new Error(input.message?.slice(0, 1000) || "Unknown renderer exception");
+      error.name = input.name?.slice(0, 128) || "Error";
+      if (input.stack) error.stack = input.stack.slice(0, 10_000);
+      captureAnalyticsException(error, {
+        source: "agent_panel",
+        error_type: sanitizeErrorType(error),
+      });
+      logTelemetryError("Uncaught renderer exception", {
+        error_type: sanitizeErrorType(error) ?? "Error",
+      });
+    },
+  );
+
   // ─── Pipper IPC ─────────────────────────────────────────────────────────────
   ipcMain.handle("pipper:setProcessing", (_event, processingId: string | null) => {
     broadcastToWindows("pipper:stateChanged", { processingId });
@@ -2045,6 +2082,8 @@ function stampHealthPersonProperties(): void {
 const sessionStartedAt = Date.now();
 const USAGE_HEARTBEAT_INTERVAL_MS = 60_000;
 let usageHeartbeatTimer: NodeJS.Timeout | null = null;
+const TELEMETRY_FLUSH_INTERVAL_MS = 15_000;
+let telemetryFlushTimer: NodeJS.Timeout | null = null;
 
 /**
  * Emit `app_heartbeat` every interval, but only while a window is focused, so the
@@ -2064,8 +2103,24 @@ function startUsageHeartbeat(): void {
   usageHeartbeatTimer.unref?.();
 }
 
+/**
+ * macOS commonly keeps Electron apps resident after their windows close. Flush
+ * independently of quitting so exceptions are visible within seconds, not only
+ * after the user explicitly exits the app.
+ */
+function startTelemetryFlush(): void {
+  if (telemetryFlushTimer) return;
+  telemetryFlushTimer = setInterval(() => {
+    void Promise.all([flushAnalytics(), flushTelemetry()]).catch((error) => {
+      console.error("[Telemetry] Periodic flush failed:", error);
+    });
+  }, TELEMETRY_FLUSH_INTERVAL_MS);
+  telemetryFlushTimer.unref?.();
+}
+
 app.whenReady().then(async () => {
   startUsageHeartbeat();
+  startTelemetryFlush();
   if (process.platform === "darwin") {
     const iconPath = getIconPath();
     if (iconPath) {
@@ -2287,6 +2342,10 @@ app.on("will-quit", (event) => {
     clearInterval(usageHeartbeatTimer);
     usageHeartbeatTimer = null;
   }
+  if (telemetryFlushTimer) {
+    clearInterval(telemetryFlushTimer);
+    telemetryFlushTimer = null;
+  }
   captureAnalytics("app_closed", {
     windowType: "background",
     properties: { session_duration_ms: Date.now() - sessionStartedAt },
@@ -2313,6 +2372,11 @@ app.on("will-quit", (event) => {
     } catch (err) {
       console.error("[Main] Failed to flush analytics on quit:", err);
     } finally {
+      try {
+        await shutdownTelemetry();
+      } catch (err) {
+        console.error("[Main] Failed to flush observability telemetry on quit:", err);
+      }
       analyticsQuitFlushed = true;
       analyticsQuitInProgress = false;
       app.quit();

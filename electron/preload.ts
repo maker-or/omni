@@ -374,6 +374,8 @@ const api = {
       componentId?: string | null;
       source?: "overlay" | "companion";
     }): Promise<void> => ipcRenderer.invoke("analytics:componentMutationRequested", input),
+    captureException: (input: { name: string; message: string; stack?: string }): Promise<void> =>
+      ipcRenderer.invoke("analytics:captureException", input),
   },
   pipper: {
     enterEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:enterEditMode"),
