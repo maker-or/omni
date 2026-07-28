@@ -4,9 +4,10 @@ import { makeWorkspaceKey, useTerminalStore } from "./terminal-store";
 function resetStore() {
   useTerminalStore.setState({
     sessions: [],
-    activeSessionId: null,
     workspaceKey: null,
     stashByWorkspace: {},
+    nextSessionNumber: 1,
+    tabsRevision: 0,
     listenerInitialized: false,
   });
 }
@@ -26,13 +27,24 @@ describe("terminal store session behavior", () => {
     useTerminalStore.getState().createSession("/tmp/project-b");
 
     expect(useTerminalStore.getState().sessions).toEqual([
-      { id: "term-2", title: "Terminal 2", cwd: "/tmp/project-b", history: "" },
-      { id: "term-1", title: "Terminal 1", cwd: "/tmp/project-a", history: "" },
+      {
+        id: "terminal:term-2",
+        title: "Terminal 2",
+        cwd: "/tmp/project-b",
+        status: "starting",
+        history: "",
+      },
+      {
+        id: "terminal:term-1",
+        title: "Terminal 1",
+        cwd: "/tmp/project-a",
+        status: "starting",
+        history: "",
+      },
     ]);
-    expect(useTerminalStore.getState().activeSessionId).toBe("term-2");
   });
 
-  test("closing the active session kills its pty and selects the first remaining session", () => {
+  test("closing a session kills its pty and returns the first remaining session", () => {
     const kill = vi.fn();
     (globalThis as any).window = { omni: { terminal: { kill } } };
     useTerminalStore.setState({
@@ -41,17 +53,34 @@ describe("terminal store session behavior", () => {
         { id: "term-2", title: "Terminal 2", history: "" },
         { id: "term-3", title: "Terminal 3", history: "" },
       ],
-      activeSessionId: "term-2",
     });
 
-    useTerminalStore.getState().closeSession("term-2");
+    const nextSessionId = useTerminalStore.getState().closeSession("term-2");
 
     expect(kill).toHaveBeenCalledWith("term-2");
     expect(useTerminalStore.getState().sessions.map((session) => session.id)).toEqual([
       "term-1",
       "term-3",
     ]);
-    expect(useTerminalStore.getState().activeSessionId).toBe("term-1");
+    expect(nextSessionId).toBe("term-1");
+  });
+
+  test("terminal titles remain unique after close and create cycles", () => {
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce("term-1")
+      .mockReturnValueOnce("term-2")
+      .mockReturnValueOnce("term-3");
+    (globalThis as any).window = { omni: { terminal: { kill: vi.fn() } } };
+
+    const firstId = useTerminalStore.getState().createSession();
+    useTerminalStore.getState().createSession();
+    useTerminalStore.getState().closeSession(firstId);
+    useTerminalStore.getState().createSession();
+
+    expect(useTerminalStore.getState().sessions.map((session) => session.title)).toEqual([
+      "Terminal 3",
+      "Terminal 2",
+    ]);
   });
 
   test("clearing sessions kills every active pty", () => {
@@ -62,7 +91,6 @@ describe("terminal store session behavior", () => {
         { id: "term-1", title: "Terminal 1", history: "" },
         { id: "term-2", title: "Terminal 2", history: "" },
       ],
-      activeSessionId: "term-2",
     });
 
     useTerminalStore.getState().clearSessions();
@@ -70,7 +98,6 @@ describe("terminal store session behavior", () => {
     expect(kill).toHaveBeenCalledWith("term-1");
     expect(kill).toHaveBeenCalledWith("term-2");
     expect(useTerminalStore.getState().sessions).toEqual([]);
-    expect(useTerminalStore.getState().activeSessionId).toBeNull();
   });
 
   test("switching workspace kills the visible ptys and stashes their sessions", () => {
@@ -84,7 +111,6 @@ describe("terminal store session behavior", () => {
         { id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "old output" },
         { id: "term-a-2", title: "Terminal 2", cwd: "/repo", history: "" },
       ],
-      activeSessionId: "term-a-2",
     });
 
     const newActiveId = useTerminalStore.getState().setWorkspace(keyB, "/repo/worktrees/feature");
@@ -96,13 +122,13 @@ describe("terminal store session behavior", () => {
     expect(useTerminalStore.getState().sessions).toEqual([]);
     expect(useTerminalStore.getState().workspaceKey).toBe(keyB);
     expect(useTerminalStore.getState().stashByWorkspace[keyA]).toEqual([
-      { title: "Terminal 1", history: "old output" },
-      { title: "Terminal 2", history: "" },
+      { id: "term-a-1", title: "Terminal 1", history: "old output" },
+      { id: "term-a-2", title: "Terminal 2", history: "" },
     ]);
   });
 
-  test("returning to a workspace restores its stashed sessions with fresh ptys in the workspace cwd", () => {
-    const ids = ["term-b-1", "term-a-new-1", "term-a-new-2"];
+  test("returning to a workspace restores stable session ids with fresh ptys in the workspace cwd", () => {
+    const ids = ["term-b-1"];
     vi.spyOn(crypto, "randomUUID").mockImplementation(() => ids.shift() ?? "term-fallback");
     const kill = vi.fn();
     (globalThis as any).window = { omni: { terminal: { kill } } };
@@ -114,7 +140,6 @@ describe("terminal store session behavior", () => {
         { id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "root scrollback" },
         { id: "term-a-2", title: "Terminal 2", cwd: "/repo", history: "" },
       ],
-      activeSessionId: "term-a-1",
     });
 
     useTerminalStore.getState().setWorkspace(keyB, "/repo/worktrees/feature");
@@ -122,17 +147,29 @@ describe("terminal store session behavior", () => {
     const restoredActiveId = useTerminalStore.getState().setWorkspace(keyA, "/repo");
 
     expect(useTerminalStore.getState().sessions).toEqual([
-      { id: "term-a-new-1", title: "Terminal 1", cwd: "/repo", history: "root scrollback" },
-      { id: "term-a-new-2", title: "Terminal 2", cwd: "/repo", history: "" },
+      {
+        id: "term-a-1",
+        title: "Terminal 1",
+        cwd: "/repo",
+        status: "starting",
+        history: "root scrollback",
+      },
+      {
+        id: "term-a-2",
+        title: "Terminal 2",
+        cwd: "/repo",
+        status: "starting",
+        history: "",
+      },
     ]);
-    expect(restoredActiveId).toBe("term-a-new-1");
+    expect(restoredActiveId).toBe("term-a-1");
     expect(useTerminalStore.getState().workspaceKey).toBe(keyA);
     // A's stash was consumed; B's terminal is stashed for its own return.
     expect(useTerminalStore.getState().stashByWorkspace[keyA]).toBeUndefined();
     expect(useTerminalStore.getState().stashByWorkspace[keyB]).toEqual([
-      { title: "Terminal 1", history: "" },
+      { id: "terminal:term-b-1", title: "Terminal 1", history: "" },
     ]);
-    expect(kill).toHaveBeenCalledWith("term-b-1");
+    expect(kill).toHaveBeenCalledWith("terminal:term-b-1");
   });
 
   test("re-entering the current workspace is a no-op", () => {
@@ -142,7 +179,6 @@ describe("terminal store session behavior", () => {
     useTerminalStore.setState({
       workspaceKey: keyA,
       sessions: [{ id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "keep" }],
-      activeSessionId: "term-a-1",
     });
 
     const activeId = useTerminalStore.getState().setWorkspace(keyA, "/repo");
@@ -179,7 +215,55 @@ describe("terminal store session behavior", () => {
     useTerminalStore.getState().appendHistory("term-1", "b".repeat(60000));
 
     const history = useTerminalStore.getState().sessions[0]?.history ?? "";
-    expect(history).toHaveLength(100000);
-    expect(history).toBe(`${"a".repeat(40000)}${"b".repeat(60000)}`);
+    expect(history).toHaveLength(200000);
+    expect(history).toBe(`${"a".repeat(140000)}${"b".repeat(60000)}`);
+  });
+
+  test("recovery history strips terminal control sequences", () => {
+    useTerminalStore.setState({
+      sessions: [{ id: "term-1", title: "Terminal 1", history: "" }],
+    });
+
+    useTerminalStore
+      .getState()
+      .appendHistory("term-1", "\u001b[31mred\u001b[0m\r\n\u001b]0;title\u0007plain");
+
+    expect(useTerminalStore.getState().sessions[0]?.history).toBe("red\r\nplain");
+  });
+
+  test("orphan output is a referential no-op", () => {
+    const sessions = [{ id: "term-1", title: "Terminal 1", history: "" }];
+    useTerminalStore.setState({ sessions });
+
+    useTerminalStore.getState().appendHistory("missing", "ignored");
+
+    expect(useTerminalStore.getState().sessions).toBe(sessions);
+  });
+
+  test("global exit events persist completion state while the view is hidden", () => {
+    let onExitHandler:
+      | ((payload: { sessionId: string; exitCode: number; signal?: number }) => void)
+      | null = null;
+    const onData = vi.fn();
+    const onExit = vi.fn(
+      (handler: (payload: { sessionId: string; exitCode: number; signal?: number }) => void) => {
+        onExitHandler = handler;
+      },
+    );
+    (globalThis as any).window = { omni: { terminal: { onData, onExit } } };
+    useTerminalStore.setState({
+      sessions: [{ id: "term-1", title: "Terminal 1", status: "running", history: "output\n" }],
+    });
+
+    useTerminalStore.getState().initializeGlobalListener();
+    onExitHandler?.({ sessionId: "term-1", exitCode: 2 });
+
+    expect(useTerminalStore.getState().sessions[0]).toMatchObject({
+      status: "exited",
+      exitCode: 2,
+    });
+    expect(useTerminalStore.getState().sessions[0]?.history).toContain(
+      "[Process completed (exit 2)]",
+    );
   });
 });

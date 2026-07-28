@@ -32,6 +32,7 @@ import {
   switchWorktreeBranch,
 } from "./worktree-manager";
 import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
+import type { ProjectFileGitStatus, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import {
@@ -118,16 +119,28 @@ const mainDir = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.json";
 const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
-const ptyProcesses = new Map<string, pty.IPty>();
+interface RendererPtySession {
+  process: pty.IPty;
+  dataDisposable: pty.IDisposable;
+  exitDisposable: pty.IDisposable;
+}
+
+const ptyProcesses = new Map<string, RendererPtySession>();
 const execFileAsync = promisify(execFile);
 
+function disposePtySession(session: RendererPtySession): void {
+  session.dataDisposable.dispose();
+  session.exitDisposable.dispose();
+}
+
 function killAllPtyProcesses(reason: string): void {
-  for (const [id, ptyProc] of ptyProcesses) {
+  for (const [id, session] of ptyProcesses) {
     try {
-      ptyProc.kill();
+      session.process.kill();
     } catch (error) {
       console.warn(`[${reason}] Failed to stop terminal ${id}:`, error);
     }
+    disposePtySession(session);
   }
   ptyProcesses.clear();
 }
@@ -181,9 +194,58 @@ async function listProjectFiles(projectPath: string): Promise<string[]> {
         else if (entry.isFile()) results.push(relative);
       }
     };
-    walk(projectPath);
+    try {
+      walk(projectPath);
+    } catch {
+      return [];
+    }
     return results.sort();
   }
+}
+
+function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStatus"] {
+  const entries: ProjectFileTreeSnapshot["gitStatus"] = [];
+  const records = output.split("\0");
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record || record.length < 4) continue;
+
+    const code = record.slice(0, 2);
+    const path = record.slice(3);
+    let status: ProjectFileGitStatus | null = null;
+
+    if (code === "??") status = "untracked";
+    else if (code === "!!") status = "ignored";
+    else if (code.includes("R") || code.includes("C")) status = "renamed";
+    else if (code.includes("D")) status = "deleted";
+    else if (code.includes("A")) status = "added";
+    else if (code.includes("M") || code.includes("T") || code.includes("U")) {
+      status = "modified";
+    }
+
+    if (status) entries.push({ path, status });
+
+    // Porcelain v1 emits a second NUL-delimited source path for renames and
+    // copies. The first path is the destination, which is the one in ls-files.
+    if (code.includes("R") || code.includes("C")) index += 1;
+  }
+
+  return entries;
+}
+
+async function listProjectFileTree(projectPath: string): Promise<ProjectFileTreeSnapshot> {
+  const [paths, gitStatus] = await Promise.all([
+    listProjectFiles(projectPath),
+    execFileAsync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: projectPath,
+      maxBuffer: 1024 * 1024 * 4,
+    })
+      .then(({ stdout }) => parseProjectGitStatus(String(stdout)))
+      .catch(() => []),
+  ]);
+
+  return { paths, gitStatus };
 }
 let currentTheme: "light" | "dark" | "system" = "system";
 
@@ -1266,11 +1328,21 @@ function registerIpc(): void {
     // Follow the active worktree's cwd, not the project root, so file paths
     // reflect the selected workspace. Falls back to the project root.
     const cwd = requireAgentManager().getActiveCwd();
-    if (cwd) return listProjectFiles(cwd);
+    if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
     const id = getActiveProjectId();
     const project = id ? getProject(id) : null;
-    if (!project) return [];
+    if (!project || !fs.existsSync(project.path)) return [];
     return listProjectFiles(project.path);
+  });
+
+  ipcMain.handle("projects:getFileTree", async () => {
+    // Keep the flyout aligned with the currently selected worktree.
+    const cwd = requireAgentManager().getActiveCwd();
+    if (cwd && fs.existsSync(cwd)) return listProjectFileTree(cwd);
+    const id = getActiveProjectId();
+    const project = id ? getProject(id) : null;
+    if (!project || !fs.existsSync(project.path)) return { paths: [], gitStatus: [] };
+    return listProjectFileTree(project.path);
   });
 
   ipcMain.handle(
@@ -1654,105 +1726,121 @@ function registerIpc(): void {
     deleteMcpServer(id);
   });
 
-  ipcMain.handle("terminal:create", (_event, sessionId: string, cwd?: string) => {
-    if (isUpdateBusy()) throw new Error("New terminal sessions are disabled during an update.");
-    if (ptyProcesses.has(sessionId)) {
-      console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
-      return;
-    }
-
-    const defaultShell =
-      process.env["SHELL"] || (process.platform === "win32" ? resolveWindowsShell() : "bash");
-    const shellArgs: string[] = [];
-    if (
-      process.platform !== "win32" &&
-      (defaultShell.endsWith("zsh") || defaultShell.endsWith("bash") || defaultShell.endsWith("sh"))
-    ) {
-      shellArgs.push("-l");
-    }
-
-    let spawnCwd = cwd || os.homedir();
-    if (spawnCwd && !fs.existsSync(spawnCwd)) {
-      console.warn(
-        `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
-      );
-      spawnCwd = os.homedir();
-    }
-
-    let ptyProcess: pty.IPty;
-    try {
-      console.log(
-        `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}`,
-      );
-      prependStandardPaths();
-      ptyProcess = pty.spawn(defaultShell, shellArgs, {
-        name: "xterm-256color",
-        cols: 80,
-        rows: 24,
-        cwd: spawnCwd,
-        env: {
-          ...process.env,
-          TERM: "xterm-256color",
-        } as Record<string, string>,
-      });
-
-      ptyProcesses.set(sessionId, ptyProcess);
-    } catch (err) {
-      console.error(`[Main] Error spawning PTY process for session ${sessionId}:`, err);
-      throw err;
-    }
-
-    ptyProcess.onData((data) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("terminal:data", { sessionId, data });
+  ipcMain.handle(
+    "terminal:create",
+    (_event, sessionId: string, cwd?: string, requestedCols?: number, requestedRows?: number) => {
+      if (isUpdateBusy()) throw new Error("New terminal sessions are disabled during an update.");
+      if (ptyProcesses.has(sessionId)) {
+        console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
+        return;
       }
-    });
 
-    ptyProcess.onExit(({ exitCode, signal }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("terminal:exit", {
-          sessionId,
-          exitCode,
-          signal,
+      const defaultShell =
+        process.env["SHELL"] || (process.platform === "win32" ? resolveWindowsShell() : "bash");
+      const shellArgs: string[] = [];
+      if (
+        process.platform !== "win32" &&
+        (defaultShell.endsWith("zsh") ||
+          defaultShell.endsWith("bash") ||
+          defaultShell.endsWith("sh"))
+      ) {
+        shellArgs.push("-l");
+      }
+
+      let spawnCwd = cwd || os.homedir();
+      if (spawnCwd && !fs.existsSync(spawnCwd)) {
+        console.warn(
+          `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
+        );
+        spawnCwd = os.homedir();
+      }
+
+      const cols =
+        Number.isInteger(requestedCols) && requestedCols! > 0 ? Math.min(requestedCols!, 1000) : 80;
+      const rows =
+        Number.isInteger(requestedRows) && requestedRows! > 0 ? Math.min(requestedRows!, 1000) : 24;
+
+      let ptyProcess: pty.IPty;
+      try {
+        console.log(
+          `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}, Size: ${cols}x${rows}`,
+        );
+        prependStandardPaths();
+        ptyProcess = pty.spawn(defaultShell, shellArgs, {
+          name: "xterm-256color",
+          cols,
+          rows,
+          cwd: spawnCwd,
+          env: {
+            ...process.env,
+            TERM: "xterm-256color",
+          } as Record<string, string>,
         });
+      } catch (err) {
+        console.error(`[Main] Error spawning PTY process for session ${sessionId}:`, err);
+        throw err;
       }
-      ptyProcesses.delete(sessionId);
-    });
-  });
 
-  ipcMain.on(
+      const dataDisposable = ptyProcess.onData((data) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("terminal:data", { sessionId, data });
+        }
+      });
+      let session!: RendererPtySession;
+      const exitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("terminal:exit", {
+            sessionId,
+            exitCode,
+            signal,
+          });
+        }
+        if (ptyProcesses.get(sessionId) === session) ptyProcesses.delete(sessionId);
+        disposePtySession(session);
+      });
+      session = { process: ptyProcess, dataDisposable, exitDisposable };
+      ptyProcesses.set(sessionId, session);
+    },
+  );
+
+  ipcMain.handle(
     "terminal:write",
     (_event, { sessionId, data }: { sessionId: string; data: string }) => {
-      const ptyProcess = ptyProcesses.get(sessionId);
-      if (ptyProcess) {
-        ptyProcess.write(data);
+      const session = ptyProcesses.get(sessionId);
+      if (!session) throw new Error(`Terminal session ${sessionId} is not running.`);
+      try {
+        session.process.write(data);
+      } catch (error) {
+        console.error(`Error writing to PTY ${sessionId}:`, error);
+        throw error;
       }
     },
   );
 
-  ipcMain.on(
+  ipcMain.handle(
     "terminal:resize",
     (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
-      const ptyProcess = ptyProcesses.get(sessionId);
-      if (ptyProcess) {
-        try {
-          ptyProcess.resize(cols, rows);
-        } catch (e) {
-          console.error(`Error resizing PTY ${sessionId}:`, e);
-        }
+      const session = ptyProcesses.get(sessionId);
+      if (!session) throw new Error(`Terminal session ${sessionId} is not running.`);
+      try {
+        session.process.resize(cols, rows);
+      } catch (error) {
+        console.error(`Error resizing PTY ${sessionId}:`, error);
+        throw error;
       }
     },
   );
 
   ipcMain.handle("terminal:kill", (_event, sessionId: string) => {
-    const ptyProcess = ptyProcesses.get(sessionId);
-    if (ptyProcess) {
-      try {
-        ptyProcess.kill();
-      } catch (e) {
-        console.error(`Error killing PTY ${sessionId}:`, e);
-      }
+    const session = ptyProcesses.get(sessionId);
+    if (session) {
       ptyProcesses.delete(sessionId);
+      try {
+        session.process.kill();
+      } catch (error) {
+        console.error(`Error killing PTY ${sessionId}:`, error);
+      }
+      disposePtySession(session);
     }
   });
 

@@ -28,6 +28,7 @@ interface WorkspaceViewState {
   requestedThreadId: string | null;
   showAgent: () => void;
   showTerminal: (sessionId: string) => void;
+  setActiveTerminalId: (sessionId: string | null) => void;
   requestThread: (threadId: string | null) => void;
 }
 
@@ -37,6 +38,7 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set) => ({
   requestedThreadId: null,
   showAgent: () => set({ mode: "agent" }),
   showTerminal: (sessionId) => set({ mode: "terminal", activeTerminalId: sessionId }),
+  setActiveTerminalId: (sessionId) => set({ activeTerminalId: sessionId }),
   requestThread: (threadId) => set({ requestedThreadId: threadId }),
 }));
 

@@ -15,7 +15,13 @@ const pageName =
 const showDownloadNavLink = pageClass !== "download-page";
 ---
 
-<html lang="en" class="h-svh overflow-hidden [color-scheme:light]">
+<html
+    lang="en"
+    class:list={[
+        "min-h-svh [color-scheme:light]",
+        pageClass === "home-page" ? "overflow-x-hidden" : "h-svh overflow-hidden",
+    ]}
+>
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -43,7 +49,14 @@ const showDownloadNavLink = pageClass !== "download-page";
         data-page={pageName}
         style="background:#15408f;color:#d1e1ff"
     >
-        <div class="h-svh flex flex-col overflow-hidden">
+        <div
+            class:list={[
+                "flex flex-col",
+                pageClass === "home-page"
+                    ? "min-h-svh"
+                    : "h-svh overflow-hidden",
+            ]}
+        >
             {
                 !hideHeader && (
                     <header

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { Project } from "../contracts/projects.ts";
+import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
 import type {
@@ -153,6 +153,7 @@ const api = {
       ipcRenderer.invoke("projects:create", input),
     getActive: (): Promise<Project | null> => ipcRenderer.invoke("projects:getActive"),
     listFiles: (): Promise<string[]> => ipcRenderer.invoke("projects:listFiles"),
+    getFileTree: (): Promise<ProjectFileTreeSnapshot> => ipcRenderer.invoke("projects:getFileTree"),
     setActive: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("projects:setActive", projectId),
     onActiveChanged: (callback: (projectId: string) => void) => {
@@ -319,12 +320,12 @@ const api = {
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("dialog:pickDirectory"),
   },
   terminal: {
-    create: (sessionId: string, cwd?: string): Promise<void> =>
-      ipcRenderer.invoke("terminal:create", sessionId, cwd),
-    write: (sessionId: string, data: string): void =>
-      ipcRenderer.send("terminal:write", { sessionId, data }),
-    resize: (sessionId: string, cols: number, rows: number): void =>
-      ipcRenderer.send("terminal:resize", { sessionId, cols, rows }),
+    create: (sessionId: string, cwd?: string, cols?: number, rows?: number): Promise<void> =>
+      ipcRenderer.invoke("terminal:create", sessionId, cwd, cols, rows),
+    write: (sessionId: string, data: string): Promise<void> =>
+      ipcRenderer.invoke("terminal:write", { sessionId, data }),
+    resize: (sessionId: string, cols: number, rows: number): Promise<void> =>
+      ipcRenderer.invoke("terminal:resize", { sessionId, cols, rows }),
     kill: (sessionId: string): Promise<void> => ipcRenderer.invoke("terminal:kill", sessionId),
     onData: (callback: (payload: { sessionId: string; data: string }) => void) => {
       const listener = (_event: any, payload: { sessionId: string; data: string }) =>

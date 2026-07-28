@@ -22,7 +22,7 @@ interface ThreadState {
   addThread: (thread: Thread) => void;
 }
 
-export const useThreadStore = create<ThreadState>((set, get) => ({
+export const useThreadStore = create<ThreadState>((set) => ({
   threads: [],
   pagesByProject: {},
   isLoading: false,
@@ -43,11 +43,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const reset = options?.reset ?? false;
     let offset = 0;
     let shouldLoad = true;
+    let hasMoreAfterError = false;
 
     set((state) => {
       const current = state.pagesByProject[projectId];
       offset = reset ? 0 : (current?.nextOffset ?? 0);
       shouldLoad = reset || current == null || current.hasMore;
+      hasMoreAfterError = current?.hasMore ?? false;
 
       if (!shouldLoad || current?.isLoading) {
         shouldLoad = false;
@@ -94,17 +96,19 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         };
       });
     } catch (err) {
-      set((state) => ({
-        error: err instanceof Error ? err.message : "Failed to load threads",
-        pagesByProject: {
-          ...state.pagesByProject,
-          [projectId]: {
-            nextOffset: offset,
-            hasMore: true,
-            isLoading: false,
+      set((state) => {
+        return {
+          error: err instanceof Error ? err.message : "Failed to load threads",
+          pagesByProject: {
+            ...state.pagesByProject,
+            [projectId]: {
+              nextOffset: offset,
+              hasMore: hasMoreAfterError,
+              isLoading: false,
+            },
           },
-        },
-      }));
+        };
+      });
     }
   },
   // Thread creation goes through the agent store's `createThread`, which
@@ -127,29 +131,15 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
   deleteThread: async (id) => {
-    const existingThread = get().threads.find((thread) => thread.id === id);
     try {
       await window.omni.threads.delete(id);
       // Drop any unsent `/continue` transcript staged for this thread.
       useContinuationStore.getState().clearPending(id);
       set((state) => ({
         threads: state.threads.filter((t) => t.id !== id),
-        pagesByProject: existingThread
-          ? {
-              ...state.pagesByProject,
-              [existingThread.project_id]: {
-                ...(state.pagesByProject[existingThread.project_id] ?? {
-                  nextOffset: 0,
-                  hasMore: false,
-                  isLoading: false,
-                }),
-                nextOffset: Math.max(
-                  0,
-                  (state.pagesByProject[existingThread.project_id]?.nextOffset ?? 0) - 1,
-                ),
-              },
-            }
-          : state.pagesByProject,
+        // A local mutation did not advance the server-backed pagination
+        // cursor, so deleting it must not move that cursor backwards either.
+        pagesByProject: state.pagesByProject,
         error: null,
       }));
     } catch (err) {
@@ -161,16 +151,11 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
   addThread: (thread) => {
-    set((state) => ({
-      threads: [thread, ...state.threads.filter((t) => t.id !== thread.id)],
-      pagesByProject: {
-        ...state.pagesByProject,
-        [thread.project_id]: {
-          nextOffset: state.pagesByProject[thread.project_id]?.nextOffset ?? 0,
-          hasMore: state.pagesByProject[thread.project_id]?.hasMore ?? false,
-          isLoading: false,
-        },
-      },
-    }));
+    set((state) => {
+      return {
+        threads: [thread, ...state.threads.filter((item) => item.id !== thread.id)],
+        pagesByProject: state.pagesByProject,
+      };
+    });
   },
 }));

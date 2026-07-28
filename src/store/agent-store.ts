@@ -845,6 +845,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             error: err instanceof Error ? err.message : "Failed to switch thread",
           };
         });
+        throw err;
       });
 
     await threadSwitchQueue;

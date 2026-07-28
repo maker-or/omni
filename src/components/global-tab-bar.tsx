@@ -93,29 +93,18 @@ export function GlobalTabBar() {
   const showAgent = useWorkspaceViewStore((state) => state.showAgent);
   const showTerminal = useWorkspaceViewStore((state) => state.showTerminal);
 
-  // Subscribe to a *primitive* signature of the terminal tabs (id+title) so
-  // streaming PTY output — which replaces the `sessions` array on every chunk
-  // via appendHistory — doesn't re-render the tab strip, and (critically)
-  // getSnapshot stays referentially stable so useSyncExternalStore doesn't
-  // loop. Only tab add/remove/rename changes the key. The rendered list is
-  // derived from the key, so it's stable too.
-  const terminalTabsKey = useTerminalStore((state) =>
-    state.sessions.map((session) => `${session.id}\t${session.title}`).join("\n"),
-  );
+  // PTY chunks do not change this revision, so the tab strip does no mapping
+  // or string allocation for streaming output.
+  const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalTabs = useMemo(
     () =>
-      terminalTabsKey
-        ? terminalTabsKey.split("\n").map((entry) => {
-            const [id, title] = entry.split("\t");
-            return { id, title };
-          })
-        : [],
-    [terminalTabsKey],
+      useTerminalStore.getState().sessions.map(({ id, title, status }) => ({ id, title, status })),
+    [terminalTabsRevision],
   );
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
+  const setViewActiveTerminalId = useWorkspaceViewStore((state) => state.setActiveTerminalId);
   const createSession = useTerminalStore((state) => state.createSession);
   const closeSession = useTerminalStore((state) => state.closeSession);
-  const setActiveSessionId = useTerminalStore((state) => state.setActiveSessionId);
   const initializeGlobalListener = useTerminalStore((state) => state.initializeGlobalListener);
 
   const selectedWorktreePathByProject = useWorktreeStore(
@@ -358,9 +347,9 @@ export function GlobalTabBar() {
   };
 
   // ── Thread select / close / delete ────────────────────────────────────
-  const handleSelectThread = async (id: string) => {
+  const handleSelectThread = async (id: string, activateView = true) => {
     closingTabIdsRef.current.delete(id);
-    await selectThread(id);
+    await selectThread(id, { activateView });
   };
 
   const handleCloseThreadTab = async (id: string) => {
@@ -371,12 +360,25 @@ export function GlobalTabBar() {
       const nextState = await window.omni.tabs.close(id);
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       if (!wasActive) return;
-      if (nextState.activeThreadId) await handleSelectThread(nextState.activeThreadId);
-      else requestThread(null);
-    } finally {
-      if (id !== useAgentStore.getState().snapshot?.threadId) {
-        closingTabIdsRef.current.delete(id);
+      if (nextState.activeThreadId) {
+        await handleSelectThread(nextState.activeThreadId, mode !== "terminal");
+      } else {
+        requestThread(null);
+        const sessions = useTerminalStore.getState().sessions;
+        const referencedTerminalId = useWorkspaceViewStore.getState().activeTerminalId;
+        const terminalId = sessions.some((session) => session.id === referencedTerminalId)
+          ? referencedTerminalId
+          : (sessions[0]?.id ?? null);
+        if (mode === "agent" && terminalId) showTerminal(terminalId);
       }
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Close tab failed",
+        description: err instanceof Error ? err.message : "The active tab could not be changed.",
+      });
+    } finally {
+      closingTabIdsRef.current.delete(id);
     }
   };
 
@@ -417,8 +419,17 @@ export function GlobalTabBar() {
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       await queryClient.invalidateQueries({ queryKey: ["project-threads", thread.project_id] });
       const state = await window.omni.tabs.listOpen();
-      if (state.activeThreadId) await handleSelectThread(state.activeThreadId);
-      else requestThread(null);
+      if (state.activeThreadId) {
+        await handleSelectThread(state.activeThreadId, mode !== "terminal");
+      } else {
+        requestThread(null);
+        const sessions = useTerminalStore.getState().sessions;
+        const referencedTerminalId = useWorkspaceViewStore.getState().activeTerminalId;
+        const terminalId = sessions.some((session) => session.id === referencedTerminalId)
+          ? referencedTerminalId
+          : (sessions[0]?.id ?? null);
+        if (mode === "agent" && terminalId) showTerminal(terminalId);
+      }
     } catch (err) {
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
@@ -488,7 +499,6 @@ export function GlobalTabBar() {
 
   // ── Terminal select / create / close ──────────────────────────────────
   const handleSelectTerminal = (id: string) => {
-    setActiveSessionId(id);
     showTerminal(id);
   };
 
@@ -500,12 +510,16 @@ export function GlobalTabBar() {
   };
 
   const handleCloseTerminal = (id: string) => {
-    const wasActiveTerminal = mode === "terminal" && activeTerminalId === id;
-    closeSession(id);
-    if (!wasActiveTerminal) return;
-    const next = useTerminalStore.getState().activeSessionId;
-    if (next) showTerminal(next);
-    else showAgent();
+    const wasViewTerminal = mode === "terminal";
+    const wasReferencedTerminal = activeTerminalId === id;
+    const next = closeSession(id);
+    if (!wasReferencedTerminal) return;
+    if (wasViewTerminal) {
+      if (next) showTerminal(next);
+      else showAgent();
+    } else {
+      setViewActiveTerminalId(next);
+    }
   };
 
   // ── Derived ───────────────────────────────────────────────────────────
@@ -564,7 +578,13 @@ export function GlobalTabBar() {
       handleSelectTerminal(value.slice(TERMINAL_TAB_PREFIX.length));
       return;
     }
-    void handleSelectThread(value);
+    void handleSelectThread(value).catch((err) => {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Thread switch failed",
+        description: err instanceof Error ? err.message : "The thread could not be opened.",
+      });
+    });
   };
 
   return (
@@ -610,8 +630,24 @@ export function GlobalTabBar() {
               value={`${TERMINAL_TAB_PREFIX}${session.id}`}
               label={session.title}
               scrollLabelOnHover
-              icon={TerminalWindowIcon}
+              icon={
+                session.status === "exited" || session.status === "error"
+                  ? WarningIcon
+                  : TerminalWindowIcon
+              }
               onClose={() => handleCloseTerminal(session.id)}
+              title={
+                session.status === "exited"
+                  ? "Terminal process exited"
+                  : session.status === "error"
+                    ? "Terminal failed to start"
+                    : undefined
+              }
+              className={
+                session.status === "exited" || session.status === "error"
+                  ? "[&_svg]:!text-red-500"
+                  : undefined
+              }
               data-pipper-id={`terminal-tab-${session.id}`}
             />
           ))}

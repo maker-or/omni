@@ -1,4 +1,4 @@
-import type { Project } from "../../contracts/projects.ts";
+import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts/worktrees.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type {
@@ -95,6 +95,7 @@ declare global {
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
         listFiles: () => Promise<string[]>;
+        getFileTree: () => Promise<ProjectFileTreeSnapshot>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
       };
@@ -212,9 +213,9 @@ declare global {
         pickDirectory: () => Promise<string | null>;
       };
       terminal: {
-        create: (sessionId: string, cwd?: string) => Promise<void>;
-        write: (sessionId: string, data: string) => void;
-        resize: (sessionId: string, cols: number, rows: number) => void;
+        create: (sessionId: string, cwd?: string, cols?: number, rows?: number) => Promise<void>;
+        write: (sessionId: string, data: string) => Promise<void>;
+        resize: (sessionId: string, cols: number, rows: number) => Promise<void>;
         kill: (sessionId: string) => Promise<void>;
         onData: (callback: (payload: { sessionId: string; data: string }) => void) => () => void;
         onExit: (

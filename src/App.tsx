@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Group, Panel, Separator, useGroupRef } from "react-resizable-panels";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
@@ -26,6 +26,7 @@ import { UpdateDialog } from "@/components/update-dialog";
 import { useUpdateStore } from "@/store/update-store";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
+import { ProjectFileTree } from "@/components/project-file-tree";
 import {
   SelectionBackground,
   GitDiffIcon,
@@ -33,6 +34,7 @@ import {
   FolderPlus,
   GitBranch,
   Plus,
+  TreeViewIcon,
 } from "@phosphor-icons/react";
 import type { Worktree } from "../contracts/worktrees.ts";
 
@@ -58,15 +60,14 @@ export default function App() {
   // so its composer draft and scroll position survive tab switches.
   const workspaceMode = useWorkspaceViewStore((state) => state.mode);
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
-  // Narrow, primitive selectors: `sessions` gets a new array identity on every
-  // PTY output chunk (appendHistory), so subscribing to the array here would
-  // re-render the whole shell continuously. Existence + cwd are stable.
-  const hasActiveTerminal = useTerminalStore(
-    (state) => activeTerminalId != null && state.sessions.some((s) => s.id === activeTerminalId),
+  const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
+  const terminalSessions = useMemo(
+    () =>
+      useTerminalStore.getState().sessions.map((session) => ({ id: session.id, cwd: session.cwd })),
+    [terminalTabsRevision],
   );
-  const activeTerminalCwd = useTerminalStore(
-    (state) => state.sessions.find((s) => s.id === activeTerminalId)?.cwd,
-  );
+  const hasActiveTerminal =
+    activeTerminalId != null && terminalSessions.some((session) => session.id === activeTerminalId);
   const diffFileCount = useDiffStore((state) => state.order.length);
   const isDiffOpen = useDiffStore((state) => state.isOpen);
   const openDiff = useDiffStore((state) => state.open);
@@ -93,7 +94,10 @@ export default function App() {
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false);
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [isWorkspaceFormOpen, setIsWorkspaceFormOpen] = useState(false);
+  const [isFileTreeOpen, setIsFileTreeOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
+  const workspaceGroupRef = useGroupRef();
+  const workspaceLayoutsRef = useRef<Record<string, Record<string, number>>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
@@ -135,6 +139,25 @@ export default function App() {
   }, [activeProject?.id]);
 
   useEffect(() => {
+    if (stage === "companion") return;
+
+    const handleFileTreeShortcut = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() === "b" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        setIsFileTreeOpen((open) => !open);
+      }
+    };
+
+    document.addEventListener("keydown", handleFileTreeShortcut);
+    return () => document.removeEventListener("keydown", handleFileTreeShortcut);
+  }, [stage]);
+
+  useEffect(() => {
     let cleanup: (() => void) | undefined;
     void initializeUpdates().then((dispose) => {
       cleanup = dispose;
@@ -155,7 +178,7 @@ export default function App() {
       void window.omni.update.markActiveHealthy(updateRun.target_version).then((success) => {
         if (!success) {
           toast({
-            icon: <Bell className="size-5 text-red-500" />,
+            icon: <Bell weight="duotone" className="size-5 text-red-500" />,
             title: "Update health check not accepted",
             description: "The updater is waiting for a matching active version.",
           });
@@ -206,7 +229,7 @@ export default function App() {
     setWorkspaceName("");
     setIsWorkspaceFormOpen(false);
     toast({
-      icon: <GitBranch className="size-5 text-foreground" />,
+      icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
       title: "Worktree created",
       description: `${worktree.branch ?? "New branch"} is now selected.`,
     });
@@ -292,6 +315,46 @@ export default function App() {
   })();
   const workspaceNameLabel = selectedWorktree?.workspaceName ?? derivedWorkspaceName;
   const branchLabel = selectedWorktree?.branch ?? (isLoadingWorktrees ? "Loading…" : "main");
+  const showFileTreePanel = isFileTreeOpen && activeProject !== null;
+  const workspaceLayoutKey = [
+    "agent",
+    ...(showDiffSplit ? ["diff"] : []),
+    ...(showFileTreePanel ? ["files"] : []),
+  ]
+    .sort()
+    .join(":");
+
+  useEffect(() => {
+    const layout =
+      workspaceLayoutsRef.current[workspaceLayoutKey] ??
+      (showFileTreePanel
+        ? showDiffSplit
+          ? { files: 15, agent: 34, diff: 51 }
+          : { files: 15, agent: 85 }
+        : showDiffSplit
+          ? { agent: 40, diff: 60 }
+          : { agent: 100 });
+
+    const expectedIds = Object.keys(layout).sort().join(":");
+    let frameId = 0;
+    let attempts = 0;
+
+    const applyLayoutWhenReady = () => {
+      const group = workspaceGroupRef.current;
+      const registeredIds = group ? Object.keys(group.getLayout()).sort().join(":") : "";
+
+      if (group && registeredIds === expectedIds) {
+        group.setLayout(layout);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts < 4) frameId = window.requestAnimationFrame(applyLayoutWhenReady);
+    };
+
+    frameId = window.requestAnimationFrame(applyLayoutWhenReady);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [showFileTreePanel, showDiffSplit, workspaceGroupRef, workspaceLayoutKey]);
 
   // ── Workspace-first orchestration ─────────────────────────────────────
   // The persisted per-project workspace selection is the canonical context,
@@ -313,19 +376,19 @@ export default function App() {
     return window.omni.worktrees.onSetupProgress((progress) => {
       if (progress.status === "installing") {
         toast({
-          icon: <GitBranch className="size-5 text-foreground" />,
+          icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
           title: "Installing dependencies",
           description: `Running ${progress.manager} install in ${progress.workspaceName}…`,
         });
       } else if (progress.status === "installed") {
         toast({
-          icon: <GitBranch className="size-5 text-foreground" />,
+          icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
           title: "Workspace ready",
           description: `${progress.workspaceName}: dependencies installed.`,
         });
       } else if (progress.status === "failed") {
         toast({
-          icon: <Bell className="size-5 text-red-500" />,
+          icon: <Bell weight="duotone" className="size-5 text-red-500" />,
           title: "Dependency install failed",
           description: `${progress.workspaceName}: ${progress.message ?? "Install did not complete."}`,
         });
@@ -344,10 +407,14 @@ export default function App() {
     if (terminals.workspaceKey === key) return;
     const view = useWorkspaceViewStore.getState();
     const wasTerminalActive = view.mode === "terminal";
-    const newActiveId = terminals.setWorkspace(key, selectedWorktreePath);
+    let newActiveId = terminals.setWorkspace(key, selectedWorktreePath);
     if (wasTerminalActive) {
-      if (newActiveId) view.showTerminal(newActiveId);
-      else view.showAgent();
+      if (!newActiveId) {
+        newActiveId = useTerminalStore.getState().createSession(selectedWorktreePath);
+      }
+      view.showTerminal(newActiveId);
+    } else {
+      view.setActiveTerminalId(newActiveId);
     }
   }, [hasHydratedSelections, activeProject, selectedWorktreePath]);
 
@@ -429,7 +496,7 @@ export default function App() {
                     className="group flex min-w-0 items-center gap-1 rounded px-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
                     aria-label="Select worktree"
                   >
-                    <GitBranch className="size-3 shrink-0 text-muted-foreground" />
+                    <GitBranch weight="duotone" className="size-3 shrink-0 text-muted-foreground" />
                     <span className="truncate group-hover:text-foreground">
                       {workspaceNameLabel}
                     </span>
@@ -470,7 +537,7 @@ export default function App() {
                             await window.omni.projects.setActive(project.id);
                           } catch (err) {
                             toast({
-                              icon: <Bell className="size-5 text-red-500" />,
+                              icon: <Bell weight="duotone" className="size-5 text-red-500" />,
                               title: "Project switch failed",
                               description:
                                 err instanceof Error
@@ -487,7 +554,7 @@ export default function App() {
                 <MenuItem
                   index={projectsList.length}
                   label="Add Project"
-                  icon={FolderPlus}
+                  icon={(props) => <FolderPlus {...props} weight="duotone" />}
                   onSelect={async () => {
                     setIsDropdownOpen(false);
                     if (window.omni?.launch?.show) {
@@ -528,7 +595,7 @@ export default function App() {
                         disabled={isSelected || isSwitchingWorktree}
                         onClick={() => void handleSwitchWorktree(worktree.path)}
                       >
-                        <GitBranch className="size-3.5 shrink-0 opacity-70" />
+                        <GitBranch weight="duotone" className="size-3.5 shrink-0 opacity-70" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[12px] font-medium">{name}</span>
                           <span className="block truncate font-mono text-[10px] opacity-70">
@@ -575,7 +642,7 @@ export default function App() {
                     className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                     onClick={() => setIsWorkspaceFormOpen(true)}
                   >
-                    <Plus className="size-3.5" />
+                    <Plus weight="duotone" className="size-3.5" />
                     New worktree
                   </button>
                 )}
@@ -622,7 +689,7 @@ export default function App() {
                               : "text-muted-foreground hover:bg-hover hover:text-foreground"
                         }`}
                       >
-                        <GitBranch className="size-3.5 shrink-0 opacity-70" />
+                        <GitBranch weight="duotone" className="size-3.5 shrink-0 opacity-70" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-mono text-[12px] font-medium">
                             {branch.name}
@@ -659,6 +726,22 @@ export default function App() {
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Theme and Flyout Controls"
         >
+          <button
+            type="button"
+            onClick={() => setIsFileTreeOpen((open) => !open)}
+            aria-label={isFileTreeOpen ? "Hide project files" : "Show project files"}
+            aria-expanded={isFileTreeOpen}
+            title={`${isFileTreeOpen ? "Hide project files" : "Show project files"} (⌘/Ctrl+B)`}
+            className={cn(
+              "inline-flex size-8 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              isFileTreeOpen
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            data-pipper-id="header-file-tree-toggle"
+          >
+            <TreeViewIcon weight="duotone" className="size-4" />
+          </button>
           {diffFileCount > 0 && (
             <button
               type="button"
@@ -673,7 +756,7 @@ export default function App() {
               )}
               data-pipper-id="header-diff-toggle"
             >
-              <GitDiffIcon className="size-4" />
+              <GitDiffIcon weight="duotone" className="size-4" />
             </button>
           )}
           <button
@@ -682,7 +765,7 @@ export default function App() {
               if (window.omni?.companion?.open) {
                 window.omni.companion.open().catch((err) => {
                   toast({
-                    icon: <Bell className="size-5 text-red-500" />,
+                    icon: <Bell weight="duotone" className="size-5 text-red-500" />,
                     title: "Could not open companion",
                     description:
                       err instanceof Error ? err.message : "Edit mode is not available right now.",
@@ -694,7 +777,7 @@ export default function App() {
             title="Open Companion"
             className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
           >
-            <SelectionBackground className="size-4" />
+            <SelectionBackground weight="duotone" className="size-4" />
           </button>
 
           <ThemeToggle />
@@ -712,20 +795,58 @@ export default function App() {
       <Toaster />
 
       {/* Workspace area.
-          - Agent thread (global): AgentView at 100% width.
-          - Agent thread + diffs (thread-specific): 40:60 AgentView | DiffView.
+          - Files (optional): 15% explorer on the left.
+          - Agent thread (global): remaining width.
+          - Diffs (optional): 60% of the non-explorer workspace.
           - Terminal (global): full-width terminal overlaid on the (still
             mounted) agent view.
-          The agent Panel is always child #1 of the Group so AgentView never
-          remounts as the layout changes. */}
+          Stable panel keys preserve AgentView while optional siblings change. */}
       <div className="relative flex-1 flex min-h-0" data-pipper-id="workspace panel">
         <Group
           orientation="horizontal"
-          defaultLayout={showDiffSplit ? { agent: 40, diff: 60 } : undefined}
+          groupRef={workspaceGroupRef}
+          defaultLayout={{ agent: 100 }}
+          onLayoutChanged={(layout) => {
+            const key = Object.keys(layout).sort().join(":");
+            workspaceLayoutsRef.current[key] = { ...layout };
+          }}
           className="flex-1 flex min-h-0"
           data-pipper-id="workspace split"
         >
-          <Panel id="agent" data-pipper-id="agent panel" className="relative z-20 overflow-visible">
+          {showFileTreePanel && (
+            <Panel
+              key="files"
+              id="files"
+              defaultSize="15%"
+              minSize="12%"
+              maxSize="25%"
+              data-pipper-id="file tree panel"
+              className="relative z-10 overflow-hidden"
+            >
+              <section className="flex h-full w-full flex-col bg-surface-1">
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <ProjectFileTree
+                    projectName={activeProject.name}
+                    reloadKey={`${activeProject.id}:${selectedWorktreePath ?? activeProject.path}`}
+                  />
+                </div>
+              </section>
+            </Panel>
+          )}
+          {showFileTreePanel && (
+            <Separator
+              key="files-separator"
+              className="group relative w-px bg-border transition-colors data-[separator-state=drag]:bg-foreground/30 data-[separator-state=hover]:bg-foreground/20"
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
+            </Separator>
+          )}
+          <Panel
+            key="agent"
+            id="agent"
+            data-pipper-id="agent panel"
+            className="relative z-20 overflow-visible"
+          >
             {/* Stable wrapper (never conditionally swapped) so AgentView is not
                 remounted when the diff split toggles. The panel is full width
                 in every state: the agent view owns the centered reading column
@@ -736,12 +857,16 @@ export default function App() {
             </div>
           </Panel>
           {showDiffSplit && (
-            <Separator className="group relative w-px bg-border data-[separator-state=hover]:bg-foreground/20 data-[separator-state=drag]:bg-foreground/30 transition-colors">
+            <Separator
+              key="diff-separator"
+              className="group relative w-px bg-border transition-colors data-[separator-state=drag]:bg-foreground/30 data-[separator-state=hover]:bg-foreground/20"
+            >
               <div className="absolute inset-y-0 -left-1 -right-1 cursor-col-resize" />
             </Separator>
           )}
           {showDiffSplit && (
             <Panel
+              key="diff"
               id="diff"
               data-pipper-id="diff panel"
               minSize="40%"
@@ -756,20 +881,24 @@ export default function App() {
           )}
         </Group>
 
-        {showTerminalView && activeTerminalId && (
-          <section
-            className="absolute inset-0 z-30 flex flex-col bg-surface-1 p-2"
-            data-pipper-id="terminal panel"
-          >
-            <div className="flex-1 overflow-hidden min-h-0">
-              <TerminalSession
-                key={activeTerminalId}
-                sessionId={activeTerminalId}
-                cwd={activeTerminalCwd}
-              />
-            </div>
-          </section>
-        )}
+        {terminalSessions.map((session) => {
+          const isActive = showTerminalView && activeTerminalId === session.id;
+          return (
+            <section
+              key={session.id}
+              className={cn(
+                "absolute inset-0 z-30 flex-col bg-surface-1 p-2",
+                isActive ? "flex" : "hidden",
+              )}
+              aria-hidden={!isActive}
+              data-pipper-id={`terminal-panel-${session.id}`}
+            >
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <TerminalSession sessionId={session.id} cwd={session.cwd} isActive={isActive} />
+              </div>
+            </section>
+          );
+        })}
       </div>
     </div>
   );

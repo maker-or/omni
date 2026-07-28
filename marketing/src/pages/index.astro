@@ -1,10 +1,11 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import ProductDemo from "../components/ProductDemo";
 ---
 
-<Layout>
+<Layout pageClass="home-page">
     <section
-        class="w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-16 md:pt-28 flex flex-col items-center flex-1 min-h-0 select-none"
+        class="w-full min-h-[calc(100svh-5rem)] max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-16 md:pt-28 flex flex-col items-center flex-1 select-none"
     >
         <div class="h-12 md:h-24 flex-shrink-0"></div>
         <div
@@ -17,4 +18,5 @@ import Layout from "../layouts/Layout.astro";
             </h1>
         </div>
     </section>
+    <ProductDemo client:load />
 </Layout>

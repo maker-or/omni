@@ -315,7 +315,9 @@ describe("agent store ACP bridge behavior", () => {
 
     const store = await loadStore();
     await store.getState().connect();
-    await store.getState().switchThread("thread-b");
+    await expect(store.getState().switchThread("thread-b")).rejects.toThrow(
+      "runtime refused switch",
+    );
 
     expect(store.getState().state?.threadId).toBe("thread-a");
     expect(store.getState().error).toBe("runtime refused switch");

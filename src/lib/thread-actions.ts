@@ -10,9 +10,12 @@ import { useWorkspaceViewStore } from "@/store/workspace-view-store";
  * `requestedThreadId` is set immediately, then cleared by the header once the
  * agent snapshot catches up (see `GlobalTabBar`).
  */
-export async function selectThread(id: string): Promise<void> {
+export async function selectThread(
+  id: string,
+  options: { activateView?: boolean } = {},
+): Promise<void> {
   const view = useWorkspaceViewStore.getState();
-  view.showAgent();
+  if (options.activateView ?? true) view.showAgent();
   if (id === useAgentStore.getState().snapshot?.threadId) {
     view.requestThread(null);
     return;

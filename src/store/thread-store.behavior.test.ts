@@ -76,7 +76,7 @@ describe("thread store pagination behavior", () => {
     expect(listProject).not.toHaveBeenCalled();
   });
 
-  test("keeps retryable pagination state after page load failure", async () => {
+  test("stops automatic pagination retries after an initial page load failure", async () => {
     const listProject = vi.fn(async () => {
       throw new Error("network down");
     });
@@ -87,7 +87,7 @@ describe("thread store pagination behavior", () => {
     expect(useThreadStore.getState().error).toBe("network down");
     expect(useThreadStore.getState().pagesByProject["project-1"]).toEqual({
       nextOffset: 0,
-      hasMore: true,
+      hasMore: false,
       isLoading: false,
     });
   });
@@ -146,7 +146,7 @@ describe("thread store pagination behavior", () => {
     expect(useThreadStore.getState().error).toBe("cannot delete");
   });
 
-  test("delete advances pagination back one slot so load more does not skip a thread", async () => {
+  test("delete does not move a server pagination cursor that local adds do not advance", async () => {
     const deleteThread = vi.fn(async () => undefined);
     (globalThis as any).window = { omni: { threads: { delete: deleteThread } } };
     useThreadStore.setState({
@@ -161,7 +161,7 @@ describe("thread store pagination behavior", () => {
 
     expect(useThreadStore.getState().threads.map((item) => item.id)).toEqual(["thread-2"]);
     expect(useThreadStore.getState().pagesByProject["project-1"]).toEqual({
-      nextOffset: 9,
+      nextOffset: 10,
       hasMore: true,
       isLoading: false,
     });
