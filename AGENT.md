@@ -1,10 +1,10 @@
 # Pipper
 
-this is a self improving software
+This is an Electron desktop client for ACP-based coding agents.
 
 ## What this repo is
 
-Pipper is a self-improving agent interface. The codebase is early-stage, so prefer changes that improve long-term structure, reliability, and maintainability.
+Pipper provides ACP chat, projects, threads, terminals, worktrees, diffs, and MCP integrations. The codebase is early-stage, so prefer changes that improve long-term structure, reliability, and maintainability.
 
 ## Task completion checklist
 
@@ -49,7 +49,7 @@ When there is a tradeoff, choose correctness and robustness over short-term conv
 - Preserve predictable behavior during reconnects, session restarts, and partial streams.
 - Prefer small, composable components.
 - Reuse existing patterns before introducing new ones.
-- During co-editing, only change files in the repository root scope; do not mirror edits into subdirectories such as `app-template` and ignore this exception if `app-template` is not present.
+- Keep application UI in the electron-vite renderer; there is no packaged guest application or mutable active workspace.
 - When reviewing or changing complex flows, proactively audit the invariants before relying on symptoms or happy paths: list the trusted state, every reader, every writer, every transition, and every crash/restart or async boundary. Check whether stale state, partial failure, retries, or out-of-band changes can break the invariant, and ensure errors only claim what the code proves.
 
 ## core architecture
@@ -71,7 +71,6 @@ Do not rewrite working code unless there is a measurable architectural benefit.
 - the example of the thread-specific view can be like a diff view (how we use 40:60 ratio 40% for the agent and other 60% for the diff or any other view that you want to add)
 - the example of the project-specific view can be like a plan view
 - the global view can be like a existing terminal view or something like a browser view
-- When you have added any new UI element then make sure you add `data-pipper-id` this is becuase based on this id , users can easily edit the UI element visually, You don't need to add this for every `<div>` block that you have created.
-  -When writing tests, focus on behavior and the end result, not test coverage or UI details. Since we're building self-improving software, the UI and implementation may change, but the functionality must remain correct. Test what the system achieves, not how it gets there.
+- When writing tests, focus on behavior and the end result, not test coverage or UI details. Test what the system achieves, not how it gets there.
 - Always spend time understanding the existing implementation before making changes.
 - Also make sure that whenever you create a new feature or update the existing feature, read that corresponding test file and make sure that does this test need any improvement because you have added a new feature and there would be cases where as you haven't updated the test, all the tests may fail and can cause a big problem.

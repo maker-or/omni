@@ -13,22 +13,15 @@ import { GlobalTabBar } from "@/components/global-tab-bar";
 import { TerminalSession } from "@/components/terminal-session";
 import { DiffView } from "@/components/diff-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
-import { CompanionView } from "@/components/companion-view";
 import { useDiffStore } from "@/store/diff-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { cn } from "@/lib/utils";
-import { PipperOverlay } from "@/components/pipper-overlay";
-import { usePipperStore } from "@/store/pipper-store";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
-import { UpdateBanner } from "@/components/update-banner";
-import { UpdateDialog } from "@/components/update-dialog";
-import { useUpdateStore } from "@/store/update-store";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
 import { ProjectFileTree } from "@/components/project-file-tree";
 import {
-  SelectionBackground,
   GitDiffIcon,
   Bell,
   FolderPlus,
@@ -41,16 +34,7 @@ import type { Worktree } from "../contracts/worktrees.ts";
 const EMPTY_WORKTREES: Worktree[] = [];
 
 export default function App() {
-  const [stage] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      return params.get("stage");
-    }
-    return null;
-  });
-
   const { activeProject, loadActiveProject, isLoading, error: projectError } = useProjectStore();
-  const { syncFromBroadcast } = usePipperStore();
 
   // ── Workspace view routing ────────────────────────────────────────────
   // The header tab strip (GlobalTabBar) flips these; we route the workspace
@@ -84,9 +68,6 @@ export default function App() {
     if (isDiffOpen) closeDiff();
     else openDiff();
   };
-  const initializeUpdates = useUpdateStore((state) => state.initialize);
-  const updateState = useUpdateStore((state) => state.state);
-  const updateRun = useUpdateStore((state) => state.run);
   const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
 
   const [projectsList, setProjectsList] = useState<any[]>([]);
@@ -139,8 +120,6 @@ export default function App() {
   }, [activeProject?.id]);
 
   useEffect(() => {
-    if (stage === "companion") return;
-
     const handleFileTreeShortcut = (event: KeyboardEvent) => {
       if (
         event.key.toLowerCase() === "b" &&
@@ -155,15 +134,7 @@ export default function App() {
 
     document.addEventListener("keydown", handleFileTreeShortcut);
     return () => document.removeEventListener("keydown", handleFileTreeShortcut);
-  }, [stage]);
-
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    void initializeUpdates().then((dispose) => {
-      cleanup = dispose;
-    });
-    return () => cleanup?.();
-  }, [initializeUpdates]);
+  }, []);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -172,20 +143,6 @@ export default function App() {
     });
     return () => cleanup?.();
   }, [initializeLauncherUpdates]);
-
-  useEffect(() => {
-    if (updateState?.phase === "awaiting-health-check" && updateRun?.target_version) {
-      void window.omni.update.markActiveHealthy(updateRun.target_version).then((success) => {
-        if (!success) {
-          toast({
-            icon: <Bell weight="duotone" className="size-5 text-red-500" />,
-            title: "Update health check not accepted",
-            description: "The updater is waiting for a matching active version.",
-          });
-        }
-      });
-    }
-  }, [updateState?.phase, updateRun?.target_version]);
 
   const handleToggleDropdown = async () => {
     if (!isDropdownOpen) {
@@ -418,15 +375,6 @@ export default function App() {
     }
   }, [hasHydratedSelections, activeProject, selectedWorktreePath]);
 
-  // Subscribe to pipper cross-window state broadcasts
-  useEffect(() => {
-    if (!window.omni?.pipper?.onStateChanged) return;
-    const unsub = window.omni.pipper.onStateChanged((payload) => {
-      syncFromBroadcast(payload);
-    });
-    return unsub;
-  }, [syncFromBroadcast]);
-
   useEffect(() => {
     void loadActiveProject();
   }, [loadActiveProject]);
@@ -443,10 +391,6 @@ export default function App() {
     return unsubscribe;
   }, [loadActiveProject]);
 
-  if (stage === "companion") {
-    return <CompanionView />;
-  }
-
   if (isLoading && !activeProject) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-surface-1 text-muted-foreground text-sm font-mono">
@@ -459,9 +403,6 @@ export default function App() {
     <div className="relative h-screen w-screen flex flex-col bg-surface-1 text-foreground">
       {/* Headless: keeps the diff store fed from the active agent thread. */}
       <DiffIngestor />
-      {/* Pipper overlay — sits above everything in the main window */}
-      <PipperOverlay />
-      <UpdateDialog />
       <LauncherUpdateDialog />
 
       {/* Title Bar / Header */}
@@ -759,33 +700,11 @@ export default function App() {
               <GitDiffIcon weight="duotone" className="size-4" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              if (window.omni?.companion?.open) {
-                window.omni.companion.open().catch((err) => {
-                  toast({
-                    icon: <Bell weight="duotone" className="size-5 text-red-500" />,
-                    title: "Could not open companion",
-                    description:
-                      err instanceof Error ? err.message : "Edit mode is not available right now.",
-                  });
-                });
-              }
-            }}
-            aria-label="Open Companion"
-            title="Open Companion"
-            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
-          >
-            <SelectionBackground weight="duotone" className="size-4" />
-          </button>
-
           <ThemeToggle />
         </div>
       </header>
 
       <LauncherUpdateBanner />
-      <UpdateBanner />
       {projectError && (
         <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-[12px] text-red-500">
           {projectError}

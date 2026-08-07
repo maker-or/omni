@@ -16,14 +16,6 @@ import type {
   SubagentRunSnapshot,
 } from "../contracts/acp.ts";
 import type {
-  InstallationMetadata,
-  UpdateManifest,
-  UpdateProgress,
-  UpdateRunRecord,
-  UpdateRunResult,
-  UpdateState,
-} from "../contracts/updates.ts";
-import type {
   LauncherDownloadProgress,
   LauncherUpdateDiagnostics,
   LauncherUpdateState,
@@ -43,64 +35,17 @@ const api = {
       ipcRenderer.invoke("launch:complete", projectId),
     show: (stage?: "list" | "add" | "onboarding"): Promise<void> =>
       ipcRenderer.invoke("launch:show", stage),
-    onWorkspaceReady: (callback: () => void) => {
-      const listener = () => callback();
-      ipcRenderer.on("launch:workspaceReady", listener);
-      return () => ipcRenderer.removeListener("launch:workspaceReady", listener);
-    },
-    onWorkspaceError: (callback: (message: string) => void) => {
-      const listener = (_event: any, payload: { message: string }) => callback(payload.message);
-      ipcRenderer.on("launch:workspaceError", listener);
-      return () => ipcRenderer.removeListener("launch:workspaceError", listener);
-    },
     onAuthComplete: (callback: (user: { name: string | null; email: string | null }) => void) => {
       const listener = (_event: any, user: { name: string | null; email: string | null }) =>
         callback(user);
       ipcRenderer.on("launch:authComplete", listener);
       return () => ipcRenderer.removeListener("launch:authComplete", listener);
     },
-    isReady: (): Promise<boolean> => ipcRenderer.invoke("launch:isWorkspaceReady"),
     getUser: (): Promise<{ name: string | null; email: string | null } | null> =>
       ipcRenderer.invoke("launch:getUser"),
   },
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
-  },
-  update: {
-    check: (): Promise<UpdateState> => ipcRenderer.invoke("update:check"),
-    getState: (): Promise<UpdateState> => ipcRenderer.invoke("update:getState"),
-    getManifest: (): Promise<UpdateManifest | null> => ipcRenderer.invoke("update:getManifest"),
-    getInstallation: (): Promise<InstallationMetadata> =>
-      ipcRenderer.invoke("update:getInstallation"),
-    getRun: (runId: string): Promise<UpdateRunRecord | null> =>
-      ipcRenderer.invoke("update:getRun", runId),
-    getUpdaterSnapshot: (): Promise<AcpSessionState> =>
-      ipcRenderer.invoke("update:getUpdaterSnapshot"),
-    scheduleForQuit: (): Promise<UpdateState> => ipcRenderer.invoke("update:scheduleForQuit"),
-    startNow: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:startNow"),
-    retryFailedUpdate: (): Promise<UpdateState> => ipcRenderer.invoke("update:retryFailedUpdate"),
-    dismiss: (): Promise<UpdateState> => ipcRenderer.invoke("update:dismiss"),
-    cancel: (): Promise<UpdateRunResult> => ipcRenderer.invoke("update:cancel"),
-    quitWithoutUpdating: (): Promise<void> => ipcRenderer.invoke("update:quitWithoutUpdating"),
-    markActiveHealthy: (version: string): Promise<boolean> =>
-      ipcRenderer.invoke("update:markActiveHealthy", version),
-    onStateChanged: (callback: (state: UpdateState) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: UpdateState) => callback(state);
-      ipcRenderer.on("update:stateChanged", listener);
-      return () => ipcRenderer.removeListener("update:stateChanged", listener);
-    },
-    onProgress: (callback: (progress: UpdateProgress) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, progress: UpdateProgress) =>
-        callback(progress);
-      ipcRenderer.on("update:progress", listener);
-      return () => ipcRenderer.removeListener("update:progress", listener);
-    },
-    onUpdaterEvent: (callback: (payload: AcpBridgeEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: AcpBridgeEvent) =>
-        callback(payload);
-      ipcRenderer.on("updater:event", listener);
-      return () => ipcRenderer.removeListener("updater:event", listener);
-    },
   },
   launcherUpdate: {
     check: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:check"),
@@ -348,72 +293,9 @@ const api = {
       };
     },
   },
-  companion: {
-    open: (): Promise<void> => ipcRenderer.invoke("companion:open"),
-    minimize: (): void => ipcRenderer.send("companion:minimize"),
-    close: (): void => ipcRenderer.send("companion:close"),
-  },
-  editor: {
-    activate: (): Promise<void> => ipcRenderer.invoke("editor:activate"),
-    getState: (): Promise<AcpSessionState> => ipcRenderer.invoke("editor:getState"),
-    sendPrompt: (input: {
-      message: string;
-      images?: Array<{ data: string; mimeType: string }>;
-    }): Promise<void> => ipcRenderer.invoke("editor:sendPrompt", input),
-    abort: (): Promise<void> => ipcRenderer.invoke("editor:abort"),
-    setModel: (model: { provider?: string; modelId: string }): Promise<boolean> =>
-      ipcRenderer.invoke("editor:setModel", model),
-    dispose: (): Promise<void> => ipcRenderer.invoke("editor:dispose"),
-    onEvent: (callback: (payload: AcpBridgeEvent) => void) => {
-      const listener = (_event: any, payload: AcpBridgeEvent) => callback(payload);
-      ipcRenderer.on("editor:event", listener);
-      return () => ipcRenderer.removeListener("editor:event", listener);
-    },
-  },
   analytics: {
-    componentMutationRequested: (input: {
-      componentId?: string | null;
-      source?: "overlay" | "companion";
-    }): Promise<void> => ipcRenderer.invoke("analytics:componentMutationRequested", input),
     captureException: (input: { name: string; message: string; stack?: string }): Promise<void> =>
       ipcRenderer.invoke("analytics:captureException", input),
-  },
-  pipper: {
-    enterEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:enterEditMode"),
-    exitEditMode: (): Promise<void> => ipcRenderer.invoke("pipper:exitEditMode"),
-    setProcessing: (processingId: string | null): Promise<void> =>
-      ipcRenderer.invoke("pipper:setProcessing", processingId),
-    setOverlayVisible: (visible: boolean): Promise<void> =>
-      ipcRenderer.invoke("pipper:setOverlayVisible", visible),
-    addComment: (pipperId: string, text: string): Promise<void> =>
-      ipcRenderer.invoke("pipper:addComment", pipperId, text),
-    acceptChanges: (intent?: string): Promise<{ committed: boolean; filesChanged: string[] }> =>
-      ipcRenderer.invoke("pipper:acceptChanges", intent),
-    rejectChanges: (): Promise<void> => ipcRenderer.invoke("pipper:rejectChanges"),
-    onStateChanged: (
-      callback: (payload: {
-        processingId?: string | null;
-        editMode?: boolean;
-        overlayVisible?: boolean;
-      }) => void,
-    ) => {
-      const listener = (
-        _event: any,
-        payload: {
-          processingId?: string | null;
-          editMode?: boolean;
-          overlayVisible?: boolean;
-        },
-      ) => callback(payload);
-      ipcRenderer.on("pipper:stateChanged", listener);
-      return () => ipcRenderer.removeListener("pipper:stateChanged", listener);
-    },
-    onCommentAdded: (callback: (pipperId: string, text: string) => void) => {
-      const listener = (_event: any, payload: { pipperId: string; text: string }) =>
-        callback(payload.pipperId, payload.text);
-      ipcRenderer.on("pipper:commentAdded", listener);
-      return () => ipcRenderer.removeListener("pipper:commentAdded", listener);
-    },
   },
   theme: {
     getCurrent: (): Promise<string> => ipcRenderer.invoke("theme:getCurrent"),

@@ -5,45 +5,72 @@ import { clerkClient } from "@clerk/astro/server";
 const { isAuthenticated, userId, redirectToSignIn } = Astro.locals.auth();
 
 if (!isAuthenticated) {
-  return redirectToSignIn();
+    return redirectToSignIn();
 }
 
 const user = await clerkClient(Astro).users.getUser(userId);
 const callbackUrl = Astro.url.searchParams.get("return_to") ?? "";
 const payload = user
-  ? {
-      providerUserId: user.id,
-      email: user.emailAddresses?.[0]?.emailAddress ?? null,
-      name: user.fullName ?? user.firstName ?? user.username ?? null,
-      avatarUrl: user.imageUrl ?? null,
-    }
-  : null;
+    ? {
+          providerUserId: user.id,
+          email: user.emailAddresses?.[0]?.emailAddress ?? null,
+          name: user.fullName ?? user.firstName ?? user.username ?? null,
+          avatarUrl: user.imageUrl ?? null,
+      }
+    : null;
 ---
 
-<Layout title="Completing sign in">
-  <main class="relative z-10 min-h-screen grid place-items-center p-8">
-    <section>
-      {
-        payload ? (
-          <p class="text-[#D1E1FF] m-0">Authentication successful. Return to Pipper Code (Alpha)</p>
-        ) : (
-          <p class="text-[#D1E1FF] m-0">Unable to read the Clerk session.</p>
-        )
-      }
-    </section>
-  </main>
+<Layout title="Completing sign in" pageClass="auth-complete-page">
+    <div class="complete-shell">
+        <main class="complete-main">
+            <section class="complete-card" aria-live="polite">
+                <span class="selection-handle selection-handle--tl" aria-hidden="true"></span>
+                <span class="selection-handle selection-handle--tr" aria-hidden="true"></span>
+                <span class="selection-handle selection-handle--bl" aria-hidden="true"></span>
+                <span class="selection-handle selection-handle--br" aria-hidden="true"></span>
+                <p class="complete-kicker">pipper / one moment</p>
+                {
+                    payload ? (
+                        <>
+                            <h1>You're in<span>.</span></h1>
+                            <p>Authentication successful. Returning you to Pipper Code.</p>
+                        </>
+                    ) : (
+                        <>
+                            <h1>Almost there<span>?</span></h1>
+                            <p>We were unable to read the Clerk session.</p>
+                        </>
+                    )
+                }
+            </section>
+        </main>
+    </div>
 
-  {
-    payload && callbackUrl ? (
-      <script is:inline define:vars={{ callbackUrl, payload }}>
-        const params = new URLSearchParams({
-          userId: payload.providerUserId,
-          email: payload.email ?? "",
-          name: payload.name ?? "",
-          avatarUrl: payload.avatarUrl ?? "",
-        });
-        window.location.replace(`${callbackUrl}?${params.toString()}`);
-      </script>
-    ) : null
-  }
+    {
+        payload && callbackUrl ? (
+            <script is:inline define:vars={{ callbackUrl, payload }}>
+                const params = new URLSearchParams({
+                    userId: payload.providerUserId,
+                    email: payload.email ?? "",
+                    name: payload.name ?? "",
+                    avatarUrl: payload.avatarUrl ?? "",
+                });
+                window.location.replace(`${callbackUrl}?${params.toString()}`);
+            </script>
+        ) : null
+    }
 </Layout>
+
+<style>
+    :global(.auth-complete-page) { background: #f0efed !important; color: #111 !important; }
+    .complete-shell { box-sizing: border-box; width: min(calc(100% - clamp(2rem, 5.6vw, 4.8rem)), 120rem); min-height: calc(100svh - clamp(2rem, 5.6vw, 4.8rem)); margin: 0 auto clamp(1rem, 2.8vw, 2.4rem); border: 1.5px solid #111; background: #f0efed; }
+    .complete-main { display: grid; min-height: calc(100svh - clamp(2rem, 5.6vw, 4.8rem)); place-items: center; padding: 2rem; }
+    .complete-card { position: relative; width: min(100%, 36rem); padding: clamp(2.2rem, 5vw, 4.5rem); border: 2px solid #2162ff; background: #d8e5ff; }
+    .selection-handle { position: absolute; width: 1rem; height: 1rem; background: #2162ff; }
+    .selection-handle--tl { top: -0.56rem; left: -0.56rem; } .selection-handle--tr { top: -0.56rem; right: -0.56rem; } .selection-handle--bl { bottom: -0.56rem; left: -0.56rem; } .selection-handle--br { right: -0.56rem; bottom: -0.56rem; }
+    .complete-kicker { margin: 0 0 2.8rem; color: #2162ff; font: 650 0.78rem/1 "Figtree Variable", sans-serif; letter-spacing: 0.08em; text-transform: uppercase; }
+    .complete-card h1 { margin: 0; font: 420 clamp(3.5rem, 8vw, 7rem)/0.86 "Figtree Variable", sans-serif; letter-spacing: -0.09em; }
+    .complete-card h1 span { color: #2162ff; }
+    .complete-card p:last-child { margin: 2rem 0 0; color: rgb(17 17 17 / 0.62); font: 1.05rem/1.45 "Figtree Variable", sans-serif; }
+    @media (max-width: 38rem) { .complete-shell { width: calc(100% - 1.5rem); min-height: calc(100svh - 1.5rem); margin-bottom: 0.75rem; } .complete-main { min-height: calc(100svh - 1.5rem); padding: 1.25rem; } .complete-card { padding: 2rem 1.25rem 2.25rem; } }
+</style>

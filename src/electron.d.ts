@@ -17,14 +17,6 @@ import type {
   SubagentRunSnapshot,
 } from "../../contracts/acp.ts";
 import type {
-  InstallationMetadata,
-  UpdateManifest,
-  UpdateProgress,
-  UpdateRunRecord,
-  UpdateRunResult,
-  UpdateState,
-} from "../../contracts/updates.ts";
-import type {
   LauncherDownloadProgress,
   LauncherUpdateDiagnostics,
   LauncherUpdateState,
@@ -42,34 +34,13 @@ declare global {
       launch: {
         complete: (projectId: string) => Promise<void>;
         show: (stage?: "list" | "add" | "onboarding") => Promise<void>;
-        onWorkspaceReady: (callback: () => void) => () => void;
-        onWorkspaceError: (callback: (message: string) => void) => () => void;
         onAuthComplete: (
           callback: (user: { name: string | null; email: string | null }) => void,
         ) => () => void;
-        isReady: () => Promise<boolean>;
         getUser: () => Promise<{ name: string | null; email: string | null } | null>;
       };
       shell: {
         openExternal: (url: string) => Promise<void>;
-      };
-      update: {
-        check: () => Promise<UpdateState>;
-        getState: () => Promise<UpdateState>;
-        getManifest: () => Promise<UpdateManifest | null>;
-        getInstallation: () => Promise<InstallationMetadata>;
-        getRun: (runId: string) => Promise<UpdateRunRecord | null>;
-        getUpdaterSnapshot: () => Promise<AcpSessionState>;
-        scheduleForQuit: () => Promise<UpdateState>;
-        startNow: () => Promise<UpdateRunResult>;
-        retryFailedUpdate: () => Promise<UpdateState>;
-        dismiss: () => Promise<UpdateState>;
-        cancel: () => Promise<UpdateRunResult>;
-        quitWithoutUpdating: () => Promise<void>;
-        markActiveHealthy: (version: string) => Promise<boolean>;
-        onStateChanged: (callback: (state: UpdateState) => void) => () => void;
-        onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
-        onUpdaterEvent: (callback: (payload: AcpBridgeEvent) => void) => () => void;
       };
       launcherUpdate: {
         check: () => Promise<LauncherUpdateState>;
@@ -222,50 +193,12 @@ declare global {
           callback: (payload: { sessionId: string; exitCode: number; signal?: number }) => void,
         ) => () => void;
       };
-      companion: {
-        open: () => Promise<void>;
-        minimize: () => void;
-        close: () => void;
-      };
-      editor: {
-        activate: () => Promise<void>;
-        getState: () => Promise<AcpSessionState>;
-        sendPrompt: (input: {
-          message: string;
-          images?: Array<{ data: string; mimeType: string }>;
-        }) => Promise<void>;
-        abort: () => Promise<void>;
-        setModel: (model: { provider?: string; modelId: string }) => Promise<boolean>;
-        dispose: () => Promise<void>;
-        onEvent: (callback: (payload: AcpBridgeEvent) => void) => () => void;
-      };
       analytics: {
-        componentMutationRequested: (input: {
-          componentId?: string | null;
-          source?: "overlay" | "companion";
-        }) => Promise<void>;
         captureException: (input: {
           name: string;
           message: string;
           stack?: string;
         }) => Promise<void>;
-      };
-      pipper: {
-        enterEditMode: () => Promise<void>;
-        exitEditMode: () => Promise<void>;
-        setProcessing: (processingId: string | null) => Promise<void>;
-        setOverlayVisible: (visible: boolean) => Promise<void>;
-        addComment: (pipperId: string, text: string) => Promise<void>;
-        acceptChanges: (intent?: string) => Promise<{ committed: boolean; filesChanged: string[] }>;
-        rejectChanges: () => Promise<void>;
-        onStateChanged: (
-          callback: (payload: {
-            processingId?: string | null;
-            editMode?: boolean;
-            overlayVisible?: boolean;
-          }) => void,
-        ) => () => void;
-        onCommentAdded: (callback: (pipperId: string, text: string) => void) => () => void;
       };
       theme: {
         getCurrent: () => Promise<string>;

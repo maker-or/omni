@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
 import { spawn, execFile } from "node:child_process";
@@ -15,13 +15,6 @@ import {
   updateWorkspaceSelection,
 } from "./launch-state";
 import { pickWorkspaceThread } from "../contracts/workspace-scope.ts";
-import { readCompanionState, writeCompanionState } from "./companion-state";
-import {
-  capturePipperEditBaseline,
-  listPipperEditChangedFiles,
-  revertPipperEditChanges,
-  type PipperEditBaseline,
-} from "./pipper-edit-session";
 import { createProject, getProject, listProjects } from "./projects";
 import {
   createWorktree,
@@ -59,25 +52,13 @@ import {
   recordThreadSwitch,
   setActiveThreadTab,
 } from "./open-tabs";
-import {
-  checkAllDependencies,
-  checkGit,
-  installGit,
-  installMise,
-  installNodeAndBunWithMise,
-  getMisePath,
-  getMiseExecArgs,
-  getMiseExecEnv,
-  prependStandardPaths,
-  type DependencyStatus,
-} from "./dependency-installer";
+import { checkGit, installGit, prependStandardPaths } from "./dependency-installer";
 import {
   captureAnalytics,
   captureAnalyticsException,
   flushAnalytics,
   identifyAnalyticsUser,
   setActiveAgentContext,
-  setAnalyticsPersonProperties,
   shutdownAnalytics,
 } from "./analytics";
 import {
@@ -87,26 +68,12 @@ import {
   shutdownTelemetry,
 } from "./telemetry";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
-import { categorizeIntent, sanitizeErrorType, sanitizeIdentifier } from "./analytics-sanitize";
+import { sanitizeErrorType } from "./analytics-sanitize";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
 
-import {
-  initializeWorkspaces,
-  backupActiveWorkspace,
-  restoreFromBackup,
-  getActivePath,
-  getBackupPath,
-  startDevFileWatcher,
-  stopDevFileWatcher,
-  getActiveDependenciesPath,
-  getInstallationMetadataPath,
-  getPipperLibraryPath,
-  getPipperLibraryDisplayPath,
-  usesLocalDevelopmentWorkspace,
-} from "./workspace-manager";
-import { UpdateManager } from "./update-manager";
+import { getPipperLibraryPath } from "./paths";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 import { launchLauncherInstaller } from "./launcher-update-install.ts";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
@@ -116,8 +83,6 @@ import {
 } from "../contracts/launcher-release-urls.ts";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_AGENT_UPDATE_MANIFEST_URL = "https://pipper.dev/api/agent-update.json";
-const DEFAULT_UPSTREAM_REPOSITORY_URL = "https://github.com/maker-or/omni";
 
 interface RendererPtySession {
   process: pty.IPty;
@@ -295,26 +260,10 @@ function normalizeTheme(theme: string): "light" | "dark" | "system" {
   return theme === "light" || theme === "dark" || theme === "system" ? theme : "system";
 }
 
-async function ensurePipperEditBaseline(): Promise<void> {
-  if (pipperEditBaseline) return;
-  pipperEditBaseline = await capturePipperEditBaseline(getActivePath());
-}
-
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
-let companionWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
-let updateManager: UpdateManager | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
-let pipperEditBaseline: PipperEditBaseline | null = null;
-/** When the current visual-edit session began, for edit funnel timing. Null when not editing. */
-let pipperEditEnteredAt: number | null = null;
-/** Companion turns issued since entering the current edit session (iteration count). */
-let pipperEditIterations = 0;
-let allowCompanionClose = false;
-let updateSubsystemReady = false;
-let quitAuthorized = false;
-let updateQuitInProgress = false;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -324,11 +273,6 @@ function requireAgentManager(): AgentManager {
     throw new Error("Agent manager is not initialized.");
   }
   return agentManager;
-}
-
-function requireUpdateManager(): UpdateManager {
-  if (!updateManager) throw new Error("Update manager is not initialized.");
-  return updateManager;
 }
 
 function requireLauncherUpdateManager(): LauncherUpdateManager {
@@ -412,12 +356,9 @@ async function installWorktreeDependencies(
   report({ status: "installing", manager: install.manager });
   try {
     await new Promise<void>((resolvePromise, rejectPromise) => {
-      // getMiseExecEnv strips bun's fake-node shim so postinstall scripts that
-      // invoke `node` get the real runtime. Windows package managers are .cmd
-      // shims, hence shell there; the command/args are app-authored constants.
       const child = spawn(install.command, install.args, {
         cwd: worktreePath,
-        env: getMiseExecEnv(),
+        env: process.env,
         shell: process.platform === "win32",
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -503,89 +444,6 @@ function sendToMainWindow(channel: string, payload: unknown): void {
   }
 }
 
-function sendToCompanionWindow(channel: string, payload: unknown): void {
-  if (companionWindow && !companionWindow.isDestroyed()) {
-    companionWindow.webContents.send(channel, payload);
-  }
-}
-
-function endCompanionSession(): void {
-  broadcastToWindows("pipper:stateChanged", { editMode: false, processingId: null });
-  pipperEditBaseline = null;
-  try {
-    void requireAgentManager()
-      .disposeEditor()
-      .catch((err) => {
-        console.error("[Main] Failed to dispose editor session:", err);
-      });
-  } catch (err) {
-    console.error("[Main] Failed to find editor session manager:", err);
-  }
-}
-
-async function hasPipperEditChanges(): Promise<boolean> {
-  if (!pipperEditBaseline) return false;
-  return (await listPipperEditChangedFiles(getActivePath(), pipperEditBaseline)).length > 0;
-}
-
-async function rejectPipperEditChanges(): Promise<void> {
-  if (pipperEditBaseline) {
-    // Selective revert: only the files this edit session changed. Never a
-    // global `reset --hard` — pre-existing dirty files the agent did not
-    // touch must survive a reject.
-    const result = await revertPipperEditChanges(getActivePath(), pipperEditBaseline);
-    if (result.kept.length > 0) {
-      console.warn(
-        "[Reject] Kept files that were dirty before the edit session and were also modified by it:",
-        result.kept,
-      );
-    }
-  } else {
-    // No baseline (unknown provenance, e.g. after a crash) — fall back to the
-    // last known-good backup.
-    await restoreFromBackup();
-  }
-  pipperEditBaseline = null;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.reload();
-  }
-}
-
-let companionCloseInFlight = false;
-
-async function requestCompanionClose(): Promise<void> {
-  if (companionCloseInFlight) return;
-  companionCloseInFlight = true;
-  try {
-    const win = companionWindow;
-    if (!win || win.isDestroyed()) return;
-
-    if (!allowCompanionClose && (await hasPipperEditChanges().catch(() => true))) {
-      const result = await dialog.showMessageBox(win, {
-        type: "warning",
-        buttons: ["Keep Editing", "Reject Changes", "Close Without Reverting"],
-        defaultId: 0,
-        cancelId: 0,
-        title: "Unaccepted edit changes",
-        message: "The edit session has workspace changes that have not been accepted or rejected.",
-        detail:
-          "Reject changes to restore the last backup, or close without reverting to leave the files dirty.",
-      });
-
-      if (result.response === 0) return;
-      if (result.response === 1) {
-        await rejectPipperEditChanges();
-      }
-    }
-
-    allowCompanionClose = true;
-    endCompanionSession();
-    win.close();
-  } finally {
-    companionCloseInFlight = false;
-  }
-}
-
 function setMainWindowTitle(title: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setTitle(title);
@@ -651,7 +509,6 @@ async function handleAuthCallback(url: string): Promise<void> {
     name: record.name,
     avatarUrl: record.avatar_url,
   });
-  stampHealthPersonProperties();
 
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send("launch:authComplete", record);
@@ -755,128 +612,6 @@ function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): 
   return win.loadURL(fileUrl);
 }
 
-let viteProcess: import("node:child_process").ChildProcess | null = null;
-let viteServerUrl: string | null = null;
-let viteStartPromise: Promise<string> | null = null;
-
-function extractViteUrl(output: string): string | null {
-  const match = output.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+/i);
-  return match?.[0] ?? null;
-}
-
-async function startViteServer(): Promise<string> {
-  if (viteServerUrl) {
-    return viteServerUrl;
-  }
-  if (viteStartPromise) return viteStartPromise;
-
-  const activePath = getActivePath();
-  const cmd = getMisePath();
-  const args = getMiseExecArgs(["bun", "run", "vite", "--host", "127.0.0.1"]);
-  console.log(`[Main] Spawning Vite Dev Server in ${activePath} using Mise`);
-
-  const startPromise = new Promise<string>((resolve, reject) => {
-    // Let Vite choose its normal port and auto-increment if needed. This keeps
-    // the packaged app and the development app from fighting over a fixed port.
-    const child = spawn(cmd, args, {
-      cwd: activePath,
-      env: { ...process.env, NODE_ENV: "development" },
-    });
-    viteProcess = child;
-
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        try {
-          child.kill("SIGKILL");
-        } catch (err) {
-          console.error("[Main] Failed to kill timed-out Vite process:", err);
-        }
-        settleReject(new Error("Timed out waiting for Vite dev server URL."));
-      }
-    }, 15000);
-
-    const settleResolve = (url: string) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      viteServerUrl = url;
-      console.log(`[Main] Vite server ready at ${url}`);
-      resolve(url);
-    };
-
-    const settleReject = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      if (viteProcess === child) {
-        viteProcess = null;
-        viteServerUrl = null;
-      }
-      reject(error);
-    };
-
-    const maybeResolveFromOutput = (output: string) => {
-      const url = extractViteUrl(output);
-      if (!url) return;
-      settleResolve(url);
-    };
-
-    child.stdout?.on("data", (data) => {
-      const output = data.toString();
-      console.log(`[Vite compiler stdout] ${output}`);
-      maybeResolveFromOutput(output);
-    });
-
-    child.stderr?.on("data", (data) => {
-      const output = data.toString();
-      console.error(`[Vite compiler stderr] ${output}`);
-      maybeResolveFromOutput(output);
-    });
-
-    child.on("error", (error) => {
-      console.error("[Vite compiler] failed to start:", error);
-      settleReject(error);
-    });
-
-    child.on("close", (code) => {
-      console.log(`[Vite compiler] exited with code ${code}`);
-      if (viteProcess === child) {
-        viteProcess = null;
-        viteServerUrl = null;
-      }
-      if (!settled) {
-        settleReject(
-          new Error(`Vite dev server exited before becoming ready (code ${code ?? "unknown"}).`),
-        );
-      }
-    });
-  }).finally(() => {
-    viteStartPromise = null;
-  });
-  viteStartPromise = startPromise;
-
-  return startPromise;
-}
-
-async function restartViteServer(): Promise<void> {
-  console.log("[Main] Restarting Vite Dev Server to reflect changes...");
-  if (viteProcess) {
-    try {
-      viteProcess.kill("SIGKILL");
-    } catch (err) {
-      console.error("[Main] Error killing Vite process:", err);
-    }
-    viteProcess = null;
-    viteServerUrl = null;
-    viteStartPromise = null;
-    // Brief sleep to allow OS to release the port
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-  const url = await startViteServer();
-  console.log(`[Main] Vite Dev Server restarted at: ${url}`);
-}
-
 async function createMainWindow(): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
@@ -924,14 +659,7 @@ async function createMainWindow(): Promise<void> {
     return { action: "deny" };
   });
 
-  try {
-    const url = await startViteServer();
-    console.log(`[Main] Loading guest UI URL: ${url}`);
-    await mainWindow.loadURL(url);
-  } catch (err) {
-    console.error("[Main] Failed to start local compiler or load url:", err);
-    void loadInto(mainWindow, "main");
-  }
+  void loadInto(mainWindow, "main");
 }
 
 function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void {
@@ -980,192 +708,13 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
   void loadInto(launchWindow, "launch", stage);
 }
 
-async function createCompanionWindow(): Promise<void> {
-  console.log("[Main] createCompanionWindow");
-  if (companionWindow && !companionWindow.isDestroyed()) {
-    console.log("[Main] companionWindow already exists, showing it");
-    companionWindow.show();
-    companionWindow.focus();
-    return;
-  }
-
-  const savedBounds = await readCompanionState();
-
-  console.log("[Main] Creating new companionWindow");
-  companionWindow = new BrowserWindow({
-    width: savedBounds?.width ?? 400,
-    height: savedBounds?.height ?? 640,
-    minWidth: 320,
-    minHeight: 480,
-    x: savedBounds?.x,
-    y: savedBounds?.y,
-    parent: mainWindow ?? undefined,
-    title: "Companion",
-    show: false,
-    icon: getIconPath(),
-    backgroundColor: "#171717",
-    titleBarStyle: "hidden",
-    webPreferences: {
-      preload: join(mainDir, "../preload/index.js"),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  companionWindow.on("ready-to-show", () => {
-    console.log("[Main] companionWindow ready-to-show");
-    companionWindow?.show();
-  });
-
-  companionWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[Companion Renderer Console] [Level ${level}] ${message} (${sourceId}:${line})`);
-  });
-
-  const saveBounds = () => {
-    if (companionWindow && !companionWindow.isDestroyed()) {
-      void writeCompanionState(companionWindow.getBounds());
-    }
-  };
-
-  companionWindow.on("resize", saveBounds);
-  companionWindow.on("move", saveBounds);
-
-  companionWindow.on("close", (event) => {
-    if (allowCompanionClose) return;
-    event.preventDefault();
-    void requestCompanionClose().catch((err) => {
-      console.error("[Main] Failed to close companion safely:", err);
-    });
-  });
-
-  companionWindow.on("closed", () => {
-    console.log("[Main] companionWindow closed");
-    companionWindow = null;
-    allowCompanionClose = false;
-  });
-
-  void loadInto(companionWindow, "main", "companion");
-}
-
 function broadcastToWindows(channel: string, ...args: any[]) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
   }
-  if (companionWindow && !companionWindow.isDestroyed()) {
-    companionWindow.webContents.send(channel, ...args);
-  }
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send(channel, ...args);
   }
-}
-
-function areDependenciesReady(deps: DependencyStatus): boolean {
-  return deps.gitInstalled && deps.miseInstalled && deps.nodeMatch && deps.bunMatch;
-}
-
-function areWorkspacesInitialized(): boolean {
-  if (usesLocalDevelopmentWorkspace()) {
-    return (
-      fs.existsSync(join(getActivePath(), "package.json")) &&
-      fs.existsSync(join(getActivePath(), "node_modules"))
-    );
-  }
-
-  return (
-    fs.existsSync(getActivePath()) &&
-    fs.existsSync(getBackupPath()) &&
-    fs.existsSync(join(getActiveDependenciesPath(), "node_modules"))
-  );
-}
-
-async function ensureDependencyRuntime(): Promise<DependencyStatus> {
-  let deps = await checkAllDependencies();
-  if (!deps.gitInstalled) {
-    console.log("[Main] Installing missing Git...");
-    await installGit();
-    deps = await checkAllDependencies();
-  }
-
-  if (!deps.miseInstalled || !deps.nodeMatch || !deps.bunMatch) {
-    console.log("[Main] Installing missing or mismatched launcher runtime dependencies...");
-    await installMise();
-    await installNodeAndBunWithMise();
-    deps = await checkAllDependencies();
-  }
-
-  if (!areDependenciesReady(deps)) {
-    throw new Error("Dependency setup did not produce the required Mise, Node, and Bun runtime.");
-  }
-
-  return deps;
-}
-
-async function isWorkspaceReady(): Promise<boolean> {
-  const deps = await checkAllDependencies();
-  return areDependenciesReady(deps) && areWorkspacesInitialized();
-}
-
-async function ensureWorkspaceReady(): Promise<void> {
-  await ensureDependencyRuntime();
-  await initializeWorkspaces(app.getAppPath(), isDev);
-  if (!areWorkspacesInitialized()) {
-    throw new Error("Workspace setup finished, but required workspace files are still missing.");
-  }
-}
-
-async function runWorkspaceSetupForLauncher(): Promise<void> {
-  try {
-    await ensureWorkspaceReady();
-    broadcastToWindows("launch:workspaceReady", {});
-    await initializeUpdateSubsystem();
-  } catch (error) {
-    console.error("[Main] Background workspace initialization failed:", error);
-    broadcastToWindows("launch:workspaceError", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-async function prepareProcessesForUpdate(): Promise<void> {
-  await agentManager?.quiesceForUpdate();
-  companionWindow?.close();
-  killAllPtyProcesses("Update");
-  stopDevFileWatcher();
-}
-
-function isUpdateBusy(): boolean {
-  return (
-    updateManager != null &&
-    [
-      "preparing",
-      "fetching-upstream",
-      "agent-running",
-      "installing-dependencies",
-      "validating",
-      "ready-to-promote",
-      "promoting",
-      "awaiting-health-check",
-      "rolling-back",
-    ].includes(updateManager.getState().phase)
-  );
-}
-
-async function restartAfterPromotion(): Promise<void> {
-  await restartViteServer();
-  if (isDev) startDevFileWatcher();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    await mainWindow.loadURL(viteServerUrl ?? (await startViteServer()));
-  }
-  if (launchWindow && !launchWindow.isDestroyed()) launchWindow.webContents.reload();
-}
-
-async function initializeUpdateSubsystem(): Promise<void> {
-  if (updateSubsystemReady || !updateManager) return;
-  await updateManager.recover();
-  updateManager.startPeriodicChecks();
-  updateSubsystemReady = true;
-  void updateManager.check();
 }
 
 function buildAppMenu(): void {
@@ -1222,7 +771,7 @@ function buildAppMenu(): void {
         {
           label: "Check for Updates…",
           click: () => {
-            void Promise.allSettled([launcherUpdateManager?.check(), updateManager?.check()]);
+            void launcherUpdateManager?.check();
           },
         },
         {
@@ -1283,38 +832,15 @@ function registerIpc(): void {
   );
   ipcMain.handle("launcher-update:installAndQuit", async () => {
     const manager = requireLauncherUpdateManager();
-    if (isUpdateBusy())
-      return { success: false, error: "Wait for the personalized update to finish." };
     try {
       const path = await manager.verifyDownloadedInstaller();
       await launchLauncherInstaller(path);
-      quitAuthorized = true;
       app.quit();
       return { success: true };
     } catch (error) {
       const state = manager.recordFailure(error);
       return { success: false, error: state.error ?? "Unable to open the installer." };
     }
-  });
-
-  ipcMain.handle("update:check", () => requireUpdateManager().check());
-  ipcMain.handle("update:getState", () => requireUpdateManager().getState());
-  ipcMain.handle("update:getManifest", () => requireUpdateManager().getManifest());
-  ipcMain.handle("update:getInstallation", () => requireUpdateManager().getInstallation());
-  ipcMain.handle("update:getRun", (_event, runId: string) => requireUpdateManager().getRun(runId));
-  ipcMain.handle("update:getUpdaterSnapshot", () => requireUpdateManager().getUpdaterSnapshot());
-  ipcMain.handle("update:scheduleForQuit", () => requireUpdateManager().scheduleForQuit());
-  ipcMain.handle("update:startNow", () => requireUpdateManager().startNow());
-  ipcMain.handle("update:retryFailedUpdate", () => requireUpdateManager().retryFailedUpdate());
-  ipcMain.handle("update:dismiss", () => requireUpdateManager().dismiss());
-  ipcMain.handle("update:cancel", () => requireUpdateManager().cancel());
-  ipcMain.handle("update:markActiveHealthy", (_event, version: string) =>
-    requireUpdateManager().markActiveHealthy(version),
-  );
-  ipcMain.handle("update:quitWithoutUpdating", async () => {
-    await requireUpdateManager().cancel();
-    quitAuthorized = true;
-    app.quit();
   });
 
   ipcMain.handle("projects:list", () => listProjects());
@@ -1467,10 +993,6 @@ function registerIpc(): void {
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
     }
-    if (isUpdateBusy()) throw new Error("Project launch is disabled during an update.");
-
-    await ensureWorkspaceReady();
-
     setActiveProjectId(projectId);
     await markLaunchComplete(projectId);
     await requireAgentManager().activateProject(projectId);
@@ -1494,22 +1016,16 @@ function registerIpc(): void {
     createLaunchWindow(stage);
   });
 
-  ipcMain.handle("launch:isWorkspaceReady", async () => {
-    return isWorkspaceReady();
-  });
-
   ipcMain.handle("launch:getUser", () => {
     return getAuthenticatedUserForLaunch();
   });
 
   ipcMain.handle("projects:setActive", async (_event, projectId: string) => {
     requireAuthenticatedUserForLaunch();
-    if (isUpdateBusy()) throw new Error("Project switching is disabled during an update.");
     const project = getProject(projectId);
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
     }
-    await ensureWorkspaceReady();
     const previousProjectId = getActiveProjectId();
     setActiveProjectId(projectId);
     try {
@@ -1520,25 +1036,6 @@ function registerIpc(): void {
       throw err;
     }
     broadcastToWindows("projects:activeChanged", projectId);
-  });
-
-  ipcMain.handle("companion:open", () => {
-    createCompanionWindow();
-    const projectId = getActiveProjectId();
-    if (projectId) {
-      return requireAgentManager().activateProject(projectId);
-    }
-    return;
-  });
-
-  ipcMain.on("companion:minimize", () => {
-    companionWindow?.minimize();
-  });
-
-  ipcMain.on("companion:close", () => {
-    void requestCompanionClose().catch((err) => {
-      console.error("[Main] Failed to close companion safely:", err);
-    });
   });
 
   ipcMain.handle("threads:list", () => {
@@ -1729,7 +1226,6 @@ function registerIpc(): void {
   ipcMain.handle(
     "terminal:create",
     (_event, sessionId: string, cwd?: string, requestedCols?: number, requestedRows?: number) => {
-      if (isUpdateBusy()) throw new Error("New terminal sessions are disabled during an update.");
       if (ptyProcesses.has(sessionId)) {
         console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
         return;
@@ -1851,46 +1347,6 @@ function registerIpc(): void {
     broadcastToWindows("theme:changed", currentTheme);
   });
 
-  // ─── Editor IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle("editor:activate", async () => {
-    if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
-    await ensurePipperEditBaseline();
-    return requireAgentManager().activateEditor();
-  });
-  ipcMain.handle("editor:getState", () => requireAgentManager().getEditorState());
-  ipcMain.handle(
-    "editor:sendPrompt",
-    (_event, input: { message: string; streamingBehavior?: "followUp" | "steer" }) => {
-      // Count companion turns as edit iterations while a visual-edit session is open.
-      if (pipperEditEnteredAt !== null) pipperEditIterations += 1;
-      return requireAgentManager().sendEditorPrompt(input);
-    },
-  );
-  ipcMain.handle("editor:abort", () => requireAgentManager().abortEditor());
-  ipcMain.handle("editor:setModel", (_event, model: { provider: string; modelId: string }) =>
-    requireAgentManager().setEditorModel(model),
-  );
-  ipcMain.handle("editor:dispose", () => {
-    pipperEditBaseline = null;
-    return requireAgentManager().disposeEditor();
-  });
-
-  ipcMain.handle(
-    "analytics:componentMutationRequested",
-    (_event, input: { componentId?: string | null; source?: "overlay" | "companion" }) => {
-      const projectId = getActiveProjectId();
-      if (!projectId) return;
-      captureAnalytics("component_mutation_requested", {
-        windowType: input.source === "companion" ? "companion" : "main",
-        properties: {
-          project_id: projectId,
-          component_id: sanitizeIdentifier(input.componentId),
-          source: input.source ?? "overlay",
-        },
-      });
-    },
-  );
-
   ipcMain.handle(
     "analytics:captureException",
     (_event, input: { name?: string; message?: string; stack?: string }) => {
@@ -1906,32 +1362,6 @@ function registerIpc(): void {
       });
     },
   );
-
-  // ─── Pipper IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle("pipper:setProcessing", (_event, processingId: string | null) => {
-    broadcastToWindows("pipper:stateChanged", { processingId });
-  });
-  ipcMain.handle("pipper:setOverlayVisible", (_event, overlayVisible: boolean) => {
-    broadcastToWindows("pipper:stateChanged", { overlayVisible });
-  });
-  ipcMain.handle("pipper:enterEditMode", async () => {
-    if (isUpdateBusy()) throw new Error("Edit Mode is disabled during an update.");
-    await ensurePipperEditBaseline();
-    pipperEditEnteredAt = Date.now();
-    pipperEditIterations = 0;
-    captureAnalytics("edit_mode_entered", {
-      windowType: "main",
-      properties: { project_id: getActiveProjectId() ?? undefined },
-    });
-    broadcastToWindows("pipper:stateChanged", { editMode: true, overlayVisible: true });
-  });
-  ipcMain.handle("pipper:exitEditMode", () => {
-    broadcastToWindows("pipper:stateChanged", { editMode: false });
-  });
-  ipcMain.handle("pipper:addComment", (_event, pipperId: string, text: string) => {
-    // broadcast to companion window so it can auto-fill the InputMessage
-    broadcastToWindows("pipper:commentAdded", { pipperId, text });
-  });
 
   // ─── Onboarding IPC ─────────────────────────────────────────────────────────────
   ipcMain.handle("onboarding:verifyGit", async () => {
@@ -1969,202 +1399,15 @@ function registerIpc(): void {
         await installGit();
       }
 
-      sendProgress("Checking Mise, Node, and Bun versions...", "running", undefined, true);
-      const deps = await checkAllDependencies();
-
-      if (!deps.miseInstalled || !deps.nodeMatch || !deps.bunMatch) {
-        sendProgress("Installing Mise version manager...", "running", undefined, true);
-        await installMise();
-
-        sendProgress(
-          "Setting up required Node and Bun versions locally...",
-          "running",
-          undefined,
-          true,
-        );
-        await installNodeAndBunWithMise();
-      }
-
-      sendProgress(
-        usesLocalDevelopmentWorkspace()
-          ? "Initializing local development workspace..."
-          : `Initializing workspaces inside ${getPipperLibraryDisplayPath()}...`,
-        "running",
-        undefined,
-        true,
-      );
-      await initializeWorkspaces(app.getAppPath(), isDev);
-
       sendProgress("Pipper is ready!", "complete", undefined, true);
     } catch (err: any) {
       console.error("[Onboarding] Setup failed:", err);
       sendProgress("Setup failed.", "failed", err.message || String(err), true);
     }
   });
-
-  // ─── Pipper Accept/Reject IPC ───────────────────────────────────────────────
-  ipcMain.handle("pipper:acceptChanges", async (_event, intent?: string) => {
-    const activePath = getActivePath();
-    const projectId = getActiveProjectId();
-    try {
-      if (!pipperEditBaseline) {
-        throw new Error("Edit session is still initializing. Try again in a moment.");
-      }
-      const filesChanged = await listPipperEditChangedFiles(activePath, pipperEditBaseline);
-      if (filesChanged.length === 0) return { committed: false, filesChanged };
-      const patchPath = join(activePath, "patch.md");
-      const existing = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
-      const entry = {
-        change_id: randomUUID(),
-        files_changed: filesChanged,
-        metadata_files: ["patch.md"],
-        intent: intent?.trim() || "Accepted visual customization",
-      };
-      fs.writeFileSync(patchPath, `${JSON.stringify(entry, null, 2)}\n\n${existing}`);
-      const filesToCommit = Array.from(new Set([...filesChanged, "patch.md"]));
-      await execFileAsync("git", ["add", "--", ...filesToCommit], {
-        cwd: activePath,
-      });
-      await execFileAsync(
-        "git",
-        ["commit", "--only", "-m", "Pipper Visual Edit Accept", "--", ...filesToCommit],
-        {
-          cwd: activePath,
-        },
-      );
-      const { stdout: headOutput } = await execFileAsync("git", ["rev-parse", "HEAD"], {
-        cwd: activePath,
-      });
-      const installationPath = getInstallationMetadataPath();
-      const installation = JSON.parse(fs.readFileSync(installationPath, "utf8"));
-      installation.customized_head_commit = headOutput.trim();
-      installation.last_healthy_at = new Date().toISOString();
-      fs.writeFileSync(installationPath, `${JSON.stringify(installation, null, 2)}\n`);
-      await backupActiveWorkspace();
-      pipperEditBaseline = null;
-      if (projectId) {
-        captureAnalytics("mutation_accepted", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            source: "companion",
-          },
-        });
-        captureAnalytics("edit_accepted", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            source: "companion",
-            files_changed_count: filesChanged.length,
-            intent_category: categorizeIntent(intent),
-            iterations: pipperEditIterations,
-            time_to_accept_ms:
-              pipperEditEnteredAt !== null ? Date.now() - pipperEditEnteredAt : undefined,
-          },
-        });
-      }
-      pipperEditEnteredAt = null;
-      pipperEditIterations = 0;
-      return { committed: true, filesChanged };
-    } catch (err: any) {
-      if (projectId) {
-        captureAnalytics("mutation_completed", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            outcome: "error",
-            source: "companion",
-            error_type: sanitizeErrorType(err),
-          },
-        });
-      }
-      console.error("[Accept] Failed to back up active workspace:", err.message || err);
-      throw err;
-    }
-  });
-
-  ipcMain.handle("pipper:rejectChanges", async () => {
-    const projectId = getActiveProjectId();
-    try {
-      await rejectPipperEditChanges();
-      if (projectId) {
-        captureAnalytics("mutation_rejected", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            source: "companion",
-            rejection_stage: "after_review",
-          },
-        });
-        captureAnalytics("edit_rejected", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            source: "companion",
-            rejection_stage: "after_review",
-            iterations: pipperEditIterations,
-            time_in_edit_ms:
-              pipperEditEnteredAt !== null ? Date.now() - pipperEditEnteredAt : undefined,
-          },
-        });
-        captureAnalytics("rollback_executed", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            success: true,
-          },
-        });
-        captureAnalytics("edit_rollback_health", {
-          windowType: "companion",
-          properties: { project_id: projectId, success: true },
-        });
-      }
-      pipperEditEnteredAt = null;
-      pipperEditIterations = 0;
-    } catch (err: any) {
-      if (projectId) {
-        captureAnalytics("rollback_executed", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            success: false,
-            error_type: sanitizeErrorType(err),
-          },
-        });
-        captureAnalytics("edit_rollback_health", {
-          windowType: "companion",
-          properties: {
-            project_id: projectId,
-            success: false,
-            error_type: sanitizeErrorType(err),
-          },
-        });
-      }
-      console.error("[Reject] Failed to restore workspace from backup:", err.message || err);
-      throw err;
-    }
-  });
 }
 
 /**
- * Stamp installation health as person properties so cohorts like "customized
- * users" or "users on version X" are queryable. Best-effort: never throws.
- */
-function stampHealthPersonProperties(): void {
-  try {
-    const installationPath = getInstallationMetadataPath();
-    if (!fs.existsSync(installationPath)) return;
-    const installation = JSON.parse(fs.readFileSync(installationPath, "utf8"));
-    setAnalyticsPersonProperties({
-      installed_version: installation.installed_version,
-      has_customizations: Boolean(installation.customized_head_commit),
-      last_healthy_at: installation.last_healthy_at,
-    });
-  } catch {
-    // Missing/unreadable installation metadata is non-fatal for analytics.
-  }
-}
-
 // ─── Usage & duration tracking ──────────────────────────────────────────────
 /** Wall-clock start of this app session; diffed on quit for session_duration_ms. */
 const sessionStartedAt = Date.now();
@@ -2229,68 +1472,20 @@ app.whenReady().then(async () => {
       name: authUser.name,
       avatarUrl: authUser.avatar_url,
     });
-    stampHealthPersonProperties();
   }
   agentManager = new AgentManager({
     sendToRenderer: sendToMainWindow,
     setWindowTitle: setMainWindowTitle,
-    sendToFlyout: sendToCompanionWindow,
     broadcastActiveProject: (projectId: string) => {
       broadcastToWindows("projects:activeChanged", projectId);
     },
     captureAnalytics: (name: AnalyticsEventName, properties: AnalyticsProperties) => {
       captureAnalytics(name, {
-        windowType:
-          properties.source === "overlay_comment" || properties.source === "companion_prompt"
-            ? "companion"
-            : "main",
+        windowType: "main",
         properties,
       });
     },
     setAgentContext: setActiveAgentContext,
-    reloadMainWindow: async () => {
-      console.log("[Main] agent_end triggered. Restarting dev server and reloading main window...");
-      // Time the self-rebuild and record whether it succeeded — the core signal
-      // for whether the app can modify itself without breaking the build.
-      const buildStartedAt = Date.now();
-      let buildOk = true;
-      try {
-        await restartViteServer();
-      } catch (err) {
-        buildOk = false;
-        console.error("[Main] Failed to restart Vite server on agent_end:", err);
-      }
-      captureAnalytics("edit_build_reloaded", {
-        windowType: "main",
-        properties: {
-          project_id: getActiveProjectId() ?? undefined,
-          build_duration_ms: Date.now() - buildStartedAt,
-          success: buildOk,
-        },
-      });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        killAllPtyProcesses("AgentEndReload");
-        mainWindow.webContents.reload();
-      }
-    },
-  });
-  updateManager = new UpdateManager({
-    manifestUrl:
-      process.env.PIPPER_UPDATE_MANIFEST_URL ??
-      import.meta.env.VITE_PIPPER_UPDATE_MANIFEST_URL ??
-      DEFAULT_AGENT_UPDATE_MANIFEST_URL,
-    repositoryUrl:
-      process.env.PIPPER_UPSTREAM_REPOSITORY_URL ??
-      import.meta.env.VITE_PIPPER_UPSTREAM_REPOSITORY_URL ??
-      DEFAULT_UPSTREAM_REPOSITORY_URL,
-    agent: agentManager,
-    broadcastState: (state) => broadcastToWindows("update:stateChanged", state),
-    broadcastProgress: (progress) => broadcastToWindows("update:progress", progress),
-    broadcastUpdaterEvent: (payload) => broadcastToWindows("updater:event", payload),
-    prepareForUpdate: prepareProcessesForUpdate,
-    restartPromotedApp: restartAfterPromotion,
-    captureAnalytics: (name, properties) =>
-      captureAnalytics(name, { windowType: "background", properties }),
   });
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
     platform: process.platform,
@@ -2321,42 +1516,22 @@ app.whenReady().then(async () => {
   launcherUpdateManager.startPeriodicChecks();
   void launcherUpdateManager.check();
 
-  if (isDev && !usesLocalDevelopmentWorkspace()) {
-    startDevFileWatcher();
-  }
-
-  if (!(await isWorkspaceReady())) {
-    console.log("[Main] Launching launcher while workspace setup runs in background.");
-    createLaunchWindow("list");
-    void runWorkspaceSetupForLauncher();
-  } else {
-    // Keep the shared dependency cache aligned with the packaged template. The
-    // workspace can be "ready" while still missing dependencies added by an app update.
-    await ensureWorkspaceReady();
-    await initializeUpdateSubsystem();
-    const state = await readLaunchState();
-    const authUser = getAuthenticatedUserForLaunch();
-    if (state.completed && authUser) {
-      if (state.projectId) {
-        setActiveProjectId(state.projectId);
-        await agentManager.activateFromLaunchState();
-      }
-      createMainWindow();
-    } else {
-      createLaunchWindow("list");
+  const state = await readLaunchState();
+  const currentAuthUser = getAuthenticatedUserForLaunch();
+  if (state.completed && currentAuthUser) {
+    if (state.projectId) {
+      setActiveProjectId(state.projectId);
+      await agentManager.activateFromLaunchState();
     }
+    createMainWindow();
+  } else {
+    createLaunchWindow("list");
   }
 
   app.on("activate", async () => {
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
     if (!hasMain && !hasLaunch) {
-      if (!(await isWorkspaceReady())) {
-        createLaunchWindow("list");
-        void runWorkspaceSetupForLauncher();
-        return;
-      }
-
       void readLaunchState().then((s) => {
         const authUser = getAuthenticatedUserForLaunch();
         if (s.completed && authUser) {
@@ -2371,39 +1546,6 @@ app.whenReady().then(async () => {
       });
     }
   });
-});
-
-app.on("before-quit", (event) => {
-  if (quitAuthorized || !updateManager?.getState().scheduled_for_quit) return;
-  event.preventDefault();
-  if (updateQuitInProgress) return;
-  updateQuitInProgress = true;
-  updateManager.announceScheduledQuit();
-  if ((!mainWindow || mainWindow.isDestroyed()) && (!launchWindow || launchWindow.isDestroyed())) {
-    createLaunchWindow("list");
-  }
-  void (async () => {
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (updateManager?.isCheckStale()) await updateManager.check();
-      const result = await updateManager!.startNow();
-      if (result.success) {
-        quitAuthorized = true;
-        app.quit();
-      } else {
-        updateQuitInProgress = false;
-        if (result.cancelled) {
-          quitAuthorized = true;
-          app.quit();
-        }
-      }
-    } catch (error) {
-      // Any unexpected rejection must release the quit guard, or the app
-      // becomes unquittable while an update stays scheduled.
-      console.error("[Update] Scheduled-quit update failed unexpectedly:", error);
-      updateQuitInProgress = false;
-    }
-  })();
 });
 
 app.on("window-all-closed", () => {
@@ -2424,7 +1566,6 @@ app.on("will-quit", (event) => {
   analyticsQuitInProgress = true;
 
   authCallbackServer?.close();
-  updateManager?.stopPeriodicChecks();
   launcherUpdateManager?.stopPeriodicChecks();
   if (usageHeartbeatTimer) {
     clearInterval(usageHeartbeatTimer);
@@ -2439,15 +1580,6 @@ app.on("will-quit", (event) => {
     properties: { session_duration_ms: Date.now() - sessionStartedAt },
   });
   killAllPtyProcesses("Quit");
-
-  if (viteProcess) {
-    try {
-      viteProcess.kill();
-    } catch (e) {
-      console.error("Failed to kill Vite compiler process:", e);
-    }
-    viteProcess = null;
-  }
 
   void (async () => {
     try {

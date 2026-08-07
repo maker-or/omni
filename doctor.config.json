@@ -4,13 +4,14 @@
     "files": [
       "**/node_modules/**",
       "out/**",
-      "app-template/**",
       "dist/**",
       "release/**",
       "electron/**",
       "contracts/**",
       "marketing/**",
-      "scripts/**"
+      "scripts/**",
+      "@/lib/shape-context.tsx",
+      "@/lib/utils.ts"
     ],
     "rules": ["react-compiler/react-compiler"]
   },

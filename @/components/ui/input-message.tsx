@@ -28,7 +28,6 @@ import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 import { Tooltip } from "@/components/ui/tooltip";
-import { PipperBeam } from "@/components/ui/pipper-beam";
 import { Dropdown } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 
@@ -614,7 +613,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     );
 
     return (
-      <PipperBeam pipperId={pipperId}>
+      <>
         <div
           ref={ref}
           data-pipper-id={pipperId}
@@ -818,7 +817,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
             </div>
           </SurfaceProvider>
         </div>
-      </PipperBeam>
+      </>
     );
   },
 );

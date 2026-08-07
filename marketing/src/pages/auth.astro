@@ -4,23 +4,57 @@ import { SignInButton } from "@clerk/astro/components";
 
 const returnTo = Astro.url.searchParams.get("return_to") ?? "";
 const callbackUrl = new URL("/auth/complete", Astro.url);
-if (returnTo) {
-    callbackUrl.searchParams.set("return_to", returnTo);
-}
+if (returnTo) callbackUrl.searchParams.set("return_to", returnTo);
 ---
 
-<Layout title="Pipper Code (Alpha) auth">
-    <main class="relative z-10 min-h-screen grid place-items-center p-8">
-        <section class="flex justify-center items-center">
-            <div
-                class="flex gap-4 [&_button]:py-3 [&_button]:px-6 [&_button]:text-[15px] [&_button]:font-semibold [&_button]:rounded-xl [&_button]:bg-[#D1E1FF] [&_button]:text-[#0C3A8F] [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button]:hover:bg-white/12 [&_button]:hover:-translate-y-0.5"
-            >
-                <SignInButton
-                    mode="redirect"
-                    forceRedirectUrl={callbackUrl.toString()}
-                    fallbackRedirectUrl={callbackUrl.toString()}
-                />
-            </div>
-        </section>
+<Layout title="Sign in — Pipper Code" description="Sign in to Pipper Code." pageClass="auth-page">
+    <main class="auth-main" aria-label="Sign in">
+        <SignInButton
+            asChild
+            mode="redirect"
+            forceRedirectUrl={callbackUrl.toString()}
+            fallbackRedirectUrl={callbackUrl.toString()}
+        >
+            <button type="button" class="auth-button">Sign in</button>
+        </SignInButton>
     </main>
 </Layout>
+
+<style>
+    :global(.auth-page) {
+        background: #f0efed !important;
+        color: #111111 !important;
+    }
+
+    .auth-main {
+        display: grid;
+        min-height: calc(100svh - 5rem);
+        place-items: center;
+        padding: 2rem 1.25rem;
+    }
+
+    .auth-button {
+        min-width: 10rem;
+        min-height: 3.5rem;
+        padding: 0.85rem 1.5rem;
+        border: 1.5px solid #2162ff;
+        border-radius: 0;
+        background: #2162ff;
+        color: #ffffff;
+        font-family: "Figtree Variable", sans-serif;
+        font-size: 1.05rem;
+        font-weight: 650;
+        letter-spacing: -0.03em;
+        cursor: pointer;
+    }
+
+    .auth-button:hover {
+        background: #111111;
+        border-color: #111111;
+    }
+
+    .auth-button:focus-visible {
+        outline: 3px solid #ffa946;
+        outline-offset: 4px;
+    }
+</style>

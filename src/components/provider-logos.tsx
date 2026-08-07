@@ -49,7 +49,7 @@ export function formatProviderLogoLabel(key: string | null | undefined): string 
     .join(" ");
 }
 
-export function ProviderLogo({
+function ProviderLogo({
   kind,
   provider,
   className,

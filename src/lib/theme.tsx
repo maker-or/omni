@@ -33,11 +33,6 @@ function normalizeTheme(theme: string | null | undefined): Theme | null {
   return theme === "light" || theme === "dark" || theme === "system" ? theme : null;
 }
 
-function isCompanionStage(): boolean {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("stage") === "companion";
-}
-
 function applyResolvedTheme(resolved: ResolvedTheme): void {
   const root = document.documentElement;
   if (resolved === "dark") root.classList.add("dark");
@@ -58,22 +53,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!window.omni?.theme) return;
-
-    if (isCompanionStage()) {
-      const getCurrentTheme = window.omni.theme.getCurrent;
-      if (!getCurrentTheme) return;
-      let cancelled = false;
-      void getCurrentTheme().then((currentTheme) => {
-        if (cancelled) return;
-        const normalized = normalizeTheme(currentTheme);
-        if (!normalized) return;
-        setThemeState(normalized);
-        window.localStorage.setItem(STORAGE_KEY, normalized);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
 
     window.omni.theme.changed?.(theme);
   }, []);

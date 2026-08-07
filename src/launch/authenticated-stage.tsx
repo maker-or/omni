@@ -16,8 +16,6 @@ interface AuthenticatedStageProps {
   isOpening: boolean;
   isLoading: boolean;
   loadError: string | null;
-  workspaceReady: boolean;
-  workspaceError: string | null;
   handleOpen: (projectId: string) => void;
   handleProjectCreated: (project: Project) => void;
 }
@@ -33,8 +31,6 @@ export function AuthenticatedStage({
   isOpening,
   isLoading,
   loadError,
-  workspaceReady,
-  workspaceError,
   handleOpen,
   handleProjectCreated,
 }: AuthenticatedStageProps) {
@@ -132,18 +128,10 @@ export function AuthenticatedStage({
                   onClick={() => setStage("add")}
                   leadingIcon={FolderIcon}
                   className="h-8 text-xs"
-                  disabled={!workspaceReady}
                 >
                   Add Project
                 </Button>
               </div>
-
-              {!workspaceReady && (
-                <p className="rounded-lg border border-border/50 bg-surface-1/50 px-3 py-2 text-xs text-muted-foreground">
-                  {workspaceError ??
-                    "Setting up the local runtime. Project actions will unlock when ready."}
-                </p>
-              )}
 
               <div className="flex flex-col gap-1.5 max-h-[260px] overflow-y-auto pr-1">
                 {loadError != null && (
@@ -169,14 +157,12 @@ export function AuthenticatedStage({
                   loadError == null &&
                   projects.map((project) => {
                     const isActive = selectedId === project.id;
-                    const isWorkspacePending = !workspaceReady;
-
                     return (
                       <button
                         key={project.id}
                         type="button"
-                        onClick={() => !isWorkspacePending && handleOpen(project.id)}
-                        disabled={isOpening || isWorkspacePending}
+                        onClick={() => handleOpen(project.id)}
+                        disabled={isOpening}
                         className={cn(
                           "group flex items-center gap-3 w-full",
                           "px-3 py-2.5 rounded-xl text-left text-sm",
@@ -193,17 +179,10 @@ export function AuthenticatedStage({
                           className="size-4 text-muted-foreground group-hover:text-foreground shrink-0"
                         />
                         <span className="flex-1 truncate font-medium">{project.name}</span>
-                        {isWorkspacePending ? (
-                          <CircleNotch
-                            className="animate-spin text-muted-foreground shrink-0"
-                            size={14}
-                          />
-                        ) : (
-                          <ArrowArcLeftIcon
-                            className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                            strokeWidth={1.75}
-                          />
-                        )}
+                        <ArrowArcLeftIcon
+                          className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          strokeWidth={1.75}
+                        />
                       </button>
                     );
                   })}
@@ -212,15 +191,7 @@ export function AuthenticatedStage({
           </>
         ) : (
           <>
-            <AddProjectForm
-              onBack={() => setStage("list")}
-              onCreated={handleProjectCreated}
-              disabled={!workspaceReady}
-              disabledReason={
-                workspaceError ??
-                "Setting up the local runtime. Project creation will unlock when ready."
-              }
-            />
+            <AddProjectForm onBack={() => setStage("list")} onCreated={handleProjectCreated} />
           </>
         )}
       </div>

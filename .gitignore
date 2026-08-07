@@ -27,7 +27,6 @@ im.md
 *.sw?
 # Build output
 out
-app-template
 release
 
 # Test coverage report (`bun run test:coverage`)

@@ -30,7 +30,6 @@
     "@agentclientprotocol/codex-acp": "1.1.2",
     "@agentclientprotocol/sdk": "^1.2.1",
     "@base-ui/react": "^1.6.0",
-    "@earendil-works/pi-coding-agent": "^0.79.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@hugeicons/core-free-icons": "^4.2.0",
@@ -58,7 +57,6 @@
     "@wterm/dom": "^0.3.0",
     "@wterm/ghostty": "^0.3.0",
     "@wterm/react": "^0.3.0",
-    "border-beam": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.42.0",
@@ -103,9 +101,6 @@
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vitest": "^4.1.9"
-  },
-  "pipper": {
-    "workspaceVersion": "0.0.7"
   },
   "trustedDependencies": [
     "node-pty"

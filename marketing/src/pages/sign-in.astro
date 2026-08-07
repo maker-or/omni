@@ -1,0 +1,67 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { SignIn } from "@clerk/astro/components";
+
+const returnTo = Astro.url.searchParams.get("return_to") ?? "";
+const callbackUrl = new URL("/auth/complete", Astro.url);
+if (returnTo) callbackUrl.searchParams.set("return_to", returnTo);
+
+const appearance = {
+    variables: {
+        colorPrimary: "#2162ff",
+        colorBackground: "#f0efed",
+        colorText: "#111111",
+        colorTextSecondary: "#6e6e6e",
+        borderRadius: "0px",
+        fontFamily: "Figtree Variable, sans-serif",
+    },
+};
+---
+
+<Layout title="Sign in — Pipper Code" description="Sign in to Pipper Code." pageClass="sign-in-page">
+    <div class="clerk-shell">
+        <main class="clerk-main">
+            <section class="clerk-intro">
+                <p class="clerk-kicker">pipper / welcome back</p>
+                <h1>Pick up where<br /><span>you left off.</span></h1>
+                <p>One interface for your agents, your workspaces, and the ideas in between.</p>
+            </section>
+            <section class="clerk-panel" aria-label="Sign in form">
+                <span class="selection-handle selection-handle--tl" aria-hidden="true"></span>
+                <span class="selection-handle selection-handle--tr" aria-hidden="true"></span>
+                <span class="selection-handle selection-handle--bl" aria-hidden="true"></span>
+                <span class="selection-handle selection-handle--br" aria-hidden="true"></span>
+                <SignIn
+                    routing="path"
+                    path="/sign-in"
+                    signUpUrl="/sign-up"
+                    forceRedirectUrl={callbackUrl.toString()}
+                    fallbackRedirectUrl={callbackUrl.toString()}
+                    appearance={appearance}
+                />
+            </section>
+        </main>
+    </div>
+</Layout>
+
+<style>
+    :global(.sign-in-page), :global(.sign-up-page) { background: #f0efed !important; color: #111 !important; }
+    .clerk-shell { box-sizing: border-box; width: min(calc(100% - clamp(2rem, 5.6vw, 4.8rem)), 120rem); min-height: calc(100svh - clamp(2rem, 5.6vw, 4.8rem)); margin: 0 auto clamp(1rem, 2.8vw, 2.4rem); border: 1.5px solid #111; background: #f0efed; }
+    .clerk-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 31rem); gap: clamp(2rem, 8vw, 9rem); align-items: center; min-height: calc(100svh - clamp(2rem, 5.6vw, 4.8rem)); padding: clamp(2rem, 6vw, 6rem) clamp(1.5rem, 6vw, 7rem); }
+    .clerk-intro { max-width: 34rem; }
+    .clerk-kicker { margin: 0 0 2.5rem; color: #2162ff; font: 650 0.78rem/1 "Figtree Variable", sans-serif; letter-spacing: 0.08em; text-transform: uppercase; }
+    .clerk-intro h1 { margin: 0; font: 420 clamp(3.4rem, 7vw, 7rem)/0.86 "Figtree Variable", sans-serif; letter-spacing: -0.09em; }
+    .clerk-intro h1 span { color: #2162ff; }
+    .clerk-intro > p:last-child { max-width: 22rem; margin: 2rem 0 0; color: rgb(17 17 17 / 0.62); font: 1.02rem/1.45 "Figtree Variable", sans-serif; }
+    .clerk-panel { position: relative; min-width: 0; padding: clamp(1rem, 2vw, 1.8rem); border: 2px solid #2162ff; background: #d8e5ff; }
+    .selection-handle { position: absolute; z-index: 2; width: 1rem; height: 1rem; background: #2162ff; }
+    .selection-handle--tl { top: -0.56rem; left: -0.56rem; } .selection-handle--tr { top: -0.56rem; right: -0.56rem; } .selection-handle--bl { bottom: -0.56rem; left: -0.56rem; } .selection-handle--br { right: -0.56rem; bottom: -0.56rem; }
+    .clerk-panel :global(.cl-rootBox), .clerk-panel :global(.cl-card) { width: 100%; max-width: none; box-shadow: none; border: 0; background: transparent; }
+    .clerk-panel :global(.cl-headerTitle) { font-family: "Figtree Variable", sans-serif; letter-spacing: -0.05em; }
+    .clerk-panel :global(.cl-headerSubtitle), .clerk-panel :global(.cl-formFieldLabel), .clerk-panel :global(.cl-footerActionText) { font-family: "Figtree Variable", sans-serif; }
+    .clerk-panel :global(.cl-formButtonPrimary) { border-radius: 0; background: #2162ff; font-family: "Figtree Variable", sans-serif; }
+    .clerk-panel :global(.cl-formFieldInput) { border-radius: 0; border-color: rgb(17 17 17 / 0.28); background: rgb(255 255 255 / 0.55); }
+    .clerk-panel :global(.cl-footerActionLink) { color: #2162ff; }
+    @media (max-width: 52rem) { .clerk-main { grid-template-columns: 1fr; gap: 3rem; } .clerk-intro { max-width: 40rem; } }
+    @media (max-width: 38rem) { .clerk-shell { width: calc(100% - 1.5rem); min-height: calc(100svh - 1.5rem); margin-bottom: 0.75rem; } .clerk-main { min-height: calc(100svh - 1.5rem); padding: 2.5rem 1.1rem; } .clerk-intro h1 { font-size: clamp(3rem, 14vw, 5rem); } }
+</style>

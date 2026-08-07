@@ -4,7 +4,6 @@ import { forwardRef, useState, useEffect, type HTMLAttributes } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
-import { PipperBeam } from "@/components/ui/pipper-beam";
 
 const circleA =
   "M 12 8 C 14.21 8 16 9.79 16 12 C 16 14.21 14.21 16 12 16 C 9.79 16 8 14.21 8 12 C 8 9.79 9.79 8 12 8 Z";
@@ -38,7 +37,7 @@ const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
     const displayedText = label ?? (isStreaming ? words[index] : "Thought process");
 
     return (
-      <PipperBeam pipperId={pipperId}>
+      <>
         <div
           ref={ref}
           role="status"
@@ -110,7 +109,7 @@ const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
             )}
           </span>
         </div>
-      </PipperBeam>
+      </>
     );
   },
 );

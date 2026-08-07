@@ -1,22 +1,463 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import ProductDemo from "../components/ProductDemo";
 ---
 
-<Layout pageClass="home-page">
-    <section
-        class="w-full min-h-[calc(100svh-5rem)] max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-16 md:pt-28 flex flex-col items-center flex-1 select-none"
-    >
-        <div class="h-12 md:h-24 flex-shrink-0"></div>
-        <div
-            class="text-center max-w-5xl mx-auto flex flex-col items-center flex-shrink-0"
-        >
-            <h1
-                class="font-['Averia_Serif_Libre'] text-[#D1E1FF] text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-normal leading-[0.92] tracking-[-0.05em] animate-fade-in"
-            >
-                AI Harness<br />that improves itself
-            </h1>
-        </div>
-    </section>
-    <ProductDemo client:load />
+<Layout
+    title="pipper — an interface for your agents"
+    description="pipper is the interface for building, directing, and improving AI agents."
+    pageClass="home-page"
+    hideHeader
+>
+    <div class="home-shell">
+        <main class="home-content">
+            <section class="hero-block" aria-labelledby="hero-title">
+                <div class="selection-frame">
+                    <span
+                        class="canvas-cursor canvas-cursor--blue"
+                        aria-hidden="true"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="selection-handle selection-handle--tl"
+                        aria-hidden="true"></span>
+                    <span
+                        class="selection-handle selection-handle--tr"
+                        aria-hidden="true"></span>
+                    <span
+                        class="selection-handle selection-handle--bl"
+                        aria-hidden="true"></span>
+                    <span
+                        class="selection-handle selection-handle--br"
+                        aria-hidden="true"></span>
+
+                    <h1 id="hero-title" class="hero-title">
+                        <span class="hero-title__blue">@ne interface</span>
+                        <span class="hero-title__second-line">
+                            <span>to control your</span>
+                            <span class="hero-pill">@gents</span>
+                            <span
+                                class="canvas-cursor canvas-cursor--orange"
+                                aria-hidden="true"
+                            >
+                                <svg viewBox="0 0 54 54" role="presentation">
+                                    <path
+                                        d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                                    ></path>
+                                </svg>
+                            </span>
+                        </span>
+                    </h1>
+
+                </div>
+
+                <div class="action-row" aria-label="Get started">
+                    <a
+                        class="action-card action-card--download"
+                        href="/download"
+                    >
+                        <span>Download</span>
+                        <span class="action-handle action-handle--tl" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--tr" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--bl" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--br" aria-hidden="true"></span>
+                        <span
+                            class="canvas-cursor canvas-cursor--purple"
+                            aria-hidden="true"
+                        >
+                            <svg viewBox="0 0 54 54" role="presentation">
+                                <path
+                                    d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                                ></path>
+                            </svg>
+                        </span>
+                    </a>
+                    <a
+                        class="action-card action-card--github"
+                        href="https://github.com/maker-or/omni"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <span>Github</span>
+                        <span class="action-handle action-handle--tl" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--tr" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--bl" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--br" aria-hidden="true"></span>
+                    </a>
+                    <a
+                        class="action-card action-card--stars"
+                        href="https://github.com/maker-or/omni"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <span class="star" aria-hidden="true">★</span>
+                        <span>14k+</span>
+                        <span class="action-handle action-handle--tl" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--tr" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--bl" aria-hidden="true"></span>
+                        <span class="action-handle action-handle--br" aria-hidden="true"></span>
+                    </a>
+                </div>
+
+            </section>
+        </main>
+
+        <p class="trust-line">
+            <span>Trusted by</span>
+            <strong>100k+</strong>
+            <span>cracked people</span>
+        </p>
+    </div>
 </Layout>
+
+<style>
+    :global(.home-page) {
+        --canvas-bg: #f0efed;
+        --canvas-ink: #111111;
+        --canvas-blue: #2162ff;
+        --canvas-blue-soft: #d8e5ff;
+        --canvas-orange: #ffa946;
+        --canvas-orange-ink: #a65b0e;
+        --canvas-purple: #a54cf1;
+        --canvas-purple-soft: #e8d9fa;
+        --canvas-muted: #6e6e6e;
+        background: var(--canvas-bg) !important;
+        color: var(--canvas-ink) !important;
+    }
+
+    .home-shell {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100svh;
+        min-height: 100svh;
+        margin: 0;
+        border: 1.5px solid var(--canvas-ink);
+        overflow: hidden;
+        isolation: isolate;
+    }
+
+    .home-content {
+        display: flex;
+        width: 100%;
+        flex: 1;
+        padding: clamp(3.25rem, 5.2vw, 5rem) clamp(2rem, 5vw, 6.5rem) 4rem;
+    }
+
+    .hero-block {
+        position: relative;
+        width: min(100%, 64rem);
+    }
+
+    .selection-frame {
+        position: relative;
+        width: min(100%, 56rem);
+        min-height: clamp(15rem, 25vw, 19.5rem);
+        padding: clamp(3.1rem, 5.8vw, 5.5rem) clamp(2rem, 5vw, 5.2rem)
+            clamp(2.8rem, 5.1vw, 4.6rem);
+        border: 2px solid #80b0ff;
+        animation: settle-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .selection-handle {
+        position: absolute;
+        width: 1rem;
+        height: 1rem;
+        background: #80b0ff;
+    }
+
+    .selection-handle--tl {
+        top: -0.56rem;
+        left: -0.56rem;
+    }
+    .selection-handle--tr {
+        top: -0.56rem;
+        right: -0.56rem;
+    }
+    .selection-handle--bl {
+        bottom: -0.56rem;
+        left: -0.56rem;
+    }
+    .selection-handle--br {
+        right: -0.56rem;
+        bottom: -0.56rem;
+    }
+
+    .hero-title {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        margin: 0;
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(3.1rem, 6.1vw, 6.2rem);
+        font-weight: 420;
+        line-height: 0.91;
+        letter-spacing: -0.078em;
+    }
+
+    .hero-title__second-line {
+        position: relative;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        column-gap: 0.26em;
+        row-gap: 0.02em;
+    }
+
+    .hero-title__blue {
+        color: var(--canvas-blue);
+    }
+
+    .hero-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.08em 0.32em 0.13em;
+        border-radius: 999px;
+        background: var(--canvas-orange);
+        color: var(--canvas-orange-ink);
+        letter-spacing: -0.085em;
+        transform: translateY(-0.03em) rotate(-0.7deg);
+    }
+
+    .action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.1rem;
+        width: min(100%, 58rem);
+        margin-top: 2.9rem;
+        padding-left: 0.05rem;
+        animation: rise-in 850ms 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .action-card {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 15rem;
+        min-height: 5.6rem;
+        padding: 1rem 1.5rem;
+        border: 1.5px solid currentColor;
+        color: var(--canvas-blue);
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(1.65rem, 2.6vw, 2.65rem);
+        font-weight: 430;
+        line-height: 1;
+        letter-spacing: -0.065em;
+        text-decoration: none;
+        transition: none;
+    }
+
+    .action-card:focus-visible {
+        outline: 3px solid currentColor;
+        outline-offset: 4px;
+    }
+
+    .action-handle {
+        position: absolute;
+        z-index: 1;
+        width: 0.7rem;
+        height: 0.7rem;
+        background: currentColor;
+        pointer-events: none;
+    }
+
+    .action-handle--tl { top: -0.4rem; left: -0.4rem; }
+    .action-handle--tr { top: -0.4rem; right: -0.4rem; }
+    .action-handle--bl { bottom: -0.4rem; left: -0.4rem; }
+    .action-handle--br { right: -0.4rem; bottom: -0.4rem; }
+
+    .action-card--download {
+        color: var(--canvas-purple);
+        background: var(--canvas-purple-soft);
+    }
+    .action-card--github,
+    .action-card--stars {
+        background: var(--canvas-blue-soft);
+    }
+    .action-card--stars {
+        min-width: 18rem;
+    }
+
+    .star {
+        display: inline-block;
+        margin-right: 0.16em;
+        font-size: 1.05em;
+        line-height: 0.8;
+    }
+
+    .trust-line {
+        margin: auto 0 clamp(1.5rem, 3.5vw, 3.6rem) clamp(2.5rem, 5vw, 6.5rem);
+        color: var(--canvas-muted);
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(1.8rem, 3.2vw, 4.15rem);
+        font-weight: 390;
+        letter-spacing: -0.072em;
+        line-height: 1;
+        animation: rise-in 850ms 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .trust-line strong {
+        color: var(--canvas-ink);
+        font-weight: 570;
+    }
+
+    .canvas-cursor {
+        position: absolute;
+        z-index: 2;
+        width: clamp(2.7rem, 4.1vw, 4.1rem);
+        filter: drop-shadow(0.1rem 0.18rem 0.08rem rgb(0 0 0 / 0.34));
+        pointer-events: none;
+    }
+
+    .canvas-cursor svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+    }
+    .canvas-cursor path {
+        stroke: #191919;
+        stroke-width: 1.6;
+        stroke-linejoin: round;
+    }
+    .canvas-cursor--blue {
+        top: -4rem;
+        left: -3.75rem;
+        width: clamp(3.2rem, 4.8vw, 4.8rem);
+        transform: rotate(90deg);
+    }
+    .canvas-cursor--blue path {
+        fill: #78a8ff;
+    }
+    .canvas-cursor--orange {
+        right: -2.7rem;
+        bottom: -1.7rem;
+        width: clamp(2.8rem, 4.6vw, 4.8rem);
+        transform: rotate(-80deg);
+    }
+    .canvas-cursor--orange path {
+        fill: var(--canvas-orange);
+    }
+    .canvas-cursor--purple {
+        left: -1rem;
+        bottom: -1.6rem;
+        width: clamp(2.8rem, 4.8vw, 4.9rem);
+        transform: rotate(-14deg);
+    }
+    .canvas-cursor--purple path {
+        fill: var(--canvas-purple);
+    }
+
+    @keyframes settle-in {
+        from {
+            opacity: 0;
+            transform: translateY(1.2rem) scale(0.98);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    @keyframes rise-in {
+        from {
+            opacity: 0;
+            transform: translateY(1rem);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @media (max-width: 58rem) {
+        .home-shell {
+            width: 100%;
+            height: 100svh;
+            min-height: 100svh;
+            margin: 0;
+        }
+        .home-content {
+            padding: 3.25rem 1.7rem 3.5rem;
+        }
+        .selection-frame {
+            width: 100%;
+            padding-inline: 1.4rem;
+        }
+        .action-card {
+            flex: 1 1 12rem;
+            min-width: 0;
+        }
+        .action-card--stars {
+            min-width: 12rem;
+        }
+        .trust-line {
+            margin-left: 1.7rem;
+            margin-right: 1rem;
+        }
+        .canvas-cursor--orange {
+            right: -1.5rem;
+        }
+    }
+
+    @media (max-width: 38rem) {
+        .home-content {
+            padding-top: 2.5rem;
+        }
+        .selection-frame {
+            min-height: 13rem;
+            padding: 2.2rem 1.1rem 2.5rem;
+        }
+        .hero-title {
+            font-size: clamp(2.45rem, 11.8vw, 4rem);
+            line-height: 0.94;
+        }
+        .hero-pill {
+            margin-top: 0.1em;
+        }
+        .action-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.7rem;
+            margin-top: 2.2rem;
+        }
+        .action-card {
+            width: 100%;
+            min-width: 0;
+            min-height: 4.5rem;
+            font-size: 1.6rem;
+        }
+        .action-card--stars {
+            grid-column: 1 / -1;
+            min-width: 0;
+        }
+        .trust-line {
+            font-size: clamp(1.7rem, 8.3vw, 2.7rem);
+            line-height: 0.98;
+        }
+        .canvas-cursor--blue {
+            top: -3.4rem;
+            left: -3.2rem;
+            width: 3.5rem;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .selection-frame,
+        .action-row,
+        .trust-line,
+        .canvas-cursor {
+            animation: none;
+        }
+        .action-card {
+            transition: none;
+        }
+    }
+</style>

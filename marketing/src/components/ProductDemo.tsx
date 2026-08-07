@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import React, { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy02Icon, GitBranchIcon, Sun01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Copy02Icon, GitBranchIcon, Sun01Icon } from "@hugeicons/core-free-icons";
 
 import { ChatMessage } from "@/components/ui/chat-message";
 import { InputMessage } from "@/components/ui/input-message";
@@ -15,6 +15,8 @@ import {
   ThinkingStepsHeader,
 } from "@/components/ui/thinking-steps";
 import { Elevated } from "@/lib/elevated";
+import { surfaceClasses } from "@/lib/surface-classes";
+import { cn } from "@/lib/utils";
 
 type DemoTab = "compression" | "hooli";
 type ResponseState = "idle" | "thinking" | "done";
@@ -49,7 +51,7 @@ const conversations: Record<
 
 function TrafficLights() {
   return (
-    <div className="group/lights flex items-center gap-1.5" aria-label="Window controls">
+    <div data-pipper-id="window-controls" className="group/lights flex items-center gap-1.5" aria-label="Window controls">
       <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#ff5f57]" />
       <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#febc2e]" />
       <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#28c840]" />
@@ -61,10 +63,12 @@ function IconButton({
   label,
   onClick,
   children,
+  ...props
 }: {
   label: string;
   onClick: () => void;
   children: React.ReactNode;
+  "data-pipper-id"?: string;
 }) {
   return (
     <button
@@ -73,23 +77,247 @@ function IconButton({
       aria-label={label}
       title={label}
       className="grid size-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.055] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.08]"
+      {...props}
     >
       {children}
     </button>
   );
 }
 
+interface HighlightRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  pipperId: string;
+}
+
+interface CommentPopup {
+  top: number;
+  left: number;
+  pipperId: string;
+}
+
+function getPopupPosition(rect: DOMRect): { top: number; left: number } {
+  return {
+    top: Math.max(8, Math.min(rect.bottom + 10, window.innerHeight - 200)),
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - 320)),
+  };
+}
+
+const defaultPrompts: Record<string, string> = {
+  "window-controls": "Make the traffic light dots bigger and more rounded",
+  "product-demo": "Add a subtle gradient border around the demo",
+  "demo-header": "Reduce the header height and add a bottom separator",
+  "project-info": "Make the project name bolder and larger",
+  "demo-tabs": "Give the active tab a stronger highlight",
+  "toolbar": "Add a gentle hover scale effect to the buttons",
+  "chat-area": "Increase the gap between chat messages",
+  "thinking-steps": "Make the thinking steps collapse smoother",
+  "chat-input": "Darken the input background for better contrast",
+};
+
+function DemoOverlay() {
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const processingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [highlight, setHighlight] = useState<HighlightRect | null>(null);
+  const [popup, setPopup] = useState<CommentPopup | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      if (processingTimer.current) clearTimeout(processingTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (popup) {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [popup]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape" || !popup) return;
+      setPopup(null);
+      setCommentText("");
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [popup]);
+
+  function findPipperId(x: number, y: number): { el: HTMLElement; pipperId: string } | null {
+    const top = document.elementsFromPoint(x, y).find(
+      (node) => node !== overlayRef.current && node.getRootNode() === document,
+    );
+    if (!top) return null;
+    const start = top instanceof HTMLElement ? top : top.parentElement;
+    const pipper = start?.closest<HTMLElement>("[data-pipper-id]") ?? null;
+    const pipperId = pipper?.getAttribute("data-pipper-id");
+    if (!pipper || !pipperId) return null;
+    return { el: pipper, pipperId };
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (popup || processingId) return;
+    pointerRef.current = { x: e.clientX, y: e.clientY };
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const point = pointerRef.current;
+      if (!point) return;
+      const found = findPipperId(point.x, point.y);
+      if (!found) {
+        setHighlight(null);
+        return;
+      }
+      const rect = found.el.getBoundingClientRect();
+      setHighlight({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        pipperId: found.pipperId,
+      });
+    });
+  }
+
+  function handleClick(e: React.MouseEvent) {
+    if (popup || processingId) return;
+    const found = findPipperId(e.clientX, e.clientY);
+    if (!found) return;
+    const rect = found.el.getBoundingClientRect();
+    const pos = getPopupPosition(rect);
+    setHighlight({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+      pipperId: found.pipperId,
+    });
+    setPopup({ top: pos.top, left: pos.left, pipperId: found.pipperId });
+    setCommentText(defaultPrompts[found.pipperId] ?? "");
+  }
+
+  function handleMouseLeave() {
+    if (!popup && !processingId) setHighlight(null);
+  }
+
+  return (
+    <>
+      <div
+        ref={overlayRef}
+        className="fixed inset-0 z-[9990]"
+        style={{ cursor: "crosshair" }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+      />
+
+      {highlight && processingId && (
+        <div
+          className="fixed z-[9991] pointer-events-none"
+          style={{
+            top: highlight.top - 2,
+            left: highlight.left - 2,
+            width: highlight.width + 4,
+            height: highlight.height + 4,
+          }}
+        >
+          <div
+            className="absolute inset-0 rounded-sm"
+            style={{
+              boxShadow: "0 0 0 2px var(--ring), 0 0 0 4px color-mix(in oklab, var(--ring) 40%, transparent)",
+              animation: "pipper-processing-pulse 0.8s ease-in-out infinite",
+            }}
+          />
+        </div>
+      )}
+
+      {highlight && !popup && !processingId && (
+        <div
+          className="fixed z-[9991] pointer-events-none"
+          style={{
+            top: highlight.top - 2,
+            left: highlight.left - 2,
+            width: highlight.width + 4,
+            height: highlight.height + 4,
+            transition: "top 60ms, left 60ms, width 60ms, height 60ms",
+          }}
+        >
+          <div
+            className="absolute inset-0 rounded-sm ring-2 ring-ring"
+            style={{ animation: "pipper-highlight-pulse 1.4s ease-in-out infinite" }}
+          />
+        </div>
+      )}
+
+      {popup && (
+        <div
+          className="fixed z-[9992] flex flex-col gap-2"
+          style={{
+            top: popup.top,
+            left: popup.left,
+            width: 308,
+            animation: "pipper-popup-in 140ms ease-out both",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Elevated offset={2} shadowLevel={5} className="rounded-xl border border-border/80">
+            <InputMessage
+              value={commentText}
+              onValueChange={setCommentText}
+              onSend={(text) => {
+                if (!text.trim() || !popup) return;
+                const id = popup.pipperId;
+                setPopup(null);
+                setCommentText("");
+                setProcessingId(id);
+                if (processingTimer.current) clearTimeout(processingTimer.current);
+                processingTimer.current = setTimeout(() => {
+                  setProcessingId(null);
+                  setHighlight(null);
+                }, 1400);
+              }}
+              placeholder="Describe the change…"
+              textareaRef={inputRef}
+              leftSlot={() => (
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-md px-1.5 py-0.5",
+                    "text-[10px] font-bold text-foreground tracking-wide",
+                    surfaceClasses(7, 4),
+                  )}
+                >
+                  @ {popup.pipperId}
+                </span>
+              )}
+              minRows={1}
+              maxRows={4}
+            />
+          </Elevated>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function ProductDemo() {
   const [tab, setTab] = useState<DemoTab>("compression");
   const [dark, setDark] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [overlayActive, setOverlayActive] = useState(false);
   const [draft, setDraft] = useState("");
   const [sentMessage, setSentMessage] = useState("");
   const [responseState, setResponseState] = useState<ResponseState>("idle");
   const timers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   const active = conversations[tab];
-  const transcript = useMemo(() => `${active.user}\n\n${active.answer}`, [active]);
 
   useEffect(
     () => () => {
@@ -110,17 +338,6 @@ export default function ProductDemo() {
     setTab(value as DemoTab);
   }
 
-  async function copyTranscript() {
-    try {
-      await navigator.clipboard.writeText(transcript);
-    } catch {
-      // Clipboard can be unavailable in an embedded preview. The visual state
-      // still demonstrates the intended interaction.
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  }
-
   function submitMessage(value: string) {
     const next = value.trim();
     if (!next || responseState === "thinking") return;
@@ -134,23 +351,19 @@ export default function ProductDemo() {
 
   return (
     <section
+      data-pipper-id="product-demo"
       aria-label="Interactive product demo"
       className="h-svh w-[100svw] max-w-none shrink-0 overflow-hidden bg-black p-[clamp(0.9rem,2.4vw,3rem)] text-neutral-950"
     >
-      <div
-        className={`grid h-full min-h-0 grid-cols-[minmax(0,7fr)_minmax(15rem,3fr)] gap-[clamp(0.9rem,2.4vw,3rem)] max-[760px]:grid-cols-1 ${
-          dark ? "dark" : ""
-        }`}
+      <Elevated
+        offset={1}
+        shadowLevel={7}
+        className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] text-foreground h-full ${dark ? "dark" : ""}`}
       >
-        <Elevated
-          offset={1}
-          shadowLevel={7}
-          className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] text-foreground"
-        >
-          <header className="grid min-h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-5">
+          <header data-pipper-id="demo-header" className="grid min-h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-5">
             <div className="flex min-w-0 items-center gap-5">
               <TrafficLights />
-              <div className="min-w-0 leading-tight">
+              <div data-pipper-id="project-info" className="min-w-0 leading-tight">
                 <div className="truncate text-[14px] font-medium tracking-[-0.01em]">
                   {active.project}
                 </div>
@@ -161,14 +374,14 @@ export default function ProductDemo() {
               </div>
             </div>
 
-            <Tabs value={tab} onValueChange={changeTab}>
+            <Tabs data-pipper-id="demo-tabs" value={tab} onValueChange={changeTab}>
               <TabsList className="bg-muted/80">
                 <TabItem value="compression" label="Middle-out compression" />
                 <TabItem value="hooli" label="Hooli chat" />
               </TabsList>
             </Tabs>
 
-            <div className="flex justify-self-end rounded-full w-fit bg-muted/80 p-1">
+            <div data-pipper-id="toolbar" className="flex justify-self-end rounded-full w-fit bg-muted/80 p-1">
               <IconButton
                 label={dark ? "Use light appearance" : "Use dark appearance"}
                 onClick={() => setDark((value) => !value)}
@@ -181,24 +394,10 @@ export default function ProductDemo() {
                 </motion.span>
               </IconButton>
               <IconButton
-                label={copied ? "Copied transcript" : "Copy transcript"}
-                onClick={copyTranscript}
+                label={overlayActive ? "Disable targeting" : "Enable targeting"}
+                onClick={() => setOverlayActive((v) => !v)}
               >
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.span
-                    key={copied ? "done" : "copy"}
-                    initial={{ opacity: 0, scale: 0.75 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.75 }}
-                    transition={{ duration: 0.12 }}
-                  >
-                    <HugeiconsIcon
-                      icon={copied ? Tick02Icon : Copy02Icon}
-                      size={19}
-                      strokeWidth={1.6}
-                    />
-                  </motion.span>
-                </AnimatePresence>
+                <HugeiconsIcon icon={Copy02Icon} size={19} strokeWidth={1.6} />
               </IconButton>
             </div>
           </header>
@@ -212,12 +411,12 @@ export default function ProductDemo() {
                   value={value}
                   className="min-h-0 flex-1 overflow-y-auto px-[clamp(1.25rem,5vw,6rem)] pb-5 pt-5"
                 >
-                  <div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col gap-5">
+                  <div data-pipper-id="chat-area" className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col gap-5">
                     <ChatMessage from="user" time="just now">
                       {conversation.user}
                     </ChatMessage>
 
-                    <ThinkingSteps defaultOpen className="w-full">
+                    <ThinkingSteps data-pipper-id="thinking-steps" defaultOpen className="w-full">
                       <ThinkingStepsHeader>Worked for 34 seconds</ThinkingStepsHeader>
                       <ThinkingStepsContent>
                         <ThinkingStep
@@ -282,7 +481,7 @@ export default function ProductDemo() {
                       </ChatMessage>
                     )}
 
-                    <div className="mt-auto pt-8">
+                    <div data-pipper-id="chat-input" className="mt-auto pt-8">
                       <Elevated
                         offset={1}
                         shadowLevel={3}
@@ -308,13 +507,7 @@ export default function ProductDemo() {
           </Tabs>
         </Elevated>
 
-        <Elevated
-          offset={1}
-          shadowLevel={7}
-          aria-label="Secondary demo screen"
-          className="min-h-0 min-w-0 rounded-[22px] max-[760px]:hidden"
-        />
-      </div>
+      {overlayActive && <DemoOverlay />}
     </section>
   );
 }

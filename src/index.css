@@ -248,13 +248,6 @@
   --color-shadow-color: var(--shadow-color);
 }
 
-/* @property must live at top level — not inside @theme */
-@property --pipper-beam-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
-
 /*
  * Keyframes referenced only via inline `style={{ animation: "..." }}` (not a
  * Tailwind utility class) get stripped from the production build when nested
@@ -273,28 +266,6 @@
   }
   50% {
     stroke-dasharray: 40 60;
-  }
-}
-@keyframes pipper-beam-spin {
-  from {
-    --pipper-beam-angle: 0deg;
-  }
-  to {
-    --pipper-beam-angle: 360deg;
-  }
-}
-/* Edit-mode hover outline — uses design-system --ring (neutral gray), not a tinted hue */
-@keyframes pipper-highlight-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow:
-      0 0 0 1px color-mix(in oklch, var(--ring) 45%, transparent),
-      inset 0 0 0 1px color-mix(in oklch, var(--ring) 18%, transparent);
-  }
-  50% {
-    opacity: 0.75;
-    box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 22%, transparent);
   }
 }
 @keyframes fade-in {

@@ -4,23 +4,16 @@ import type { Project } from "../../contracts/projects.ts";
 import { toast } from "@/components/ui/toast";
 import { UnauthenticatedStage } from "./unauthenticated-stage";
 import { AuthenticatedStage } from "./authenticated-stage";
-import { UpdateStage } from "./update-stage";
-import { useUpdateStore } from "@/store/update-store";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateDialog, LauncherUpdateNotice } from "@/components/launcher-update";
 
 export function LaunchApp() {
-  const initializeUpdates = useUpdateStore((state) => state.initialize);
-  const updateState = useUpdateStore((state) => state.state);
-  const updateRun = useUpdateStore((state) => state.run);
   const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isOpening, setIsOpening] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isLaunchingAuth, setIsLaunchingAuth] = useState(false);
   const [authUser, setAuthUser] = useState<{ name: string | null; email: string | null } | null>(
     null,
@@ -72,14 +65,6 @@ export function LaunchApp() {
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
-    void initializeUpdates().then((dispose) => {
-      cleanup = dispose;
-    });
-    return () => cleanup?.();
-  }, [initializeUpdates]);
-
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
     void initializeLauncherUpdates().then((dispose) => {
       cleanup = dispose;
     });
@@ -87,41 +72,6 @@ export function LaunchApp() {
   }, [initializeLauncherUpdates]);
 
   useEffect(() => {
-    if (updateState?.phase === "awaiting-health-check" && updateRun?.target_version) {
-      void window.omni.update.markActiveHealthy(updateRun.target_version).then((success) => {
-        if (!success) {
-          toast({
-            title: "Update health check not accepted",
-            description: "The updater is waiting for a matching active version.",
-            icon: <Warning size={20} className="text-red-500" />,
-            duration: 5000,
-          });
-        }
-      });
-    }
-  }, [updateState?.phase, updateRun?.target_version]);
-
-  useEffect(() => {
-    if (window.omni?.launch?.isReady) {
-      window.omni.launch.isReady().then((ready) => {
-        if (ready) setWorkspaceReady(true);
-      });
-    }
-
-    if (!window.omni?.launch?.onWorkspaceReady) return;
-    const cleanupReady = window.omni.launch.onWorkspaceReady(() => {
-      setWorkspaceError(null);
-      setWorkspaceReady(true);
-    });
-    const cleanupError = window.omni.launch.onWorkspaceError((message) => {
-      setWorkspaceError(message);
-      toast({
-        title: "Workspace Setup Failed",
-        description: message,
-        icon: <Warning size={20} className="text-red-500" />,
-        duration: 5000,
-      });
-    });
     const cleanupAuth = window.omni.launch.onAuthComplete
       ? window.omni.launch.onAuthComplete((user) => {
           setAuthUser(user);
@@ -129,45 +79,32 @@ export function LaunchApp() {
       : () => {};
 
     return () => {
-      cleanupReady();
-      cleanupError();
       cleanupAuth();
     };
   }, []);
 
-  const handleOpen = useCallback(
-    async (projectId: string) => {
-      if (!window.omni?.launch?.complete) return;
-      if (!workspaceReady) {
-        setWorkspaceError(
-          "Workspace setup is still running. Please wait before opening a project.",
-        );
-        return;
+  const handleOpen = useCallback(async (projectId: string) => {
+    if (!window.omni?.launch?.complete) return;
+    setSelectedId(projectId);
+    setIsOpening(true);
+    try {
+      await window.omni.launch.complete(projectId);
+    } catch (err) {
+      console.error("Failed to complete launch:", err);
+      if (err instanceof Error && err.message.includes("Sign in is required")) {
+        setAuthUser(null);
       }
-      setSelectedId(projectId);
-      setIsOpening(true);
-      try {
-        await window.omni.launch.complete(projectId);
-      } catch (err) {
-        console.error("Failed to complete launch:", err);
-        if (err instanceof Error && err.message.includes("Sign in is required")) {
-          setAuthUser(null);
-        }
-        setIsOpening(false);
-        setSelectedId(null);
-      }
-    },
-    [workspaceReady],
-  );
+      setIsOpening(false);
+      setSelectedId(null);
+    }
+  }, []);
 
   const handleProjectCreated = useCallback(
     (project: Project) => {
       setProjects((current) => [...current, project].sort((a, b) => a.name.localeCompare(b.name)));
-      if (workspaceReady) {
-        void handleOpen(project.id);
-      }
+      void handleOpen(project.id);
     },
-    [handleOpen, workspaceReady],
+    [handleOpen],
   );
 
   const handleAuthRedirect = useCallback(async (kind: "sign-in" | "sign-up") => {
@@ -223,12 +160,9 @@ export function LaunchApp() {
         isOpening={isOpening}
         isLoading={isLoading}
         loadError={loadError}
-        workspaceReady={workspaceReady}
-        workspaceError={workspaceError}
         handleOpen={handleOpen}
         handleProjectCreated={handleProjectCreated}
       />
-      <UpdateStage />
       <LauncherUpdateNotice />
       <LauncherUpdateDialog />
     </>

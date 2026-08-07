@@ -5,7 +5,6 @@ directories:
 files:
   - out/**/*
   - package.json
-  - app-template
 asar: true
 asarUnpack:
   - "**/node_modules/node-pty/**/*"

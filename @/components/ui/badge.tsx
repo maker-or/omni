@@ -4,7 +4,6 @@ import { forwardRef, type HTMLAttributes } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { useShape } from "@/lib/shape-context";
-import { PipperBeam } from "@/components/ui/pipper-beam";
 
 const badgeColors = {
   gray: "#a3a3a3",
@@ -83,7 +82,7 @@ const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
     const dotColor = color === "gray" ? "var(--muted-foreground)" : colorValue;
 
     return (
-      <PipperBeam pipperId={pipperId}>
+      <>
         <span
           ref={ref}
           data-pipper-id={pipperId}
@@ -103,7 +102,7 @@ const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
           )}
           {children}
         </span>
-      </PipperBeam>
+      </>
     );
   },
 );

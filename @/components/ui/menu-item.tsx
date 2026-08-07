@@ -7,7 +7,6 @@ import { useDropdown } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { shapeMap } from "@/lib/shape-context";
-import { PipperBeam } from "@/components/ui/pipper-beam";
 
 // MenuItem is only used inside Dropdown, which opts out of the global pill
 // shape — see dropdown.tsx for the rationale.
@@ -41,7 +40,7 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
     const skipAnimation = !hasMounted.current;
 
     return (
-      <PipperBeam pipperId={pipperId}>
+      <>
         <div
           ref={(node) => {
             (internalRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
@@ -135,7 +134,7 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
             )}
           </AnimatePresence>
         </div>
-      </PipperBeam>
+      </>
     );
   },
 );

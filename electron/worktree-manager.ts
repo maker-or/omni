@@ -308,8 +308,8 @@ export interface WorktreeInstallCommand {
  * The install command for a freshly created worktree, or null when the project
  * has no Node dependency manifest (non-JS projects install nothing). Lockfile
  * wins over any default so the install matches how the project is actually
- * managed; a bare `package.json` falls back to npm (ships with node, which the
- * app guarantees via mise).
+ * managed; a bare `package.json` falls back to npm. Project dependencies are
+ * owned by the project and are not installed by Pipper.
  */
 export function resolveInstallCommand(worktreePath: string): WorktreeInstallCommand | null {
   const has = (file: string) => existsSync(join(worktreePath, file));

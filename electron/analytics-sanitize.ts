@@ -56,12 +56,9 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
     sanitized.model_provider = sanitizeIdentifier(properties.model_provider);
   }
   if (properties.intent_category) sanitized.intent_category = properties.intent_category;
-  if (properties.component_id) sanitized.component_id = sanitizeIdentifier(properties.component_id);
   if (properties.source) sanitized.source = properties.source;
   if (properties.icon) sanitized.icon = sanitizeIdentifier(properties.icon);
-  if (properties.outcome) sanitized.outcome = properties.outcome;
   if (typeof properties.success === "boolean") sanitized.success = properties.success;
-  if (properties.rejection_stage) sanitized.rejection_stage = properties.rejection_stage;
   if (typeof properties.execution_duration_ms === "number") {
     sanitized.execution_duration_ms = Math.max(0, Math.round(properties.execution_duration_ms));
   }
@@ -91,9 +88,6 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
   if (properties.step) sanitized.step = sanitizeIdentifier(properties.step);
   if (properties.status) sanitized.status = sanitizeIdentifier(properties.status);
   if (properties.task_category) sanitized.task_category = properties.task_category;
-  if (properties.target_version) {
-    sanitized.target_version = sanitizeIdentifier(properties.target_version);
-  }
   if (properties.cost_currency) {
     sanitized.cost_currency = sanitizeIdentifier(properties.cost_currency);
   }
@@ -109,11 +103,7 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
   sanitized.connect_duration_ms = sanitizeCount(properties.connect_duration_ms);
   sanitized.build_duration_ms = sanitizeCount(properties.build_duration_ms);
   sanitized.download_duration_ms = sanitizeCount(properties.download_duration_ms);
-  sanitized.promotion_duration_ms = sanitizeCount(properties.promotion_duration_ms);
-  sanitized.health_check_duration_ms = sanitizeCount(properties.health_check_duration_ms);
   sanitized.total_duration_ms = sanitizeCount(properties.total_duration_ms);
-  sanitized.time_to_accept_ms = sanitizeCount(properties.time_to_accept_ms);
-  sanitized.time_in_edit_ms = sanitizeCount(properties.time_in_edit_ms);
   sanitized.iterations = sanitizeCount(properties.iterations);
   sanitized.depth = sanitizeCount(properties.depth);
   sanitized.heartbeat_seconds = sanitizeCount(properties.heartbeat_seconds);
@@ -124,9 +114,6 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
   if (typeof properties.has_images === "boolean") sanitized.has_images = properties.has_images;
   if (typeof properties.has_resources === "boolean") {
     sanitized.has_resources = properties.has_resources;
-  }
-  if (typeof properties.has_customizations === "boolean") {
-    sanitized.has_customizations = properties.has_customizations;
   }
 
   // Drop keys the helpers resolved to `undefined` so they never reach PostHog.

@@ -1,13 +1,9 @@
-export type AnalyticsWindowType = "launch" | "main" | "companion" | "background";
+export type AnalyticsWindowType = "launch" | "main" | "background";
 
 export type AnalyticsSource =
   | "launch"
   | "agent_panel"
   | "agent_runtime"
-  | "companion"
-  | "overlay"
-  | "overlay_comment"
-  | "companion_prompt"
   | "chat_prompt"
   | "unknown";
 
@@ -21,20 +17,12 @@ export type IntentCategory =
   | "bug_fix"
   | "unknown";
 
-export type MutationOutcome = "success" | "error" | "cancelled";
-
 export type AnalyticsEventName =
   | "app_opened"
   | "project_created"
   | "worktree_created"
   | "workspace_switched"
   | "thread_created"
-  | "component_mutation_requested"
-  | "mutation_started"
-  | "mutation_completed"
-  | "mutation_accepted"
-  | "mutation_rejected"
-  | "rollback_executed"
   | "agent_run_completed"
   // v2 — usage & duration
   | "app_closed"
@@ -49,19 +37,6 @@ export type AnalyticsEventName =
   | "agent_connected"
   | "agent_connection_failed"
   | "agent_switched"
-  // v2 — self-improving loop (visual/edit mode)
-  | "edit_mode_entered"
-  | "edit_build_reloaded"
-  | "edit_accepted"
-  | "edit_rejected"
-  | "edit_rollback_health"
-  // v2 — self-improving loop (launcher update)
-  | "update_available"
-  | "update_download_completed"
-  | "update_promoted"
-  | "update_health_result"
-  | "update_completed"
-  | "update_rolled_back"
   | "onboarding_step";
 
 export interface AnalyticsBaseProperties {
@@ -77,16 +52,13 @@ export interface AnalyticsProperties {
   model_id?: string;
   model_provider?: string;
   intent_category?: IntentCategory;
-  component_id?: string;
   source?: AnalyticsSource;
   icon?: string;
-  outcome?: MutationOutcome;
   execution_duration_ms?: number;
   files_changed_count?: number;
   error_type?: string;
   error_code?: string;
   success?: boolean;
-  rejection_stage?: "before_completion" | "after_completion" | "after_review";
 
   // v2 — agent identity (also promoted onto base properties when available)
   agent_id?: string;
@@ -104,7 +76,6 @@ export interface AnalyticsProperties {
   step?: string;
   status?: string;
   task_category?: IntentCategory;
-  target_version?: string;
   cost_currency?: string;
 
   // v2 — numeric measures (clamped >= 0, rounded by the sanitizer)
@@ -118,11 +89,7 @@ export interface AnalyticsProperties {
   connect_duration_ms?: number;
   build_duration_ms?: number;
   download_duration_ms?: number;
-  promotion_duration_ms?: number;
-  health_check_duration_ms?: number;
   total_duration_ms?: number;
-  time_to_accept_ms?: number;
-  time_in_edit_ms?: number;
   iterations?: number;
   depth?: number;
   heartbeat_seconds?: number;
@@ -133,7 +100,6 @@ export interface AnalyticsProperties {
   healthy?: boolean;
   has_images?: boolean;
   has_resources?: boolean;
-  has_customizations?: boolean;
 }
 
 export interface AnalyticsEvent {

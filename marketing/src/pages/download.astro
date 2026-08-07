@@ -11,10 +11,10 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
     pageClass="download-page"
 >
     <section
-        class="w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-10 md:pt-14 pb-10 flex flex-col items-center flex-1 min-h-0 overflow-y-auto font-geist"
+        class="download-shell w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-10 md:pt-14 pb-10 flex flex-col items-center flex-1 min-h-0 overflow-y-auto font-geist"
     >
-        <div class="w-full max-w-[720px] flex flex-col gap-10 max-sm:gap-8">
-            <header class="flex flex-col items-center text-center gap-2">
+        <div class="download-content w-full max-w-[720px] flex flex-col gap-10 max-sm:gap-8">
+            <header class="download-heading flex flex-col items-start gap-2">
                 <h1
                     class="font-medium text-[clamp(1.75rem,4vw,2.75rem)] tracking-[-0.035em] leading-[1.15] opacity-0 animate-fade-in"
                 >
@@ -39,38 +39,37 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
             </header>
 
             <aside
-                id="mac-launch-note"
-                class="w-full p-[0.9rem_1rem] border border-[rgba(161,161,170,0.22)] rounded-2xl bg-[rgba(250,250,250,0.04)] text-page-fg text-[0.86rem] leading-[1.5] opacity-0 animate-fade-in [animation-delay:150ms]"
-                aria-label="Unsigned macOS launch build notice"
+                id="launch-note"
+                class="download-note w-full p-[0.9rem_1rem] border border-[rgba(161,161,170,0.22)] rounded-2xl bg-[rgba(250,250,250,0.04)] text-page-fg text-[0.86rem] leading-[1.5] opacity-0 animate-fade-in [animation-delay:150ms]"
+                aria-label="Unsigned macOS and Windows launch notes"
             >
-                <strong class="font-medium">macOS note:</strong> Make sure that you
-                have mise installed, then run the following command in the terminal:
-                <code
-                    class="block mt-[0.6rem] p-[0.75rem_0.9rem] border border-[rgba(12,58,143,0.15)] rounded-[0.85rem] bg-[rgba(12,58,143,0.04)] whitespace-pre-wrap [overflow-wrap:anywhere] font-geist text-[0.84rem] break-words"
-                    >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
-                >
-            </aside>
-
-            <aside
-                id="windows-launch-note"
-                class="w-full p-[0.9rem_1rem] border border-[rgba(161,161,170,0.22)] rounded-2xl bg-[rgba(250,250,250,0.04)] text-page-fg text-[0.86rem] leading-[1.5] opacity-0 animate-fade-in [animation-delay:150ms]"
-                aria-label="Unsigned Windows launch build notice"
-                style="display:none"
-            >
-                <strong class="font-medium">Windows note:</strong> This build is unsigned.
-                If SmartScreen warns you, choose
-                <strong>More info</strong> and then
-                <strong>Run anyway</strong>, or right-click the installer and
-                choose <strong>Run as administrator</strong> if installation is blocked.
+                <div id="mac-launch-note">
+                    <strong class="font-medium">macOS note:</strong> Make sure that you
+                    have mise installed, then run the following command in the terminal:
+                    <code
+                        class="block mt-[0.6rem] p-[0.75rem_0.9rem] border border-[rgba(12,58,143,0.15)] rounded-[0.85rem] bg-[rgba(12,58,143,0.04)] whitespace-pre-wrap [overflow-wrap:anywhere] font-geist text-[0.84rem] break-words"
+                        >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
+                    >
+                </div>
+                <div id="windows-launch-note" class="mt-4">
+                    <strong class="font-medium">Windows note:</strong> This build is unsigned.
+                    If SmartScreen warns you, choose <strong>More info</strong> and then
+                    <strong>Run anyway</strong>, or right-click the installer and choose
+                    <strong>Run as administrator</strong> if installation is blocked.
+                </div>
             </aside>
 
             <div
-                class="w-full flex flex-row gap-10 opacity-0 animate-fade-in [animation-delay:200ms]"
+                class="download-platforms w-full flex flex-row gap-10 opacity-0 animate-fade-in [animation-delay:200ms]"
                 id="platforms"
             >
-                <section class="flex flex-col gap-3">
+                <section class="platform-card flex flex-col gap-3">
+                    <span class="download-handle download-handle--tl" aria-hidden="true"></span>
+                    <span class="download-handle download-handle--tr" aria-hidden="true"></span>
+                    <span class="download-handle download-handle--bl" aria-hidden="true"></span>
+                    <span class="download-handle download-handle--br" aria-hidden="true"></span>
                     <div
-                        class="flex items-center gap-[0.6rem] pb-2 border-b border-[rgba(12,58,143,0.15)]"
+                        class="platform-heading flex items-center gap-[0.6rem] pb-2 border-b border-[rgba(12,58,143,0.15)]"
                     >
                         <svg
                             class="w-[1.15em] h-[1.15em] text-page-fg shrink-0"
@@ -91,7 +90,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     <div class="grid grid-cols-2 max-sm:grid-cols-1 gap-2">
                         <a
                             id="arm64-download"
-                            class="flex flex-col gap-[0.2rem] p-[0.85rem_1rem] rounded-[10px] border border-[rgba(12,58,143,0.15)] bg-[rgba(255,255,255,0.02)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:-translate-y-px active:translate-y-0 data-[disabled=true]:opacity-50 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:[transform:none] data-[disabled=true]:hover:bg-[rgba(255,255,255,0.02)] data-[disabled=true]:hover:border-[rgba(12,58,143,0.15)]"
+                            class="platform-download flex flex-col gap-[0.2rem] p-[0.85rem_1rem] rounded-[10px] border border-[rgba(12,58,143,0.15)] bg-[rgba(255,255,255,0.02)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:-translate-y-px active:translate-y-0 data-[disabled=true]:opacity-50 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:[transform:none] data-[disabled=true]:hover:bg-[rgba(255,255,255,0.02)] data-[disabled=true]:hover:border-[rgba(12,58,143,0.15)]"
                             data-asset="arm64.dmg"
                             data-disabled="true"
                             aria-disabled="true"
@@ -104,15 +103,19 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     </div>
                     <button
                         id="mac-download-retry"
-                        class="self-start mt-1 p-[0.45rem_0.85rem] border border-[rgba(12,58,143,0.15)] rounded-lg bg-[rgba(255,255,255,0.02)] text-page-fg text-[0.82rem] cursor-pointer transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:text-page-fg"
+                        class="download-retry self-start mt-1 p-[0.45rem_0.85rem] border border-[rgba(12,58,143,0.15)] rounded-lg bg-[rgba(255,255,255,0.02)] text-page-fg text-[0.82rem] cursor-pointer transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:text-page-fg"
                         type="button"
                         style="display:none">Retry</button
                     >
                 </section>
 
-                <section class="flex flex-col gap-3">
+                <section class="platform-card flex flex-col gap-3">
+                    <span class="download-handle download-handle--tl" aria-hidden="true"></span>
+                    <span class="download-handle download-handle--tr" aria-hidden="true"></span>
+                    <span class="download-handle download-handle--bl" aria-hidden="true"></span>
+                    <span class="download-handle download-handle--br" aria-hidden="true"></span>
                     <div
-                        class="flex items-center gap-[0.6rem] pb-2 border-b border-[rgba(12,58,143,0.15)]"
+                        class="platform-heading flex items-center gap-[0.6rem] pb-2 border-b border-[rgba(12,58,143,0.15)]"
                     >
                         <svg
                             class="w-[1.15em] h-[1.15em] text-page-fg shrink-0"
@@ -120,7 +123,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                             xmlns="http://www.w3.org/2000/svg"
                             ><path
                                 d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"
-                                fill="#D1E1FF"></path></svg
+                                fill="#111111"></path></svg
                         >
                         <h2
                             class="font-medium text-[1.1rem] tracking-[-0.01em]"
@@ -131,7 +134,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     <div class="grid grid-cols-2 max-sm:grid-cols-1 gap-2">
                         <a
                             id="win64-download"
-                            class="flex flex-col gap-[0.2rem] p-[0.85rem_1rem] rounded-[10px] border border-[rgba(12,58,143,0.15)] bg-[rgba(255,255,255,0.02)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:-translate-y-px active:translate-y-0 data-[disabled=true]:opacity-50 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:[transform:none] data-[disabled=true]:hover:bg-[rgba(255,255,255,0.02)] data-[disabled=true]:hover:border-[rgba(12,58,143,0.15)]"
+                            class="platform-download flex flex-col gap-[0.2rem] p-[0.85rem_1rem] rounded-[10px] border border-[rgba(12,58,143,0.15)] bg-[rgba(255,255,255,0.02)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:-translate-y-px active:translate-y-0 data-[disabled=true]:opacity-50 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:[transform:none] data-[disabled=true]:hover:bg-[rgba(255,255,255,0.02)] data-[disabled=true]:hover:border-[rgba(255,255,255,0.15)]"
                             data-asset="win-x64.exe"
                             data-disabled="true"
                             aria-disabled="true"
@@ -144,7 +147,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     </div>
                     <button
                         id="windows-download-retry"
-                        class="self-start mt-1 p-[0.45rem_0.85rem] border border-[rgba(12,58,143,0.15)] rounded-lg bg-[rgba(255,255,255,0.02)] text-page-fg text-[0.82rem] cursor-pointer transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:text-page-fg"
+                        class="download-retry self-start mt-1 p-[0.45rem_0.85rem] border border-[rgba(12,58,143,0.15)] rounded-lg bg-[rgba(255,255,255,0.02)] text-page-fg text-[0.82rem] cursor-pointer transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:text-page-fg"
                         type="button"
                         style="display:none">Retry</button
                     >
@@ -153,6 +156,172 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
         </div>
     </section>
 </Layout>
+
+<style>
+    :global(.download-page) {
+        --download-ink: #111111;
+        --download-blue: #2162ff;
+        --download-blue-soft: #d8e5ff;
+        --download-purple: #a54cf1;
+        --download-purple-soft: #e8d9fa;
+        --download-muted: #6e6e6e;
+        background: #f0efed !important;
+        color: var(--download-ink) !important;
+    }
+
+    .download-shell {
+        box-sizing: border-box;
+        width: min(calc(100% - clamp(2rem, 5.6vw, 4.8rem)), 120rem) !important;
+        max-width: none !important;
+        min-height: calc(100svh - clamp(2rem, 5.6vw, 4.8rem));
+        margin: 0 auto clamp(1rem, 2.8vw, 2.4rem) !important;
+        padding: clamp(2rem, 5vw, 5rem) clamp(1.5rem, 5vw, 6.5rem) 3rem !important;
+        align-items: stretch !important;
+        border: 1.5px solid var(--download-ink);
+        background: #f0efed;
+        color: var(--download-ink);
+        overflow-y: auto;
+    }
+
+    .download-content {
+        width: 100% !important;
+        max-width: 74rem !important;
+        margin: 0 auto;
+        gap: clamp(1.8rem, 4vw, 3.5rem) !important;
+        font-family: "Figtree Variable", sans-serif;
+    }
+
+    .download-heading h1 {
+        margin: 0;
+        color: var(--download-ink);
+        font-size: clamp(3rem, 6vw, 6.2rem) !important;
+        font-weight: 430 !important;
+        letter-spacing: -0.08em !important;
+        line-height: 0.9 !important;
+    }
+
+    .download-heading h1::first-line { color: var(--download-blue); }
+    .download-heading p { margin: 0; color: var(--download-muted) !important; }
+    .download-heading a { color: var(--download-blue) !important; }
+
+    .download-note {
+        position: relative;
+        box-sizing: border-box;
+        margin: 0 !important;
+        padding: 1rem 1.15rem !important;
+        border: 1.5px solid color-mix(in srgb, var(--download-blue) 45%, transparent) !important;
+        border-radius: 0 !important;
+        background: var(--download-blue-soft) !important;
+        color: var(--download-ink) !important;
+        font-size: 0.86rem !important;
+        line-height: 1.45 !important;
+    }
+
+    .download-note strong { color: var(--download-blue); }
+    .download-note > div + div {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid color-mix(in srgb, var(--download-blue) 28%, transparent);
+    }
+    .download-note code {
+        margin-top: 0.65rem !important;
+        border: 1.5px solid color-mix(in srgb, var(--download-blue) 35%, transparent) !important;
+        border-radius: 0 !important;
+        background: rgb(255 255 255 / 0.45) !important;
+        color: var(--download-ink);
+    }
+
+    .download-platforms {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.2rem !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+
+    .platform-card {
+        position: relative;
+        min-width: 0;
+        padding: 1.25rem !important;
+        border: 1.5px solid var(--download-blue);
+        background: var(--download-blue-soft);
+        color: var(--download-ink);
+    }
+
+    .platform-card:nth-child(2) {
+        border-color: var(--download-purple);
+        background: var(--download-purple-soft);
+    }
+
+    .platform-card .download-handle { background: var(--download-blue); }
+    .platform-card:nth-child(2) .download-handle { background: var(--download-purple); }
+    .download-note .download-handle { background: var(--download-blue); }
+
+    .platform-heading {
+        padding-bottom: 0.85rem !important;
+        border-bottom-color: currentColor !important;
+        color: var(--download-blue);
+    }
+
+    .platform-card:nth-child(2) .platform-heading { color: var(--download-purple); }
+    .platform-heading h2 { color: var(--download-ink); }
+    .platform-heading svg { color: currentColor !important; }
+
+    .platform-download {
+        position: relative;
+        min-height: 5.4rem;
+        justify-content: center;
+        border: 1.5px solid currentColor !important;
+        border-radius: 0 !important;
+        background: rgb(255 255 255 / 0.35) !important;
+        color: var(--download-blue) !important;
+        text-decoration: none;
+        transition: none !important;
+    }
+
+    .platform-card:nth-child(2) .platform-download { color: var(--download-purple) !important; }
+    .platform-download:hover { transform: none !important; background: rgb(255 255 255 / 0.55) !important; }
+    .platform-download[data-disabled="true"] { opacity: 0.65; }
+    .platform-download [data-arch] { color: currentColor; }
+    .platform-download > span:nth-child(2) { color: var(--download-muted); }
+
+    .download-handle {
+        position: absolute;
+        z-index: 1;
+        width: 0.7rem;
+        height: 0.7rem;
+        background: currentColor;
+        pointer-events: none;
+    }
+
+    .download-handle--tl { top: -0.4rem; left: -0.4rem; }
+    .download-handle--tr { top: -0.4rem; right: -0.4rem; }
+    .download-handle--bl { bottom: -0.4rem; left: -0.4rem; }
+    .download-handle--br { right: -0.4rem; bottom: -0.4rem; }
+
+    .download-retry {
+        align-self: flex-start;
+        margin-top: 0.25rem !important;
+        border: 1.5px solid currentColor !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        color: var(--download-ink) !important;
+        transition: none !important;
+    }
+
+    .download-retry:hover { background: rgb(255 255 255 / 0.5) !important; }
+
+    @media (max-width: 48rem) {
+        .download-shell {
+            width: calc(100% - 1.5rem) !important;
+            min-height: calc(100svh - 1.5rem);
+            margin: 0 auto 0.75rem !important;
+            padding: 2rem 1rem 2.5rem !important;
+        }
+
+        .download-platforms { grid-template-columns: 1fr; }
+    }
+</style>
 
 <script define:vars={{ macLauncherManifestUrl, windowsLauncherManifestUrl }}>
     const versionLabel = document.querySelector("#version-label");

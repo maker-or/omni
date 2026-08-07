@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
-import { PipperBeam } from "@/components/ui/pipper-beam";
 
 interface ChatMessageProps extends Omit<HTMLMotionProps<"div">, "children"> {
   from: "user" | "assistant";
@@ -29,7 +28,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
     const showTime = isUser && time != null;
 
     return (
-      <PipperBeam pipperId={pipperId}>
+      <>
         <motion.div
           ref={ref}
           layout="position"
@@ -85,7 +84,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
             </div>
           )}
         </motion.div>
-      </PipperBeam>
+      </>
     );
   },
 );
