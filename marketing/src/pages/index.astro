@@ -52,7 +52,6 @@ import Layout from "../layouts/Layout.astro";
                             </span>
                         </span>
                     </h1>
-
                 </div>
 
                 <div class="action-row" aria-label="Get started">
@@ -61,10 +60,18 @@ import Layout from "../layouts/Layout.astro";
                         href="/download"
                     >
                         <span>Download</span>
-                        <span class="action-handle action-handle--tl" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--tr" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--bl" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--br" aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--tl"
+                            aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--tr"
+                            aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--bl"
+                            aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--br"
+                            aria-hidden="true"></span>
                         <span
                             class="canvas-cursor canvas-cursor--purple"
                             aria-hidden="true"
@@ -83,26 +90,20 @@ import Layout from "../layouts/Layout.astro";
                         rel="noopener noreferrer"
                     >
                         <span>Github</span>
-                        <span class="action-handle action-handle--tl" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--tr" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--bl" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--br" aria-hidden="true"></span>
-                    </a>
-                    <a
-                        class="action-card action-card--stars"
-                        href="https://github.com/maker-or/omni"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
-                        <span class="star" aria-hidden="true">★</span>
-                        <span>14k+</span>
-                        <span class="action-handle action-handle--tl" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--tr" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--bl" aria-hidden="true"></span>
-                        <span class="action-handle action-handle--br" aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--tl"
+                            aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--tr"
+                            aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--bl"
+                            aria-hidden="true"></span>
+                        <span
+                            class="action-handle action-handle--br"
+                            aria-hidden="true"></span>
                     </a>
                 </div>
-
             </section>
         </main>
 
@@ -112,6 +113,239 @@ import Layout from "../layouts/Layout.astro";
             <span>cracked people</span>
         </p>
     </div>
+
+    <section class="agents-section" aria-labelledby="agents-title">
+        <div class="agents-board">
+            <div class="agents-layout">
+                <div class="agents-copy">
+                    <h2 id="agents-title" class="agents-title">
+                        <span>Run any</span>
+                        <span class="agents-title__accent">@agent</span>
+                    </h2>
+
+                    <ul class="agent-list" aria-label="Supported agents">
+                        <li><span class="agent-chip">@grok</span></li>
+                        <li>
+                            <span class="agent-chip agent-chip--claude"
+                                >@claude</span>
+                        </li>
+                        <li>
+                            <span class="agent-chip agent-chip--codex"
+                                >@codex</span>
+                        </li>
+                        <li>
+                            <span class="agent-chip agent-chip--copilot"
+                                >@copilot</span>
+                        </li>
+                        <li>
+                            <span class="agent-chip agent-chip--cursor"
+                                >@cursor</span>
+                        </li>
+                        <li>
+                            <span class="agent-chip agent-chip--opencode"
+                                >@opencode</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="agent-matrix" aria-hidden="true">
+                    {
+                        Array.from({ length: 16 }).map((_, index) => (
+                            <span
+                                class:list={[
+                                    "agent-tile",
+                                    `agent-tile--${index % 4}`,
+                                ]}
+                            >
+                                {index % 4 === 0 && (
+                                    <svg
+                                        class="agent-glyph"
+                                        width="139"
+                                        height="133"
+                                        viewBox="0 0 139 133"
+                                        fill="none"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        role="presentation"
+                                    >
+                                        <path
+                                            d="M63.1362 1.93107C66.6799 -0.643566 71.4784 -0.643561 75.022 1.93107L133.99 44.7737C137.534 47.3484 139.016 51.912 137.663 56.0778L115.139 125.399C113.786 129.565 109.903 132.385 105.523 132.385H32.635C28.2547 132.385 24.3727 129.565 23.0191 125.399L0.495382 56.0778C-0.858183 51.912 0.624639 47.3484 4.16832 44.7737L63.1362 1.93107Z"
+                                            fill="#088139"></path>
+                                    </svg>
+                                )}
+                                {index % 4 === 1 && (
+                                    <svg
+                                        class="agent-glyph"
+                                        width="161"
+                                        height="150"
+                                        viewBox="0 0 161 150"
+                                        fill="none"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        role="presentation"
+                                    >
+                                        <rect width="161" height="50" rx="25" fill="#B1620D"></rect>
+                                        <rect y="50" width="161" height="50" rx="25" fill="#B1620D"></rect>
+                                        <rect y="100" width="161" height="50" rx="25" fill="#B1620D"></rect>
+                                    </svg>
+                                )}
+                                {index % 4 === 2 && (
+                                    <svg
+                                        class="agent-glyph"
+                                        width="128"
+                                        height="128"
+                                        viewBox="0 0 128 128"
+                                        fill="none"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        role="presentation"
+                                    >
+                                        <circle cx="96" cy="32" r="32" fill="#5F92FE"></circle>
+                                        <circle cx="32" cy="32" r="32" fill="#5F92FE"></circle>
+                                        <circle cx="32" cy="96" r="32" fill="#5F92FE"></circle>
+                                        <circle cx="96" cy="96" r="32" fill="#5F92FE"></circle>
+                                        <rect width="63" height="70" transform="translate(34 32)" fill="#5F92FE"></rect>
+                                    </svg>
+                                )}
+                                {index % 4 === 3 && (
+                                    <svg
+                                        class="agent-glyph"
+                                        width="147"
+                                        height="145"
+                                        viewBox="0 0 147 145"
+                                        fill="none"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        role="presentation"
+                                    >
+                                        <path
+                                            d="M54.4823 9.7498C63.6334 -3.25253 82.9076 -3.25253 92.0587 9.7498V9.7498C96.6426 16.2628 104.273 19.9373 112.223 19.4603V19.4603C128.094 18.5081 140.111 33.5772 135.651 48.8387V48.8387C133.417 56.4834 135.302 64.7397 140.631 70.658V70.658C151.271 82.473 146.982 101.264 132.27 107.292V107.292C124.9 110.312 119.62 116.933 118.316 124.79V124.79C115.712 140.475 98.3471 148.838 84.4607 141.094V141.094C77.5049 137.215 69.0362 137.215 62.0803 141.094V141.094C48.1939 148.838 30.8285 140.475 28.2252 124.79V124.79C26.9211 116.933 21.6409 110.312 14.2712 107.292V107.292C-0.441472 101.264 -4.73037 82.473 5.90965 70.658V70.658C11.2394 64.7397 13.1238 56.4834 10.8898 48.8387V48.8387C6.42976 33.5772 18.447 18.5081 34.3182 19.4603V19.4603C42.2684 19.9373 49.8984 16.2628 54.4823 9.7498V9.7498Z"
+                                            fill="#A23EEB"></path>
+                                    </svg>
+                                )}
+                            </span>
+                        ))
+                    }
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="feature-section" aria-labelledby="parallel-title">
+        <div class="feature-board">
+            <article class="feature-column feature-column--parallel">
+                <h2 id="parallel-title" class="feature-title">
+                    Parallel agent
+                </h2>
+                <p class="feature-description">
+                    Fire off multiple agents at once.<br />
+                    Independent tasks, done side<br />
+                    by side, in a fraction of the time.
+                </p>
+
+                <div
+                    class="feature-cursor-cloud feature-cursor-cloud--parallel"
+                    aria-hidden="true"
+                >
+                    <span
+                        class="feature-cursor feature-cursor--orange feature-cursor--parallel-1"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="feature-cursor feature-cursor--red feature-cursor--parallel-2"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="feature-cursor feature-cursor--purple feature-cursor--parallel-3"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="feature-cursor feature-cursor--blue feature-cursor--parallel-4"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="feature-cursor feature-cursor--green feature-cursor--parallel-5"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="feature-cursor feature-cursor--orange feature-cursor--parallel-6"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                    <span
+                        class="feature-cursor feature-cursor--red feature-cursor--parallel-7"
+                    >
+                        <svg viewBox="0 0 54 54" role="presentation">
+                            <path
+                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
+                            ></path>
+                        </svg>
+                    </span>
+                </div>
+            </article>
+
+            <article
+                class="feature-column feature-column--subagents"
+                aria-labelledby="subagents-title"
+            >
+                <h2 id="subagents-title" class="feature-title">
+                    subagents agent
+                </h2>
+                <p class="feature-description">
+                    Let one agent delegate<br />
+                    focus helpers. Each<br />
+                    subagent owns a piece of<br />
+                    the job, then reports back.
+                </p>
+
+                <div
+                    class="feature-cursor-cloud feature-cursor-cloud--subagents"
+                    aria-hidden="true"
+                >
+                    {
+                        Array.from({ length: 8 }).map((_, index) => (
+                            <span
+                                class:list={[
+                                    "feature-cursor",
+                                    "feature-cursor--blue",
+                                    `feature-cursor--subagent-${index + 1}`,
+                                ]}
+                            >
+                                <svg viewBox="0 0 54 54" role="presentation">
+                                    <path d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z" />
+                                </svg>
+                            </span>
+                        ))
+                    }
+                </div>
+            </article>
+        </div>
+    </section>
 </Layout>
 
 <style>
@@ -138,9 +372,333 @@ import Layout from "../layouts/Layout.astro";
         height: 100svh;
         min-height: 100svh;
         margin: 0;
-        border: 1.5px solid var(--canvas-ink);
+        border: none;
         overflow: hidden;
         isolation: isolate;
+    }
+
+    .agents-section {
+        box-sizing: border-box;
+        width: 100vw;
+        min-height: 100svh;
+        padding: clamp(1.15rem, 3vw, 3.75rem);
+        background: var(--canvas-bg);
+    }
+
+    .agents-board {
+        box-sizing: border-box;
+        min-height: calc(100svh - clamp(2.3rem, 6vw, 7.5rem));
+        padding: clamp(4rem, 10.5vh, 8rem) clamp(2rem, 6.5vw, 8rem)
+            clamp(2.5rem, 5vw, 5rem);
+        border: 1.5px solid var(--canvas-ink);
+        overflow: hidden;
+    }
+
+    .agents-layout {
+        display: grid;
+        grid-template-columns: minmax(20rem, 0.88fr) minmax(38rem, 1.28fr);
+        align-items: center;
+        gap: clamp(2rem, 5.2vw, 7rem);
+        min-height: calc(100svh - clamp(11rem, 21vw, 19rem));
+    }
+
+    .agents-copy {
+        align-self: start;
+    }
+
+    .agents-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.2em;
+        margin: 0;
+        color: #565656;
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(3rem, 4.2vw, 5rem);
+        font-weight: 420;
+        line-height: 0.94;
+        letter-spacing: -0.09em;
+    }
+
+    .agents-title__accent {
+        color: #b66509;
+        font-weight: 520;
+    }
+
+    .agent-list {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: clamp(0.72rem, 1.55vh, 1.25rem);
+        margin: clamp(2.4rem, 4.4vh, 4rem) 0 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .agent-chip {
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+        min-width: clamp(14.5rem, 15vw, 19rem);
+        padding: clamp(0.7rem, 1.25vw, 1.2rem) clamp(1.35rem, 2vw, 2.25rem)
+            clamp(0.82rem, 1.45vw, 1.35rem);
+        border-radius: 999px;
+        background: #ffad4b;
+        color: #a95c09;
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(2.35rem, 3.65vw, 4.25rem);
+        font-weight: 420;
+        line-height: 0.84;
+        letter-spacing: -0.095em;
+        white-space: nowrap;
+    }
+
+    .agent-chip--claude {
+        min-width: clamp(17rem, 17.5vw, 22rem);
+    }
+    .agent-chip--codex {
+        min-width: clamp(16rem, 16.8vw, 21rem);
+    }
+    .agent-chip--copilot {
+        min-width: clamp(17rem, 17.5vw, 22rem);
+    }
+    .agent-chip--cursor {
+        min-width: clamp(16.5rem, 17vw, 21.5rem);
+    }
+    .agent-chip--opencode {
+        min-width: clamp(20rem, 22vw, 28rem);
+    }
+
+    .agent-matrix {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: clamp(1.25rem, 3.2vw, 3.75rem) clamp(1rem, 3vw, 3.75rem);
+        width: min(100%, 58rem);
+        justify-self: end;
+    }
+
+    .agent-tile {
+        position: relative;
+        display: grid;
+        aspect-ratio: 1;
+        place-items: center;
+        border-radius: 1.08rem;
+    }
+
+    .agent-tile--0 {
+        background: #27b45c;
+    }
+    .agent-tile--1 {
+        background: #ffb24f;
+    }
+    .agent-tile--2 {
+        background: #86aff1;
+    }
+    .agent-tile--3 {
+        background: #b247ee;
+    }
+
+    .agent-glyph {
+        position: relative;
+        display: block;
+        width: 72%;
+        height: auto;
+        max-height: 76%;
+    }
+
+    .feature-section {
+        box-sizing: border-box;
+        width: 100vw;
+        min-height: 100svh;
+        padding: clamp(1.15rem, 3vw, 3.75rem);
+        background: var(--canvas-bg);
+    }
+
+    .feature-board {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: clamp(5rem, 10vw, 13rem);
+        box-sizing: border-box;
+        min-height: calc(100svh - clamp(2.3rem, 6vw, 7.5rem));
+        padding: clamp(3.1rem, 4.7vw, 5rem) clamp(2rem, 5.6vw, 6.8rem)
+            clamp(2.5rem, 5vw, 5rem);
+        border: 1.5px solid var(--canvas-ink);
+        overflow: hidden;
+    }
+
+    .feature-board,
+    .feature-column {
+        isolation: isolate;
+    }
+
+    .feature-column {
+        position: relative;
+        min-height: calc(100svh - clamp(8rem, 14vw, 13rem));
+    }
+
+    .feature-column--subagents {
+        text-align: right;
+    }
+
+    .feature-title,
+    .feature-description {
+        position: relative;
+        z-index: 2;
+        margin: 0;
+        color: #565656;
+        font-family: "Figtree Variable", sans-serif;
+        letter-spacing: -0.095em;
+    }
+
+    .feature-title {
+        color: #272727;
+        font-size: clamp(3.4rem, 4.55vw, 5.6rem);
+        font-weight: 500;
+        line-height: 0.9;
+    }
+
+    .feature-description {
+        margin-top: clamp(2.2rem, 3.2vw, 3.7rem);
+        font-size: clamp(2.25rem, 3.2vw, 4rem);
+        font-weight: 420;
+        line-height: 1.02;
+    }
+
+    .feature-cursor-cloud {
+        position: absolute;
+        z-index: 1;
+        pointer-events: none;
+    }
+
+    .feature-cursor-cloud--parallel {
+        top: 46%;
+        left: 0;
+        width: min(29rem, 35vw);
+        height: 23rem;
+    }
+
+    .feature-cursor-cloud--subagents {
+        top: 45%;
+        right: 0;
+        width: min(29rem, 35vw);
+        height: 25rem;
+    }
+
+    .feature-cursor {
+        position: absolute;
+        display: block;
+        width: clamp(2.8rem, 4.1vw, 4.8rem);
+        filter: drop-shadow(0.1rem 0.18rem 0.08rem rgb(0 0 0 / 0.34));
+        transform-origin: center;
+    }
+
+    .feature-cursor svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+    }
+
+    .feature-cursor path {
+        stroke: #191919;
+        stroke-width: 1.6;
+        stroke-linejoin: round;
+    }
+
+    .feature-cursor--orange path {
+        fill: var(--canvas-orange);
+    }
+    .feature-cursor--red path {
+        fill: #ff4043;
+    }
+    .feature-cursor--purple path {
+        fill: var(--canvas-purple);
+    }
+    .feature-cursor--blue path {
+        fill: #78a8ff;
+    }
+    .feature-cursor--green path {
+        fill: #63cc38;
+    }
+
+    /* Parallel work gets a loose, mixed-color scatter of the same canvas cursor. */
+    .feature-cursor--parallel-1 {
+        top: 25%;
+        left: 0;
+        transform: rotate(-55deg) scale(0.96);
+    }
+    .feature-cursor--parallel-2 {
+        top: 0;
+        left: 29%;
+        transform: rotate(-48deg) scale(1.02);
+    }
+    .feature-cursor--parallel-3 {
+        top: 22%;
+        left: 57%;
+        transform: rotate(-62deg) scale(0.94);
+    }
+    .feature-cursor--parallel-4 {
+        top: 58%;
+        left: -6%;
+        transform: rotate(-45deg) scale(0.98);
+    }
+    .feature-cursor--parallel-5 {
+        top: 52%;
+        left: 30%;
+        transform: rotate(-58deg) scale(1.04);
+    }
+    .feature-cursor--parallel-6 {
+        top: 49%;
+        left: 80%;
+        transform: rotate(-50deg) scale(0.96);
+    }
+    .feature-cursor--parallel-7 {
+        top: 86%;
+        left: 56%;
+        transform: rotate(-64deg) scale(1.01);
+    }
+
+    /* Subagents stay in one visual language: uniform blue cursors, all aimed upward. */
+    .feature-cursor--subagent-1 {
+        top: 2%;
+        left: 28%;
+        transform: rotate(-55deg);
+    }
+    .feature-cursor--subagent-2 {
+        top: 20%;
+        left: 59%;
+        transform: rotate(-50deg);
+    }
+    .feature-cursor--subagent-3 {
+        top: 0;
+        left: 91%;
+        transform: rotate(-60deg);
+    }
+    .feature-cursor--subagent-4 {
+        top: 41%;
+        left: 46%;
+        transform: rotate(-53deg);
+    }
+    .feature-cursor--subagent-5 {
+        top: 52%;
+        left: 88%;
+        transform: rotate(-58deg);
+    }
+    .feature-cursor--subagent-6 {
+        top: 76%;
+        left: 26%;
+        transform: rotate(-48deg);
+    }
+    .feature-cursor--subagent-7 {
+        top: 77%;
+        left: 55%;
+        transform: rotate(-62deg);
+    }
+    .feature-cursor--subagent-8 {
+        top: 73%;
+        left: 2%;
+        transform: rotate(-55deg);
     }
 
     .home-content {
@@ -268,10 +826,22 @@ import Layout from "../layouts/Layout.astro";
         pointer-events: none;
     }
 
-    .action-handle--tl { top: -0.4rem; left: -0.4rem; }
-    .action-handle--tr { top: -0.4rem; right: -0.4rem; }
-    .action-handle--bl { bottom: -0.4rem; left: -0.4rem; }
-    .action-handle--br { right: -0.4rem; bottom: -0.4rem; }
+    .action-handle--tl {
+        top: -0.4rem;
+        left: -0.4rem;
+    }
+    .action-handle--tr {
+        top: -0.4rem;
+        right: -0.4rem;
+    }
+    .action-handle--bl {
+        bottom: -0.4rem;
+        left: -0.4rem;
+    }
+    .action-handle--br {
+        right: -0.4rem;
+        bottom: -0.4rem;
+    }
 
     .action-card--download {
         color: var(--canvas-purple);
@@ -377,6 +947,44 @@ import Layout from "../layouts/Layout.astro";
         }
     }
 
+    @media (max-width: 72rem) {
+        .agents-board {
+            padding-inline: clamp(2rem, 5vw, 4rem);
+        }
+
+        .agents-layout {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 3.5rem;
+            min-height: auto;
+        }
+
+        .agent-matrix {
+            width: min(100%, 44rem);
+            justify-self: start;
+        }
+
+        .feature-board {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 5rem;
+        }
+
+        .feature-column {
+            min-height: 32rem;
+        }
+
+        .feature-column--subagents {
+            text-align: left;
+        }
+
+        .feature-cursor-cloud--parallel,
+        .feature-cursor-cloud--subagents {
+            top: 52%;
+            left: 0;
+            right: auto;
+            width: min(33rem, 80vw);
+        }
+    }
+
     @media (max-width: 58rem) {
         .home-shell {
             width: 100%;
@@ -404,6 +1012,19 @@ import Layout from "../layouts/Layout.astro";
         }
         .canvas-cursor--orange {
             right: -1.5rem;
+        }
+        .agents-section {
+            padding: 1.25rem;
+        }
+        .agents-board {
+            min-height: calc(100svh - 2.5rem);
+            padding: 4rem 2rem 3rem;
+        }
+        .agents-title {
+            font-size: clamp(3rem, 8vw, 4.5rem);
+        }
+        .agent-list {
+            margin-top: 2.5rem;
         }
     }
 
@@ -446,6 +1067,64 @@ import Layout from "../layouts/Layout.astro";
             top: -3.4rem;
             left: -3.2rem;
             width: 3.5rem;
+        }
+        .agents-section {
+            padding: 0.75rem;
+        }
+        .agents-board {
+            min-height: calc(100svh - 1.5rem);
+            padding: 3rem 1.1rem 2rem;
+        }
+        .agents-layout {
+            gap: 2.75rem;
+        }
+        .agents-title {
+            font-size: clamp(2.55rem, 12vw, 4rem);
+        }
+        .agent-list {
+            gap: 0.7rem;
+            margin-top: 2rem;
+        }
+        .agent-chip,
+        .agent-chip--claude,
+        .agent-chip--codex,
+        .agent-chip--copilot,
+        .agent-chip--cursor,
+        .agent-chip--opencode {
+            min-width: 0;
+            max-width: 100%;
+            padding-inline: 1.35rem;
+            font-size: clamp(2rem, 10vw, 3rem);
+        }
+        .agent-matrix {
+            gap: 0.8rem;
+        }
+        .agent-tile {
+            border-radius: 0.65rem;
+        }
+        .feature-section {
+            padding: 0.75rem;
+        }
+        .feature-board {
+            gap: 2rem;
+            min-height: calc(100svh - 1.5rem);
+            padding: 2.5rem 1.1rem 2rem;
+        }
+        .feature-column {
+            min-height: 23rem;
+        }
+        .feature-title {
+            font-size: clamp(2.55rem, 12vw, 4rem);
+        }
+        .feature-description {
+            margin-top: 1.8rem;
+            font-size: clamp(1.9rem, 8.5vw, 3rem);
+        }
+        .feature-cursor-cloud--parallel,
+        .feature-cursor-cloud--subagents {
+            top: 54%;
+            width: min(28rem, 87vw);
+            height: 16rem;
         }
     }
 

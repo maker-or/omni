@@ -22,6 +22,7 @@ import {
   type AcpSessionSlice,
 } from "../lib/acp-session-reducer";
 import { useAgentTerminalStore } from "./agent-terminal-store";
+import { useModelCatalogStore } from "./model-catalog-store";
 import { toast } from "../components/ui/toast";
 import { Warning, Info } from "@phosphor-icons/react";
 import React from "react";
@@ -611,11 +612,24 @@ function applyBridgeEvent(
   }
 }
 
+function rememberModelsFromState(state: AcpSessionState | null | undefined): void {
+  if (!state?.agentId) return;
+  const modelOpt = selectConfigOption(state.configOptions ?? [], "model");
+  const models = selectOptionsList(modelOpt).map((o) => ({
+    modelId: o.value,
+    name: o.name,
+  }));
+  if (models.length === 0) return;
+  useModelCatalogStore.getState().remember(state.agentId, models);
+}
+
 function withSnapshot(
   partial: Partial<AgentState> & { state?: AcpSessionState | null },
 ): Partial<AgentState> {
   if ("state" in partial) {
-    return { ...partial, snapshot: toPanelSnapshot(partial.state ?? null) };
+    const nextState = partial.state ?? null;
+    rememberModelsFromState(nextState);
+    return { ...partial, snapshot: toPanelSnapshot(nextState) };
   }
   return partial;
 }

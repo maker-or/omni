@@ -20,6 +20,7 @@ import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
+import { useModelCatalogStore } from "@/store/model-catalog-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
@@ -36,6 +37,7 @@ import {
   getEntityTokens,
   getFreeText,
   removeEntityKind,
+  resolveAgentId,
   stripEntityKinds,
   titleFromText,
   upsertEntity,
@@ -660,23 +662,21 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               "Project",
           }
         : null;
-    let content = initialDraftContent(softProject);
-    // Single selected agent → soft-chip so the next @ is model/files, not a
-    // forced agent picker every time.
-    const availableAgents = useAgentRegistryStore
-      .getState()
-      .agents.filter(
-        (a) =>
-          useAgentRegistryStore.getState().selectedAgentIds.includes(a.id) && a.available !== false,
-      );
-    if (availableAgents.length === 1) {
-      const only = availableAgents[0]!;
-      content = upsertEntity(content, {
-        kind: "agent",
-        id: only.id,
-        label: only.displayName,
-      });
-      setDraftAgent(only.id);
+    const content = initialDraftContent(softProject);
+    // Soft-default agent into draft state (no @agent chip — model-first UX).
+    // Prefer the currently connected agent when it is in the user's pool.
+    const registry = useAgentRegistryStore.getState();
+    const availableAgents = registry.agents.filter(
+      (a) => registry.selectedAgentIds.includes(a.id) && a.available !== false,
+    );
+    const pool = availableAgents.length > 0
+      ? availableAgents
+      : registry.agents.filter((a) => a.available !== false);
+    if (pool.length > 0) {
+      const connectedId = useAgentStore.getState().state?.agentId ?? null;
+      const preferred =
+        (connectedId ? pool.find((a) => a.id === connectedId) : null) ?? pool[0]!;
+      setDraftAgent(preferred.id);
     }
     setDraftContent(content);
     requestAnimationFrame(() => composerTextareaRef.current?.focus());
@@ -702,7 +702,15 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         });
         if (contentProject != null && contentProject !== draft.projectId) {
           next = removeEntityKind(removeEntityKind(next, "agent"), "model");
-          setDraftAgent(null);
+          // Keep a soft-default agent so send still works without an @agent chip.
+          const registry = useAgentRegistryStore.getState();
+          const pool = registry.agents.filter(
+            (a) =>
+              (registry.selectedAgentIds.length === 0 ||
+                registry.selectedAgentIds.includes(a.id)) &&
+              a.available !== false,
+          );
+          setDraftAgent(pool[0]?.id ?? null);
           setDraftModel(null);
         }
         return next;
@@ -719,14 +727,17 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const prevProject = extractProjectId(draftContent);
     const nextProject = extractProjectId(next);
     let content = next;
-    // Switching project invalidates a soft/prior agent pick — clear agent (and
-    // model) so the next @ opens the agent list instead of an empty model list.
+    // Switching project invalidates a prior model pick; agent is inferred from
+    // the model (or the soft default in draft.agentId), not a user chip step.
     if (nextProject !== prevProject && prevProject != null) {
       content = removeEntityKind(removeEntityKind(content, "agent"), "model");
     }
     setDraftContent(content);
     setDraftProject(nextProject);
-    setDraftAgent(extractAgentId(content));
+    // Prefer explicit agent chip / model.owner; keep soft default when neither
+    // is present so multi-agent drafts still create without an @agent step.
+    const inferredAgent = resolveAgentId(content);
+    if (inferredAgent) setDraftAgent(inferredAgent);
     setDraftModel(extractModelId(content));
     if (nextProject !== prevProject) {
       markDraftUserEditedProject();
@@ -741,7 +752,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const becameDirty =
       Boolean(extractTextContent(content)) ||
       nextProject !== (draft?.projectId ?? null) ||
-      extractAgentId(content) !== (draft?.agentId ?? null) ||
+      (inferredAgent != null && inferredAgent !== (draft?.agentId ?? null)) ||
       extractModelId(content) !== (draft?.modelId ?? null);
     if (becameDirty || draft?.dirty) setDraftDirty(true);
   };
@@ -1113,13 +1124,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   };
 
   const handleDraftSend = async (content: ComposerContent, files: File[]) => {
-    const check = assertCreatable(content);
+    const check = assertCreatable(content, { defaultAgentId: draft?.agentId ?? null });
     if (!check.ok) {
       const description =
         check.reason === "missing_project"
           ? "Add a @project chip before sending."
           : check.reason === "missing_agent"
-            ? "Add an @agent chip before sending."
+            ? "Pick a @model (or enable an agent in settings) before sending."
             : "Write a message to start the thread.";
       toast({
         icon: <WarningIcon className="size-5 text-amber-500" />,
@@ -1547,20 +1558,71 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }));
   }, [registryAgents, selectedAgentIds]);
 
-  // Ensure the agent catalog is loaded for draft @agent mentions.
+  // Ensure the agent catalog is loaded for draft model ownership labels.
   useEffect(() => {
     void useAgentRegistryStore.getState().load();
   }, []);
-  const modelMentionItems = useMemo(
-    () =>
-      models.map((model) => ({
+  const catalogByAgentId = useModelCatalogStore((state) => state.byAgentId);
+  /**
+   * Draft model list is agent-scoped via the learned catalog — never the active
+   * session alone. That was the OpenCode-only bug: draft @model always showed
+   * whichever agent happened to be connected.
+   *
+   * Live model list remains the current session's config options.
+   */
+  const modelMentionItems = useMemo(() => {
+    if (!isDraftMode) {
+      return models.map((model) => ({
         id: model.modelId,
         label: model.name,
         description: formatProviderName(model.provider),
         agentId: snapshot?.agentId ?? undefined,
-      })),
-    [models, snapshot?.agentId],
-  );
+      }));
+    }
+
+    const agentNameById = new Map(draftAgentItems.map((a) => [a.id, a.label]));
+    const agentIds =
+      draftAgentItems.length > 0
+        ? draftAgentItems.map((a) => a.id)
+        : Object.keys(catalogByAgentId);
+
+    const items: Array<{
+      id: string;
+      label: string;
+      description?: string;
+      agentId?: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const agentId of agentIds) {
+      // Prefer live session models when this agent is currently connected —
+      // freshest catalog. Otherwise fall back to last-seen models for that agent.
+      const liveForAgent =
+        snapshot?.agentId === agentId && models.length > 0
+          ? models.map((m) => ({ modelId: m.modelId, name: m.name }))
+          : null;
+      const source = liveForAgent ?? catalogByAgentId[agentId] ?? [];
+      const agentLabel = agentNameById.get(agentId) ?? formatProviderName(agentId);
+      for (const model of source) {
+        const key = `${agentId}:${model.modelId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({
+          id: model.modelId,
+          label: model.name,
+          description: agentLabel,
+          agentId,
+        });
+      }
+    }
+    return items;
+  }, [
+    isDraftMode,
+    models,
+    snapshot?.agentId,
+    draftAgentItems,
+    catalogByAgentId,
+  ]);
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
   const fileProjectId = useMemo(
@@ -1989,7 +2051,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                       disabled={composerDisabled}
                       isSubmitting={isSubmitting}
                       projects={draftProjectItems}
-                      agents={draftAgentItems}
+                      agents={[]}
                       models={modelMentionItems}
                       projectFiles={projectFileItems}
                       files={attachedFiles}

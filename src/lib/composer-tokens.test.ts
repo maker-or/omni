@@ -15,6 +15,7 @@ import {
   queryLooksLikeFilePath,
   removeEntityKind,
   removeMentionFromText,
+  resolveAgentId,
   resolveDefaultMentionKind,
   serialize,
   setFreeText,
@@ -154,20 +155,72 @@ describe("composer-tokens", () => {
     });
   });
 
+  test("assertCreatable resolves agent from model.agentId (model-first)", () => {
+    const check = assertCreatable(
+      buildContent(
+        [
+          { kind: "project", id: "p1", label: "P" },
+          { kind: "model", id: "sonnet", label: "Sonnet", agentId: "claude-agent-acp" },
+        ],
+        "hi",
+      ),
+    );
+    expect(check).toEqual({
+      ok: true,
+      projectId: "p1",
+      agentId: "claude-agent-acp",
+      modelId: "sonnet",
+      text: "hi",
+    });
+  });
+
+  test("assertCreatable accepts soft defaultAgentId without agent chip", () => {
+    const check = assertCreatable(
+      buildContent([{ kind: "project", id: "p1", label: "P" }], "hi"),
+      { defaultAgentId: "opencode-acp" },
+    );
+    expect(check).toEqual({
+      ok: true,
+      projectId: "p1",
+      agentId: "opencode-acp",
+      modelId: null,
+      text: "hi",
+    });
+  });
+
+  test("resolveAgentId prefers agent chip, then model owner, then fallback", () => {
+    const withAgent = buildContent(
+      [
+        { kind: "agent", id: "cursor-acp", label: "Cursor" },
+        { kind: "model", id: "m1", label: "M", agentId: "claude-agent-acp" },
+      ],
+      "",
+    );
+    expect(resolveAgentId(withAgent, "opencode-acp")).toBe("cursor-acp");
+    expect(
+      resolveAgentId(
+        buildContent([{ kind: "model", id: "m1", label: "M", agentId: "claude-agent-acp" }], ""),
+        "opencode-acp",
+      ),
+    ).toBe("claude-agent-acp");
+    expect(resolveAgentId(blankContent(), "opencode-acp")).toBe("opencode-acp");
+  });
+
   test("allowedMentionKinds differ by mode", () => {
-    expect(allowedMentionKinds("draft")).toEqual(["project", "agent", "model", "file"]);
+    expect(allowedMentionKinds("draft")).toEqual(["project", "model", "file"]);
     expect(allowedMentionKinds("live")).toEqual(["model", "file"]);
     expect(allowedMentionKinds("live", { filesAvailable: false })).toEqual(["model"]);
   });
 
-  test("smart @ cascade for draft: project → agent → model → file", () => {
+  test("smart @ cascade for draft: project → model → file", () => {
     const empty = blankContent();
     expect(resolveDefaultMentionKind({ mode: "draft", content: empty })).toBe("project");
 
     const withProject = buildContent([{ kind: "project", id: "p1", label: "Omni" }], "");
     expect(isMentionSlotFilled("project", withProject, "draft")).toBe(true);
-    expect(resolveDefaultMentionKind({ mode: "draft", content: withProject })).toBe("agent");
+    expect(resolveDefaultMentionKind({ mode: "draft", content: withProject })).toBe("model");
 
+    // Legacy agent chips do not change the cascade (agent is not a mention step).
     const withAgent = upsertEntity(withProject, { kind: "agent", id: "a1", label: "Claude" });
     expect(resolveDefaultMentionKind({ mode: "draft", content: withAgent })).toBe("model");
 
@@ -185,23 +238,22 @@ describe("composer-tokens", () => {
     expect(resolveDefaultMentionKind({ mode: "live", content: withModel })).toBe("file");
   });
 
-  test("skips empty model catalog so draft opens agent after project", () => {
+  test("skips empty model catalog so draft opens file after project", () => {
     const withProject = buildContent([{ kind: "project", id: "p1", label: "Omni" }], "");
     expect(
       resolveDefaultMentionKind({
         mode: "draft",
         content: withProject,
-        availability: { project: 3, agent: 2, model: 0, file: 10 },
+        availability: { project: 3, model: 0, file: 10 },
       }),
-    ).toBe("agent");
+    ).toBe("file");
 
-    const withAgent = upsertEntity(withProject, { kind: "agent", id: "a1", label: "Claude" });
-    // Agent filled, model empty → fall through to file
+    const withModel = upsertEntity(withProject, { kind: "model", id: "m1", label: "Sonnet" });
     expect(
       resolveDefaultMentionKind({
         mode: "draft",
-        content: withAgent,
-        availability: { project: 3, agent: 2, model: 0, file: 10 },
+        content: withModel,
+        availability: { project: 3, model: 1, file: 10 },
       }),
     ).toBe("file");
   });
@@ -227,7 +279,7 @@ describe("composer-tokens", () => {
         "draft",
         buildContent([{ kind: "project", id: "p1", label: "P" }], ""),
       ),
-    ).toContain("agent");
+    ).toContain("model");
   });
 
   test("titleFromText truncates", () => {

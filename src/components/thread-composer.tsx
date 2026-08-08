@@ -327,30 +327,35 @@ export function ThreadComposer({
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)} data-pipper-id="thread-composer">
-      {entities.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 px-0.5" data-pipper-id="composer-chips">
-          {entities.map((entity) => (
-            <span
-              key={`${entity.kind}:${entity.id}`}
-              className={cn(
-                "inline-flex max-w-full items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
-                mentionChipClass(entity.kind),
-              )}
-            >
-              <span className="truncate">@{entity.label}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${entity.kind} ${entity.label}`}
-                className="inline-flex size-4 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100"
-                onClick={() => removeChip(entity.kind)}
-                disabled={disabled}
+      {(() => {
+        // Agent is inferred from the model (model-first); never surface as a chip.
+        const visibleEntities = entities.filter((entity) => entity.kind !== "agent");
+        if (visibleEntities.length === 0) return null;
+        return (
+          <div className="flex flex-wrap items-center gap-1.5 px-0.5" data-pipper-id="composer-chips">
+            {visibleEntities.map((entity) => (
+              <span
+                key={`${entity.kind}:${entity.id}${entity.kind === "model" && entity.agentId ? `:${entity.agentId}` : ""}`}
+                className={cn(
+                  "inline-flex max-w-full items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
+                  mentionChipClass(entity.kind),
+                )}
               >
-                <XIcon size={11} />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
+                <span className="truncate">@{entity.label}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${entity.kind} ${entity.label}`}
+                  className="inline-flex size-4 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100"
+                  onClick={() => removeChip(entity.kind)}
+                  disabled={disabled}
+                >
+                  <XIcon size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        );
+      })()}
 
       <InputMessage
         className="relative z-10"

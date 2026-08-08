@@ -41,12 +41,13 @@ describe("draft thread creation behavior", () => {
       blankContent: blank,
     } = await import("@/lib/composer-tokens");
     expect(resolveDefaultMentionKind({ mode: "draft", content: blank() })).toBe("project");
+    // Model-first: after project, next @ is model (not agent).
     expect(
       resolveDefaultMentionKind({
         mode: "draft",
         content: bc([{ kind: "project", id: "p", label: "P" }], ""),
       }),
-    ).toBe("agent");
+    ).toBe("model");
     expect(resolveDefaultMentionKind({ mode: "live", content: blank() })).toBe("model");
     expect(
       resolveDefaultMentionKind({
@@ -60,11 +61,11 @@ describe("draft thread creation behavior", () => {
     const incomplete = buildContent([{ kind: "project", id: "p1", label: "Omni" }], "hello");
     expect(assertCreatable(incomplete).ok).toBe(false);
 
+    // Model-first: agent is inferred from model.agentId without an @agent chip.
     const ready = buildContent(
       [
         { kind: "project", id: "p1", label: "Omni" },
-        { kind: "agent", id: "claude", label: "Claude" },
-        { kind: "model", id: "sonnet", label: "Sonnet" },
+        { kind: "model", id: "sonnet", label: "Sonnet", agentId: "claude" },
       ],
       "  fix the bug  ",
     );
@@ -76,6 +77,12 @@ describe("draft thread creation behavior", () => {
       modelId: "sonnet",
       text: "fix the bug",
     });
+    // Soft default agent works when no model chip is present.
+    expect(
+      assertCreatable(buildContent([{ kind: "project", id: "p1", label: "Omni" }], "hi"), {
+        defaultAgentId: "opencode-acp",
+      }),
+    ).toMatchObject({ ok: true, agentId: "opencode-acp" });
     // Control chips must not leak into the first user message.
     expect(extractTextContent(ready)).toBe("fix the bug");
     expect(extractTextContent(ready).includes("@")).toBe(false);

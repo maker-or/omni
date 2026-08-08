@@ -124,6 +124,17 @@ export function extractModelToken(content: ComposerContent): ComposerModelToken 
   return found;
 }
 
+/**
+ * Agent for thread creation: explicit @agent chip, else owning agent on the
+ * model chip (model-first draft UX), else an optional soft default.
+ */
+export function resolveAgentId(
+  content: ComposerContent,
+  fallbackAgentId?: string | null,
+): string | null {
+  return extractAgentId(content) ?? extractModelToken(content)?.agentId ?? fallbackAgentId ?? null;
+}
+
 /** Strip entity tokens of the given kinds; keep text. */
 export function stripEntityKinds(
   content: ComposerContent,
@@ -248,9 +259,12 @@ export type CreatableCheck =
   | { ok: false; reason: "missing_project" | "missing_agent" | "empty_text" };
 
 /** Validate draft content for thread creation. */
-export function assertCreatable(content: ComposerContent): CreatableCheck {
+export function assertCreatable(
+  content: ComposerContent,
+  options: { defaultAgentId?: string | null } = {},
+): CreatableCheck {
   const projectId = extractProjectId(content);
-  const agentId = extractAgentId(content);
+  const agentId = resolveAgentId(content, options.defaultAgentId);
   const modelId = extractModelId(content);
   const text = extractTextContent(content);
   if (!projectId) return { ok: false, reason: "missing_project" };
@@ -263,14 +277,17 @@ export function assertCreatable(content: ComposerContent): CreatableCheck {
  * Slot-based mention intelligence.
  *
  * Draft (new thread): fill control slots in order, then files forever.
- *   project → agent → model → file
+ *   project → model → file
+ *
+ * The agent is not a user-facing mention step — it is inferred from the
+ * selected model (or a soft default when only one agent is available).
  *
  * Live (existing thread): project is fixed by the thread; agent is fixed.
  *   model (optional switch) → file (primary ongoing action)
  *
  * "First `@`" / "second `@`" falls out of unfilled slots:
- * - New thread with soft project chip: first `@` opens agent (project filled)
- * - New thread with no project: first `@` opens project, second opens agent
+ * - New thread with soft project chip: first `@` opens model (project filled)
+ * - New thread with no project: first `@` opens project, second opens model
  * - Live: first `@` opens model if no model chip this turn, else file;
  *   after a model chip is present, `@` defaults to file
  * - Path-like queries always bias to file
@@ -302,7 +319,8 @@ export type MentionContext = {
 
 /** Priority order of kinds for a mode (not yet filtered by filled slots). */
 export function mentionPriority(mode: "draft" | "live"): ComposerMentionKind[] {
-  if (mode === "draft") return ["project", "agent", "model", "file"];
+  // Draft: project then model. Agent is inferred from the model (or soft default).
+  if (mode === "draft") return ["project", "model", "file"];
   // Live: model first, then files. Sequential presses fill model then file.
   return ["model", "file"];
 }
@@ -320,8 +338,9 @@ export function isMentionSlotFilled(
     return extractProjectId(content) != null;
   }
   if (kind === "agent") {
-    if (mode === "live") return true;
-    return extractAgentId(content) != null;
+    // Agent is never a draft mention slot (model-first). Treat as filled so
+    // legacy chips do not re-open an Agents tab.
+    return true;
   }
   if (kind === "model") {
     return extractModelId(content) != null;
@@ -337,7 +356,8 @@ export function allowedMentionKinds(
   const filesAvailable = options.filesAvailable !== false;
   return mentionPriority(mode).filter((kind) => {
     if (kind === "file") return filesAvailable;
-    if (mode === "live" && (kind === "project" || kind === "agent")) return false;
+    if (kind === "agent") return false;
+    if (mode === "live" && kind === "project") return false;
     return true;
   });
 }
@@ -347,7 +367,8 @@ export function unfilledMentionKinds(ctx: MentionContext): ComposerMentionKind[]
   const filesAvailable = ctx.filesAvailable !== false;
   return mentionPriority(ctx.mode).filter((kind) => {
     if (kind === "file") return filesAvailable;
-    if (ctx.mode === "live" && (kind === "project" || kind === "agent")) return false;
+    if (kind === "agent") return false;
+    if (ctx.mode === "live" && kind === "project") return false;
     return !isMentionSlotFilled(kind, ctx.content, ctx.mode);
   });
 }
@@ -421,8 +442,7 @@ export function defaultMentionKind(
 export function mentionPlaceholderHint(mode: "draft" | "live", content: ComposerContent): string {
   const next = resolveDefaultMentionKind({ mode, content, filesAvailable: true });
   if (mode === "draft") {
-    if (next === "project") return "@ a project, then an agent, then describe the task…";
-    if (next === "agent") return "@ an agent (or model), then describe the task…";
+    if (next === "project") return "@ a project, then a model, then describe the task…";
     if (next === "model") return "Optional: @ a model, or describe the task…";
     return "Describe the task — @ for files";
   }

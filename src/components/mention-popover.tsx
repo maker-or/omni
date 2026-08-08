@@ -132,7 +132,7 @@ export function MentionPopover({
               const active = index === selectedIndex;
               return (
                 <button
-                  key={item.id}
+                  key={item.agentId ? `${item.agentId}:${item.id}` : item.id}
                   type="button"
                   role="option"
                   aria-selected={active}
