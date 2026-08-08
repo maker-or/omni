@@ -64,6 +64,7 @@ describe("agent store ACP bridge behavior", () => {
       "after-thread",
       "agent-1",
       "/tmp/worktree",
+      null,
     );
   });
 
@@ -102,7 +103,8 @@ describe("agent store ACP bridge behavior", () => {
     const switching = store.getState().switchThread("thread-b");
     await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-b"));
 
-    // Stale session-update for old thread is ignored during pending switch
+    // Background session updates for the old thread remain isolated during a
+    // pending switch.
     bridgeHandler?.({
       type: "session-update",
       sessionId: "session-thread-a",
@@ -145,7 +147,7 @@ describe("agent store ACP bridge behavior", () => {
     expect(store.getState().error).toBeNull();
   });
 
-  test("ignores stale session-state while waiting for the requested thread", async () => {
+  test("accepts authoritative session-state while waiting for a requested thread", async () => {
     let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
     let currentState = sessionState("thread-a");
     let resolveSwitch: (() => void) | null = null;
@@ -182,7 +184,8 @@ describe("agent store ACP bridge behavior", () => {
       type: "session-state",
       state: sessionState("thread-a", { title: "stale" }),
     });
-    expect(store.getState().state?.title).toBeNull();
+    expect(store.getState().state?.threadId).toBe("thread-a");
+    expect(store.getState().state?.title).toBe("stale");
 
     bridgeHandler?.({
       type: "session-state",

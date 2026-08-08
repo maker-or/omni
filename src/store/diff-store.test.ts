@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { useDiffStore } from "./diff-store";
 import type { AcpToolCallState } from "../../contracts/acp.ts";
 
@@ -18,6 +18,18 @@ function editToolCall(
 }
 
 describe("diff-store", () => {
+  beforeEach(() => {
+    useDiffStore.setState({
+      threadId: null,
+      files: {},
+      order: [],
+      activePath: null,
+      isOpen: false,
+      unseenCount: 0,
+      threads: {},
+    });
+  });
+
   test("ingests a diff tool call and auto-opens", () => {
     useDiffStore.setState({
       threadId: null,
@@ -77,7 +89,7 @@ describe("diff-store", () => {
     expect(state.activePath).toBe("/repo/b.ts");
   });
 
-  test("ignores in-flight (non-completed) tool calls to avoid churn while streaming", () => {
+  test("shows partial in-flight diffs and updates them when the tool completes", () => {
     useDiffStore.setState({
       threadId: "thread-1",
       files: {},
@@ -92,8 +104,8 @@ describe("diff-store", () => {
     });
 
     let state = useDiffStore.getState();
-    expect(state.order).toEqual([]);
-    expect(state.files["/repo/a.ts"]).toBeUndefined();
+    expect(state.order).toEqual(["/repo/a.ts"]);
+    expect(state.files["/repo/a.ts"]).toMatchObject({ newText: "ne" });
 
     useDiffStore.getState().ingestToolCalls("thread-1", {
       "tc-a": editToolCall("/repo/a.ts", "old", "new", "completed"),
@@ -104,7 +116,7 @@ describe("diff-store", () => {
     expect(state.files["/repo/a.ts"]).toMatchObject({ oldText: "old", newText: "new" });
   });
 
-  test("switching threads clears diffs from the previous thread", () => {
+  test("keeps diffs separate when switching threads", () => {
     useDiffStore.setState({
       threadId: "thread-1",
       files: { "/repo/a.ts": { path: "/repo/a.ts", oldText: "old", newText: "new", updatedAt: 0 } },
@@ -122,5 +134,57 @@ describe("diff-store", () => {
     expect(state.threadId).toBe("thread-2");
     expect(state.order).toEqual(["/repo/c.ts"]);
     expect(state.files["/repo/a.ts"]).toBeUndefined();
+    expect(useDiffStore.getState().threads["thread-1"]?.files["/repo/a.ts"]).toBeDefined();
+
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "new"),
+    });
+    expect(useDiffStore.getState().order).toEqual(["/repo/a.ts"]);
+    expect(useDiffStore.getState().files["/repo/a.ts"]).toBeDefined();
+  });
+
+  test("accepts nested file-edit shapes", () => {
+    useDiffStore.setState({
+      threadId: null,
+      files: {},
+      order: [],
+      activePath: null,
+      isOpen: false,
+      unseenCount: 0,
+    });
+
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-nested": {
+        toolCallId: "tc-nested",
+        title: "Edit",
+        status: "completed",
+        content: [
+          {
+            type: "file_edit",
+            content: [{ path: "/repo/nested.ts", old_text: "a", new_text: "b" }],
+          } as never,
+        ],
+      },
+    });
+
+    expect(useDiffStore.getState().files["/repo/nested.ts"]).toMatchObject({
+      oldText: "a",
+      newText: "b",
+    });
+  });
+
+  test("ingests background thread diffs without changing the active view", () => {
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "new"),
+    });
+
+    useDiffStore
+      .getState()
+      .ingestToolCalls("thread-2", { "tc-b": editToolCall("/repo/b.ts", "old", "new") }, false);
+
+    const state = useDiffStore.getState();
+    expect(state.threadId).toBe("thread-1");
+    expect(state.files["/repo/a.ts"]).toBeDefined();
+    expect(state.threads["thread-2"]?.files["/repo/b.ts"]).toBeDefined();
   });
 });

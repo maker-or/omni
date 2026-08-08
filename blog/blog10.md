@@ -71,4 +71,3 @@ it may not be necessary if you use one tool for every task and feel happy with t
 the best free ai interface for developers is not the same for everyone. look for a tool that gives you clear control, supports the agents you choose, and does not make simple work harder.
 
 pipper is a free interface for developers who want to bring their own ai agents and control multiple tools from one place. you do not have to pay for pipper. try it with one small project, use the agents that fit your work, and see whether an interface that can improve itself helps you stay focused.
-

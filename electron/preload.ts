@@ -20,6 +20,15 @@ import type {
   LauncherUpdateDiagnostics,
   LauncherUpdateState,
 } from "../contracts/launcher-updates.ts";
+import type {
+  MonitorIncident,
+  MonitorLiveSnapshot,
+  MonitorRendererFreezeReport,
+  MonitorSampleTick,
+  MonitorSession,
+  MonitorSessionSummary,
+  MonitorTabMismatchReport,
+} from "../contracts/monitor.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -206,6 +215,7 @@ const api = {
       afterThreadId?: string | null,
       agentId?: string | null,
       worktreePath?: string | null,
+      initialModelId?: string | null,
     ): Promise<Thread> =>
       ipcRenderer.invoke(
         "agent:createThread",
@@ -214,6 +224,7 @@ const api = {
         afterThreadId,
         agentId,
         worktreePath,
+        initialModelId,
       ),
     getSelectedAgentIds: (): Promise<string[]> => ipcRenderer.invoke("agent:getSelectedAgentIds"),
     setSelectedAgentIds: (agentIds: string[]): Promise<void> =>
@@ -306,6 +317,47 @@ const api = {
       return () => {
         ipcRenderer.removeListener("theme:changed", listener);
       };
+    },
+  },
+  monitor: {
+    isEnabled: (): Promise<boolean> => ipcRenderer.invoke("monitor:isEnabled"),
+    getLive: (): Promise<MonitorLiveSnapshot> => ipcRenderer.invoke("monitor:getLive"),
+    getIncidents: (): Promise<MonitorIncident[]> => ipcRenderer.invoke("monitor:getIncidents"),
+    getSessions: (): Promise<MonitorSession[]> => ipcRenderer.invoke("monitor:getSessions"),
+    getRecordedSession: (
+      sessionId: string,
+    ): Promise<{
+      session: MonitorSession | null;
+      ticks: MonitorSampleTick[];
+      incidents: MonitorIncident[];
+      summary: MonitorSessionSummary;
+    }> => ipcRenderer.invoke("monitor:getRecordedSession", sessionId),
+    startRecording: (label?: string): Promise<MonitorSession> =>
+      ipcRenderer.invoke("monitor:startRecording", label),
+    stopRecording: (): Promise<MonitorSession | null> =>
+      ipcRenderer.invoke("monitor:stopRecording"),
+    reportRendererFreeze: (report: MonitorRendererFreezeReport): Promise<void> =>
+      ipcRenderer.invoke("monitor:reportRendererFreeze", report),
+    reportTabMismatch: (report: MonitorTabMismatchReport): Promise<void> =>
+      ipcRenderer.invoke("monitor:reportTabMismatch", report),
+    openWindow: (): Promise<void> => ipcRenderer.invoke("monitor:openWindow"),
+    onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshot: MonitorLiveSnapshot) =>
+        callback(snapshot);
+      ipcRenderer.on("monitor:live", listener);
+      return () => ipcRenderer.removeListener("monitor:live", listener);
+    },
+    onTick: (callback: (tick: MonitorSampleTick) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, tick: MonitorSampleTick) =>
+        callback(tick);
+      ipcRenderer.on("monitor:tick", listener);
+      return () => ipcRenderer.removeListener("monitor:tick", listener);
+    },
+    onIncident: (callback: (incident: MonitorIncident) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, incident: MonitorIncident) =>
+        callback(incident);
+      ipcRenderer.on("monitor:incident", listener);
+      return () => ipcRenderer.removeListener("monitor:incident", listener);
     },
   },
 };

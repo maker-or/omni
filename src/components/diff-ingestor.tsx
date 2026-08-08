@@ -11,14 +11,16 @@ import { useDiffStore } from "@/store/diff-store";
  * focused.
  */
 export function DiffIngestor() {
-  const threadId = useAgentStore((state) => state.state?.threadId ?? null);
-  const toolCalls = useAgentStore((state) => state.state?.toolCalls);
+  const activeThreadId = useAgentStore((state) => state.state?.threadId ?? null);
+  const threadToolCalls = useAgentStore((state) => state.threadToolCalls);
   const ingestToolCalls = useDiffStore((state) => state.ingestToolCalls);
 
   useEffect(() => {
-    if (!toolCalls) return;
-    ingestToolCalls(threadId, toolCalls);
-  }, [threadId, toolCalls, ingestToolCalls]);
+    for (const [threadId, toolCalls] of Object.entries(threadToolCalls)) {
+      if (threadId === "__none__") continue;
+      ingestToolCalls(threadId, toolCalls, threadId === activeThreadId);
+    }
+  }, [activeThreadId, threadToolCalls, ingestToolCalls]);
 
   return null;
 }

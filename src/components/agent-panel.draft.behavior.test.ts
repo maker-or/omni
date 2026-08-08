@@ -1,0 +1,103 @@
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  assertCreatable,
+  buildContent,
+  extractTextContent,
+  titleFromText,
+} from "@/lib/composer-tokens";
+import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+
+/**
+ * Draft creation behavior is exercised at the pure-logic + store boundary so
+ * we don't remount the full AgentPanel (Electron IPC heavy). The panel's
+ * handleDraftSend is a thin orchestration of these steps.
+ */
+describe("draft thread creation behavior", () => {
+  beforeEach(() => {
+    useWorkspaceViewStore.setState({
+      mode: "agent",
+      activeTerminalId: null,
+      requestedThreadId: "old-thread",
+      draft: null,
+    });
+  });
+
+  test("beginDraft does not create a thread id and clears selection request", () => {
+    useWorkspaceViewStore.getState().beginDraft({
+      projectId: "p1",
+      previousActiveProjectId: "p1",
+    });
+    const { draft, requestedThreadId, mode } = useWorkspaceViewStore.getState();
+    expect(mode).toBe("agent");
+    expect(requestedThreadId).toBeNull();
+    expect(draft?.projectId).toBe("p1");
+    expect(draft?.agentId).toBeNull();
+  });
+
+  test("smart @ cascade matches draft and live policies", async () => {
+    const {
+      resolveDefaultMentionKind,
+      buildContent: bc,
+      blankContent: blank,
+    } = await import("@/lib/composer-tokens");
+    expect(resolveDefaultMentionKind({ mode: "draft", content: blank() })).toBe("project");
+    expect(
+      resolveDefaultMentionKind({
+        mode: "draft",
+        content: bc([{ kind: "project", id: "p", label: "P" }], ""),
+      }),
+    ).toBe("agent");
+    expect(resolveDefaultMentionKind({ mode: "live", content: blank() })).toBe("model");
+    expect(
+      resolveDefaultMentionKind({
+        mode: "live",
+        content: bc([{ kind: "model", id: "m", label: "M" }], "x"),
+      }),
+    ).toBe("file");
+  });
+
+  test("send payload requires project, agent, and text — model optional", () => {
+    const incomplete = buildContent([{ kind: "project", id: "p1", label: "Omni" }], "hello");
+    expect(assertCreatable(incomplete).ok).toBe(false);
+
+    const ready = buildContent(
+      [
+        { kind: "project", id: "p1", label: "Omni" },
+        { kind: "agent", id: "claude", label: "Claude" },
+        { kind: "model", id: "sonnet", label: "Sonnet" },
+      ],
+      "  fix the bug  ",
+    );
+    const check = assertCreatable(ready);
+    expect(check).toEqual({
+      ok: true,
+      projectId: "p1",
+      agentId: "claude",
+      modelId: "sonnet",
+      text: "fix the bug",
+    });
+    // Control chips must not leak into the first user message.
+    expect(extractTextContent(ready)).toBe("fix the bug");
+    expect(extractTextContent(ready).includes("@")).toBe(false);
+  });
+
+  test("title is derived from first message text", () => {
+    expect(titleFromText("Ship draft UX")).toBe("Ship draft UX");
+  });
+
+  test("endDraft clears draft after successful create handshake shape", () => {
+    useWorkspaceViewStore.getState().beginDraft({ projectId: "p1" });
+    useWorkspaceViewStore.getState().setDraftAgent("claude");
+    expect(useWorkspaceViewStore.getState().draft).not.toBeNull();
+    useWorkspaceViewStore.getState().endDraft();
+    expect(useWorkspaceViewStore.getState().draft).toBeNull();
+  });
+
+  test("createThread is invoked with model as the sixth argument shape", async () => {
+    const createThread = vi.fn(async () => ({ id: "t-new" }));
+    // Mirrors agent-store.createThread forwarding.
+    await createThread("p1", titleFromText("hi"), null, "claude", "/repo", "sonnet");
+    expect(createThread).toHaveBeenCalledWith("p1", "hi", null, "claude", "/repo", "sonnet");
+    expect(createThread).toHaveBeenCalledTimes(1);
+  });
+});

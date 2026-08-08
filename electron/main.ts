@@ -43,6 +43,8 @@ import {
 import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
+import { MonitorService } from "./monitor/service.ts";
+import { buildMonitorInventory } from "./monitor/inventory.ts";
 import { probeAgentById } from "./agents/handshake-probe.ts";
 import {
   broadcastOpenTabsChanged,
@@ -262,7 +264,9 @@ function normalizeTheme(theme: string): "light" | "dark" | "system" {
 
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
+let monitorWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
@@ -417,18 +421,21 @@ function makeWorkspacePeerPredicate(threadId: string): ((id: string) => boolean)
   };
 }
 
-function resolveRendererUrl(page: "main" | "launch", stage?: string): string {
+function resolveRendererUrl(page: "main" | "launch" | "monitor", stage?: string): string {
   const base = process.env["ELECTRON_RENDERER_URL"];
   if (!base) return "";
-  let url = page === "launch" ? `${base}/launch.html` : base;
+  let url =
+    page === "launch" ? `${base}/launch.html` : page === "monitor" ? `${base}/monitor.html` : base;
   if (stage) {
     url += `?stage=${stage}`;
   }
   return url;
 }
 
-function resolveRendererFile(page: "main" | "launch"): string {
-  return join(mainDir, "../renderer", page === "launch" ? "launch.html" : "index.html");
+function resolveRendererFile(page: "main" | "launch" | "monitor"): string {
+  const fileName =
+    page === "launch" ? "launch.html" : page === "monitor" ? "monitor.html" : "index.html";
+  return join(mainDir, "../renderer", fileName);
 }
 
 function getIconPath(): string | undefined {
@@ -595,7 +602,11 @@ function getAuthCallbackUrl(): string {
   return `http://127.0.0.1:${authCallbackPort}/auth/callback`;
 }
 
-function loadInto(win: BrowserWindow, page: "main" | "launch", stage?: string): Promise<void> {
+function loadInto(
+  win: BrowserWindow,
+  page: "main" | "launch" | "monitor",
+  stage?: string,
+): Promise<void> {
   console.log(`[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`);
   if (isDev) {
     const url = resolveRendererUrl(page, stage);
@@ -662,6 +673,95 @@ async function createMainWindow(): Promise<void> {
   void loadInto(mainWindow, "main");
 }
 
+function createMonitorWindow(): void {
+  if (!isDev) return;
+  if (monitorWindow && !monitorWindow.isDestroyed()) {
+    monitorWindow.show();
+    monitorWindow.focus();
+    return;
+  }
+
+  monitorWindow = new BrowserWindow({
+    width: 1100,
+    height: 720,
+    minWidth: 720,
+    minHeight: 480,
+    title: "Runtime Monitor",
+    show: false,
+    icon: getIconPath(),
+    backgroundColor: "#171717",
+    webPreferences: {
+      preload: join(mainDir, "../preload/index.js"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  monitorWindow.on("ready-to-show", () => {
+    monitorWindow?.show();
+  });
+
+  monitorWindow.on("closed", () => {
+    monitorWindow = null;
+  });
+
+  void loadInto(monitorWindow, "monitor");
+}
+
+function broadcastToMonitor(channel: string, payload: unknown): void {
+  if (monitorWindow && !monitorWindow.isDestroyed()) {
+    monitorWindow.webContents.send(channel, payload);
+  }
+}
+
+function initializeMonitorService(): void {
+  if (!isDev || monitorService) return;
+
+  monitorService = new MonitorService({
+    getInventory: () =>
+      buildMonitorInventory({
+        mainPid: process.pid,
+        rendererPid: mainWindow?.webContents.getOSProcessId() ?? null,
+        agentManager,
+        ptySessions: ptyProcesses,
+      }),
+    getRunningThreadIds: () => agentManager?.getRunningThreadIds() ?? [],
+    onBroadcast: (channel, payload) => broadcastToMonitor(channel, payload),
+  });
+  monitorService.start();
+
+  agentManager?.setMonitorObserver({
+    onConnectionSpawned: ({ agentId }) => {
+      monitorService?.noteConnectionStarted(agentId);
+    },
+    onConnectionClosed: (event) => {
+      monitorService?.noteConnectionLost({
+        agentId: event.agentId,
+        pid: event.pid,
+        cause: "transport_closed",
+        exitCode: null,
+        signal: null,
+        activeThreadId: event.activeThreadId,
+        runningThreadIds: event.runningThreadIds,
+        uptimeMs: Date.now() - event.spawnedAt,
+      });
+    },
+    onConnectionExit: (event) => {
+      monitorService?.noteConnectionLost({
+        agentId: event.agentId,
+        pid: event.pid,
+        cause: "process_exit",
+        exitCode: event.exitCode,
+        signal: event.signal,
+        activeThreadId: event.activeThreadId,
+        runningThreadIds: event.runningThreadIds,
+        uptimeMs: Date.now() - event.spawnedAt,
+      });
+    },
+  });
+}
+
 function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void {
   console.log(`[Main] createLaunchWindow - stage: ${stage}`);
   if (launchWindow && !launchWindow.isDestroyed()) {
@@ -715,6 +815,9 @@ function broadcastToWindows(channel: string, ...args: any[]) {
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send(channel, ...args);
   }
+  if (monitorWindow && !monitorWindow.isDestroyed()) {
+    monitorWindow.webContents.send(channel, ...args);
+  }
 }
 
 function buildAppMenu(): void {
@@ -743,6 +846,16 @@ function buildAppMenu(): void {
         { role: "reload" },
         { role: "forceReload" },
         { role: "toggleDevTools" },
+        ...(isDev
+          ? ([
+              { type: "separator" as const },
+              {
+                label: "Runtime Monitor",
+                accelerator: "CommandOrControl+Shift+M",
+                click: () => createMonitorWindow(),
+              },
+            ] as Electron.MenuItemConstructorOptions[])
+          : []),
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
@@ -1144,11 +1257,23 @@ function registerIpc(): void {
   );
   ipcMain.handle("agent:abort", () => requireAgentManager().abort());
   ipcMain.handle("agent:switchThread", async (_event, threadId: string) => {
+    const started = Date.now();
     try {
       await requireAgentManager().switchThread(threadId);
       const next = await recordThreadSwitch(threadId);
       broadcastOpenTabsChanged(mainWindow, next);
+      monitorService?.noteSwitchCompleted({
+        threadId,
+        durationMs: Date.now() - started,
+        success: true,
+      });
     } catch (e: any) {
+      monitorService?.noteSwitchCompleted({
+        threadId,
+        durationMs: Date.now() - started,
+        success: false,
+        error: e?.message ?? String(e),
+      });
       console.error("[IPC] agent:switchThread error:", e);
       throw e;
     }
@@ -1162,6 +1287,7 @@ function registerIpc(): void {
       afterThreadId?: string | null,
       agentId?: string | null,
       worktreePath?: string | null,
+      initialModelId?: string | null,
     ) => {
       try {
         return requireAgentManager().createThread(
@@ -1170,6 +1296,7 @@ function registerIpc(): void {
           afterThreadId ?? null,
           agentId ?? null,
           worktreePath ?? null,
+          initialModelId ?? null,
         );
       } catch (e: any) {
         console.error("[IPC] agent:createThread error:", e);
@@ -1363,6 +1490,36 @@ function registerIpc(): void {
     },
   );
 
+  if (isDev) {
+    ipcMain.handle("monitor:isEnabled", () => true);
+    ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
+    ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
+    ipcMain.handle("monitor:getSessions", () => monitorService?.getSessions() ?? []);
+    ipcMain.handle(
+      "monitor:getRecordedSession",
+      (_event, sessionId: string) =>
+        monitorService?.getRecordedSession(sessionId) ?? {
+          session: null,
+          ticks: [],
+          incidents: [],
+        },
+    );
+    ipcMain.handle("monitor:startRecording", (_event, label?: string) => {
+      if (!monitorService) throw new Error("Monitor service is not initialized.");
+      return monitorService.startRecording(label);
+    });
+    ipcMain.handle("monitor:stopRecording", () => monitorService?.stopRecording() ?? null);
+    ipcMain.handle("monitor:reportRendererFreeze", (_event, report) => {
+      monitorService?.reportRendererFreeze(report);
+    });
+    ipcMain.handle("monitor:reportTabMismatch", (_event, report) => {
+      monitorService?.reportTabMismatch(report);
+    });
+    ipcMain.handle("monitor:openWindow", () => {
+      createMonitorWindow();
+    });
+  }
+
   // ─── Onboarding IPC ─────────────────────────────────────────────────────────────
   ipcMain.handle("onboarding:verifyGit", async () => {
     return await checkGit();
@@ -1487,6 +1644,7 @@ app.whenReady().then(async () => {
     },
     setAgentContext: setActiveAgentContext,
   });
+  initializeMonitorService();
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
     platform: process.platform,
     macManifestUrl:
@@ -1580,6 +1738,7 @@ app.on("will-quit", (event) => {
     properties: { session_duration_ms: Date.now() - sessionStartedAt },
   });
   killAllPtyProcesses("Quit");
+  monitorService?.stop();
 
   void (async () => {
     try {

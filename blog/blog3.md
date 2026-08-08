@@ -66,4 +66,3 @@ do you want the interface to fit your way of working? pipper can improve itself,
 pipper vs codex is not always a choice between two identical products. codex can be the ai coding tool that helps you with a task. pipper can be the free interface where you control codex and other agents together.
 
 if codex already gives you everything you need, keep using it. if you want one place for several agents, bring your own tools to pipper and see whether the wider workflow feels better. pipper is free to use, and you stay free to choose the agents that help you build.
-

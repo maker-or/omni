@@ -30,6 +30,8 @@ import {
   TreeViewIcon,
 } from "@phosphor-icons/react";
 import type { Worktree } from "../contracts/worktrees.ts";
+import { startMonitorFreezeObserver } from "@/lib/monitor-freeze-observer";
+import { useMonitorTabSync } from "@/lib/monitor-tab-sync";
 
 const EMPTY_WORKTREES: Worktree[] = [];
 
@@ -43,6 +45,7 @@ export default function App() {
   // three states (terminal is an overlay, the diff panel mounts beside it)
   // so its composer draft and scroll position survive tab switches.
   const workspaceMode = useWorkspaceViewStore((state) => state.mode);
+  const draft = useWorkspaceViewStore((state) => state.draft);
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalSessions = useMemo(
@@ -59,7 +62,11 @@ export default function App() {
   const showAgent = useWorkspaceViewStore((state) => state.showAgent);
   const showDiffSplit = useIsDiffSplit();
   const showTerminalView = workspaceMode === "terminal" && hasActiveTerminal;
+  // Draft chrome: never show ambient activeProject just because one is open.
+  // Only show a project name when the draft bound one (chip) or we're live.
+  const isDraftMode = draft != null;
   const toggleDiff = () => {
+    if (isDraftMode) return;
     if (workspaceMode !== "agent") {
       showAgent();
       openDiff();
@@ -69,6 +76,24 @@ export default function App() {
     else openDiff();
   };
   const initializeLauncherUpdates = useLauncherUpdateStore((state) => state.initialize);
+  const [monitorEnabled, setMonitorEnabled] = useState(false);
+
+  useEffect(() => {
+    void window.omni.monitor?.isEnabled().then((enabled) => setMonitorEnabled(enabled));
+  }, []);
+
+  useMonitorTabSync(monitorEnabled);
+
+  useEffect(() => {
+    if (!monitorEnabled) return;
+    return startMonitorFreezeObserver(({ blockedMs, longTaskMs }) => {
+      void window.omni.monitor.reportRendererFreeze({
+        blockedMs,
+        longTaskMs,
+        activeThreadId: useAgentStore.getState().state?.threadId ?? null,
+      });
+    });
+  }, [monitorEnabled]);
 
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -76,6 +101,12 @@ export default function App() {
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [isWorkspaceFormOpen, setIsWorkspaceFormOpen] = useState(false);
   const [isFileTreeOpen, setIsFileTreeOpen] = useState(false);
+
+  // Unbound draft has no project chrome — close the file tree so it can't
+  // keep showing the previous ambient project's files.
+  useEffect(() => {
+    if (draft && !draft.projectId) setIsFileTreeOpen(false);
+  }, [draft, draft?.projectId]);
   const [workspaceName, setWorkspaceName] = useState("");
   const workspaceGroupRef = useGroupRef();
   const workspaceLayoutsRef = useRef<Record<string, Record<string, number>>>({});
@@ -272,7 +303,20 @@ export default function App() {
   })();
   const workspaceNameLabel = selectedWorktree?.workspaceName ?? derivedWorkspaceName;
   const branchLabel = selectedWorktree?.branch ?? (isLoadingWorktrees ? "Loading…" : "main");
-  const showFileTreePanel = isFileTreeOpen && activeProject !== null;
+  // Prefer draft-bound project for chrome when drafting; otherwise ambient.
+  const chromeProject = useMemo(() => {
+    if (isDraftMode) {
+      if (!draft?.projectId) return null;
+      return (
+        projectsList.find((p) => p.id === draft.projectId) ??
+        (activeProject?.id === draft.projectId ? activeProject : null)
+      );
+    }
+    return activeProject;
+  }, [isDraftMode, draft?.projectId, projectsList, activeProject]);
+
+  // File tree follows chrome project (draft chip or ambient). Unbound draft → off.
+  const showFileTreePanel = isFileTreeOpen && chromeProject !== null;
   const workspaceLayoutKey = [
     "agent",
     ...(showDiffSplit ? ["diff"] : []),
@@ -416,7 +460,7 @@ export default function App() {
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Project Selector Wrapper"
         >
-          {activeProject && (
+          {chromeProject ? (
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex min-w-0 flex-col items-start">
                 <button
@@ -426,9 +470,10 @@ export default function App() {
                   className="group flex max-w-[280px] items-center gap-1 rounded px-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">
-                    {activeProject.name}
+                    {chromeProject.name}
                   </span>
                 </button>
+                {/* Worktree/branch only make sense once a project is bound. */}
                 <div className="flex max-w-[470px] items-center gap-1 text-[11px] text-muted-foreground">
                   <button
                     type="button"
@@ -455,7 +500,13 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
+          ) : isDraftMode ? (
+            <div className="flex min-w-0 items-center gap-2 px-1">
+              <span className="truncate text-[15px] font-semibold tracking-tight text-muted-foreground">
+                New thread
+              </span>
+            </div>
+          ) : null}
 
           {isDropdownOpen && (
             <div ref={dropdownRef} className="absolute left-0 top-full mt-1 z-[200]">
@@ -473,6 +524,18 @@ export default function App() {
                       checked={activeProject?.id === project.id}
                       onSelect={async () => {
                         setIsDropdownOpen(false);
+                        // While drafting, the project switcher owns the draft's
+                        // context project (same as the @project chip).
+                        if (draft) {
+                          const worktreePath =
+                            useWorktreeStore.getState().selectedWorktreePathByProject[project.id] ??
+                            project.path ??
+                            null;
+                          useWorkspaceViewStore
+                            .getState()
+                            .setDraftProject(project.id, worktreePath);
+                          useWorkspaceViewStore.getState().markDraftUserEditedProject();
+                        }
                         if (window.omni?.projects?.setActive) {
                           try {
                             await window.omni.projects.setActive(project.id);
@@ -672,9 +735,14 @@ export default function App() {
             onClick={() => setIsFileTreeOpen((open) => !open)}
             aria-label={isFileTreeOpen ? "Hide project files" : "Show project files"}
             aria-expanded={isFileTreeOpen}
-            title={`${isFileTreeOpen ? "Hide project files" : "Show project files"} (⌘/Ctrl+B)`}
+            title={
+              chromeProject
+                ? `${isFileTreeOpen ? "Hide project files" : "Show project files"} (⌘/Ctrl+B)`
+                : "Pick a project to browse files"
+            }
+            disabled={!chromeProject}
             className={cn(
-              "inline-flex size-8 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "inline-flex size-8 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
               isFileTreeOpen
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -683,7 +751,7 @@ export default function App() {
           >
             <TreeViewIcon weight="duotone" className="size-4" />
           </button>
-          {diffFileCount > 0 && (
+          {!isDraftMode && diffFileCount > 0 && (
             <button
               type="button"
               onClick={toggleDiff}
@@ -745,8 +813,8 @@ export default function App() {
               <section className="flex h-full w-full flex-col bg-surface-1">
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <ProjectFileTree
-                    projectName={activeProject.name}
-                    reloadKey={`${activeProject.id}:${selectedWorktreePath ?? activeProject.path}`}
+                    projectName={chromeProject.name}
+                    reloadKey={`${chromeProject.id}:${selectedWorktreePath ?? chromeProject.path ?? ""}`}
                   />
                 </div>
               </section>

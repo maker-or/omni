@@ -162,6 +162,17 @@ export class TerminalManager {
     this.terminals.delete(id);
   }
 
+  getActiveProcesses(): Array<{ terminalId: string; pid: number }> {
+    const active: Array<{ terminalId: string; pid: number }> = [];
+    for (const [terminalId, term] of this.terminals) {
+      const pid = term.process.pid;
+      if (pid && !term.exited) {
+        active.push({ terminalId, pid });
+      }
+    }
+    return active;
+  }
+
   killAll(): void {
     // Snapshot ids — release mutates the map.
     for (const id of Array.from(this.terminals.keys())) {

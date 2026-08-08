@@ -6,6 +6,7 @@ import type {
   AcpPromptInput,
   AcpReplacePromptInput,
   AcpSessionState,
+  AcpToolCallState,
   AgentCapabilities,
   AvailableCommand,
   SessionConfigOption,
@@ -92,6 +93,10 @@ interface AgentState {
   authMethods: Array<{ id: string; name?: string | null }>;
   /** Thread IDs whose agent is currently streaming, across all open threads. */
   runningThreadIds: string[];
+  /** Latest tool-call map for every known thread, including background threads. */
+  threadToolCalls: Record<string, Record<string, AcpToolCallState>>;
+  /** Renderer-visible switch target; null once main has authoritatively settled. */
+  pendingThreadTarget: string | null;
   /** Subagent runs spawned via the client-hosted spawn_subagent tool. */
   subagentRuns: SubagentRunSnapshot[];
   permissionRequest: AcpPermissionRequest | null;
@@ -121,6 +126,7 @@ interface AgentState {
     afterThreadId?: string | null,
     agentId?: string | null,
     worktreePath?: string | null,
+    initialModelId?: string | null,
   ) => Promise<Thread>;
   setConfigOption: (configId: string, value: string | boolean) => Promise<void>;
   setModel: (model: { provider?: string; modelId: string }) => Promise<boolean>;
@@ -152,6 +158,25 @@ let latestThreadSwitchId = 0;
 let threadSwitchQueue: Promise<void> = Promise.resolve();
 let pendingThreadTarget: string | null = null;
 let latestRefreshId = 0;
+const THREAD_SWITCH_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 function selectConfigOption(
   options: SessionConfigOption[],
@@ -385,11 +410,21 @@ function applyBridgeEvent(
     | "error"
     | "agentCapabilities"
     | "authMethods"
+    | "threadToolCalls"
   >,
   payload: AcpBridgeEvent,
 ): Partial<AgentState> {
   if (payload.type === "running-threads") {
     return { runningThreadIds: payload.threadIds };
+  }
+
+  if (payload.type === "thread-tool-calls") {
+    return {
+      threadToolCalls: {
+        ...state.threadToolCalls,
+        [payload.threadId]: payload.toolCalls,
+      },
+    };
   }
 
   // Subagent activity is global (not per-thread); apply regardless of which
@@ -412,13 +447,10 @@ function applyBridgeEvent(
 
   switch (payload.type) {
     case "session-state": {
-      if (pendingThreadTarget && payload.state.threadId !== pendingThreadTarget) {
-        return {};
-      }
-      const isResolvingSwitch = pendingThreadTarget === payload.state.threadId;
-      if (isResolvingSwitch) {
-        pendingThreadTarget = null;
-      }
+      // Main is the authority for the active session. Accept a state for a
+      // different thread as a main-initiated activation or a recovery from a
+      // stale switch; dropping it can leave the tab highlight pinned forever.
+      pendingThreadTarget = null;
       // A session-state for a different thread than the displayed one is a
       // MAIN-INITIATED activation (workspace switch, delete replacement,
       // launch restore) and must re-target the view. Background threads can
@@ -427,6 +459,9 @@ function applyBridgeEvent(
       // streaming flags arrive via "running-threads" instead.
       return {
         state: payload.state,
+        threadToolCalls: payload.state.threadId
+          ? { ...state.threadToolCalls, [payload.state.threadId]: payload.state.toolCalls }
+          : state.threadToolCalls,
         slice: createEmptySessionSlice({
           entries: payload.state.entries,
           toolCalls: payload.state.toolCalls,
@@ -439,6 +474,7 @@ function applyBridgeEvent(
           title: payload.state.title,
         }),
         error: null,
+        pendingThreadTarget: null,
       };
     }
     case "session-update": {
@@ -573,6 +609,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   agentCapabilities: null,
   authMethods: [],
   runningThreadIds: [],
+  threadToolCalls: {},
+  pendingThreadTarget: null,
   subagentRuns: [],
   permissionRequest: null,
   uiRequestQueue: [],
@@ -643,6 +681,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             isStreaming: state.isStreaming,
             title: state.title,
           }),
+          threadToolCalls: { [state.threadId ?? "__none__"]: state.toolCalls },
+          pendingThreadTarget: null,
           isConnecting: false,
         }) as Partial<AgentState>,
       );
@@ -670,12 +710,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const state = await window.omni.agent.getState();
       set(() => {
         if (refreshId !== latestRefreshId) return {};
-        if (pendingThreadTarget && state.threadId !== pendingThreadTarget) {
-          return {};
-        }
-        if (pendingThreadTarget && state.threadId === pendingThreadTarget) {
-          pendingThreadTarget = null;
-        }
+        pendingThreadTarget = null;
         return withSnapshot({
           state,
           slice: createEmptySessionSlice({
@@ -689,6 +724,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             isStreaming: state.isStreaming,
             title: state.title,
           }),
+          threadToolCalls: { [state.threadId ?? "__none__"]: state.toolCalls },
+          pendingThreadTarget: null,
         });
       });
     } catch (err) {
@@ -798,14 +835,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const switchId = ++latestThreadSwitchId;
     pendingThreadTarget = threadId;
-    set({ error: null });
+    set({ error: null, pendingThreadTarget: threadId });
 
     threadSwitchQueue = threadSwitchQueue
       .catch(() => undefined)
       .then(async () => {
         if (switchId !== latestThreadSwitchId) return;
 
-        await window.omni.agent.switchThread(threadId);
+        await withTimeout(
+          window.omni.agent.switchThread(threadId),
+          THREAD_SWITCH_TIMEOUT_MS,
+          `Switch to ${threadId}`,
+        );
         // `agent:switchThread` emits the complete target snapshot before its
         // IPC promise resolves. Avoid a second renderer→main→renderer trip.
         // Keep fallback for older ACP bridges that do not emit that snapshot.
@@ -816,6 +857,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             pendingThreadTarget = null;
             return withSnapshot({
               state,
+              threadToolCalls: {
+                ...get().threadToolCalls,
+                [state.threadId ?? "__none__"]: state.toolCalls,
+              },
               slice: createEmptySessionSlice({
                 entries: state.entries,
                 toolCalls: state.toolCalls,
@@ -827,12 +872,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 isStreaming: state.isStreaming,
                 title: state.title,
               }),
+              pendingThreadTarget: null,
               error: null,
             });
           });
         } else {
           pendingThreadTarget = null;
-          set({ error: null });
+          set({ error: null, pendingThreadTarget: null });
         }
       })
       .catch((err) => {
@@ -842,6 +888,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             pendingThreadTarget = null;
           }
           return {
+            pendingThreadTarget: null,
             error: err instanceof Error ? err.message : "Failed to switch thread",
           };
         });
@@ -851,13 +898,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     await threadSwitchQueue;
   },
 
-  createThread: async (projectId, title, afterThreadId, agentId, worktreePath) => {
+  createThread: async (projectId, title, afterThreadId, agentId, worktreePath, initialModelId) => {
     const thread = await window.omni.agent.createThread(
       projectId,
       title ?? null,
       afterThreadId ?? null,
       agentId ?? null,
       worktreePath ?? null,
+      initialModelId ?? null,
     );
     await get().refresh();
     return thread;

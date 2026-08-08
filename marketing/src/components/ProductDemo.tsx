@@ -51,7 +51,11 @@ const conversations: Record<
 
 function TrafficLights() {
   return (
-    <div data-pipper-id="window-controls" className="group/lights flex items-center gap-1.5" aria-label="Window controls">
+    <div
+      data-pipper-id="window-controls"
+      className="group/lights flex items-center gap-1.5"
+      aria-label="Window controls"
+    >
       <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#ff5f57]" />
       <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#febc2e]" />
       <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#28c840]" />
@@ -111,7 +115,7 @@ const defaultPrompts: Record<string, string> = {
   "demo-header": "Reduce the header height and add a bottom separator",
   "project-info": "Make the project name bolder and larger",
   "demo-tabs": "Give the active tab a stronger highlight",
-  "toolbar": "Add a gentle hover scale effect to the buttons",
+  toolbar: "Add a gentle hover scale effect to the buttons",
   "chat-area": "Increase the gap between chat messages",
   "thinking-steps": "Make the thinking steps collapse smoother",
   "chat-input": "Darken the input background for better contrast",
@@ -153,9 +157,9 @@ function DemoOverlay() {
   }, [popup]);
 
   function findPipperId(x: number, y: number): { el: HTMLElement; pipperId: string } | null {
-    const top = document.elementsFromPoint(x, y).find(
-      (node) => node !== overlayRef.current && node.getRootNode() === document,
-    );
+    const top = document
+      .elementsFromPoint(x, y)
+      .find((node) => node !== overlayRef.current && node.getRootNode() === document);
     if (!top) return null;
     const start = top instanceof HTMLElement ? top : top.parentElement;
     const pipper = start?.closest<HTMLElement>("[data-pipper-id]") ?? null;
@@ -233,7 +237,8 @@ function DemoOverlay() {
           <div
             className="absolute inset-0 rounded-sm"
             style={{
-              boxShadow: "0 0 0 2px var(--ring), 0 0 0 4px color-mix(in oklab, var(--ring) 40%, transparent)",
+              boxShadow:
+                "0 0 0 2px var(--ring), 0 0 0 4px color-mix(in oklab, var(--ring) 40%, transparent)",
               animation: "pipper-processing-pulse 0.8s ease-in-out infinite",
             }}
           />
@@ -360,152 +365,161 @@ export default function ProductDemo() {
         shadowLevel={7}
         className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] text-foreground h-full ${dark ? "dark" : ""}`}
       >
-          <header data-pipper-id="demo-header" className="grid min-h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-5">
-            <div className="flex min-w-0 items-center gap-5">
-              <TrafficLights />
-              <div data-pipper-id="project-info" className="min-w-0 leading-tight">
-                <div className="truncate text-[14px] font-medium tracking-[-0.01em]">
-                  {active.project}
-                </div>
-                <div className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-muted-foreground">
-                  <HugeiconsIcon icon={GitBranchIcon} size={13} strokeWidth={1.6} />
-                  <span>{active.branch}</span>
-                </div>
+        <header
+          data-pipper-id="demo-header"
+          className="grid min-h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-5"
+        >
+          <div className="flex min-w-0 items-center gap-5">
+            <TrafficLights />
+            <div data-pipper-id="project-info" className="min-w-0 leading-tight">
+              <div className="truncate text-[14px] font-medium tracking-[-0.01em]">
+                {active.project}
+              </div>
+              <div className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-muted-foreground">
+                <HugeiconsIcon icon={GitBranchIcon} size={13} strokeWidth={1.6} />
+                <span>{active.branch}</span>
               </div>
             </div>
+          </div>
 
-            <Tabs data-pipper-id="demo-tabs" value={tab} onValueChange={changeTab}>
-              <TabsList className="bg-muted/80">
-                <TabItem value="compression" label="Middle-out compression" />
-                <TabItem value="hooli" label="Hooli chat" />
-              </TabsList>
-            </Tabs>
+          <Tabs data-pipper-id="demo-tabs" value={tab} onValueChange={changeTab}>
+            <TabsList className="bg-muted/80">
+              <TabItem value="compression" label="Middle-out compression" />
+              <TabItem value="hooli" label="Hooli chat" />
+            </TabsList>
+          </Tabs>
 
-            <div data-pipper-id="toolbar" className="flex justify-self-end rounded-full w-fit bg-muted/80 p-1">
-              <IconButton
-                label={dark ? "Use light appearance" : "Use dark appearance"}
-                onClick={() => setDark((value) => !value)}
+          <div
+            data-pipper-id="toolbar"
+            className="flex justify-self-end rounded-full w-fit bg-muted/80 p-1"
+          >
+            <IconButton
+              label={dark ? "Use light appearance" : "Use dark appearance"}
+              onClick={() => setDark((value) => !value)}
+            >
+              <motion.span
+                animate={{ rotate: dark ? 180 : 0 }}
+                transition={{ type: "spring", stiffness: 360, damping: 25 }}
               >
-                <motion.span
-                  animate={{ rotate: dark ? 180 : 0 }}
-                  transition={{ type: "spring", stiffness: 360, damping: 25 }}
-                >
-                  <HugeiconsIcon icon={Sun01Icon} size={19} strokeWidth={1.6} />
-                </motion.span>
-              </IconButton>
-              <IconButton
-                label={overlayActive ? "Disable targeting" : "Enable targeting"}
-                onClick={() => setOverlayActive((v) => !v)}
-              >
-                <HugeiconsIcon icon={Copy02Icon} size={19} strokeWidth={1.6} />
-              </IconButton>
-            </div>
-          </header>
+                <HugeiconsIcon icon={Sun01Icon} size={19} strokeWidth={1.6} />
+              </motion.span>
+            </IconButton>
+            <IconButton
+              label={overlayActive ? "Disable targeting" : "Enable targeting"}
+              onClick={() => setOverlayActive((v) => !v)}
+            >
+              <HugeiconsIcon icon={Copy02Icon} size={19} strokeWidth={1.6} />
+            </IconButton>
+          </div>
+        </header>
 
-          <Tabs value={tab} onValueChange={changeTab} className="flex min-h-0 flex-1 flex-col">
-            {(["compression", "hooli"] as const).map((value) => {
-              const conversation = conversations[value];
-              return (
-                <TabPanel
-                  key={value}
-                  value={value}
-                  className="min-h-0 flex-1 overflow-y-auto px-[clamp(1.25rem,5vw,6rem)] pb-5 pt-5"
+        <Tabs value={tab} onValueChange={changeTab} className="flex min-h-0 flex-1 flex-col">
+          {(["compression", "hooli"] as const).map((value) => {
+            const conversation = conversations[value];
+            return (
+              <TabPanel
+                key={value}
+                value={value}
+                className="min-h-0 flex-1 overflow-y-auto px-[clamp(1.25rem,5vw,6rem)] pb-5 pt-5"
+              >
+                <div
+                  data-pipper-id="chat-area"
+                  className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col gap-5"
                 >
-                  <div data-pipper-id="chat-area" className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col gap-5">
-                    <ChatMessage from="user" time="just now">
-                      {conversation.user}
+                  <ChatMessage from="user" time="just now">
+                    {conversation.user}
+                  </ChatMessage>
+
+                  <ThinkingSteps data-pipper-id="thinking-steps" defaultOpen className="w-full">
+                    <ThinkingStepsHeader>Worked for 34 seconds</ThinkingStepsHeader>
+                    <ThinkingStepsContent>
+                      <ThinkingStep
+                        icon="search"
+                        label="Inspected the current implementation"
+                        description={`Read ${conversation.file} and its closest tests.`}
+                      />
+                      <ThinkingStep
+                        icon="brain"
+                        label="Mapped the smallest safe change"
+                        description="Kept the public API stable and isolated the hot path."
+                      />
+                      <ThinkingStep
+                        icon="check"
+                        label="Verified the result"
+                        description="Focused tests pass and the benchmark improved."
+                        isLast
+                      />
+                    </ThinkingStepsContent>
+                  </ThinkingSteps>
+
+                  <ChatMessage from="assistant">{conversation.answer}</ChatMessage>
+
+                  {sentMessage && (
+                    <ChatMessage from="user" time="now">
+                      {sentMessage}
                     </ChatMessage>
+                  )}
 
-                    <ThinkingSteps data-pipper-id="thinking-steps" defaultOpen className="w-full">
-                      <ThinkingStepsHeader>Worked for 34 seconds</ThinkingStepsHeader>
+                  {responseState !== "idle" && (
+                    <ThinkingSteps
+                      defaultOpen
+                      className="w-full"
+                      key={`${sentMessage}-${responseState}`}
+                    >
+                      <ThinkingStepsHeader>
+                        {responseState === "thinking"
+                          ? "Working on your follow-up"
+                          : "Worked for 12 seconds"}
+                      </ThinkingStepsHeader>
                       <ThinkingStepsContent>
-                        <ThinkingStep
-                          icon="search"
-                          label="Inspected the current implementation"
-                          description={`Read ${conversation.file} and its closest tests.`}
-                        />
+                        <ThinkingStep icon="search" label="Reading the active context" />
                         <ThinkingStep
                           icon="brain"
-                          label="Mapped the smallest safe change"
-                          description="Kept the public API stable and isolated the hot path."
+                          label="Preparing a focused update"
+                          status={responseState === "thinking" ? "active" : "complete"}
                         />
                         <ThinkingStep
                           icon="check"
-                          label="Verified the result"
-                          description="Focused tests pass and the benchmark improved."
+                          label="Updated the working tree"
+                          status={responseState === "done" ? "complete" : "pending"}
                           isLast
                         />
                       </ThinkingStepsContent>
                     </ThinkingSteps>
+                  )}
 
-                    <ChatMessage from="assistant">{conversation.answer}</ChatMessage>
+                  {responseState === "done" && (
+                    <ChatMessage from="assistant">
+                      I tightened that up and kept the change scoped. The preview has been updated
+                      with the new result.
+                    </ChatMessage>
+                  )}
 
-                    {sentMessage && (
-                      <ChatMessage from="user" time="now">
-                        {sentMessage}
-                      </ChatMessage>
-                    )}
-
-                    {responseState !== "idle" && (
-                      <ThinkingSteps
-                        defaultOpen
-                        className="w-full"
-                        key={`${sentMessage}-${responseState}`}
-                      >
-                        <ThinkingStepsHeader>
-                          {responseState === "thinking"
-                            ? "Working on your follow-up"
-                            : "Worked for 12 seconds"}
-                        </ThinkingStepsHeader>
-                        <ThinkingStepsContent>
-                          <ThinkingStep icon="search" label="Reading the active context" />
-                          <ThinkingStep
-                            icon="brain"
-                            label="Preparing a focused update"
-                            status={responseState === "thinking" ? "active" : "complete"}
-                          />
-                          <ThinkingStep
-                            icon="check"
-                            label="Updated the working tree"
-                            status={responseState === "done" ? "complete" : "pending"}
-                            isLast
-                          />
-                        </ThinkingStepsContent>
-                      </ThinkingSteps>
-                    )}
-
-                    {responseState === "done" && (
-                      <ChatMessage from="assistant">
-                        I tightened that up and kept the change scoped. The preview has been updated
-                        with the new result.
-                      </ChatMessage>
-                    )}
-
-                    <div data-pipper-id="chat-input" className="mt-auto pt-8">
-                      <Elevated
-                        offset={1}
-                        shadowLevel={3}
-                        className="mx-auto w-full max-w-[35rem] rounded-3xl"
-                      >
-                        <InputMessage
-                          value={draft}
-                          onValueChange={setDraft}
-                          onSend={(value) => submitMessage(value)}
-                          placeholder="Ask pipper to change something…"
-                          sendLabel="Send message"
-                          minRows={2}
-                          maxRows={4}
-                          disabled={responseState === "thinking"}
-                          className="bg-transparent shadow-none"
-                        />
-                      </Elevated>
-                    </div>
+                  <div data-pipper-id="chat-input" className="mt-auto pt-8">
+                    <Elevated
+                      offset={1}
+                      shadowLevel={3}
+                      className="mx-auto w-full max-w-[35rem] rounded-3xl"
+                    >
+                      <InputMessage
+                        value={draft}
+                        onValueChange={setDraft}
+                        onSend={(value) => submitMessage(value)}
+                        placeholder="Ask pipper to change something…"
+                        sendLabel="Send message"
+                        minRows={2}
+                        maxRows={4}
+                        disabled={responseState === "thinking"}
+                        className="bg-transparent shadow-none"
+                      />
+                    </Elevated>
                   </div>
-                </TabPanel>
-              );
-            })}
-          </Tabs>
-        </Elevated>
+                </div>
+              </TabPanel>
+            );
+          })}
+        </Tabs>
+      </Elevated>
 
       {overlayActive && <DemoOverlay />}
     </section>

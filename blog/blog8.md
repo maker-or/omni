@@ -69,4 +69,3 @@ free does not mean that every part of your setup has no cost. an agent may still
 bring your own ai agents is about choice. you know your work better than any product page does. you should be able to choose the tools that fit your tasks and change them when your needs change.
 
 pipper gives you a free interface for doing that. you can control multiple agents from one place, use the tools you bring, and work with an interface that can improve itself. start with one small project and see whether this way of working helps you stay focused.
-

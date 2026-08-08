@@ -70,4 +70,3 @@ pipper is free, so you do not have to pay for pipper before trying this workflow
 an ai development workflow works best when it is clear, small, and shaped around a real problem. start with the user. make a short plan. build one piece. review it. keep a note of what changed. then repeat.
 
 pipper gives you a free interface for controlling multiple agents as you move through those steps. bring the agents you already use, choose the right tool for each task, and let the interface improve itself as your way of working becomes clearer.
-

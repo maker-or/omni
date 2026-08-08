@@ -7,14 +7,13 @@ import {
   CheckIcon as ModelCheckIcon,
   ChatCircleTextIcon,
   MagnifyingGlassIcon,
-  PaperclipIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { InputMessage } from "@/components/ui/input-message";
 import { SliderComfortable } from "@/components/ui/slider";
 import { ChatMessage } from "@/components/ui/chat-message";
+import { ThreadComposer, initialDraftContent } from "@/components/thread-composer";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
@@ -24,6 +23,23 @@ import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
+import type { ComposerContent } from "../../contracts/composer.ts";
+import {
+  assertCreatable,
+  blankContent,
+  buildContent,
+  extractAgentId,
+  extractModelId,
+  extractModelToken,
+  extractProjectId,
+  extractTextContent,
+  getEntityTokens,
+  getFreeText,
+  removeEntityKind,
+  stripEntityKinds,
+  titleFromText,
+  upsertEntity,
+} from "@/lib/composer-tokens";
 import { selectThread } from "@/lib/thread-actions";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
@@ -551,7 +567,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   } = useAgentStore();
   const showImageAttach = canAttachImage();
   const [projectsList, setProjectsList] = useState<
-    Array<{ id: string; name: string; icon: string }>
+    Array<{ id: string; name: string; icon: string; path?: string }>
   >([]);
   const [inputValue, setInputValue] = useState(demoInputValue ?? "");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -590,12 +606,139 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   useEffect(() => {
     if (demoInputValue !== undefined) setInputValue(demoInputValue);
   }, [demoInputValue]);
+
   // The active thread + switch machinery is owned by the header tab strip
   // (GlobalTabBar); the panel just follows it. `requestedThreadId` is the
   // optimistic switch target so the conversation can show a switching veil
   // before the agent snapshot catches up.
   const requestedThreadId = useWorkspaceViewStore((state) => state.requestedThreadId);
+  const draft = useWorkspaceViewStore((state) => state.draft);
+  const endDraft = useWorkspaceViewStore((state) => state.endDraft);
+  const setDraftProject = useWorkspaceViewStore((state) => state.setDraftProject);
+  const setDraftAgent = useWorkspaceViewStore((state) => state.setDraftAgent);
+  const setDraftModel = useWorkspaceViewStore((state) => state.setDraftModel);
+  const setDraftDirty = useWorkspaceViewStore((state) => state.setDraftDirty);
+  const markDraftUserEditedProject = useWorkspaceViewStore(
+    (state) => state.markDraftUserEditedProject,
+  );
+  const isDraftMode = draft != null;
   const isDiffSplit = useIsDiffSplit();
+  const selectedWorktreePathByProject = useWorktreeStore(
+    (state) => state.selectedWorktreePathByProject,
+  );
+  const selectedAgentIds = useAgentRegistryStore((state) => state.selectedAgentIds);
+  const [draftContent, setDraftContent] = useState<ComposerContent>(blankContent());
+  const [liveContent, setLiveContent] = useState<ComposerContent>(blankContent());
+  const [projectFileItems, setProjectFileItems] = useState<
+    Array<{ id: string; label: string; description?: string }>
+  >([]);
+  const draftBootstrappedRef = useRef(false);
+
+  // Seed draft composer once when a draft session starts (soft-default project chip).
+  useEffect(() => {
+    if (!draft) {
+      draftBootstrappedRef.current = false;
+      setDraftContent(blankContent());
+      return;
+    }
+    if (draftBootstrappedRef.current) return;
+    draftBootstrappedRef.current = true;
+    const softProject =
+      draft.projectId != null
+        ? {
+            id: draft.projectId,
+            name:
+              projectsList.find((p) => p.id === draft.projectId)?.name ??
+              (activeProject?.id === draft.projectId ? activeProject.name : null) ??
+              "Project",
+          }
+        : null;
+    let content = initialDraftContent(softProject);
+    // Single selected agent → soft-chip so the next @ is model/files, not a
+    // forced agent picker every time.
+    const availableAgents = useAgentRegistryStore
+      .getState()
+      .agents.filter(
+        (a) =>
+          useAgentRegistryStore.getState().selectedAgentIds.includes(a.id) && a.available !== false,
+      );
+    if (availableAgents.length === 1) {
+      const only = availableAgents[0]!;
+      content = upsertEntity(content, {
+        kind: "agent",
+        id: only.id,
+        label: only.displayName,
+      });
+      setDraftAgent(only.id);
+    }
+    setDraftContent(content);
+    requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }, [draft, projectsList, activeProject, setDraftAgent]);
+
+  // External chrome (title-bar project switcher) can change draft.projectId;
+  // keep the composer chip in sync without wiping free text. Also clear agent
+  // when the project identity changes so @agent is offered again.
+  useEffect(() => {
+    if (!draft) return;
+    const contentProject = extractProjectId(draftContent);
+    if ((draft.projectId ?? null) === (contentProject ?? null)) return;
+    if (draft.projectId) {
+      const name =
+        projectsList.find((p) => p.id === draft.projectId)?.name ??
+        (activeProject?.id === draft.projectId ? activeProject.name : null) ??
+        "Project";
+      setDraftContent((prev) => {
+        let next = upsertEntity(prev, {
+          kind: "project",
+          id: draft.projectId!,
+          label: name,
+        });
+        if (contentProject != null && contentProject !== draft.projectId) {
+          next = removeEntityKind(removeEntityKind(next, "agent"), "model");
+          setDraftAgent(null);
+          setDraftModel(null);
+        }
+        return next;
+      });
+    } else {
+      setDraftContent((prev) => removeEntityKind(prev, "project"));
+    }
+    // Only react to store project id — not every content keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: store → chip bridge
+  }, [draft?.projectId]);
+
+  // Keep draft store fields aligned with chips so chrome can bind.
+  const handleDraftContentChange = (next: ComposerContent) => {
+    const prevProject = extractProjectId(draftContent);
+    const nextProject = extractProjectId(next);
+    let content = next;
+    // Switching project invalidates a soft/prior agent pick — clear agent (and
+    // model) so the next @ opens the agent list instead of an empty model list.
+    if (nextProject !== prevProject && prevProject != null) {
+      content = removeEntityKind(removeEntityKind(content, "agent"), "model");
+    }
+    setDraftContent(content);
+    setDraftProject(nextProject);
+    setDraftAgent(extractAgentId(content));
+    setDraftModel(extractModelId(content));
+    if (nextProject !== prevProject) {
+      markDraftUserEditedProject();
+      if (nextProject && window.omni?.projects?.setActive) {
+        void window.omni.projects.setActive(nextProject).catch(() => {
+          /* soft-sync is best-effort */
+        });
+      }
+    }
+    // Once the user types or changes chips, stay dirty until send/discard.
+    // Never flip dirty back to false mid-edit (would skip discard confirm).
+    const becameDirty =
+      Boolean(extractTextContent(content)) ||
+      nextProject !== (draft?.projectId ?? null) ||
+      extractAgentId(content) !== (draft?.agentId ?? null) ||
+      extractModelId(content) !== (draft?.modelId ?? null);
+    if (becameDirty || draft?.dirty) setDraftDirty(true);
+  };
+
   const commands = useMemo(
     () => mergeAgentCommands(snapshot?.commands ?? []),
     [snapshot?.commands],
@@ -914,6 +1057,122 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     setOrchestrationOpen(true);
     setInputValue("");
     setSelectedCommandIndex(0);
+  };
+
+  const handleLiveComposerSend = async (content: ComposerContent, sendFiles: File[]) => {
+    const modelToken = extractModelToken(content);
+    const textOnly = stripEntityKinds(content, ["model"]);
+    const trimmed = extractTextContent(textOnly);
+    if (modelToken) {
+      setIsRuntimeActionPending(true);
+      try {
+        const success = await setModel({ modelId: modelToken.id });
+        if (success) {
+          toast({
+            title: "Model switched",
+            description: modelToken.label,
+          });
+        } else {
+          toast({
+            icon: <WarningIcon className="size-5 text-red-500" />,
+            title: "Model change failed",
+            description: "The selected model was not applied.",
+          });
+        }
+      } catch (err) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Model change failed",
+          description: err instanceof Error ? err.message : "The selected model was not applied.",
+        });
+      } finally {
+        setIsRuntimeActionPending(false);
+      }
+      setLiveContent(textOnly);
+      setInputValue(getFreeText(textOnly));
+      if (!trimmed && !sendFiles.length && !editState?.images.length) return;
+    }
+    await handleSend(trimmed || getFreeText(textOnly), sendFiles);
+    setLiveContent(blankContent());
+    setInputValue("");
+  };
+
+  const handleLiveContentChange = (next: ComposerContent) => {
+    setLiveContent(next);
+    setInputValue(getFreeText(next));
+  };
+
+  const handleDraftSend = async (content: ComposerContent, files: File[]) => {
+    const check = assertCreatable(content);
+    if (!check.ok) {
+      const description =
+        check.reason === "missing_project"
+          ? "Add a @project chip before sending."
+          : check.reason === "missing_agent"
+            ? "Add an @agent chip before sending."
+            : "Write a message to start the thread.";
+      toast({
+        icon: <WarningIcon className="size-5 text-amber-500" />,
+        title: "Cannot create thread",
+        description,
+      });
+      return;
+    }
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const projectPath =
+        projectsList.find((p) => p.id === check.projectId)?.path ??
+        (activeProject?.id === check.projectId ? activeProject.path : null) ??
+        null;
+      const worktreePath = normalizeWorkspacePath(
+        draft?.worktreePath ?? selectedWorktreePathByProject[check.projectId] ?? null,
+        projectPath,
+      );
+      const title = titleFromText(check.text);
+      const thread = await createThread(
+        check.projectId,
+        title,
+        null,
+        check.agentId,
+        worktreePath,
+        check.modelId,
+      );
+      await loadProjectThreads(check.projectId, { reset: true });
+      await selectThread(thread.id);
+      endDraft();
+      setDraftContent(blankContent());
+
+      const newImages = await Promise.all(files.map(fileToPromptImage));
+      if (newImages.length > MAX_AGENT_IMAGES) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Attachment rejected",
+          description: `A prompt can contain at most ${MAX_AGENT_IMAGES} images.`,
+        });
+        return;
+      }
+      sendPrompt({
+        threadId: thread.id,
+        message: check.text,
+        images: newImages.length ? newImages : undefined,
+      }).catch((err) => {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Send failed",
+          description: err instanceof Error ? err.message : "The agent did not accept the message.",
+        });
+      });
+      setAttachedFiles([]);
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Create thread failed",
+        description: err instanceof Error ? err.message : "The thread was not created.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSend = async (text: string, files: File[]) => {
@@ -1236,16 +1495,101 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const visibleModelCount = visibleModels.length;
   const selectedModelProvider = snapshot?.model?.provider;
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
-  const emptyStateSubject = currentProject?.name ?? "your project";
+  const draftProjectName =
+    draft?.projectId != null
+      ? (projectsList.find((p) => p.id === draft.projectId)?.name ??
+        (activeProject?.id === draft.projectId ? activeProject.name : null))
+      : null;
+  const emptyStateSubject = isDraftMode
+    ? (draftProjectName ?? null)
+    : (currentProject?.name ?? "your project");
   const visibleAgentError = agentError && agentError !== dismissedAgentError ? agentError : null;
   const runtimeControlsDisabled =
     isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
-  const composerDisabled =
-    isSwitchingThread ||
-    isConnecting ||
-    !snapshot ||
-    isSubmitting ||
-    Boolean(editState && isStreaming);
+  const composerDisabled = isDraftMode
+    ? isSubmitting
+    : isSwitchingThread ||
+      isConnecting ||
+      !snapshot ||
+      isSubmitting ||
+      Boolean(editState && isStreaming);
+
+  const draftProjectItems = useMemo(
+    () =>
+      projectsList.map((p) => ({
+        id: p.id,
+        label: p.name,
+        description: "path" in p && typeof p.path === "string" ? p.path : undefined,
+      })),
+    [projectsList],
+  );
+  // Draft agent picker: prefer the user's selected agents, but never show an
+  // empty list when other available agents exist (common when registry loaded
+  // late or selectedAgentIds is still empty).
+  const draftAgentItems = useMemo(() => {
+    const available = registryAgents.filter((a) => a.available !== false);
+    const selected = available.filter((a) => selectedAgentIds.includes(a.id));
+    const pool = selected.length > 0 ? selected : available;
+    return pool.map((a) => ({
+      id: a.id,
+      label: a.displayName,
+      description: a.name,
+    }));
+  }, [registryAgents, selectedAgentIds]);
+
+  // Ensure the agent catalog is loaded for draft @agent mentions.
+  useEffect(() => {
+    void useAgentRegistryStore.getState().load();
+  }, []);
+  const modelMentionItems = useMemo(
+    () =>
+      models.map((model) => ({
+        id: model.modelId,
+        label: model.name,
+        description: formatProviderName(model.provider),
+        agentId: snapshot?.agentId ?? undefined,
+      })),
+    [models, snapshot?.agentId],
+  );
+
+  // File list for smart @file mentions (draft needs a project; live uses active cwd).
+  useEffect(() => {
+    const canList = Boolean(
+      isDraftMode ? (draft?.projectId ?? extractProjectId(draftContent)) : snapshot?.projectId,
+    );
+    if (!canList || !window.omni?.projects?.listFiles) {
+      setProjectFileItems([]);
+      return;
+    }
+    let cancelled = false;
+    void window.omni.projects
+      .listFiles()
+      .then((paths) => {
+        if (cancelled) return;
+        setProjectFileItems(
+          paths.map((path) => ({
+            id: path,
+            label: path,
+            description: path.includes("/") ? path.split("/").slice(0, -1).join("/") : undefined,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setProjectFileItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDraftMode, draft?.projectId, draftContent, snapshot?.projectId, activeProject?.id]);
+
+  // Keep live free-text content aligned when not using entity chips from draft.
+  useEffect(() => {
+    if (isDraftMode) return;
+    setLiveContent((prev) => {
+      const entities = getEntityTokens(prev);
+      return buildContent(entities, inputValue);
+    });
+  }, [inputValue, isDraftMode]);
 
   return (
     <section
@@ -1273,7 +1617,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         <div className="relative flex-1 overflow-hidden mt-4  min-h-0 flex flex-col">
           {/* Full-bleed: the ambient field spans the whole panel, while the
               reading column below keeps the conversation and composer centred. */}
-          {allMessages.length === 0 && (
+          {(allMessages.length === 0 || isDraftMode) && (
             <AmbientPixelField
               pixelSize={6}
               gap={4}
@@ -1299,18 +1643,37 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               aria-busy={isSwitchingThread}
             >
               <div className="min-h-full ">
-                {allMessages.length === 0 ? (
+                {allMessages.length === 0 || isDraftMode ? (
                   <div
                     data-pipper-id="empty-state"
                     className="h-full min-h-[280px] flex items-center justify-center p-6 select-none"
                   >
                     <h2 className="relative z-10 flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65 pointer-events-none">
-                      <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                        What should we cook in
-                      </span>
-                      <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                        {emptyStateSubject}
-                      </span>
+                      {isDraftMode ? (
+                        emptyStateSubject ? (
+                          <>
+                            <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                              What should we cook in
+                            </span>
+                            <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
+                              {emptyStateSubject}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                            Describe a task to start a thread
+                          </span>
+                        )
+                      ) : (
+                        <>
+                          <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                            What should we cook in
+                          </span>
+                          <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
+                            {emptyStateSubject}
+                          </span>
+                        </>
+                      )}
                     </h2>
                   </div>
                 ) : (
@@ -1600,7 +1963,27 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                     className="relative z-10 mb-1.5"
                   />
 
-                  {inlineRequest ? (
+                  {isDraftMode ? (
+                    <ThreadComposer
+                      mode="draft"
+                      className="relative z-10"
+                      content={draftContent}
+                      onContentChange={handleDraftContentChange}
+                      onSend={(content, files) => void handleDraftSend(content, files)}
+                      disabled={composerDisabled}
+                      isSubmitting={isSubmitting}
+                      projects={draftProjectItems}
+                      agents={draftAgentItems}
+                      models={modelMentionItems}
+                      projectFiles={projectFileItems}
+                      files={attachedFiles}
+                      onFilesChange={handleFilesChange}
+                      onFilesRejected={handleFilesRejected}
+                      maxFiles={MAX_AGENT_IMAGES}
+                      showImageAttach={true}
+                      textareaRef={composerTextareaRef}
+                    />
+                  ) : inlineRequest ? (
                     <AgentQuestionCard request={inlineRequest} className="relative z-10" />
                   ) : orchestrationOpen ? (
                     <SubagentComposer
@@ -1682,104 +2065,88 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           </span>
                         </div>
                       ) : null}
-                      <InputMessage
+                      <ThreadComposer
+                        mode="live"
                         className="relative z-10"
-                        textareaRef={composerTextareaRef}
-                        value={inputValue}
-                        onValueChange={setInputValue}
-                        placeholder={isConnecting ? "Connecting to agent runtime..." : "Type here"}
-                        onSend={handleSend}
+                        content={liveContent}
+                        onContentChange={handleLiveContentChange}
+                        onSend={(content, sendFiles) =>
+                          void handleLiveComposerSend(content, sendFiles)
+                        }
                         disabled={composerDisabled}
-                        canSendWhenEmpty={Boolean(editState?.images.length)}
-                        files={attachedFiles}
-                        onFilesChange={handleFilesChange}
-                        onFilesRejected={handleFilesRejected}
-                        accept="image/png,image/jpeg,image/gif,image/webp"
-                        maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
+                        isSubmitting={isSubmitting}
                         isStreaming={isStreaming}
                         onStop={() => void handleAbort()}
                         isStopping={isAborting}
-                        sendLabel={isSubmitting ? "Sending" : "Send"}
-                        leftSlot={({ openFilePicker }) =>
-                          showImageAttach ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              data-pipper-id="attach-image-button"
-                              aria-label="Attach images"
-                              onClick={() =>
-                                openFilePicker("image/png,image/jpeg,image/gif,image/webp")
-                              }
-                            >
-                              <PaperclipIcon size={15} />
-                            </Button>
-                          ) : null
-                        }
-                        textareaProps={{
-                          onKeyDown: (event) => {
-                            // `/continue` agent picker owns the keys while open.
-                            if (continuePickerOpen && continuableAgents.length) {
-                              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                                event.preventDefault();
-                                setContinueSelectedIndex(
-                                  (current) =>
-                                    (current +
-                                      (event.key === "ArrowDown" ? 1 : -1) +
-                                      continuableAgents.length) %
-                                    continuableAgents.length,
-                                );
-                                return;
-                              }
-                              if (event.key === "Enter" || event.key === "Tab") {
-                                event.preventDefault();
-                                const agent =
-                                  continuableAgents[continueSelectedIndex] ?? continuableAgents[0];
-                                if (agent) void handleContinueWithAgent(agent.id);
-                                return;
-                              }
-                              if (event.key === "Escape") {
-                                event.preventDefault();
-                                setContinuePickerOpen(false);
-                                return;
-                              }
-                            }
-                            if (
-                              slashMatches.length &&
-                              (event.key === "ArrowDown" || event.key === "ArrowUp")
-                            ) {
+                        models={modelMentionItems}
+                        projectFiles={projectFileItems}
+                        files={attachedFiles}
+                        onFilesChange={handleFilesChange}
+                        onFilesRejected={handleFilesRejected}
+                        maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
+                        showImageAttach={showImageAttach}
+                        textareaRef={composerTextareaRef}
+                        placeholder={isConnecting ? "Connecting to agent runtime..." : undefined}
+                        onTextareaKeyDown={(event) => {
+                          if (continuePickerOpen && continuableAgents.length) {
+                            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                               event.preventDefault();
-                              setSelectedCommandIndex(
+                              setContinueSelectedIndex(
                                 (current) =>
                                   (current +
                                     (event.key === "ArrowDown" ? 1 : -1) +
-                                    slashMatches.length) %
-                                  slashMatches.length,
+                                    continuableAgents.length) %
+                                  continuableAgents.length,
                               );
                               return;
                             }
-                            if (
-                              slashMatches.length &&
-                              (event.key === "Tab" ||
-                                (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
-                            ) {
+                            if (event.key === "Enter" || event.key === "Tab") {
                               event.preventDefault();
-                              applyCommand(
-                                slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
-                              );
+                              const agent =
+                                continuableAgents[continueSelectedIndex] ?? continuableAgents[0];
+                              if (agent) void handleContinueWithAgent(agent.id);
                               return;
                             }
                             if (event.key === "Escape") {
-                              setSelectedCommandIndex(0);
+                              event.preventDefault();
+                              setContinuePickerOpen(false);
+                              return;
                             }
-                          },
+                          }
+                          if (
+                            slashMatches.length &&
+                            (event.key === "ArrowDown" || event.key === "ArrowUp")
+                          ) {
+                            event.preventDefault();
+                            setSelectedCommandIndex(
+                              (current) =>
+                                (current +
+                                  (event.key === "ArrowDown" ? 1 : -1) +
+                                  slashMatches.length) %
+                                slashMatches.length,
+                            );
+                            return;
+                          }
+                          if (
+                            slashMatches.length &&
+                            (event.key === "Tab" ||
+                              (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
+                          ) {
+                            event.preventDefault();
+                            applyCommand(
+                              slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
+                            );
+                            return;
+                          }
+                          if (event.key === "Escape") {
+                            setSelectedCommandIndex(0);
+                          }
                         }}
-                        rightSlot={
+                        rightSlotExtra={
                           <div
                             ref={modelDropdownRef}
                             className="relative flex items-center gap-1.5"
                           >
-                            {" "}
                             {thoughtLevelValues.length > 0 && (
                               <Button
                                 variant="ghost"
@@ -1933,36 +2300,38 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                   )}
                 </div>
 
-                <div
-                  data-pipper-id="stats-bar"
-                  className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
-                >
-                  {snapshot?.stats && (
-                    <div className="ml-auto flex w-full items-center justify-between gap-2">
-                      <ContextWindowRing
-                        contextUsage={
-                          snapshot.stats.size > 0
-                            ? {
-                                tokens: snapshot.stats.used,
-                                contextWindow: snapshot.stats.size,
-                                percent: (snapshot.stats.used / snapshot.stats.size) * 100,
-                              }
-                            : undefined
-                        }
-                        modelName={snapshot.model?.name}
-                        autoCompactionEnabled={snapshot.autoCompactionEnabled}
-                        sessionTokens={snapshot.stats.used}
-                        sessionCost={snapshot.stats.cost?.amount}
-                        rateLimit={snapshot.usage?.rateLimit}
-                      />
-                      {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
-                        <span className="tabular-nums opacity-70">
-                          (${snapshot.stats.cost.amount.toFixed(4)})
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {!isDraftMode ? (
+                  <div
+                    data-pipper-id="stats-bar"
+                    className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
+                  >
+                    {snapshot?.stats && (
+                      <div className="ml-auto flex w-full items-center justify-between gap-2">
+                        <ContextWindowRing
+                          contextUsage={
+                            snapshot.stats.size > 0
+                              ? {
+                                  tokens: snapshot.stats.used,
+                                  contextWindow: snapshot.stats.size,
+                                  percent: (snapshot.stats.used / snapshot.stats.size) * 100,
+                                }
+                              : undefined
+                          }
+                          modelName={snapshot.model?.name}
+                          autoCompactionEnabled={snapshot.autoCompactionEnabled}
+                          sessionTokens={snapshot.stats.used}
+                          sessionCost={snapshot.stats.cost?.amount}
+                          rateLimit={snapshot.usage?.rateLimit}
+                        />
+                        {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
+                          <span className="tabular-nums opacity-70">
+                            (${snapshot.stats.cost.amount.toFixed(4)})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

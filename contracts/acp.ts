@@ -252,6 +252,12 @@ export interface AcpSessionState {
 export type AcpBridgeEvent =
   | { type: "session-state"; state: AcpSessionState }
   | { type: "session-update"; sessionId: string; threadId: string | null; update: SessionUpdate }
+  /** Full tool-call watermark for a thread, including background threads. */
+  | {
+      type: "thread-tool-calls";
+      threadId: string;
+      toolCalls: Record<string, AcpToolCallState>;
+    }
   | { type: "permission-request"; request: AcpPermissionRequest }
   | { type: "permission-resolved"; sessionId: string }
   | {

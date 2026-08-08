@@ -1,5 +1,12 @@
 export { type Project, type NewProject } from "./projects.ts";
 export { type Thread, type NewThread, type ThreadPage, type OpenTabsState } from "./threads.ts";
+export type {
+  ComposerToken,
+  ComposerContent,
+  ComposerMentionKind,
+  DraftState,
+  ThreadCreateRequest,
+} from "./composer.ts";
 export {
   type AcpAgentDescriptor,
   type AcpBridgeEvent,

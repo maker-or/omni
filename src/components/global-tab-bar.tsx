@@ -1,13 +1,12 @@
 "use client";
 
-import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ChatCircleIcon,
   FolderPlusIcon,
   PlusIcon,
   TerminalWindowIcon,
-  TrashIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -20,20 +19,17 @@ import { toast } from "@/components/ui/toast";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
-import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { selectThread } from "@/lib/thread-actions";
 import {
   OPEN_TABS_QUERY_KEY,
-  useMergedProjectThreads,
   useOpenTabsQuery,
   usePrefetchRecentProjects,
-  useProjectThreadsQuery,
   useRecentProjectsQuery,
 } from "@/lib/thread-queries";
-import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
+import type { Thread } from "../../contracts/threads.ts";
 import { isThreadInWorkspace, normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 
 const TERMINAL_TAB_PREFIX = "terminal:";
@@ -65,36 +61,27 @@ function getProjectIconComponent(name: string) {
  *   - agent threads (persisted, backed by open-tabs)
  *   - terminals (ephemeral, backed by the in-memory terminal store)
  *
- * Selecting a tab flips `useWorkspaceViewStore.mode`; `App` reads that to route
- * the workspace area (full-width agent / agent+diff split / full-width
- * terminal). All thread create/select/close/rename plumbing that used to live
- * inside `AgentPanel`'s header now lives here.
+ * "New thread" opens a draft composer (no session spawn). Creation happens on
+ * first send in AgentPanel.
  */
 export function GlobalTabBar() {
   const queryClient = useQueryClient();
   const { activeProject } = useProjectStore();
-  const {
-    threads,
-    pagesByProject,
-    loadProjectThreads,
-    renameThread,
-    deleteThread,
-    error: threadError,
-  } = useThreadStore();
+  const { pagesByProject, loadProjectThreads, renameThread } = useThreadStore();
   const snapshot = useAgentStore((state) => state.snapshot);
   const agentError = useAgentStore((state) => state.error);
   const runningThreadIds = useAgentStore((state) => state.runningThreadIds);
-  const createThread = useAgentStore((state) => state.createThread);
-  const isStreaming = snapshot?.isStreaming ?? false;
+  const pendingThreadTarget = useAgentStore((state) => state.pendingThreadTarget);
 
   const requestedThreadId = useWorkspaceViewStore((state) => state.requestedThreadId);
   const requestThread = useWorkspaceViewStore((state) => state.requestThread);
   const mode = useWorkspaceViewStore((state) => state.mode);
   const showAgent = useWorkspaceViewStore((state) => state.showAgent);
   const showTerminal = useWorkspaceViewStore((state) => state.showTerminal);
+  const draft = useWorkspaceViewStore((state) => state.draft);
+  const beginDraft = useWorkspaceViewStore((state) => state.beginDraft);
+  const endDraft = useWorkspaceViewStore((state) => state.endDraft);
 
-  // PTY chunks do not change this revision, so the tab strip does no mapping
-  // or string allocation for streaming output.
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalTabs = useMemo(
     () =>
@@ -115,22 +102,12 @@ export function GlobalTabBar() {
     Array<{ id: string; name: string; icon: string; path?: string }>
   >([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
-  const [isCreatingThread, setIsCreatingThread] = useState(false);
-  const [showAgentPicker, setShowAgentPicker] = useState(false);
-  const [pendingCreateProjectId, setPendingCreateProjectId] = useState<string | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [editingThreadOriginalTitle, setEditingThreadOriginalTitle] = useState("");
-  const [threadPaneStyle, setThreadPaneStyle] = useState<CSSProperties | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const projectListRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const threadPaneRef = useRef<HTMLDivElement>(null);
-  // Tabs whose close is in flight (or whose thread the agent snapshot still
-  // references after closing) — guards double-close and the tab-sync effect
-  // from re-opening a just-closed tab while switchThread lands.
   const closingTabIdsRef = useRef<Set<string>>(new Set());
 
   const openTabsQuery = useOpenTabsQuery();
@@ -145,18 +122,14 @@ export function GlobalTabBar() {
   const activeThreadId = openTabsState?.activeThreadId ?? null;
   const threadSwitchHistory = openTabsState?.threadSwitchHistory ?? [];
   const snapshotThreadId = snapshot?.threadId ?? null;
+  const optimisticRequestedThreadId =
+    requestedThreadId && pendingThreadTarget === requestedThreadId ? requestedThreadId : null;
 
-  // Workspace-first: the strip shows only threads that belong to their
-  // project's current workspace. Hidden tabs stay open (hide, not close) and
-  // reappear when the user switches back. The active thread is never hidden —
-  // whatever produced it, its conversation is on screen and needs a tab.
   const visibleOpenThreads = useMemo(() => {
-    const alwaysVisibleId = requestedThreadId ?? activeThreadId ?? snapshotThreadId;
+    const alwaysVisibleId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId;
     return orderedOpenThreads.filter((thread) => {
       if (thread.id === alwaysVisibleId) return true;
       const project = projectsList.find((item) => item.id === thread.project_id);
-      // Until the project's path is known we can't tell root from worktree;
-      // show rather than hide.
       if (!project?.path) return true;
       const workspacePath = normalizeWorkspacePath(
         selectedWorktreePathByProject[thread.project_id],
@@ -168,7 +141,7 @@ export function GlobalTabBar() {
     orderedOpenThreads,
     projectsList,
     selectedWorktreePathByProject,
-    requestedThreadId,
+    optimisticRequestedThreadId,
     activeThreadId,
     snapshotThreadId,
   ]);
@@ -179,9 +152,7 @@ export function GlobalTabBar() {
     openThreads,
   );
   usePrefetchRecentProjects(recentProjectsQuery.data ?? []);
-  const hoveredProjectThreadsQuery = useProjectThreadsQuery(hoveredProjectId);
 
-  // ── Effects ───────────────────────────────────────────────────────────
   useEffect(() => {
     async function loadProjects() {
       const list = await window.omni.projects.list();
@@ -191,34 +162,8 @@ export function GlobalTabBar() {
   }, [activeProject?.id]);
 
   useEffect(() => {
-    void useAgentRegistryStore.getState().load();
-  }, []);
-
-  // Terminal output streams through a single global IPC listener (was owned by
-  // the removed OthersView). Idempotent — guarded by listenerInitialized.
-  useEffect(() => {
     initializeGlobalListener();
   }, [initializeGlobalListener]);
-
-  // Terminals are cwd-bound and workspace-scoped: App's workspace-bucket
-  // effect stashes/restores them whenever the (project, workspace) context
-  // changes, so no project-switch cleanup is needed here anymore.
-
-  useEffect(() => {
-    if (!isDropdownOpen) setHoveredProjectId(null);
-  }, [isDropdownOpen]);
-
-  useEffect(() => {
-    if (!hoveredProjectId) return;
-    const exists = projectsList.some((project) => project.id === hoveredProjectId);
-    if (!exists) setHoveredProjectId(projectsList[0]?.id ?? null);
-  }, [hoveredProjectId, projectsList]);
-
-  useEffect(() => {
-    if (!hoveredProjectId) return;
-    if (pagesByProject[hoveredProjectId]) return;
-    void loadProjectThreads(hoveredProjectId, { reset: true });
-  }, [hoveredProjectId, loadProjectThreads, pagesByProject]);
 
   useEffect(() => {
     for (const projectId of recentProjectsQuery.data ?? []) {
@@ -226,42 +171,6 @@ export function GlobalTabBar() {
     }
   }, [loadProjectThreads, pagesByProject, recentProjectsQuery.data]);
 
-  // Position the hover thread-pane next to the project list.
-  useEffect(() => {
-    if (!isDropdownOpen || !hoveredProjectId) {
-      setThreadPaneStyle(null);
-      return;
-    }
-    const updatePosition = () => {
-      const rect = projectListRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const gap = 8;
-      const paneWidth = 320;
-      const paneHeight = 420;
-      const canFitRight = rect.right + gap + paneWidth <= window.innerWidth - gap;
-      const left = canFitRight ? rect.right + gap : Math.max(gap, rect.left - paneWidth - gap);
-      const top = Math.min(
-        Math.max(gap, rect.top),
-        Math.max(gap, window.innerHeight - paneHeight - gap),
-      );
-      setThreadPaneStyle({
-        position: "fixed",
-        top: `${Math.round(top)}px`,
-        left: `${Math.round(left)}px`,
-        zIndex: 3000,
-      });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [isDropdownOpen, hoveredProjectId]);
-
-  // Keep the current agent thread registered + active in open-tabs, and clear
-  // the optimistic switch target once the snapshot catches up.
   useEffect(() => {
     if (!snapshotThreadId) return;
     if (closingTabIdsRef.current.has(snapshotThreadId)) return;
@@ -271,8 +180,11 @@ export function GlobalTabBar() {
   }, [snapshotThreadId, queryClient]);
 
   useEffect(() => {
-    if (requestedThreadId && snapshotThreadId === requestedThreadId) requestThread(null);
-  }, [requestedThreadId, snapshotThreadId, requestThread]);
+    if (!requestedThreadId) return;
+    if (requestedThreadId === snapshotThreadId || pendingThreadTarget !== requestedThreadId) {
+      requestThread(null);
+    }
+  }, [requestedThreadId, snapshotThreadId, pendingThreadTarget, requestThread]);
 
   useEffect(() => {
     if (requestedThreadId && agentError) requestThread(null);
@@ -294,7 +206,6 @@ export function GlobalTabBar() {
         buttonRef.current &&
         !buttonRef.current.contains(target)
       ) {
-        if (threadPaneRef.current?.contains(target)) return;
         setIsDropdownOpen(false);
       }
     }
@@ -302,7 +213,6 @@ export function GlobalTabBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isDropdownOpen]);
 
-  // ── Rename ────────────────────────────────────────────────────────────
   const startRenameThread = (threadId: string, title: string) => {
     setEditingThreadId(threadId);
     setEditingThreadTitle(title);
@@ -346,8 +256,13 @@ export function GlobalTabBar() {
     return true;
   };
 
-  // ── Thread select / close / delete ────────────────────────────────────
   const handleSelectThread = async (id: string, activateView = true) => {
+    const currentDraft = useWorkspaceViewStore.getState().draft;
+    if (currentDraft?.dirty) {
+      const ok = window.confirm("Discard the new thread draft?");
+      if (!ok) return;
+    }
+    if (currentDraft) endDraft();
     closingTabIdsRef.current.delete(id);
     await selectThread(id, { activateView });
   };
@@ -356,7 +271,7 @@ export function GlobalTabBar() {
     if (closingTabIdsRef.current.has(id)) return;
     closingTabIdsRef.current.add(id);
     try {
-      const wasActive = id === (requestedThreadId ?? activeThreadId ?? snapshotThreadId);
+      const wasActive = id === (optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId);
       const nextState = await window.omni.tabs.close(id);
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       if (!wasActive) return;
@@ -382,122 +297,20 @@ export function GlobalTabBar() {
     }
   };
 
-  const handleDeleteThread = async (thread: Thread) => {
-    if (thread.id === snapshot?.threadId && isStreaming) return;
-    if (!window.confirm(`Permanently delete “${thread.title}” and its session history?`)) return;
-    try {
-      await deleteThread(thread.id);
-      queryClient.setQueriesData<ThreadPage>(
-        { queryKey: ["project-threads", thread.project_id] },
-        (current) => {
-          if (!current) return current;
-          const hadThread = current.threads.some((item) => item.id === thread.id);
-          return {
-            ...current,
-            threads: current.threads.filter((item) => item.id !== thread.id),
-            nextOffset: hadThread ? Math.max(0, current.nextOffset - 1) : current.nextOffset,
-          };
-        },
-      );
-      queryClient.setQueryData<OpenTabsState & { openThreads: Thread[] }>(
-        OPEN_TABS_QUERY_KEY,
-        (current) => {
-          if (!current) return current;
-          const openThreadIds = current.openThreadIds.filter((id) => id !== thread.id);
-          return {
-            ...current,
-            openThreadIds,
-            openThreads: current.openThreads.filter((item) => item.id !== thread.id),
-            activeThreadId:
-              current.activeThreadId === thread.id
-                ? (openThreadIds[0] ?? null)
-                : current.activeThreadId,
-          };
-        },
-      );
-      setIsDropdownOpen(false);
-      await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
-      await queryClient.invalidateQueries({ queryKey: ["project-threads", thread.project_id] });
-      const state = await window.omni.tabs.listOpen();
-      if (state.activeThreadId) {
-        await handleSelectThread(state.activeThreadId, mode !== "terminal");
-      } else {
-        requestThread(null);
-        const sessions = useTerminalStore.getState().sessions;
-        const referencedTerminalId = useWorkspaceViewStore.getState().activeTerminalId;
-        const terminalId = sessions.some((session) => session.id === referencedTerminalId)
-          ? referencedTerminalId
-          : (sessions[0]?.id ?? null);
-        if (mode === "agent" && terminalId) showTerminal(terminalId);
-      }
-    } catch (err) {
-      toast({
-        icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Delete failed",
-        description: err instanceof Error ? err.message : "The thread was not deleted.",
-      });
-    }
+  const handleNewThread = () => {
+    setIsDropdownOpen(false);
+    const project = activeProject;
+    const worktreePath = project
+      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+      : null;
+    beginDraft({
+      projectId: project?.id ?? null,
+      previousActiveProjectId: project?.id ?? null,
+      worktreePath,
+    });
+    showAgent();
   };
 
-  // ── Thread create ─────────────────────────────────────────────────────
-  const dismissThreadCreator = () => {
-    setShowAgentPicker(false);
-    setPendingCreateProjectId(null);
-  };
-
-  const handleCreateThread = async (agentId?: string | null) => {
-    const projectId = pendingCreateProjectId ?? hoveredProjectId ?? activeProject?.id;
-    if (!projectId || isCreatingThread) return;
-    const project = projectsList.find((item) => item.id === projectId);
-    // New threads always bind to the project's current workspace.
-    const worktreePath = normalizeWorkspacePath(
-      selectedWorktreePathByProject[projectId],
-      project?.path ?? null,
-    );
-    const nextCount = threads.filter((thread) => thread.project_id === projectId).length + 1;
-    const title = `${project?.name ?? "Thread"} #${nextCount}`;
-    setIsCreatingThread(true);
-    dismissThreadCreator();
-    try {
-      const thread = await createThread(
-        projectId,
-        title,
-        snapshot?.threadId ?? null,
-        agentId ?? null,
-        worktreePath,
-      );
-      await loadProjectThreads(projectId, { reset: true });
-      await handleSelectThread(thread.id);
-    } catch (err) {
-      toast({
-        icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Create thread failed",
-        description: err instanceof Error ? err.message : "The thread was not created.",
-      });
-    } finally {
-      setIsCreatingThread(false);
-    }
-  };
-
-  const handleRequestCreateThread = () => {
-    const projectId = hoveredProjectId ?? activeProject?.id;
-    if (!projectId || isCreatingThread) return;
-    const registryAgents = useAgentRegistryStore.getState().agents;
-    const selectedIds = useAgentRegistryStore.getState().selectedAgentIds;
-    const availableAgents = registryAgents.filter((a) => selectedIds.includes(a.id) && a.available);
-    if (availableAgents.length === 0) {
-      toast({
-        icon: <WarningIcon className="size-5 text-amber-500" />,
-        title: "No agents selected",
-        description: "Select a coding agent in the launch window first.",
-      });
-      return;
-    }
-    setPendingCreateProjectId(projectId);
-    setShowAgentPicker(true);
-  };
-
-  // ── Terminal select / create / close ──────────────────────────────────
   const handleSelectTerminal = (id: string) => {
     showTerminal(id);
   };
@@ -522,56 +335,14 @@ export function GlobalTabBar() {
     }
   };
 
-  // ── Derived ───────────────────────────────────────────────────────────
-  const projectItems = projectsList.map((project, idx) => ({
-    id: project.id,
-    name: project.name,
-    icon: project.icon,
-    // Index 0 is reserved for "New terminal", so project menu indices start at 1.
-    index: idx + 1,
-  }));
-  const activeProjectItemIndex = projectItems.findIndex((item) => item.id === activeProject?.id);
-  const checkedIndex = activeProjectItemIndex >= 0 ? activeProjectItemIndex + 1 : undefined;
-  const addProjectIndex = projectItems.length + 1;
-  // openThreads last so broadcast-fresh rows (e.g. a thread auto-created by
-  // a workspace switch, not yet in the 2-min-stale project query) win.
-  const hoveredStoreThreads = useMemo(() => [...threads, ...openThreads], [threads, openThreads]);
-  const mergedHoveredProjectThreads = useMergedProjectThreads(
-    hoveredProjectId,
-    hoveredProjectThreadsQuery.data?.threads ?? [],
-    hoveredStoreThreads,
-  );
-  // The picker only offers threads in the hovered project's current
-  // workspace; cross-workspace threads require switching workspace first.
-  const hoveredProject = projectsList.find((item) => item.id === hoveredProjectId);
-  const hoveredWorkspacePath = normalizeWorkspacePath(
-    hoveredProjectId ? selectedWorktreePathByProject[hoveredProjectId] : null,
-    hoveredProject?.path ?? null,
-  );
-  const hoveredProjectThreads = useMemo(
-    () =>
-      hoveredProject?.path
-        ? mergedHoveredProjectThreads.filter((thread) =>
-            isThreadInWorkspace(thread, hoveredWorkspacePath),
-          )
-        : mergedHoveredProjectThreads,
-    [mergedHoveredProjectThreads, hoveredProject?.path, hoveredWorkspacePath],
-  );
-  const hoveredWorkspaceLabel = hoveredWorkspacePath
-    ? (hoveredWorkspacePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "workspace")
-    : "main";
-  const hoveredThreadPage = hoveredProjectId ? pagesByProject[hoveredProjectId] : undefined;
-  const isHoveredThreadsLoading =
-    hoveredProjectThreadsQuery.isLoading || Boolean(hoveredThreadPage?.isLoading);
-  const hoveredThreadsHasMore = hoveredThreadPage
-    ? hoveredThreadPage.hasMore
-    : Boolean(hoveredProjectThreadsQuery.data?.hasMore);
-
-  const selectedThreadId = requestedThreadId ?? activeThreadId ?? snapshotThreadId ?? "";
+  // Draft is tab-less: use a sentinel that matches no TabItem so nothing highlights.
+  const selectedThreadId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId ?? "";
   const selectedTabValue =
     mode === "terminal" && activeTerminalId
       ? `${TERMINAL_TAB_PREFIX}${activeTerminalId}`
-      : selectedThreadId;
+      : draft
+        ? "__draft__"
+        : selectedThreadId;
 
   const handleTabChange = (value: string) => {
     if (value.startsWith(TERMINAL_TAB_PREFIX)) {
@@ -661,19 +432,7 @@ export function GlobalTabBar() {
             size="icon-sm"
             active={isDropdownOpen}
             aria-label="Add tab"
-            onClick={() =>
-              setIsDropdownOpen((prev) => {
-                const next = !prev;
-                if (next) {
-                  setHoveredProjectId(activeProject?.id ?? projectItems[0]?.id ?? null);
-                  // Refresh on open (like the header project dropdown does) so
-                  // projects added via the launch window appear without an
-                  // active-project change.
-                  void window.omni.projects.list().then(setProjectsList);
-                }
-                return next;
-              })
-            }
+            onClick={() => setIsDropdownOpen((prev) => !prev)}
           >
             <PlusIcon size={16} />
           </Button>
@@ -684,200 +443,37 @@ export function GlobalTabBar() {
               ref={dropdownRef}
               className="absolute left-0 top-full mt-1.5 z-[200]"
             >
-              <div ref={projectListRef} className="relative">
-                <Dropdown checkedIndex={checkedIndex} className="w-72 max-h-[300px]">
-                  <MenuItem
-                    index={0}
-                    label="New terminal"
-                    icon={TerminalWindowIcon}
-                    onSelect={() => {
-                      setIsDropdownOpen(false);
-                      handleNewTerminal();
-                    }}
-                  />
-                  <DropdownSeparator />
-                  {projectItems.map((item) => {
-                    const project = projectsList.find((p) => p.id === item.id);
-                    const ProjectIconItem = project
-                      ? getProjectIconComponent(project.icon)
-                      : undefined;
-                    return (
-                      <MenuItem
-                        key={item.id}
-                        index={item.index}
-                        label={item.name}
-                        icon={ProjectIconItem}
-                        checked={activeProject?.id === item.id}
-                        onMouseEnter={() => setHoveredProjectId(item.id)}
-                        onFocus={() => setHoveredProjectId(item.id)}
-                        onSelect={() => setHoveredProjectId(item.id)}
-                      />
-                    );
-                  })}
-                  <DropdownSeparator />
-                  <MenuItem
-                    index={addProjectIndex}
-                    label="Add Project"
-                    icon={FolderPlusIcon}
-                    onSelect={async () => {
-                      setIsDropdownOpen(false);
-                      await window.omni.launch.show("add");
-                    }}
-                  />
-                </Dropdown>
-              </div>
-              {hoveredProjectId && threadPaneStyle && typeof document !== "undefined"
-                ? createPortal(
-                    <div
-                      data-pipper-id="thread-pane"
-                      className="w-80 max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
-                      ref={threadPaneRef}
-                      style={threadPaneStyle}
-                    >
-                      <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Threads · {hoveredWorkspaceLabel}
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {threadError && (
-                          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-2 text-[12px] text-red-500">
-                            {threadError}
-                          </div>
-                        )}
-                        {hoveredProjectThreads.length > 0 ? (
-                          hoveredProjectThreads.map((thread) => {
-                            const isActive = thread.id === selectedThreadId;
-                            return (
-                              <div
-                                key={thread.id}
-                                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted"
-                              >
-                                <button
-                                  type="button"
-                                  className="min-w-0 flex-1 text-left"
-                                  onClick={async () => {
-                                    setIsDropdownOpen(false);
-                                    await handleSelectThread(thread.id);
-                                  }}
-                                >
-                                  <span
-                                    className={
-                                      isActive
-                                        ? "block w-full truncate text-[13px] text-foreground font-medium"
-                                        : "block w-full truncate text-[13px] text-muted-foreground hover:text-foreground"
-                                    }
-                                  >
-                                    {thread.title}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Delete ${thread.title}`}
-                                  disabled={thread.id === snapshot?.threadId && isStreaming}
-                                  onClick={() => void handleDeleteThread(thread)}
-                                  className="text-muted-foreground hover:text-destructive disabled:opacity-30"
-                                >
-                                  <TrashIcon size={14} />
-                                </button>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="px-2 py-3 text-[13px] text-muted-foreground">
-                            {isHoveredThreadsLoading ? "Loading threads..." : "No threads yet."}
-                          </div>
-                        )}
-                      </div>
-                      {hoveredProjectId && hoveredThreadsHasMore ? (
-                        <button
-                          type="button"
-                          className="mt-2 w-full rounded-lg px-2 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          disabled={isHoveredThreadsLoading}
-                          onClick={() => {
-                            void loadProjectThreads(hoveredProjectId).then(() => {
-                              const nextError = useThreadStore.getState().error;
-                              if (nextError) {
-                                toast({
-                                  icon: <WarningIcon className="size-5 text-red-500" />,
-                                  title: "Threads failed to load",
-                                  description: nextError,
-                                });
-                              }
-                            });
-                          }}
-                        >
-                          {isHoveredThreadsLoading ? "Loading..." : "Load more"}
-                        </button>
-                      ) : null}
-                      <div className="mt-2 pt-2 border-t border-border/60">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="w-full justify-center"
-                          leadingIcon={PlusIcon}
-                          disabled={isCreatingThread}
-                          onClick={() => {
-                            setIsDropdownOpen(false);
-                            handleRequestCreateThread();
-                          }}
-                        >
-                          {isCreatingThread ? "Creating..." : "Create new thread"}
-                        </Button>
-                      </div>
-                    </div>,
-                    document.body,
-                  )
-                : null}
+              <Dropdown className="w-56">
+                <MenuItem
+                  index={0}
+                  label="New terminal"
+                  icon={TerminalWindowIcon}
+                  onSelect={() => {
+                    setIsDropdownOpen(false);
+                    handleNewTerminal();
+                  }}
+                />
+                <MenuItem
+                  index={1}
+                  label="New thread"
+                  icon={ChatCircleIcon}
+                  onSelect={handleNewThread}
+                />
+                <DropdownSeparator />
+                <MenuItem
+                  index={2}
+                  label="New project"
+                  icon={FolderPlusIcon}
+                  onSelect={async () => {
+                    setIsDropdownOpen(false);
+                    await window.omni.launch.show("add");
+                  }}
+                />
+              </Dropdown>
             </div>
           )}
         </div>
       </div>
-
-      {showAgentPicker && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[300] flex items-center justify-center"
-              onClick={() => dismissThreadCreator()}
-            >
-              <div className="absolute inset-0 bg-black/30" />
-              <div
-                className="relative z-10 w-72 rounded-xl border border-border bg-surface-1 shadow-surface-5 p-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Pick an agent for this thread
-                </div>
-                <div className="flex flex-col gap-1 mt-1">
-                  {useAgentRegistryStore
-                    .getState()
-                    .agents.filter(
-                      (a) =>
-                        useAgentRegistryStore.getState().selectedAgentIds.includes(a.id) &&
-                        a.available,
-                    )
-                    .map((agent) => (
-                      <button
-                        key={agent.id}
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-accent"
-                        onClick={() => void handleCreateThread(agent.id)}
-                      >
-                        <span className="flex-1 font-medium">{agent.displayName}</span>
-                        <span className="text-[11px] text-muted-foreground">{agent.name}</span>
-                      </button>
-                    ))}
-                </div>
-                <button
-                  type="button"
-                  className="mt-1 w-full rounded-lg px-2 py-1.5 text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => dismissThreadCreator()}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
     </Tabs>
   );
 }

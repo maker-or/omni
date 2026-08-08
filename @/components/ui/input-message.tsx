@@ -164,6 +164,11 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   textareaRef?: React.Ref<HTMLTextAreaElement>;
   /** Optional pipper-id for visual edit mode targeting */
   pipperId?: string;
+  /**
+   * When true, skip the built-in `@file` autocomplete. Use when a parent
+   * (e.g. ThreadComposer) owns a smarter multi-kind @ mention system.
+   */
+  disableFileMentions?: boolean;
 }
 
 // ─── File preview tile ────────────────────────────────────────────────────
@@ -246,6 +251,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       className,
       style,
       pipperId,
+      disableFileMentions = false,
       ...props
     },
     ref,
@@ -297,7 +303,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         .filter((file) => !q || file.toLowerCase().includes(q))
         .slice(0, MAX_FILE_MENTION_RESULTS);
     }, [fileMention, projectFiles]);
-    const showFileMentionMenu = Boolean(fileMention && fileMentionResults.length > 0 && !disabled);
+    const showFileMentionMenu = Boolean(
+      !disableFileMentions && fileMention && fileMentionResults.length > 0 && !disabled,
+    );
     const actionLabel = isStreaming ? (isStopping ? "Stopping…" : stopLabel) : sendLabel;
 
     useEffect(() => {
@@ -355,24 +363,31 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       [fileMention, onValueChange, value],
     );
 
-    const refreshFileMention = useCallback((nextValue: string, cursor: number) => {
-      const nextMention = getFileMentionState(nextValue, cursor);
-      setFileMention(nextMention);
-      setActiveFileMentionIndex(0);
-      if (nextMention && projectFiles.length === 0 && fileFetchStatusRef.current === "idle") {
-        fileFetchStatusRef.current = "loading";
-        void window.omni?.projects
-          ?.listFiles?.()
-          .then((files) => {
-            setProjectFiles(files);
-            fileFetchStatusRef.current = "done";
-          })
-          .catch(() => {
-            setProjectFiles([]);
-            fileFetchStatusRef.current = "idle";
-          });
-      }
-    }, []);
+    const refreshFileMention = useCallback(
+      (nextValue: string, cursor: number) => {
+        if (disableFileMentions) {
+          setFileMention(null);
+          return;
+        }
+        const nextMention = getFileMentionState(nextValue, cursor);
+        setFileMention(nextMention);
+        setActiveFileMentionIndex(0);
+        if (nextMention && projectFiles.length === 0 && fileFetchStatusRef.current === "idle") {
+          fileFetchStatusRef.current = "loading";
+          void window.omni?.projects
+            ?.listFiles?.()
+            .then((files) => {
+              setProjectFiles(files);
+              fileFetchStatusRef.current = "done";
+            })
+            .catch(() => {
+              setProjectFiles([]);
+              fileFetchStatusRef.current = "idle";
+            });
+        }
+      },
+      [disableFileMentions, projectFiles.length],
+    );
 
     const handleTextareaChange = useCallback(
       (e: ChangeEvent<HTMLTextAreaElement>) => {

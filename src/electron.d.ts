@@ -21,6 +21,15 @@ import type {
   LauncherUpdateDiagnostics,
   LauncherUpdateState,
 } from "../../contracts/launcher-updates.ts";
+import type {
+  MonitorIncident,
+  MonitorLiveSnapshot,
+  MonitorRendererFreezeReport,
+  MonitorSampleTick,
+  MonitorSession,
+  MonitorSessionSummary,
+  MonitorTabMismatchReport,
+} from "../../contracts/monitor.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -145,6 +154,7 @@ declare global {
           afterThreadId?: string | null,
           agentId?: string | null,
           worktreePath?: string | null,
+          initialModelId?: string | null,
         ) => Promise<Thread>;
         getSelectedAgentIds: () => Promise<string[]>;
         setSelectedAgentIds: (agentIds: string[]) => Promise<void>;
@@ -204,6 +214,26 @@ declare global {
         getCurrent: () => Promise<string>;
         changed: (theme: string) => void;
         onChanged: (callback: (theme: string) => void) => () => void;
+      };
+      monitor: {
+        isEnabled: () => Promise<boolean>;
+        getLive: () => Promise<MonitorLiveSnapshot>;
+        getIncidents: () => Promise<MonitorIncident[]>;
+        getSessions: () => Promise<MonitorSession[]>;
+        getRecordedSession: (sessionId: string) => Promise<{
+          session: MonitorSession | null;
+          ticks: MonitorSampleTick[];
+          incidents: MonitorIncident[];
+          summary: MonitorSessionSummary;
+        }>;
+        startRecording: (label?: string) => Promise<MonitorSession>;
+        stopRecording: () => Promise<MonitorSession | null>;
+        reportRendererFreeze: (report: MonitorRendererFreezeReport) => Promise<void>;
+        reportTabMismatch: (report: MonitorTabMismatchReport) => Promise<void>;
+        openWindow: () => Promise<void>;
+        onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;
+        onTick: (callback: (tick: MonitorSampleTick) => void) => () => void;
+        onIncident: (callback: (incident: MonitorIncident) => void) => () => void;
       };
     };
   }

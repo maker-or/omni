@@ -19,6 +19,7 @@ import type {
   AcpSessionState,
 } from "../contracts/acp.ts";
 import type { Thread } from "../contracts/threads.ts";
+import { recordThreadSwitch } from "./open-tabs.ts";
 import { getProject } from "./projects.ts";
 import { setActiveProjectId } from "./session.ts";
 import {
@@ -56,6 +57,47 @@ import {
   type AcpSessionSlice,
 } from "../src/lib/acp-session-reducer.ts";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
+import type { MonitorProcessDescriptor } from "../contracts/monitor.ts";
+
+export interface AgentMonitorObserver {
+  onConnectionSpawned: (input: { agentId: string; pid: number }) => void;
+  onConnectionClosed?: (input: {
+    agentId: string;
+    pid: number | null;
+    activeThreadId: string | null;
+    runningThreadIds: string[];
+    spawnedAt: number;
+  }) => void;
+  onConnectionExit: (input: {
+    agentId: string;
+    pid: number | null;
+    exitCode: number | null;
+    signal: NodeJS.Signals | null;
+    activeThreadId: string | null;
+    runningThreadIds: string[];
+    spawnedAt: number;
+  }) => void;
+}
+
+const ACP_SWITCH_PHASE_TIMEOUT_MS = 10_000;
+
+function requestWithTimeout<T>(request: Promise<T>, timeoutMs: number, phase: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${phase} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    request.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type SetWindowTitle = (title: string) => void;
@@ -220,6 +262,8 @@ export class AgentConnectionManager {
   private lastRunningThreadsKey = "";
   /** Per tool-call start timestamps for `tool_call_finished` timing, keyed `${sessionId}:${toolCallId}`. */
   private readonly toolCallStarts = new Map<string, { startedAt: number; kind?: string }>();
+  private monitorObserver: AgentMonitorObserver | null = null;
+  private readonly connectionSpawnedAt = new Map<string, number>();
 
   private currentEditorText = "";
 
@@ -385,12 +429,60 @@ export class AgentConnectionManager {
       this.emitRunningThreads();
       return;
     }
+    const runtime = id ? this.sessions.get(id) : null;
+    if (runtime) {
+      this.emit({
+        type: "thread-tool-calls",
+        threadId: runtime.threadId,
+        toolCalls: runtime.slice.toolCalls,
+      });
+    }
     if (!id) {
       this.emit({ type: "session-state", state: this.getState() });
     } else {
       this.emit({ type: "session-state", state: this.buildSessionState(id) });
     }
     this.emitRunningThreads();
+  }
+
+  setMonitorObserver(observer: AgentMonitorObserver | null): void {
+    this.monitorObserver = observer;
+  }
+
+  getMonitorProcessDescriptors(): MonitorProcessDescriptor[] {
+    const running = new Set(this.getRunningThreadIds());
+    const entries: MonitorProcessDescriptor[] = [];
+
+    for (const [agentId, live] of this.connections) {
+      const pid = live.process.pid;
+      if (!pid) continue;
+      const threadIds = [...this.sessions.entries()]
+        .filter(([, runtime]) => runtime.agentId === agentId)
+        .map(([threadId]) => threadId);
+      const primaryThreadId =
+        threadIds.find((threadId) => threadId === this.activeThreadId) ?? threadIds[0];
+      entries.push({
+        pid,
+        role: "acp-agent",
+        label: live.agentInfoName || agentId,
+        agentId,
+        threadId: primaryThreadId,
+        threadIds,
+        streamingThreadIds: threadIds.filter((threadId) => running.has(threadId)),
+        isStreaming: threadIds.some((threadId) => running.has(threadId)),
+      });
+    }
+
+    for (const terminal of this.terminalManager.getActiveProcesses()) {
+      entries.push({
+        pid: terminal.pid,
+        role: "terminal",
+        label: `Agent shell ${terminal.terminalId.slice(0, 8)}`,
+        sessionId: terminal.terminalId,
+      });
+    }
+
+    return entries;
   }
 
   /** Thread IDs whose agent is currently streaming (across every open thread). */
@@ -596,7 +688,20 @@ export class AgentConnectionManager {
       (initResult as { _meta?: { modelState?: LiveConnection["modelState"] } })._meta?.modelState ??
       null;
 
+    const spawnedAt = Date.now();
     const closed = connection.closed.then(() => {
+      // A transport can close while its child is still alive. That is a
+      // different failure mode from a process exit and must be visible in the
+      // incident log. The exit handler owns the latter case.
+      if (child.exitCode == null && child.signalCode == null) {
+        this.monitorObserver?.onConnectionClosed?.({
+          agentId: descriptor.id,
+          pid: child.pid ?? null,
+          activeThreadId: this.activeThreadId,
+          runningThreadIds: this.getRunningThreadIds(),
+          spawnedAt,
+        });
+      }
       this.connections.delete(descriptor.id);
       this.invalidateAgentSessions(descriptor.id);
       if (this.connection?.process === child) {
@@ -604,7 +709,20 @@ export class AgentConnectionManager {
       }
     });
 
-    child.on("exit", () => {
+    this.connectionSpawnedAt.set(descriptor.id, spawnedAt);
+    this.monitorObserver?.onConnectionSpawned({ agentId: descriptor.id, pid: child.pid ?? 0 });
+
+    child.on("exit", (exitCode, signal) => {
+      this.monitorObserver?.onConnectionExit({
+        agentId: descriptor.id,
+        pid: child.pid ?? null,
+        exitCode,
+        signal,
+        activeThreadId: this.activeThreadId,
+        runningThreadIds: this.getRunningThreadIds(),
+        spawnedAt: this.connectionSpawnedAt.get(descriptor.id) ?? spawnedAt,
+      });
+      this.connectionSpawnedAt.delete(descriptor.id);
       this.connections.delete(descriptor.id);
       this.invalidateAgentSessions(descriptor.id);
       if (this.connection?.process === child) {
@@ -723,6 +841,11 @@ export class AgentConnectionManager {
     };
 
     this.emit(event);
+    this.emit({
+      type: "thread-tool-calls",
+      threadId: runtime.threadId,
+      toolCalls: runtime.slice.toolCalls,
+    });
     if (runtime.threadId === this.activeThreadId) {
       this.pushState(runtime.threadId);
     }
@@ -948,10 +1071,14 @@ export class AgentConnectionManager {
     const { servers, bind } = await this.sessionMcpServers(live, cwd);
     let result: { sessionId: string; configOptions?: SessionConfigOption[] | null };
     try {
-      result = await live.agent.request(acp.methods.agent.session.new, {
-        cwd,
-        mcpServers: servers as never,
-      });
+      result = await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.new, {
+          cwd,
+          mcpServers: servers as never,
+        }),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "session/new",
+      );
     } catch (err) {
       // A genuine "not signed in" surfaces here as an ACP `auth_required`
       // error — the only reliable signal — so record it for `authMessage()`.
@@ -980,11 +1107,15 @@ export class AgentConnectionManager {
     sessionId: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     const { servers, bind } = await this.sessionMcpServers(live, cwd);
-    const result = await live.agent.request(acp.methods.agent.session.load, {
-      cwd,
-      sessionId,
-      mcpServers: servers as never,
-    });
+    const result = await requestWithTimeout(
+      live.agent.request(acp.methods.agent.session.load, {
+        cwd,
+        sessionId,
+        mcpServers: servers as never,
+      }),
+      ACP_SWITCH_PHASE_TIMEOUT_MS,
+      "session/load",
+    );
     bind((result as { sessionId?: string })?.sessionId ?? sessionId);
     return {
       sessionId: (result as { sessionId?: string })?.sessionId ?? sessionId,
@@ -1004,11 +1135,15 @@ export class AgentConnectionManager {
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     const { servers, bind } = await this.sessionMcpServers(live, cwd);
-    const result = await live.agent.request(acp.methods.agent.session.resume, {
-      prevSessionId,
-      cwd,
-      mcpServers: servers as never,
-    } as never);
+    const result = await requestWithTimeout(
+      live.agent.request(acp.methods.agent.session.resume, {
+        prevSessionId,
+        cwd,
+        mcpServers: servers as never,
+      } as never),
+      ACP_SWITCH_PHASE_TIMEOUT_MS,
+      "session/resume",
+    );
     bind((result as { sessionId?: string })?.sessionId ?? prevSessionId);
     return {
       sessionId: (result as { sessionId?: string })?.sessionId ?? prevSessionId,
@@ -1164,6 +1299,7 @@ export class AgentConnectionManager {
     // fallbacks, and orchestration switches alike.
     await updateWorkspaceSelection(project.id, cwd);
     await updateLaunchSelection({ projectId: project.id, threadId });
+    await recordThreadSwitch(threadId);
     this.pushState(threadId);
   }
 
@@ -1173,6 +1309,7 @@ export class AgentConnectionManager {
     afterThreadId?: string | null,
     agentId?: string | null,
     worktreePath?: string | null,
+    initialModelId?: string | null,
   ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -1236,6 +1373,20 @@ export class AgentConnectionManager {
     } as AnalyticsProperties);
 
     this.pushState(thread.id);
+
+    // Seed model after the session exists so the first prompt lands on the
+    // user's chosen model. Best-effort: a failed seed still leaves a usable thread.
+    if (initialModelId) {
+      try {
+        const modelOpt = created.configOptions.find(
+          (option) => option.id === "model" || option.category === "model",
+        );
+        await this.setConfigOption(modelOpt?.id ?? "model", initialModelId);
+      } catch (err) {
+        console.warn("[createThread] initial model seed failed:", err);
+      }
+    }
+
     return thread;
   }
 
