@@ -13,7 +13,8 @@ export interface DiffThreadState {
   order: string[];
   activePath: string | null;
   unseenCount: number;
-  lastSeenToolCalls: Record<string, AcpToolCallState>;
+  /** Content fingerprints only; retaining full tool-call payloads duplicated the agent store. */
+  lastSeenToolCallVersions: Record<string, string>;
 }
 
 interface DiffState {
@@ -34,6 +35,7 @@ interface DiffState {
   setActivePath: (path: string) => void;
   open: () => void;
   close: () => void;
+  clear: () => void;
   markSeen: () => void;
 }
 
@@ -42,8 +44,10 @@ const emptyThreadState = (): DiffThreadState => ({
   order: [],
   activePath: null,
   unseenCount: 0,
-  lastSeenToolCalls: {},
+  lastSeenToolCallVersions: {},
 });
+
+const MAX_RETAINED_THREADS = 100;
 
 function extractDiffs(
   value: unknown,
@@ -92,7 +96,8 @@ function ingestThread(
   let lastAddedPath: string | null = null;
 
   for (const [id, toolCall] of Object.entries(toolCalls)) {
-    if (toolCall === previous.lastSeenToolCalls[id]) continue;
+    const version = toolCallVersion(toolCall);
+    if (version === previous.lastSeenToolCallVersions[id]) continue;
 
     // In-flight edits are useful partial evidence. The file entry is updated
     // as chunks arrive, while the stable tool-call identity prevents unrelated
@@ -130,11 +135,34 @@ function ingestThread(
       order,
       activePath,
       unseenCount: previous.unseenCount + added,
-      lastSeenToolCalls: toolCalls,
+      lastSeenToolCallVersions: Object.fromEntries(
+        Object.entries(toolCalls).map(([id, toolCall]) => [id, toolCallVersion(toolCall)]),
+      ),
     },
     added,
     changed,
   };
+}
+
+function toolCallVersion(toolCall: AcpToolCallState): string {
+  // Hash the serialized shape instead of retaining the entire payload in the
+  // diff store. This still notices same-length streaming edits while keeping
+  // one compact string per tool call.
+  const serialized = JSON.stringify({
+    title: toolCall.title,
+    kind: toolCall.kind,
+    status: toolCall.status,
+    content: toolCall.content,
+    locations: toolCall.locations,
+    rawInput: toolCall.rawInput,
+    rawOutput: toolCall.rawOutput,
+  });
+  let hash = 2166136261;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${serialized.length}:${hash >>> 0}`;
 }
 
 export const useDiffStore = create<DiffState>((set, get) => ({
@@ -157,7 +185,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
             order: state.order,
             activePath: state.activePath,
             unseenCount: 0,
-            lastSeenToolCalls: {},
+            lastSeenToolCallVersions: {},
           }
         : emptyThreadState());
     const result = ingestThread(previous, toolCalls);
@@ -168,8 +196,13 @@ export const useDiffStore = create<DiffState>((set, get) => ({
         order: state.order,
         activePath: state.activePath,
         unseenCount: 0,
-        lastSeenToolCalls: {},
+        lastSeenToolCallVersions: {},
       };
+    }
+    while (Object.keys(threads).length > MAX_RETAINED_THREADS) {
+      const evict = Object.keys(threads).find((id) => id !== threadId && id !== state.threadId);
+      if (!evict) break;
+      delete threads[evict];
     }
 
     if (!isActive) {
@@ -191,5 +224,15 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   setActivePath: (path) => set({ activePath: path }),
   open: () => set({ isOpen: true, unseenCount: 0 }),
   close: () => set({ isOpen: false }),
+  clear: () =>
+    set({
+      threadId: null,
+      files: {},
+      order: [],
+      activePath: null,
+      isOpen: false,
+      unseenCount: 0,
+      threads: {},
+    }),
   markSeen: () => set({ unseenCount: 0 }),
 }));

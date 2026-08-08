@@ -34,22 +34,41 @@ interface JsonRpcMessage {
 }
 
 const SERVER_INFO = { name: "pipper-subagents", version: "1.0.0" };
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_IN_FLIGHT_PER_ENDPOINT = 16;
 
 function readBody(req: IncomingMessage, limit = 4 * 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    const timeout = setTimeout(() => {
+      req.destroy(new Error("request body timed out"));
+      reject(new Error("request body timed out"));
+    }, REQUEST_TIMEOUT_MS);
+    timeout.unref?.();
+    const cleanup = () => clearTimeout(timeout);
+    req.once("aborted", () => {
+      cleanup();
+      reject(new Error("request aborted"));
+    });
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > limit) {
+        cleanup();
         reject(new Error("request body too large"));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
+    req.on("end", () => {
+      cleanup();
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", (error) => {
+      cleanup();
+      reject(error);
+    });
   });
 }
 
@@ -70,6 +89,7 @@ export class McpHttpServer {
   private server: Server | null = null;
   private port: number | null = null;
   private readonly endpoints = new Map<string, McpEndpoint>();
+  private readonly inFlight = new Map<string, number>();
 
   async start(): Promise<number> {
     if (this.port != null) return this.port;
@@ -108,6 +128,7 @@ export class McpHttpServer {
     this.server = null;
     this.port = null;
     this.endpoints.clear();
+    this.inFlight.clear();
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -117,6 +138,27 @@ export class McpHttpServer {
       sendJson(res, 404, rpcError(null, -32001, "unknown MCP endpoint"));
       return;
     }
+    const token = match![1];
+    const inFlight = this.inFlight.get(token) ?? 0;
+    if (inFlight >= MAX_IN_FLIGHT_PER_ENDPOINT) {
+      sendJson(res, 429, rpcError(null, -32002, "too many in-flight MCP requests"));
+      return;
+    }
+    this.inFlight.set(token, inFlight + 1);
+    try {
+      await this.handleEndpointRequest(req, res, endpoint);
+    } finally {
+      const remaining = (this.inFlight.get(token) ?? 1) - 1;
+      if (remaining > 0) this.inFlight.set(token, remaining);
+      else this.inFlight.delete(token);
+    }
+  }
+
+  private async handleEndpointRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    endpoint: McpEndpoint,
+  ): Promise<void> {
     // Streamable HTTP clients may open a GET stream or DELETE the session;
     // neither is needed in JSON response mode.
     if (req.method === "GET") {

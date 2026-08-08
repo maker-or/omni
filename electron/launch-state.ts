@@ -97,18 +97,20 @@ export function enqueueLaunchStateMutation<T>(task: () => Promise<T>): Promise<T
 }
 
 export async function markLaunchComplete(projectId: string): Promise<void> {
-  // Workspace selections survive re-launching into a project: they are the
-  // per-project navigation context, not per-run tab state.
-  const current = await readLaunchState();
-  await writeLaunchState({
-    completed: true,
-    completedAt: new Date().toISOString(),
-    projectId,
-    threadId: null,
-    openThreadIds: [],
-    activeThreadId: null,
-    threadSwitchHistory: [],
-    selectedWorktreePathByProject: current.selectedWorktreePathByProject,
+  await enqueueLaunchStateMutation(async () => {
+    // Workspace selections survive re-launching into a project: they are the
+    // per-project navigation context, not per-run tab state.
+    const current = await readLaunchState();
+    await writeLaunchState({
+      completed: true,
+      completedAt: new Date().toISOString(),
+      projectId,
+      threadId: null,
+      openThreadIds: [],
+      activeThreadId: null,
+      threadSwitchHistory: [],
+      selectedWorktreePathByProject: current.selectedWorktreePathByProject,
+    });
   });
 }
 

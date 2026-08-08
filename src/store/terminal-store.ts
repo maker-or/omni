@@ -18,6 +18,7 @@ interface StashedTerminalSession {
 }
 
 const MAX_HISTORY_CHARS = 200_000;
+const MAX_STASHED_WORKSPACES = 10;
 
 /**
  * Scrollback is recovery data, not a serialized VT state. Remove terminal
@@ -202,6 +203,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       history: stashed.history,
     }));
     delete nextStash[key];
+    const stashKeys = Object.keys(nextStash);
+    while (stashKeys.length > MAX_STASHED_WORKSPACES) {
+      const oldest = stashKeys.shift();
+      if (oldest) delete nextStash[oldest];
+    }
 
     const newActiveId = restored[0]?.id ?? null;
     set({

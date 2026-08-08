@@ -60,6 +60,18 @@ describe("workspace selections in launch state", () => {
     expect(await readWorkspaceSelections()).toEqual({ "project-1": "/a", "project-2": "/b" });
   });
 
+  test("serializes launch completion with a concurrent workspace selection", async () => {
+    const { markLaunchComplete, updateWorkspaceSelection, readLaunchState } =
+      await import("./launch-state.ts");
+    await Promise.all([
+      markLaunchComplete("project-1"),
+      updateWorkspaceSelection("project-1", "/worktrees/feature"),
+    ]);
+    const state = await readLaunchState();
+    expect(state.completed).toBe(true);
+    expect(state.selectedWorktreePathByProject["project-1"]).toBe("/worktrees/feature");
+  });
+
   test("malformed selections on disk parse to an empty map", async () => {
     const { parseWorkspaceSelections } = await import("./launch-state.ts");
     expect(parseWorkspaceSelections(undefined)).toEqual({});

@@ -96,6 +96,29 @@ const SUBAGENT_PREAMBLE =
 
 const FINISHED_RUNS_KEPT = 50;
 
+function requestWithTimeout<T>(
+  request: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error(`subagent prompt timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    request.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
@@ -210,6 +233,27 @@ export class SubagentManager {
     if (context) context.sessionId = sessionId;
   }
 
+  /** Release MCP endpoints owned by an ACP session after it is closed. */
+  releaseSessionMcp(sessionId: string): void {
+    for (const [token, context] of this.tokens) {
+      if (context.sessionId === sessionId) {
+        this.tokens.delete(token);
+        this.server.unregister(token);
+      }
+    }
+  }
+
+  private releaseToken(token: string | null): void {
+    if (!token) return;
+    this.tokens.delete(token);
+    this.server.unregister(token);
+  }
+
+  /** Release an endpoint created for a session before that session is bound. */
+  releaseTokenForSession(token: string): void {
+    this.releaseToken(token);
+  }
+
   /** True when the session belongs to a subagent run (vs a user-facing thread). */
   ownsSession(sessionId: string): boolean {
     return this.runsBySession.has(sessionId);
@@ -253,6 +297,7 @@ export class SubagentManager {
       if (run.status === "queued" || run.status === "running") void this.cancelRun(run);
     }
     this.server.close();
+    this.tokens.clear();
     this.started = null;
   }
 
@@ -397,6 +442,7 @@ export class SubagentManager {
     this.emitRuns();
 
     await this.acquireSlot();
+    let attachedToken: string | null = null;
     try {
       if (run.cancelled || this.disposed) throw new Error("subagent run was cancelled");
       run.status = "running";
@@ -411,6 +457,7 @@ export class SubagentManager {
         connection.agentCapabilities,
         { cwd, depth: run.depth },
       );
+      attachedToken = attached.token;
       const created = (await connection.agent.request(acp.methods.agent.session.new, {
         cwd,
         mcpServers: attached.servers as never,
@@ -425,18 +472,17 @@ export class SubagentManager {
         (context ? `\n\n<context>\n${context}\n</context>` : "");
       const prompt: ContentBlock[] = [{ type: "text", text: promptText }];
 
-      const timeout = setTimeout(() => {
-        run.timedOut = true;
-        void this.cancelRun(run);
-      }, this.config.runTimeoutMs);
-      try {
-        await connection.agent.request(acp.methods.agent.session.prompt, {
+      await requestWithTimeout(
+        connection.agent.request(acp.methods.agent.session.prompt, {
           sessionId: created.sessionId,
           prompt,
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
+        }),
+        this.config.runTimeoutMs,
+        () => {
+          run.timedOut = true;
+          void this.cancelRun(run);
+        },
+      );
 
       run.slice = applyTurnStop(run.slice);
       const text = run.slice.entries
@@ -454,7 +500,7 @@ export class SubagentManager {
         : "";
       return (text || "(the subagent finished without a final text message)") + timeoutNote;
     } catch (err) {
-      run.status = run.cancelled && !run.timedOut ? "cancelled" : "failed";
+      run.status = run.cancelled || run.timedOut ? "cancelled" : "failed";
       throw err instanceof Error ? err : new Error(String(err));
     } finally {
       run.finishedAt = Date.now();
@@ -473,6 +519,7 @@ export class SubagentManager {
           .catch(() => {});
         this.runsBySession.delete(run.sessionId);
       }
+      this.releaseToken(attachedToken);
       this.releaseSlot();
       this.pruneFinishedRuns();
       this.emitRuns();

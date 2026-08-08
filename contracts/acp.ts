@@ -180,6 +180,8 @@ export interface AcpChatMessage {
 
 export interface AcpPermissionRequest {
   sessionId: string;
+  /** JSON-RPC request id. Session ids are not unique while an agent is running. */
+  requestId?: string | number;
   /** Thread that owns the session this permission belongs to, resolved in the
    *  main process from `sessionId`. Lets the renderer route the question to the
    *  right surface (inline composer vs. bottom-right dock). Null when the
@@ -195,6 +197,8 @@ export interface AcpPermissionRequest {
 
 export interface AcpPermissionResponse {
   sessionId: string;
+  /** Identifies which concurrent permission request is being answered. */
+  requestId?: string | number;
   optionId?: string;
   /** When true, respond with cancelled outcome (e.g. after session/cancel). */
   cancelled?: boolean;
@@ -259,12 +263,14 @@ export type AcpBridgeEvent =
       toolCalls: Record<string, AcpToolCallState>;
     }
   | { type: "permission-request"; request: AcpPermissionRequest }
-  | { type: "permission-resolved"; sessionId: string }
+  | { type: "permission-resolved"; sessionId: string; requestId?: string | number }
+  | { type: "thread-closed"; threadId: string }
   | {
       type: "connection";
       agentId: string | null;
       agentCapabilities: AgentCapabilities | null;
       authMethods: AuthMethod[];
+      authRequiredMessage?: string | null;
     }
   | { type: "notification"; message: string; level: "info" | "warning" | "error" }
   | { type: "title"; threadId: string; title: string }

@@ -5,6 +5,7 @@ export interface TerminalCreateParams {
   command: string;
   args?: string[];
   cwd?: string;
+  sessionId?: string;
   env?: Array<{ name: string; value: string }> | Record<string, string>;
   outputByteLimit?: number;
 }
@@ -22,6 +23,7 @@ export interface TerminalExitResult {
 
 interface TerminalInstance {
   process: ChildProcessWithoutNullStreams;
+  sessionId: string | null;
   output: string;
   truncated: boolean;
   outputByteLimit: number;
@@ -30,6 +32,7 @@ interface TerminalInstance {
   exited: boolean;
   exitPromise: Promise<void>;
   exitResolve: () => void;
+  killEscalationTimer: ReturnType<typeof setTimeout> | null;
 }
 
 function formatEnv(
@@ -47,20 +50,27 @@ function formatEnv(
 }
 
 /** Truncate from the start at a character boundary when byte limit exceeded. */
-function truncateOutput(buffer: string, byteLimit: number): { text: string; truncated: boolean } {
+export function truncateOutput(
+  buffer: string,
+  byteLimit: number,
+): { text: string; truncated: boolean } {
   if (byteLimit <= 0) return { text: buffer, truncated: false };
   let bytes = Buffer.byteLength(buffer, "utf8");
   if (bytes <= byteLimit) return { text: buffer, truncated: false };
-  // Drop from start until under limit
-  let start = 0;
-  while (bytes > byteLimit && start < buffer.length) {
-    start += 1;
-    // skip if mid-surrogate
-    if (start < buffer.length) {
-      const code = buffer.charCodeAt(start);
-      if (code >= 0xdc00 && code <= 0xdfff) start += 1;
-    }
-    bytes = Buffer.byteLength(buffer.slice(start), "utf8");
+  // Buffer.byteLength(buffer.slice(start)) is monotonic in start. Find the
+  // first valid suffix with a binary search instead of dropping one code unit
+  // and rescanning the entire remaining string for every code unit.
+  let low = 0;
+  let high = buffer.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (Buffer.byteLength(buffer.slice(middle), "utf8") <= byteLimit) high = middle;
+    else low = middle + 1;
+  }
+  let start = low;
+  if (start < buffer.length) {
+    const code = buffer.charCodeAt(start);
+    if (code >= 0xdc00 && code <= 0xdfff) start += 1;
   }
   return { text: buffer.slice(start), truncated: true };
 }
@@ -89,6 +99,7 @@ export class TerminalManager {
 
     const instance: TerminalInstance = {
       process: child,
+      sessionId: params.sessionId ?? null,
       output: "",
       truncated: false,
       outputByteLimit,
@@ -97,6 +108,7 @@ export class TerminalManager {
       exited: false,
       exitPromise,
       exitResolve,
+      killEscalationTimer: null,
     };
 
     const append = (chunk: Buffer | string) => {
@@ -114,6 +126,10 @@ export class TerminalManager {
       append(`\n[terminal error] ${err.message}\n`);
     });
     child.on("close", (code, signal) => {
+      if (instance.killEscalationTimer) {
+        clearTimeout(instance.killEscalationTimer);
+        instance.killEscalationTimer = null;
+      }
       instance.exitCode = code;
       instance.exitSignal = signal;
       instance.exited = true;
@@ -132,6 +148,18 @@ export class TerminalManager {
     } catch {
       // ignore
     }
+    if (term.killEscalationTimer == null) {
+      term.killEscalationTimer = setTimeout(() => {
+        term.killEscalationTimer = null;
+        if (term.exited) return;
+        try {
+          term.process.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }, 2_000);
+      term.killEscalationTimer.unref?.();
+    }
   }
 
   getOutput(id: string): TerminalOutputResult {
@@ -143,9 +171,15 @@ export class TerminalManager {
     };
   }
 
-  async waitForExit(id: string): Promise<TerminalExitResult> {
+  async waitForExit(id: string, timeoutMs = 10_000): Promise<TerminalExitResult> {
     const term = this.require(id);
-    await term.exitPromise;
+    await Promise.race([
+      term.exitPromise,
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
     return { exitCode: term.exitCode, signal: term.exitSignal };
   }
 
@@ -153,13 +187,19 @@ export class TerminalManager {
     const term = this.terminals.get(id);
     if (!term) return;
     if (!term.exited) {
-      try {
-        term.process.kill("SIGTERM");
-      } catch {
-        // ignore
-      }
+      this.kill(id);
+    } else if (term.killEscalationTimer) {
+      clearTimeout(term.killEscalationTimer);
+      term.killEscalationTimer = null;
     }
     this.terminals.delete(id);
+  }
+
+  /** Release every terminal owned by an ACP session that is being closed. */
+  releaseSession(sessionId: string): void {
+    for (const [id, term] of this.terminals) {
+      if (term.sessionId === sessionId) this.release(id);
+    }
   }
 
   getActiveProcesses(): Array<{ terminalId: string; pid: number }> {

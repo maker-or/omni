@@ -7,6 +7,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type {
   AgentCapabilities,
   AuthMethod,
+  ContentBlock,
   SessionConfigOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
@@ -80,10 +81,17 @@ export interface AgentMonitorObserver {
 }
 
 const ACP_SWITCH_PHASE_TIMEOUT_MS = 10_000;
+const ACP_PROMPT_TIMEOUT_MS = 10 * 60_000;
 
-function requestWithTimeout<T>(request: Promise<T>, timeoutMs: number, phase: string): Promise<T> {
+function requestWithTimeout<T>(
+  request: Promise<T>,
+  timeoutMs: number,
+  phase: string,
+  onTimeout?: () => void,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      onTimeout?.();
       reject(new Error(`${phase} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     request.then(
@@ -99,7 +107,39 @@ function requestWithTimeout<T>(request: Promise<T>, timeoutMs: number, phase: st
   });
 }
 
+async function terminateChildProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode != null || child.signalCode != null) return;
+  const exited = new Promise<void>((resolve) => {
+    child.once("exit", () => resolve());
+  });
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    return;
+  }
+  const timer = new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 2_000);
+    timeout.unref?.();
+  });
+  await Promise.race([exited, timer]);
+  if (child.exitCode == null && child.signalCode == null) {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // best effort
+    }
+    await Promise.race([
+      exited,
+      new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 2_000);
+        timeout.unref?.();
+      }),
+    ]);
+  }
+}
+
 type SendToRenderer = (channel: string, payload: unknown) => void;
+type EventSendToRenderer = (event: AcpBridgeEvent) => void;
 type SetWindowTitle = (title: string) => void;
 interface LiveConnection {
   agentId: string;
@@ -156,6 +196,14 @@ interface ThreadSessionRuntime {
 interface PendingPermission {
   resolve: (response: acp.RequestPermissionResponse) => void;
   request: AcpPermissionRequest;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface QueuedPrompt {
+  blocks: ContentBlock[];
+  streamingBehavior?: "followUp" | "steer";
+  resolve: (result: any) => void;
+  reject: (error: unknown) => void;
 }
 
 /**
@@ -255,6 +303,10 @@ export class AgentConnectionManager {
    */
   private readonly workspaceRoots = new Map<string, Set<string>>();
   private readonly pendingPermissions = new Map<string, PendingPermission>();
+  private permissionRequestSequence = 0;
+  /** Local rejectors make abort/timeout settle prompt callers even if ACP ignores cancel. */
+  private readonly pendingPromptCancels = new Map<string, () => void>();
+  private readonly queuedPrompts = new Map<string, QueuedPrompt[]>();
   private readonly terminalManager: TerminalManager;
   /** Client-hosted subagent tool: lets any session spawn sibling agent sessions. */
   private readonly subagents: SubagentManager;
@@ -264,11 +316,14 @@ export class AgentConnectionManager {
   private readonly toolCallStarts = new Map<string, { startedAt: number; kind?: string }>();
   private monitorObserver: AgentMonitorObserver | null = null;
   private readonly connectionSpawnedAt = new Map<string, number>();
+  private threadActivationQueue: Promise<unknown> = Promise.resolve();
+  private activationGeneration = 0;
+  private readonly threadActivationGenerations = new Map<string, number>();
 
   private currentEditorText = "";
 
   constructor(options: {
-    sendToRenderer: SendToRenderer;
+    sendToRenderer: SendToRenderer | EventSendToRenderer;
     setWindowTitle: SetWindowTitle;
     broadcastActiveProject?: (projectId: string) => void;
     captureAnalytics?: (name: AnalyticsEventName, properties: AnalyticsProperties) => void;
@@ -276,7 +331,11 @@ export class AgentConnectionManager {
       ctx: { agentId?: string | null; agentName?: string | null; modelId?: string | null } | null,
     ) => void;
   }) {
-    this.sendToRenderer = options.sendToRenderer;
+    this.sendToRenderer =
+      options.sendToRenderer.length <= 1
+        ? (_channel, payload) =>
+            (options.sendToRenderer as EventSendToRenderer)(payload as AcpBridgeEvent)
+        : (options.sendToRenderer as SendToRenderer);
     this.setWindowTitle = options.setWindowTitle;
     this.broadcastActiveProject = options.broadcastActiveProject;
     this.captureAnalytics = options.captureAnalytics;
@@ -374,6 +433,13 @@ export class AgentConnectionManager {
     return this.resolveThreadCwd(thread.worktree_path, project.path);
   }
 
+  /** Clear the live view when the user closes the last open thread tab. */
+  async clearActiveThread(): Promise<void> {
+    this.activeThreadId = null;
+    await updateLaunchSelection({ projectId: this.activeProjectId, threadId: null });
+    this.pushState(null);
+  }
+
   private authMessage(): string | null {
     // Only surfaced after a real `auth_required` failure from `session/new`.
     // An agent advertising `authMethods` at `initialize` is NOT a sign-in
@@ -399,7 +465,7 @@ export class AgentConnectionManager {
     return {
       projectId: runtime.projectId,
       threadId: runtime.threadId,
-      agentId: this.connection?.agentId ?? thread?.agent_id ?? null,
+      agentId: runtime.agentId,
       agentSessionId: runtime.agentSessionId,
       cwd: runtime.cwd,
       title: runtime.slice.title ?? thread?.title ?? null,
@@ -413,7 +479,7 @@ export class AgentConnectionManager {
       isStreaming: runtime.slice.isStreaming,
       isCompacting: false,
       editorText: runtime.editorText,
-      authRequiredMessage: this.authMessage(),
+      authRequiredMessage: this.connectionForAgent(runtime.agentId)?.authRequiredMessage ?? null,
       switchingAgent: false,
     };
   }
@@ -589,6 +655,7 @@ export class AgentConnectionManager {
       agentId: live.agentId,
       agentCapabilities: live.agentCapabilities,
       authMethods: live.authMethods,
+      authRequiredMessage: live.authRequiredMessage,
     });
     this.pushState();
     return live;
@@ -619,7 +686,7 @@ export class AgentConnectionManager {
         await this.handleSessionUpdate(ctx.params.sessionId, ctx.params.update);
       })
       .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
-        return this.handlePermissionRequest(ctx.params);
+        return this.handlePermissionRequest(ctx.params, ctx.requestId);
       })
       .onRequest(acp.methods.client.fs.readTextFile, async (ctx) => {
         return this.handleReadTextFile(ctx.params);
@@ -639,6 +706,7 @@ export class AgentConnectionManager {
           command: ctx.params.command,
           args: ctx.params.args ?? undefined,
           cwd: ctx.params.cwd ?? undefined,
+          sessionId: ctx.params.sessionId,
           env: ctx.params.env as never,
           outputByteLimit: ctx.params.outputByteLimit ?? undefined,
         });
@@ -653,7 +721,10 @@ export class AgentConnectionManager {
         };
       })
       .onRequest(acp.methods.client.terminal.waitForExit, async (ctx) => {
-        const result = await this.terminalManager.waitForExit(ctx.params.terminalId);
+        const result = await this.terminalManager.waitForExit(
+          ctx.params.terminalId,
+          ACP_SWITCH_PHASE_TIMEOUT_MS,
+        );
         return { exitCode: result.exitCode, signal: result.signal };
       })
       .onRequest(acp.methods.client.terminal.kill, async (ctx) => {
@@ -668,18 +739,34 @@ export class AgentConnectionManager {
     const connection = app.connect(stream);
     agentCtx = connection.agent;
 
-    initResult = await agentCtx.request(acp.methods.agent.initialize, {
-      protocolVersion: acp.PROTOCOL_VERSION,
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
-      },
-      clientInfo: {
-        name: "pipper",
-        title: "Pipper",
-        version: "0.0.20",
-      },
-    });
+    try {
+      initResult = await requestWithTimeout(
+        agentCtx.request(acp.methods.agent.initialize, {
+          protocolVersion: acp.PROTOCOL_VERSION,
+          clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: true },
+            terminal: true,
+          },
+          clientInfo: {
+            name: "pipper",
+            title: "Pipper",
+            version: "0.0.20",
+          },
+        }),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "agent/initialize",
+      );
+    } catch (err) {
+      // A timed-out handshake has no usable owner. Close both sides so the
+      // abandoned request cannot keep the child process and transport alive.
+      try {
+        connection.close();
+      } catch {
+        // best effort
+      }
+      await terminateChildProcess(child);
+      throw err;
+    }
 
     const agentInfoName = initResult.agentInfo?.name ?? descriptor.name ?? descriptor.id;
     const agentCapabilities = initResult.agentCapabilities ?? {};
@@ -702,11 +789,11 @@ export class AgentConnectionManager {
           spawnedAt,
         });
       }
-      this.connections.delete(descriptor.id);
-      this.invalidateAgentSessions(descriptor.id);
       if (this.connection?.process === child) {
         this.connection = null;
       }
+      this.connections.delete(descriptor.id);
+      this.invalidateAgentSessions(descriptor.id);
     });
 
     this.connectionSpawnedAt.set(descriptor.id, spawnedAt);
@@ -723,11 +810,11 @@ export class AgentConnectionManager {
         spawnedAt: this.connectionSpawnedAt.get(descriptor.id) ?? spawnedAt,
       });
       this.connectionSpawnedAt.delete(descriptor.id);
-      this.connections.delete(descriptor.id);
-      this.invalidateAgentSessions(descriptor.id);
       if (this.connection?.process === child) {
         this.connection = null;
       }
+      this.connections.delete(descriptor.id);
+      this.invalidateAgentSessions(descriptor.id);
     });
 
     return {
@@ -746,31 +833,54 @@ export class AgentConnectionManager {
 
   private async closeConnection(): Promise<void> {
     this.connection = null;
+    this.cancelAllPendingPermissions();
+    for (const threadId of this.pendingPromptCancels.keys()) {
+      this.cancelPendingPrompt(threadId, "connection closed");
+      this.rejectQueuedPrompts(threadId, "agent connection closed");
+    }
+    for (const threadId of this.queuedPrompts.keys()) {
+      this.rejectQueuedPrompts(threadId, "agent connection closed");
+    }
+    this.toolCallStarts.clear();
     this.sessions.clear();
     this.workspaceRoots.clear();
     this.terminalManager.killAll();
     const liveConnections = [...this.connections.values()];
     this.connections.clear();
-    for (const live of liveConnections) {
-      try {
-        live.connection.close();
-      } catch {
-        // ignore
-      }
-      try {
-        live.process.kill("SIGTERM");
-      } catch {
-        // ignore
-      }
-    }
+    await Promise.all(
+      liveConnections.map(async (live) => {
+        try {
+          live.connection.close();
+        } catch {
+          // ignore
+        }
+        await terminateChildProcess(live.process);
+      }),
+    );
   }
 
   private invalidateAgentSessions(agentId: string): void {
+    let activeInvalidated = false;
     for (const [threadId, runtime] of this.sessions) {
-      if (getThread(threadId)?.agent_id === agentId) {
+      if (runtime.agentId === agentId) {
+        activeInvalidated ||= this.activeThreadId === threadId;
+        this.cancelPendingPermissions(runtime.agentSessionId);
+        this.cancelPendingPrompt(threadId, "agent connection closed");
+        this.rejectQueuedPrompts(threadId, "agent connection closed");
+        this.clearToolCallTiming(runtime.agentSessionId);
+        this.terminalManager.releaseSession(runtime.agentSessionId);
+        this.subagents.releaseSessionMcp(runtime.agentSessionId);
         this.releaseWorkspaceRoot(runtime.agentSessionId);
         this.sessions.delete(threadId);
+        this.emit({ type: "thread-closed", threadId });
       }
+    }
+    if (activeInvalidated) {
+      this.activeThreadId = null;
+      void updateLaunchSelection({ projectId: this.activeProjectId, threadId: null });
+      this.pushState(null);
+    } else {
+      this.emitRunningThreads();
     }
   }
 
@@ -779,6 +889,19 @@ export class AgentConnectionManager {
       if (runtime.agentSessionId === sessionId) return threadId;
     }
     return null;
+  }
+
+  private connectionForAgent(agentId: string): LiveConnection | null {
+    if (this.connection?.agentId === agentId) return this.connection;
+    return this.connections.get(agentId) ?? null;
+  }
+
+  private cancelPendingPrompt(threadId: string, reason: string): void {
+    const cancel = this.pendingPromptCancels.get(threadId);
+    if (!cancel) return;
+    cancel();
+    this.pendingPromptCancels.delete(threadId);
+    console.warn(`[agent] prompt for ${threadId} cancelled: ${reason}`);
   }
 
   private async handleSessionUpdate(sessionId: string, update: SessionUpdate): Promise<void> {
@@ -846,21 +969,33 @@ export class AgentConnectionManager {
       threadId: runtime.threadId,
       toolCalls: runtime.slice.toolCalls,
     });
-    if (runtime.threadId === this.activeThreadId) {
+    // The renderer applies the same pure reducer to session-update. Sending a
+    // full session-state snapshot for every chunk needlessly rebuilds the panel
+    // projection and forces all snapshot subscribers to render again. The next
+    // turn stop and activation still publish an authoritative snapshot.
+    if (!runtime.promptInFlight && runtime.threadId === this.activeThreadId) {
       this.pushState(runtime.threadId);
     }
   }
 
+  private permissionKey(sessionId: string, requestId: string | number): string {
+    return `${sessionId}:${String(requestId)}`;
+  }
+
   private handlePermissionRequest(
     params: acp.RequestPermissionRequest,
+    requestId: string | number | null,
   ): Promise<acp.RequestPermissionResponse> {
     // Subagent sessions have no UI surface to answer on; resolve per config.
     const auto = this.subagents.autoPermissionResponse(params);
     if (auto) return Promise.resolve(auto);
 
     const sessionId = params.sessionId;
+    const stableRequestId = requestId ?? ++this.permissionRequestSequence;
+    const key = this.permissionKey(sessionId, stableRequestId);
     const request: AcpPermissionRequest = {
       sessionId,
+      requestId: stableRequestId,
       threadId: this.findThreadBySessionId(sessionId),
       toolCall: params.toolCall as AcpPermissionRequest["toolCall"],
       options: (params.options ?? []).map((opt) => ({
@@ -871,13 +1006,12 @@ export class AgentConnectionManager {
     };
 
     return new Promise((resolve) => {
-      this.pendingPermissions.set(sessionId, { resolve, request });
-      this.emit({ type: "permission-request", request });
-      // Default allow_once after timeout if UI never responds
-      setTimeout(() => {
-        if (!this.pendingPermissions.has(sessionId)) return;
+      // Default allow_once after timeout if UI never responds.
+      const timer = setTimeout(() => {
+        const pending = this.pendingPermissions.get(key);
+        if (!pending) return;
         const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options[0];
-        this.pendingPermissions.delete(sessionId);
+        this.pendingPermissions.delete(key);
         if (allow) {
           resolve({
             outcome: { outcome: "selected", optionId: allow.optionId },
@@ -885,19 +1019,35 @@ export class AgentConnectionManager {
         } else {
           resolve({ outcome: { outcome: "cancelled" } });
         }
-        this.emit({ type: "permission-resolved", sessionId });
+        this.emit({ type: "permission-resolved", sessionId, requestId: stableRequestId });
       }, 120_000);
+      const displaced = this.pendingPermissions.get(key);
+      if (displaced) {
+        clearTimeout(displaced.timer);
+        displaced.resolve({ outcome: { outcome: "cancelled" } });
+        this.emit({ type: "permission-resolved", sessionId, requestId: stableRequestId });
+      }
+      this.pendingPermissions.set(key, { resolve, request, timer });
+      this.emit({ type: "permission-request", request });
     });
   }
 
   async respondToPermission(response: {
     sessionId: string;
+    requestId?: string | number;
     optionId?: string;
     cancelled?: boolean;
   }): Promise<void> {
-    const pending = this.pendingPermissions.get(response.sessionId);
+    const key =
+      response.requestId == null
+        ? [...this.pendingPermissions.entries()].find(
+            ([, pending]) => pending.request.sessionId === response.sessionId,
+          )?.[0]
+        : this.permissionKey(response.sessionId, response.requestId);
+    const pending = key ? this.pendingPermissions.get(key) : undefined;
     if (!pending) return;
-    this.pendingPermissions.delete(response.sessionId);
+    this.pendingPermissions.delete(key!);
+    clearTimeout(pending.timer);
     if (response.cancelled || !response.optionId) {
       pending.resolve({ outcome: { outcome: "cancelled" } });
     } else {
@@ -905,15 +1055,153 @@ export class AgentConnectionManager {
         outcome: { outcome: "selected", optionId: response.optionId },
       });
     }
-    this.emit({ type: "permission-resolved", sessionId: response.sessionId });
+    this.emit({
+      type: "permission-resolved",
+      sessionId: response.sessionId,
+      requestId: pending.request.requestId,
+    });
   }
 
   private cancelPendingPermissions(sessionId: string): void {
-    const pending = this.pendingPermissions.get(sessionId);
-    if (!pending) return;
-    this.pendingPermissions.delete(sessionId);
-    pending.resolve({ outcome: { outcome: "cancelled" } });
-    this.emit({ type: "permission-resolved", sessionId });
+    for (const [key, pending] of this.pendingPermissions) {
+      if (pending.request.sessionId !== sessionId) continue;
+      this.pendingPermissions.delete(key);
+      clearTimeout(pending.timer);
+      pending.resolve({ outcome: { outcome: "cancelled" } });
+      this.emit({
+        type: "permission-resolved",
+        sessionId,
+        requestId: pending.request.requestId,
+      });
+    }
+  }
+
+  private cancelAllPendingPermissions(): void {
+    for (const sessionId of new Set(
+      [...this.pendingPermissions.values()].map((p) => p.request.sessionId),
+    )) {
+      this.cancelPendingPermissions(sessionId);
+    }
+  }
+
+  private requestPrompt(
+    live: LiveConnection,
+    runtime: ThreadSessionRuntime,
+    blocks: ContentBlock[],
+    streamingBehavior?: "followUp" | "steer",
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let cancel!: () => void;
+      let timeout!: ReturnType<typeof setTimeout>;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (this.pendingPromptCancels.get(runtime.threadId) === cancel) {
+          this.pendingPromptCancels.delete(runtime.threadId);
+        }
+        clearTimeout(timeout);
+        callback();
+      };
+      cancel = () => finish(() => reject(new Error("agent prompt cancelled")));
+      timeout = setTimeout(() => {
+        void live.agent
+          .notify(acp.methods.agent.session.cancel, { sessionId: runtime.agentSessionId })
+          .catch(() => {});
+        finish(() =>
+          reject(new Error(`session/prompt timed out after ${ACP_PROMPT_TIMEOUT_MS}ms`)),
+        );
+      }, ACP_PROMPT_TIMEOUT_MS);
+      this.pendingPromptCancels.set(runtime.threadId, cancel);
+
+      live.agent
+        .request(acp.methods.agent.session.prompt, {
+          sessionId: runtime.agentSessionId,
+          prompt: blocks,
+          ...(streamingBehavior ? { streamingBehavior } : {}),
+        })
+        .then(
+          (result) => finish(() => resolve(result)),
+          (error) => finish(() => reject(error)),
+        );
+    });
+  }
+
+  private rejectQueuedPrompts(threadId: string, reason: string): void {
+    const queued = this.queuedPrompts.get(threadId);
+    if (!queued) return;
+    this.queuedPrompts.delete(threadId);
+    for (const prompt of queued) prompt.reject(new Error(reason));
+  }
+
+  private drainPromptQueue(runtime: ThreadSessionRuntime, live: LiveConnection): void {
+    if (runtime.promptInFlight) return;
+    const queue = this.queuedPrompts.get(runtime.threadId);
+    const prompt = queue?.shift();
+    if (!prompt) {
+      this.queuedPrompts.delete(runtime.threadId);
+      return;
+    }
+
+    runtime.promptInFlight = true;
+    const turnStartedAt = Date.now();
+    const toolCallsBefore = Object.keys(runtime.slice.toolCalls).length;
+    const agentProps = this.agentProps(runtime.agentId);
+    this.captureAnalytics?.("prompt_submitted", {
+      ...agentProps,
+      project_id: runtime.projectId,
+      thread_id: runtime.threadId,
+      has_images: prompt.blocks.some((block) => block.type === "image"),
+      has_resources: prompt.blocks.some(
+        (block) => block.type === "resource" || block.type === "resource_link",
+      ),
+    });
+
+    void this.requestPrompt(live, runtime, prompt.blocks, prompt.streamingBehavior)
+      .then((result) => {
+        runtime.slice = applyTurnStop(runtime.slice);
+        this.captureAnalytics?.("turn_completed", {
+          ...agentProps,
+          thread_id: runtime.threadId,
+          stop_reason: result.stopReason,
+          turn_duration_ms: Date.now() - turnStartedAt,
+          tool_call_count: Math.max(
+            0,
+            Object.keys(runtime.slice.toolCalls).length - toolCallsBefore,
+          ),
+        });
+        this.reportTokens(runtime, agentProps, runtime.threadId);
+        this.emit({
+          type: "stop",
+          sessionId: runtime.agentSessionId,
+          threadId: runtime.threadId,
+          stopReason: result.stopReason,
+        });
+        prompt.resolve(result);
+      })
+      .catch((error) => {
+        runtime.slice = applyTurnStop(runtime.slice);
+        this.captureAnalytics?.("turn_failed", {
+          ...agentProps,
+          thread_id: runtime.threadId,
+          turn_duration_ms: Date.now() - turnStartedAt,
+          error_type: error instanceof Error ? error.name : undefined,
+        });
+        // If ACP timed out or was cancelled, its underlying request may still
+        // be alive. Do not start another prompt against the same session.
+        if (error instanceof Error && /timed out|cancelled/i.test(error.message)) {
+          this.rejectQueuedPrompts(runtime.threadId, error.message);
+        }
+        prompt.reject(error);
+      })
+      .finally(() => {
+        runtime.promptInFlight = false;
+        this.clearToolCallTiming(runtime.agentSessionId);
+        this.pushState(runtime.threadId);
+        if (this.sessions.get(runtime.threadId) === runtime) {
+          this.drainPromptQueue(runtime, live);
+        }
+      });
   }
 
   private async handleReadTextFile(
@@ -952,7 +1240,11 @@ export class AgentConnectionManager {
   private async sessionMcpServers(
     live: LiveConnection,
     cwd: string,
-  ): Promise<{ servers: Array<Record<string, unknown>>; bind: (sessionId: string) => void }> {
+  ): Promise<{
+    servers: Array<Record<string, unknown>>;
+    bind: (sessionId: string) => void;
+    release: () => void;
+  }> {
     const base = this.mcpServersForConnection(live);
     const attached = await this.subagents.attachMcpServers(base, live.agentCapabilities, {
       cwd,
@@ -962,6 +1254,9 @@ export class AgentConnectionManager {
       servers: attached.servers,
       bind: (sessionId) => {
         if (attached.token) this.subagents.bindSession(attached.token, sessionId);
+      },
+      release: () => {
+        if (attached.token) this.subagents.releaseTokenForSession(attached.token);
       },
     };
   }
@@ -1068,13 +1363,13 @@ export class AgentConnectionManager {
     live: LiveConnection,
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
-    const { servers, bind } = await this.sessionMcpServers(live, cwd);
+    const attached = await this.sessionMcpServers(live, cwd);
     let result: { sessionId: string; configOptions?: SessionConfigOption[] | null };
     try {
       result = await requestWithTimeout(
         live.agent.request(acp.methods.agent.session.new, {
           cwd,
-          mcpServers: servers as never,
+          mcpServers: attached.servers as never,
         }),
         ACP_SWITCH_PHASE_TIMEOUT_MS,
         "session/new",
@@ -1088,10 +1383,11 @@ export class AgentConnectionManager {
           descriptor?.authHint ??
           `${descriptor?.displayName ?? live.agentId} requires authentication. Please sign in from your terminal first.`;
       }
+      attached.release();
       throw err;
     }
     live.authRequiredMessage = null;
-    bind(result.sessionId);
+    attached.bind(result.sessionId);
     return {
       sessionId: result.sessionId,
       configOptions: this.withModelOption(
@@ -1106,26 +1402,26 @@ export class AgentConnectionManager {
     cwd: string,
     sessionId: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
-    const { servers, bind } = await this.sessionMcpServers(live, cwd);
-    const result = await requestWithTimeout(
-      live.agent.request(acp.methods.agent.session.load, {
-        cwd,
-        sessionId,
-        mcpServers: servers as never,
-      }),
-      ACP_SWITCH_PHASE_TIMEOUT_MS,
-      "session/load",
-    );
-    bind((result as { sessionId?: string })?.sessionId ?? sessionId);
+    const attached = await this.sessionMcpServers(live, cwd);
+    let result: { sessionId?: string; configOptions?: SessionConfigOption[] | null };
+    try {
+      result = await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.load, {
+          cwd,
+          sessionId,
+          mcpServers: attached.servers as never,
+        }),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "session/load",
+      );
+    } catch (err) {
+      attached.release();
+      throw err;
+    }
+    attached.bind(result?.sessionId ?? sessionId);
     return {
-      sessionId: (result as { sessionId?: string })?.sessionId ?? sessionId,
-      configOptions: this.withModelOption(
-        live,
-        ((result as { configOptions?: SessionConfigOption[] | null })?.configOptions as
-          | SessionConfigOption[]
-          | null
-          | undefined) ?? [],
-      ),
+      sessionId: result?.sessionId ?? sessionId,
+      configOptions: this.withModelOption(live, result?.configOptions ?? []),
     };
   }
 
@@ -1134,30 +1430,48 @@ export class AgentConnectionManager {
     prevSessionId: string,
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
-    const { servers, bind } = await this.sessionMcpServers(live, cwd);
-    const result = await requestWithTimeout(
-      live.agent.request(acp.methods.agent.session.resume, {
-        prevSessionId,
-        cwd,
-        mcpServers: servers as never,
-      } as never),
-      ACP_SWITCH_PHASE_TIMEOUT_MS,
-      "session/resume",
-    );
-    bind((result as { sessionId?: string })?.sessionId ?? prevSessionId);
+    const attached = await this.sessionMcpServers(live, cwd);
+    let result: { sessionId?: string; configOptions?: SessionConfigOption[] | null };
+    try {
+      result = await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.resume, {
+          prevSessionId,
+          cwd,
+          mcpServers: attached.servers as never,
+        } as never),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "session/resume",
+      );
+    } catch (err) {
+      attached.release();
+      throw err;
+    }
+    attached.bind(result?.sessionId ?? prevSessionId);
     return {
-      sessionId: (result as { sessionId?: string })?.sessionId ?? prevSessionId,
-      configOptions: this.withModelOption(
-        live,
-        ((result as { configOptions?: SessionConfigOption[] | null })?.configOptions as
-          | SessionConfigOption[]
-          | null
-          | undefined) ?? [],
-      ),
+      sessionId: result?.sessionId ?? prevSessionId,
+      configOptions: this.withModelOption(live, result?.configOptions ?? []),
     };
   }
 
+  private enqueueThreadActivation<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.threadActivationQueue.then(task, task);
+    this.threadActivationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
   async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
+    return this.enqueueThreadActivation(() =>
+      this.activateProjectInternal(projectId, preferredThreadId),
+    );
+  }
+
+  private async activateProjectInternal(
+    projectId: string,
+    preferredThreadId?: string | null,
+  ): Promise<void> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
@@ -1198,12 +1512,16 @@ export class AgentConnectionManager {
     // switchThread reconciles the persisted workspace to the activated
     // thread's cwd, so header/tabs/terminals agree after restart and after
     // project switches.
-    await this.switchThread(thread.id);
+    await this.switchThreadInternal(thread.id);
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
 
   async switchThread(threadId: string): Promise<void> {
+    return this.enqueueThreadActivation(() => this.switchThreadInternal(threadId));
+  }
+
+  private async switchThreadInternal(threadId: string): Promise<void> {
     const thread = getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     const project = getProject(thread.project_id);
@@ -1231,6 +1549,8 @@ export class AgentConnectionManager {
 
     // Bind the session to its worktree (validated), else the project root.
     const cwd = this.resolveThreadCwd(thread.worktree_path, project.path);
+    const generation = ++this.activationGeneration;
+    this.threadActivationGenerations.set(threadId, generation);
 
     // Close previous session optionally — skip for rapid switches; load new
     if (!this.sessions.has(threadId)) {
@@ -1256,9 +1576,16 @@ export class AgentConnectionManager {
         let configOptions: SessionConfigOption[] = [];
         try {
           const loaded = await this.sessionLoad(live, cwd, sessionId);
+          if (this.threadActivationGenerations.get(threadId) !== generation) {
+            throw new Error(`Stale activation for thread ${threadId}`);
+          }
           sessionId = loaded.sessionId;
           configOptions = loaded.configOptions;
-        } catch {
+        } catch (err) {
+          // A phase timeout only settles the local request. The ACP request may
+          // still complete later, so never cascade into resume/new and create a
+          // second session while the timed-out load is alive.
+          if (err instanceof Error && /timed out/i.test(err.message)) throw err;
           // Agent restarted — try resume. A failed load may have streamed a
           // partial replay before erroring; drop it so the fallback path
           // doesn't append onto half a timeline.
@@ -1287,6 +1614,7 @@ export class AgentConnectionManager {
         // No session could be established — remove the placeholder so a
         // retry doesn't silently reuse a dead runtime.
         this.sessions.delete(threadId);
+        this.threadActivationGenerations.delete(threadId);
         throw err;
       }
     }
@@ -1304,6 +1632,26 @@ export class AgentConnectionManager {
   }
 
   async createThread(
+    projectId: string,
+    title: string | null,
+    afterThreadId?: string | null,
+    agentId?: string | null,
+    worktreePath?: string | null,
+    initialModelId?: string | null,
+  ): Promise<Thread> {
+    return this.enqueueThreadActivation(() =>
+      this.createThreadInternal(
+        projectId,
+        title,
+        afterThreadId,
+        agentId,
+        worktreePath,
+        initialModelId,
+      ),
+    );
+  }
+
+  private async createThreadInternal(
     projectId: string,
     title: string | null,
     afterThreadId?: string | null,
@@ -1391,22 +1739,36 @@ export class AgentConnectionManager {
   }
 
   async deleteThread(threadId: string): Promise<void> {
+    return this.enqueueThreadActivation(() => this.deleteThreadInternal(threadId));
+  }
+
+  private async deleteThreadInternal(threadId: string): Promise<void> {
     const thread = getThread(threadId);
     if (!thread) return;
 
     const runtime = this.sessions.get(threadId);
     const sessionId = runtime?.agentSessionId ?? thread.agent_session_id;
-    if (this.connection && sessionId) {
+    const owner = this.connectionForAgent(runtime?.agentId ?? thread.agent_id);
+    this.cancelPendingPermissions(sessionId);
+    this.cancelPendingPrompt(threadId, "thread deleted");
+    this.rejectQueuedPrompts(threadId, "thread deleted");
+    this.clearToolCallTiming(sessionId);
+    this.terminalManager.releaseSession(sessionId);
+    if (sessionId) this.subagents.releaseSessionMcp(sessionId);
+    if (owner && sessionId) {
       try {
-        await this.connection.agent.request(acp.methods.agent.session.delete, {
-          sessionId,
-        });
+        await requestWithTimeout(
+          owner.agent.request(acp.methods.agent.session.delete, { sessionId }),
+          ACP_SWITCH_PHASE_TIMEOUT_MS,
+          "session/delete",
+        );
       } catch {
         // best effort
       }
     }
     this.releaseWorkspaceRoot(sessionId);
     this.sessions.delete(threadId);
+    this.emit({ type: "thread-closed", threadId });
     removeThreadRow(threadId);
 
     if (this.activeThreadId === threadId) {
@@ -1427,25 +1789,44 @@ export class AgentConnectionManager {
         remaining[0] ??
         null;
       if (replacement) {
-        await this.switchThread(replacement.id);
+        await this.switchThreadInternal(replacement.id);
       } else {
-        this.pushState();
+        await updateLaunchSelection({ projectId: thread.project_id, threadId: null });
+        this.pushState(null);
       }
     }
   }
 
   async closeThreadSession(threadId: string): Promise<void> {
+    return this.enqueueThreadActivation(() => this.closeThreadSessionInternal(threadId));
+  }
+
+  private async closeThreadSessionInternal(threadId: string): Promise<void> {
     const runtime = this.sessions.get(threadId);
-    if (!runtime || !this.connection) return;
-    try {
-      await this.connection.agent.request(acp.methods.agent.session.close, {
-        sessionId: runtime.agentSessionId,
-      });
-    } catch {
-      // best effort
+    if (!runtime) return;
+    const owner = this.connectionForAgent(runtime.agentId);
+    this.cancelPendingPermissions(runtime.agentSessionId);
+    this.cancelPendingPrompt(threadId, "thread session closed");
+    this.rejectQueuedPrompts(threadId, "thread session closed");
+    this.clearToolCallTiming(runtime.agentSessionId);
+    this.terminalManager.releaseSession(runtime.agentSessionId);
+    this.subagents.releaseSessionMcp(runtime.agentSessionId);
+    if (owner) {
+      try {
+        await requestWithTimeout(
+          owner.agent.request(acp.methods.agent.session.close, {
+            sessionId: runtime.agentSessionId,
+          }),
+          ACP_SWITCH_PHASE_TIMEOUT_MS,
+          "session/close",
+        );
+      } catch {
+        // best effort
+      }
     }
     this.releaseWorkspaceRoot(runtime.agentSessionId);
     this.sessions.delete(threadId);
+    this.emit({ type: "thread-closed", threadId });
   }
 
   async renameThread(threadId: string, title: string): Promise<Thread> {
@@ -1461,14 +1842,25 @@ export class AgentConnectionManager {
   }
 
   async sendPrompt(input: AcpPromptInput): Promise<void> {
+    return this.sendPromptInternal(input, true);
+  }
+
+  private async sendPromptInternal(
+    input: AcpPromptInput,
+    appendUserMessage: boolean,
+  ): Promise<void> {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
     if (!this.sessions.has(threadId)) {
       await this.switchThread(threadId);
     }
     const runtime = this.sessions.get(threadId);
-    const live = this.connection;
+    const live = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !live) throw new Error("No session for thread");
+
+    if (runtime.promptInFlight && !input.streamingBehavior) {
+      throw new Error("A prompt is already in flight; choose follow-up or steer to queue it.");
+    }
 
     const caps = live.agentCapabilities.promptCapabilities;
     const blocks = assemblePromptBlocks({
@@ -1480,63 +1872,29 @@ export class AgentConnectionManager {
       allowEmbeddedContext: Boolean(caps?.embeddedContext),
     });
 
-    if (input.message) {
+    if (appendUserMessage && input.message) {
       runtime.slice = appendLocalUserMessage(runtime.slice, input.message);
       this.pushState(threadId);
     }
 
-    runtime.promptInFlight = true;
     // New turn: drop prior plan so the popover only reappears when this turn
     // emits a plan update (applyTurnStop also clears; this covers image-only prompts).
     runtime.slice = { ...runtime.slice, isStreaming: true, plan: null };
     this.pushState(threadId);
     touchThread(threadId);
 
-    const agentProps = this.agentProps(live.agentId);
-    this.captureAnalytics?.("prompt_submitted", {
-      ...agentProps,
-      project_id: runtime.projectId,
-      thread_id: threadId,
-      has_images: Boolean(input.images?.length),
-      has_resources: Boolean(input.resources?.length),
+    const queued = new Promise<any>((resolve, reject) => {
+      const queue = this.queuedPrompts.get(threadId) ?? [];
+      queue.push({
+        blocks,
+        streamingBehavior: input.streamingBehavior,
+        resolve,
+        reject,
+      });
+      this.queuedPrompts.set(threadId, queue);
     });
-    const turnStartedAt = Date.now();
-    const toolCallsBefore = Object.keys(runtime.slice.toolCalls).length;
-
-    try {
-      const result = await live.agent.request(acp.methods.agent.session.prompt, {
-        sessionId: runtime.agentSessionId,
-        prompt: blocks,
-      });
-      runtime.promptInFlight = false;
-      runtime.slice = applyTurnStop(runtime.slice);
-      this.captureAnalytics?.("turn_completed", {
-        ...agentProps,
-        thread_id: threadId,
-        stop_reason: result.stopReason,
-        turn_duration_ms: Date.now() - turnStartedAt,
-        tool_call_count: Math.max(0, Object.keys(runtime.slice.toolCalls).length - toolCallsBefore),
-      });
-      this.reportTokens(runtime, agentProps, threadId);
-      this.emit({
-        type: "stop",
-        sessionId: runtime.agentSessionId,
-        threadId,
-        stopReason: result.stopReason,
-      });
-      this.pushState(threadId);
-    } catch (err) {
-      runtime.promptInFlight = false;
-      runtime.slice = applyTurnStop(runtime.slice);
-      this.captureAnalytics?.("turn_failed", {
-        ...agentProps,
-        thread_id: threadId,
-        turn_duration_ms: Date.now() - turnStartedAt,
-        error_type: err instanceof Error ? err.name : undefined,
-      });
-      this.pushState(threadId);
-      throw err;
-    }
+    this.drainPromptQueue(runtime, live);
+    await queued;
   }
 
   /** Emit `tokens_reported` from the slice's usage snapshot at turn end (never per chunk). */
@@ -1563,7 +1921,7 @@ export class AgentConnectionManager {
       await this.switchThread(threadId);
     }
     const runtime = this.sessions.get(threadId);
-    const live = this.connection;
+    const live = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !live) throw new Error("No session for thread");
 
     runtime.promptInFlight = true;
@@ -1573,33 +1931,49 @@ export class AgentConnectionManager {
 
     try {
       // Custom extension method
-      await live.agent.request("_pipper/replace_prompt", {
-        sessionId: runtime.agentSessionId,
-        promptId: input.targetUserEntryId,
-        text: input.message,
-      });
+      await requestWithTimeout(
+        live.agent.request("_pipper/replace_prompt", {
+          sessionId: runtime.agentSessionId,
+          promptId: input.targetUserEntryId,
+          text: input.message,
+        }),
+        ACP_PROMPT_TIMEOUT_MS,
+        "_pipper/replace_prompt",
+        () => {
+          void live.agent
+            .notify(acp.methods.agent.session.cancel, { sessionId: runtime.agentSessionId })
+            .catch(() => {});
+        },
+      );
       runtime.promptInFlight = false;
       runtime.slice = applyTurnStop(runtime.slice);
       this.pushState(threadId);
     } catch {
       runtime.promptInFlight = false;
       // Fallback: regular prompt
-      await this.sendPrompt({
-        threadId,
-        message: input.message,
-        images: input.images,
-      });
+      await this.sendPromptInternal(
+        {
+          threadId,
+          message: input.message,
+          images: input.images,
+        },
+        false,
+      );
     }
   }
 
   async abort(): Promise<void> {
     const threadId = this.activeThreadId;
-    if (!threadId || !this.connection) return;
+    if (!threadId) return;
     const runtime = this.sessions.get(threadId);
-    if (!runtime) return;
-    await this.connection.agent.notify(acp.methods.agent.session.cancel, {
-      sessionId: runtime.agentSessionId,
-    });
+    const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
+    if (!runtime || !owner) return;
+    this.cancelPendingPrompt(threadId, "user abort");
+    this.rejectQueuedPrompts(threadId, "agent prompt cancelled");
+    this.clearToolCallTiming(runtime.agentSessionId);
+    await owner.agent
+      .notify(acp.methods.agent.session.cancel, { sessionId: runtime.agentSessionId })
+      .catch(() => {});
     this.cancelPendingPermissions(runtime.agentSessionId);
     // Cascade cancel to subagent runs this session spawned.
     this.subagents.cancelRunsForParent(runtime.agentSessionId);
@@ -1610,20 +1984,25 @@ export class AgentConnectionManager {
 
   async setConfigOption(configId: string, value: string | boolean): Promise<SessionConfigOption[]> {
     const threadId = this.activeThreadId;
-    if (!threadId || !this.connection) return [];
+    if (!threadId) return [];
     const runtime = this.sessions.get(threadId);
-    if (!runtime) return [];
+    const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
+    if (!runtime || !owner) return [];
     // Grok exposes its models via initialize `_meta.modelState` and switches them
     // with a custom `session/set_model` method — it doesn't implement the standard
     // `session/set_config_option`. Route the synthesized "model" option there and
     // update the local option optimistically (the agent acks via `_meta.model.Ok`).
-    if (configId === "model" && this.connection.modelState) {
-      await this.connection.agent.request(
-        "session/set_model" as never,
-        {
-          sessionId: runtime.agentSessionId,
-          modelId: value,
-        } as never,
+    if (configId === "model" && owner.modelState) {
+      await requestWithTimeout(
+        owner.agent.request(
+          "session/set_model" as never,
+          {
+            sessionId: runtime.agentSessionId,
+            modelId: value,
+          } as never,
+        ),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "session/set_model",
       );
       const options = runtime.slice.configOptions.map((o) =>
         o.id === "model" || o.category === "model"
@@ -1634,11 +2013,15 @@ export class AgentConnectionManager {
       this.pushState(threadId);
       return options;
     }
-    const result = await this.connection.agent.request(acp.methods.agent.session.setConfigOption, {
-      sessionId: runtime.agentSessionId,
-      configId,
-      value: value as never,
-    });
+    const result = await requestWithTimeout(
+      owner.agent.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: runtime.agentSessionId,
+        configId,
+        value: value as never,
+      }),
+      ACP_SWITCH_PHASE_TIMEOUT_MS,
+      "session/set_config_option",
+    );
     const options =
       (result.configOptions as SessionConfigOption[] | null | undefined) ??
       runtime.slice.configOptions;
@@ -1705,6 +2088,13 @@ export class AgentConnectionManager {
         tool_duration_ms: Date.now() - entry.startedAt,
         success: status === "completed",
       });
+    }
+  }
+
+  private clearToolCallTiming(sessionId: string): void {
+    const prefix = `${sessionId}:`;
+    for (const key of this.toolCallStarts.keys()) {
+      if (key.startsWith(prefix)) this.toolCallStarts.delete(key);
     }
   }
 

@@ -172,6 +172,17 @@ function resolveIncludeGlobs(projectPath: string, override?: string[]): string[]
 
 let cachedUserSid: string | null = null;
 
+const WORKTREE_CACHE_TTL_MS = 500;
+const worktreeCache = new Map<string, { expiresAt: number; value: Worktree[] }>();
+
+function worktreeCacheKey(projectPath: string): string {
+  return normalize(resolve(projectPath));
+}
+
+function invalidateWorktreeCache(projectPath: string): void {
+  worktreeCache.delete(worktreeCacheKey(projectPath));
+}
+
 /** The current user's SID (`S-1-5-…`). Cached: it cannot change mid-process. */
 function currentUserSid(): string {
   if (cachedUserSid) return cachedUserSid;
@@ -371,6 +382,7 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
 
   // 1. Add the worktree on a new branch off the base branch.
   git(projectPath, ["worktree", "add", worktreePath, "-b", branch, base]);
+  invalidateWorktreeCache(projectPath);
 
   try {
     // 2. Seed gitignored files (untrusted data, allowlisted, contained).
@@ -385,6 +397,7 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
       });
     }
   } catch (err) {
+    invalidateWorktreeCache(projectPath);
     // Cleanup: remove the worktree and delete the newly created branch
     try {
       git(projectPath, ["worktree", "remove", worktreePath, "--force"]);
@@ -447,8 +460,12 @@ export function parseWorktreePorcelain(stdout: string): Worktree[] {
   return worktrees;
 }
 
-/** List worktrees for a project live from git (no caching). Includes the main tree. */
+/** List worktrees from a short-lived cache. Includes the main tree. */
 export function listWorktrees(projectPath: string): Worktree[] {
+  const cacheKey = worktreeCacheKey(projectPath);
+  const cached = worktreeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
     cwd: projectPath,
     encoding: "utf8",
@@ -470,7 +487,7 @@ export function listWorktrees(projectPath: string): Worktree[] {
     ? resolveRepositoryDefaultBranch(projectPath, rootEntry.branch)
     : null;
 
-  return worktrees.map((worktree) => {
+  const result = worktrees.map((worktree) => {
     // Identity, not path comparison: guarantees exactly one root entry even when
     // canonicalization differs, so the UI always resolves a current workspace.
     const isProjectRoot = worktree === rootEntry;
@@ -482,6 +499,8 @@ export function listWorktrees(projectPath: string): Worktree[] {
         : (worktree.path.split(/[\\/]/).filter(Boolean).at(-1) ?? "worktree"),
     };
   });
+  worktreeCache.set(cacheKey, { expiresAt: Date.now() + WORKTREE_CACHE_TTL_MS, value: result });
+  return result;
 }
 
 /**
@@ -534,6 +553,7 @@ export function switchWorktreeBranch(
   // execFileSync receives an argument array, and branchExists above constrains
   // this to a local ref, so no shell interpretation is possible here.
   git(target.path, ["switch", branch]);
+  invalidateWorktreeCache(projectPath);
   const switched = listWorktrees(projectPath).find(
     (worktree) => pathKey(worktree.path) === targetPath,
   );

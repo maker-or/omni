@@ -5,12 +5,32 @@ import {
   appendLocalUserMessage,
   assemblePromptBlocks,
   createEmptySessionSlice,
+  MAX_SESSION_ENTRIES,
+  MAX_SESSION_TOOL_CALLS,
   resetEntryIdCounter,
 } from "./acp-session-reducer";
 
 describe("acp-session-reducer", () => {
   beforeEach(() => {
     resetEntryIdCounter();
+  });
+
+  test("bounds transcript and tool-call state to the newest window", () => {
+    let state = createEmptySessionSlice();
+    for (let i = 0; i < MAX_SESSION_ENTRIES + 25; i++) {
+      state = appendLocalUserMessage(state, `message-${i}`, `local-${i}`);
+    }
+    expect(state.entries).toHaveLength(MAX_SESSION_ENTRIES);
+
+    for (let i = 0; i < MAX_SESSION_TOOL_CALLS + 25; i++) {
+      state = applySessionUpdate(state, {
+        sessionUpdate: "tool_call",
+        toolCallId: `tool-${i}`,
+        title: "Edit",
+        status: "completed",
+      });
+    }
+    expect(Object.keys(state.toolCalls).length).toBeLessThanOrEqual(MAX_SESSION_TOOL_CALLS);
   });
 
   test("accumulates agent message and thought chunks into tail entries", () => {

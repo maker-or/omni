@@ -303,6 +303,15 @@ Follow-up instrumentation:
   state events.
 - Aggregate by max duration to rank which tab transitions actually misrender.
 
+### Close-all tabs — stale agent content after the last tab is removed
+
+Closing the final thread tab now clears the main-process active thread before
+the tabs update is broadcast. The renderer receives an empty session state,
+stops reopening the closed thread from its live snapshot, and clears the active
+diff projection and retained thread diffs. The workspace can still show an
+empty composer or an existing terminal tab, but it no longer shows the closed
+thread's chat or changes.
+
 ## Remaining limitations
 
 1. Windows has only the generic process reader and currently reports one OS

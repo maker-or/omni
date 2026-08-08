@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AcpBridgeEvent, AcpSessionState } from "../../contracts/acp.ts";
 
-function sessionState(threadId: string, patch: Partial<AcpSessionState> = {}): AcpSessionState {
+function sessionState(
+  threadId: string | null,
+  patch: Partial<AcpSessionState> = {},
+): AcpSessionState {
   return {
     projectId: "project-1",
     threadId,
@@ -243,6 +246,39 @@ describe("agent store ACP bridge behavior", () => {
     expect(
       store.getState().state?.entries.some((e) => e.type === "user_text" && e.text === "hi"),
     ).toBe(true);
+  });
+
+  test("clears the displayed session when the main process closes the last tab", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    const agentApi = {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
+        bridgeHandler = handler;
+        return vi.fn();
+      }),
+      getState: vi.fn(async () => sessionState("thread-a")),
+      getCapabilities: vi.fn(async () => null),
+      switchThread: vi.fn(),
+      respondToPermission: vi.fn(),
+      sendPrompt: vi.fn(),
+      replacePrompt: vi.fn(),
+      abort: vi.fn(),
+      createThread: vi.fn(),
+      setConfigOption: vi.fn(),
+      setEditorText: vi.fn(),
+      pasteToEditor: vi.fn(),
+      reportEditorText: vi.fn(),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    await store.getState().connect();
+    expect(store.getState().snapshot?.threadId).toBe("thread-a");
+
+    bridgeHandler?.({ type: "session-state", state: sessionState(null) });
+
+    expect(store.getState().state?.threadId).toBeNull();
+    expect(store.getState().snapshot?.threadId).toBeNull();
+    expect(store.getState().threadToolCalls).toEqual({});
   });
 
   test("tracks which threads are running across open tabs", async () => {

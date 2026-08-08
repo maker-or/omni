@@ -187,4 +187,28 @@ describe("diff-store", () => {
     expect(state.files["/repo/a.ts"]).toBeDefined();
     expect(state.threads["thread-2"]?.files["/repo/b.ts"]).toBeDefined();
   });
+
+  test("clear removes the active diff projection and retained thread data", () => {
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "new"),
+    });
+
+    useDiffStore.getState().clear();
+
+    expect(useDiffStore.getState()).toMatchObject({
+      threadId: null,
+      files: {},
+      order: [],
+      activePath: null,
+      isOpen: false,
+      threads: {},
+    });
+  });
+
+  test("caps retained background thread diffs", () => {
+    for (let i = 0; i < 101; i++) {
+      useDiffStore.getState().ingestToolCalls(`thread-${i}`, {}, false);
+    }
+    expect(Object.keys(useDiffStore.getState().threads)).toHaveLength(100);
+  });
 });

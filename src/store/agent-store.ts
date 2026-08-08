@@ -71,6 +71,7 @@ function applyThreadTitleUpdate(threadId: string, title: string): void {
 /** A question surfaced to the user, mapped from an ACP permission request. */
 export interface UiRequest {
   id: string;
+  requestId?: string | number;
   kind: "select" | "confirm";
   title: string;
   message?: string;
@@ -113,6 +114,7 @@ interface AgentState {
   refresh: () => Promise<void>;
   respondToPermission: (response: {
     sessionId: string;
+    requestId?: string | number;
     optionId?: string;
     cancelled?: boolean;
   }) => Promise<void>;
@@ -158,7 +160,10 @@ let latestThreadSwitchId = 0;
 let threadSwitchQueue: Promise<void> = Promise.resolve();
 let pendingThreadTarget: string | null = null;
 let latestRefreshId = 0;
-const THREAD_SWITCH_TIMEOUT_MS = 20_000;
+// Main activation can spend up to 10s on initialize plus three 10s session
+// phases (load, resume, new). Keep the renderer pending until that budget has
+// elapsed so a late session-state cannot surprise the user after a false error.
+const THREAD_SWITCH_TIMEOUT_MS = 60_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -427,6 +432,12 @@ function applyBridgeEvent(
     };
   }
 
+  if (payload.type === "thread-closed") {
+    const threadToolCalls = { ...state.threadToolCalls };
+    delete threadToolCalls[payload.threadId];
+    return { threadToolCalls };
+  }
+
   // Subagent activity is global (not per-thread); apply regardless of which
   // thread is displayed or being switched into.
   if (payload.type === "subagent-runs") {
@@ -461,7 +472,7 @@ function applyBridgeEvent(
         state: payload.state,
         threadToolCalls: payload.state.threadId
           ? { ...state.threadToolCalls, [payload.state.threadId]: payload.state.toolCalls }
-          : state.threadToolCalls,
+          : {},
         slice: createEmptySessionSlice({
           entries: payload.state.entries,
           toolCalls: payload.state.toolCalls,
@@ -528,7 +539,11 @@ function applyBridgeEvent(
     case "permission-request": {
       const options = payload.request.options ?? [];
       const next: UiRequest = {
-        id: payload.request.sessionId,
+        id:
+          payload.request.requestId == null
+            ? payload.request.sessionId
+            : `${payload.request.sessionId}:${String(payload.request.requestId)}`,
+        requestId: payload.request.requestId,
         kind: "select",
         title: "Permission required",
         message: (payload.request.toolCall as { title?: string })?.title ?? "Allow this tool call?",
@@ -537,10 +552,9 @@ function applyBridgeEvent(
         threadId: payload.request.threadId ?? null,
         optionIds: options.map((o) => o.optionId),
       };
-      // Enqueue rather than overwrite, so a question from a background thread
-      // doesn't clobber one already awaiting an answer. Replace in place if the
-      // same session re-asks (dedupe by sessionId).
-      const withoutDup = state.uiRequestQueue.filter((r) => r.sessionId !== next.sessionId);
+      // Enqueue rather than overwrite, so concurrent requests from one session
+      // remain answerable. A repeated JSON-RPC id is the only safe dedupe key.
+      const withoutDup = state.uiRequestQueue.filter((r) => r.id !== next.id);
       const uiRequestQueue = [...withoutDup, next];
       return {
         permissionRequest: payload.request,
@@ -549,10 +563,17 @@ function applyBridgeEvent(
       };
     }
     case "permission-resolved": {
-      const uiRequestQueue = state.uiRequestQueue.filter((r) => r.sessionId !== payload.sessionId);
+      const uiRequestQueue = state.uiRequestQueue.filter(
+        (r) =>
+          r.sessionId !== payload.sessionId ||
+          (payload.requestId != null && r.requestId !== payload.requestId),
+      );
       return {
         permissionRequest:
-          state.permissionRequest?.sessionId === payload.sessionId ? null : state.permissionRequest,
+          state.permissionRequest?.sessionId === payload.sessionId &&
+          (payload.requestId == null || state.permissionRequest.requestId === payload.requestId)
+            ? null
+            : state.permissionRequest,
         uiRequestQueue,
         uiRequest: uiRequestQueue[0] ?? null,
       };
@@ -565,10 +586,7 @@ function applyBridgeEvent(
           ? {
               ...state.state,
               agentId: payload.agentId,
-              authRequiredMessage:
-                (payload.authMethods?.length ?? 0) > 0
-                  ? `This agent requires authentication. Please authenticate the agent in your terminal first.`
-                  : null,
+              authRequiredMessage: payload.authRequiredMessage ?? null,
             }
           : state.state,
       };
@@ -740,10 +758,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   respondToPermission: async (response) => {
     await window.omni.agent.respondToPermission(response);
     set((s) => {
-      const uiRequestQueue = s.uiRequestQueue.filter((r) => r.sessionId !== response.sessionId);
+      const uiRequestQueue = s.uiRequestQueue.filter(
+        (r) =>
+          r.sessionId !== response.sessionId ||
+          (response.requestId != null && r.requestId !== response.requestId),
+      );
       return {
         permissionRequest:
-          s.permissionRequest?.sessionId === response.sessionId ? null : s.permissionRequest,
+          s.permissionRequest?.sessionId === response.sessionId &&
+          (response.requestId == null || s.permissionRequest.requestId === response.requestId)
+            ? null
+            : s.permissionRequest,
         uiRequestQueue,
         uiRequest: uiRequestQueue[0] ?? null,
       };
@@ -762,6 +787,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         : ui.optionIds?.[0];
     await get().respondToPermission({
       sessionId: ui.sessionId,
+      requestId: ui.requestId,
       optionId: response.value === false || response.value === undefined ? undefined : optionId,
       cancelled: response.value === false || response.value === undefined,
     });

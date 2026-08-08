@@ -36,6 +36,31 @@ export interface AcpSessionSlice {
   titleChanged: boolean;
 }
 
+/** Keep renderer/main transcript state bounded while retaining the newest turn. */
+export const MAX_SESSION_ENTRIES = 2_000;
+export const MAX_SESSION_TOOL_CALLS = 500;
+
+export function trimSessionSlice(state: AcpSessionSlice): AcpSessionSlice {
+  const entries =
+    state.entries.length > MAX_SESSION_ENTRIES
+      ? state.entries.slice(-MAX_SESSION_ENTRIES)
+      : state.entries;
+  const referenced = new Set(
+    entries
+      .filter(
+        (entry): entry is Extract<AcpEntry, { type: "tool_call" }> => entry.type === "tool_call",
+      )
+      .map((entry) => entry.toolCallId),
+  );
+  const toolEntries = Object.entries(state.toolCalls);
+  const toolCalls = Object.fromEntries(
+    toolEntries.filter(([id]) => referenced.has(id)).slice(-MAX_SESSION_TOOL_CALLS),
+  );
+  return entries === state.entries && Object.keys(toolCalls).length === toolEntries.length
+    ? state
+    : { ...state, entries, toolCalls };
+}
+
 export function createEmptySessionSlice(patch: Partial<AcpSessionSlice> = {}): AcpSessionSlice {
   return {
     entries: [],
@@ -146,6 +171,13 @@ function ensureToolCallEntry(state: AcpSessionSlice, toolCallId: string): AcpEnt
  * Apply a single session/update to session slice state.
  */
 export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate): AcpSessionSlice {
+  return trimSessionSlice(applySessionUpdateUnbounded(state, update));
+}
+
+function applySessionUpdateUnbounded(
+  state: AcpSessionSlice,
+  update: SessionUpdate,
+): AcpSessionSlice {
   switch (update.sessionUpdate) {
     case "agent_message_chunk": {
       return {
@@ -334,12 +366,12 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
  * the previous plan the moment streaming starts again.
  */
 export function applyTurnStop(state: AcpSessionSlice): AcpSessionSlice {
-  return {
+  return trimSessionSlice({
     ...state,
     isStreaming: false,
     plan: null,
     titleChanged: false,
-  };
+  });
 }
 
 /** Append a local user message optimistically before the agent echoes it. */
@@ -349,14 +381,14 @@ export function appendLocalUserMessage(
   id?: string,
 ): AcpSessionSlice {
   const entryId = id ?? `local-user-${Date.now()}`;
-  return {
+  return trimSessionSlice({
     ...state,
     entries: [...state.entries, { type: "user_text", id: entryId, messageId: null, text }],
     isStreaming: true,
     // New turn: do not inherit prior-turn plan while waiting for a fresh one.
     plan: null,
     titleChanged: false,
-  };
+  });
 }
 
 /** Build ContentBlock[] for session/prompt from text + optional images/resources. */

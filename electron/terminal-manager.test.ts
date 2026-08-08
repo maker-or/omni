@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { TerminalManager } from "./terminal-manager.ts";
+import { TerminalManager, truncateOutput } from "./terminal-manager.ts";
 
 describe("TerminalManager", () => {
   test("create, stream output, waitForExit, release", async () => {
@@ -46,5 +46,12 @@ describe("TerminalManager", () => {
     await manager.waitForExit(id);
     expect(manager.getOutput(id).exitStatus).not.toBeNull();
     manager.release(id);
+  });
+
+  test("truncates UTF-8 output with a logarithmic number of scans", () => {
+    const result = truncateOutput("😀".repeat(100_000), 4_096);
+    expect(Buffer.byteLength(result.text, "utf8")).toBeLessThanOrEqual(4_096);
+    expect(result.text.startsWith("😀")).toBe(true);
+    expect(result.truncated).toBe(true);
   });
 });

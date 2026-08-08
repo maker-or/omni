@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/store/agent-store";
 import { useDiffStore } from "@/store/diff-store";
+import type { AcpToolCallState } from "../../contracts/acp.ts";
 
 /**
  * Headless: streams the active agent thread's ACP tool-call diffs into the
@@ -14,12 +15,36 @@ export function DiffIngestor() {
   const activeThreadId = useAgentStore((state) => state.state?.threadId ?? null);
   const threadToolCalls = useAgentStore((state) => state.threadToolCalls);
   const ingestToolCalls = useDiffStore((state) => state.ingestToolCalls);
+  const clear = useDiffStore((state) => state.clear);
+  const seenToolCalls = useRef<Record<string, Record<string, AcpToolCallState>>>({});
+  const previousActiveThreadId = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!activeThreadId) {
+      seenToolCalls.current = {};
+      previousActiveThreadId.current = null;
+      clear();
+    }
+  }, [activeThreadId, clear]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+    const activeChanged = previousActiveThreadId.current !== activeThreadId;
+    const nextSeen: Record<string, Record<string, AcpToolCallState>> = {};
     for (const [threadId, toolCalls] of Object.entries(threadToolCalls)) {
       if (threadId === "__none__") continue;
-      ingestToolCalls(threadId, toolCalls, threadId === activeThreadId);
+      const typedToolCalls = toolCalls as Record<string, AcpToolCallState>;
+      nextSeen[threadId] = typedToolCalls;
+      if (
+        seenToolCalls.current[threadId] === typedToolCalls &&
+        !(activeChanged && threadId === activeThreadId)
+      ) {
+        continue;
+      }
+      ingestToolCalls(threadId, typedToolCalls, threadId === activeThreadId);
     }
+    seenToolCalls.current = nextSeen;
+    previousActiveThreadId.current = activeThreadId;
   }, [activeThreadId, threadToolCalls, ingestToolCalls]);
 
   return null;

@@ -175,6 +175,65 @@ describe("subagent runs", () => {
     expect(made.events.some((e) => e.type === "subagent-runs")).toBe(true);
   });
 
+  test("releases the per-run MCP endpoint and token after every run", async () => {
+    const fake = makeFakeAgent({ onPrompt: () => {} });
+    const made = await makeManager(fake);
+    manager = made.manager;
+
+    const attached = await manager.attachMcpServers(
+      [],
+      { mcpCapabilities: { http: true } },
+      {
+        cwd: "/repo",
+        depth: 0,
+      },
+    );
+    manager.bindSession(attached.token!, "orchestrator-session");
+    const url = endpointUrl(attached.servers);
+
+    for (let i = 0; i < 3; i++) {
+      const result = await callSpawn(url, { agent_id: "agent-a", task: `job-${i}` });
+      expect(result.isError).toBeUndefined();
+      expect((manager as any).tokens.size).toBe(1);
+      expect((manager as any).server.endpoints.size).toBe(1);
+    }
+  });
+
+  test("a timed-out prompt releases its slot even when cancel is ignored", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeAgent({ onPrompt: () => new Promise<void>(() => {}) });
+      const made = await makeManager(fake);
+      manager = made.manager;
+      await manager.setConfig({ runTimeoutMs: 30_000, maxConcurrent: 1 });
+
+      const attached = await manager.attachMcpServers(
+        [],
+        { mcpCapabilities: { http: true } },
+        {
+          cwd: "/repo",
+          depth: 0,
+        },
+      );
+      manager.bindSession(attached.token!, "orchestrator-session");
+
+      const pending = (manager as any).runSubagent(attached.token, {
+        agent_id: "agent-a",
+        task: "hang",
+      }) as Promise<string>;
+      const rejected = expect(pending).rejects.toThrow(/timed out/);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await rejected;
+      expect(fake.cancelled).toEqual(["sub-session-1"]);
+      expect((manager as any).activeRuns).toBe(0);
+      expect(manager.getRunSnapshots()[0].status).toBe("cancelled");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("agents without http MCP capability get a stdio proxy entry pointing at the same endpoint", async () => {
     const fake = makeFakeAgent({ onPrompt: () => {}, httpCapable: false });
     const made = await makeManager(fake);

@@ -1192,8 +1192,13 @@ function registerIpc(): void {
 
   ipcMain.handle("threads:delete", async (_event, id: string) => {
     const isPeer = makeWorkspacePeerPredicate(id);
-    await requireAgentManager().deleteThread(id);
+    const manager = requireAgentManager();
+    await manager.deleteThread(id);
     const next = await closeThreadTab(id, isPeer);
+    if (next.activeThreadId && manager.getState().threadId !== next.activeThreadId) {
+      await manager.switchThread(next.activeThreadId);
+    }
+    if (!next.activeThreadId) await manager.clearActiveThread();
     broadcastOpenTabsChanged(mainWindow, next);
   });
 
@@ -1207,12 +1212,19 @@ function registerIpc(): void {
 
   ipcMain.handle("tabs:close", async (_event, threadId: string) => {
     const isPeer = makeWorkspacePeerPredicate(threadId);
+    const manager = requireAgentManager();
     try {
-      await requireAgentManager().closeThreadSession(threadId);
+      await manager.closeThreadSession(threadId);
     } catch (err) {
       console.warn("[IPC] closeThreadSession failed:", err);
     }
     const next = await closeThreadTab(threadId, isPeer);
+    if (next.activeThreadId && manager.getState().threadId !== next.activeThreadId) {
+      await manager.switchThread(next.activeThreadId);
+    }
+    if (!next.activeThreadId) {
+      await manager.clearActiveThread();
+    }
     broadcastOpenTabsChanged(mainWindow, next);
     return next;
   });
