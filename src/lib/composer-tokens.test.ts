@@ -175,10 +175,9 @@ describe("composer-tokens", () => {
   });
 
   test("assertCreatable accepts soft defaultAgentId without agent chip", () => {
-    const check = assertCreatable(
-      buildContent([{ kind: "project", id: "p1", label: "P" }], "hi"),
-      { defaultAgentId: "opencode-acp" },
-    );
+    const check = assertCreatable(buildContent([{ kind: "project", id: "p1", label: "P" }], "hi"), {
+      defaultAgentId: "opencode-acp",
+    });
     expect(check).toEqual({
       ok: true,
       projectId: "p1",

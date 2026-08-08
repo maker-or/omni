@@ -1,0 +1,130 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { render, getCollection } from "astro:content";
+
+export const prerender = true;
+
+export async function getStaticPaths() {
+    const posts = await getCollection("blog");
+    return posts.map((post) => ({
+        params: { slug: post.data.slug },
+        props: { post },
+    }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+
+interface FaqItem {
+    q: string;
+    a: string;
+}
+
+function extractFaq(body: string): FaqItem[] {
+    const faqs: FaqItem[] = [];
+    let current: FaqItem | null = null;
+    let inFaq = false;
+    for (const rawLine of body.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        const h2 = line.match(/^##\s+(.+)$/);
+        const h3 = line.match(/^###\s+(.+)$/);
+        if (h2) {
+            if (/faq|question/i.test(h2[1])) {
+                inFaq = true;
+                current = null;
+            } else {
+                inFaq = false;
+                if (current) {
+                    faqs.push(current);
+                    current = null;
+                }
+            }
+            continue;
+        }
+        if (!inFaq) continue;
+        if (h3) {
+            if (current) faqs.push(current);
+            current = { q: h3[1], a: "" };
+            continue;
+        }
+        if (current && !line.startsWith("#") && line) {
+            current.a += (current.a ? " " : "") + line;
+        }
+    }
+    if (current) faqs.push(current);
+    return faqs
+        .map((f) => ({ ...f, a: f.a.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim() }))
+        .filter((f) => f.q && f.a);
+}
+
+const faq = extractFaq(post.body);
+const faqSchema = faq.length
+    ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          mainEntity: faq.map((item) => ({
+              "@type": "Question",
+              name: item.q,
+              acceptedAnswer: {
+                  "@type": "Answer",
+                  text: item.a,
+              },
+          })),
+      }
+    : null;
+const dateLabel = post.data.date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+});
+const articleSchema = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.data.title,
+    description: post.data.description,
+    datePublished: post.data.date.toISOString(),
+    author: { "@type": "Organization", name: post.data.author },
+    publisher: { "@type": "Organization", name: "pipper code" },
+    mainEntityOfPage: `https://www.pipper.dev/blog/${post.data.slug}/`,
+    keywords: post.data.keywords.join(", "),
+};
+---
+<!DOCTYPE html>
+<Layout
+    title={post.data.title}
+    description={post.data.description}
+    pageClass="blog-post-page"
+>
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(articleSchema)} />
+    {faqSchema && (
+        <script type="application/ld+json" is:inline set:html={JSON.stringify(faqSchema)} />
+    )}
+    <article class="post-shell w-full max-w-[46rem] mx-auto px-[clamp(1.25rem,4vw,2rem)] pt-12 md:pt-16 pb-20 flex flex-col gap-6 font-geist">
+        <p class="post-back text-[0.85rem]">
+            <a href="/blog/" class="text-[#2162ff] no-underline">← All posts</a>
+        </p>
+        <header class="post-head flex flex-col gap-3">
+            <h1 class="font-medium text-[clamp(1.8rem,4.5vw,3rem)] tracking-[-0.035em] leading-[1.1]">
+                {post.data.title}
+            </h1>
+            <p class="text-[0.85rem] opacity-60">
+                <time>{dateLabel}</time> · {post.data.author} · {post.data.category}
+            </p>
+        </header>
+        <div class="post-body text-[1.02rem] leading-[1.7] min-w-0">
+            <Content />
+        </div>
+        <div class="post-cta mt-4 p-[1.25rem] border border-[rgba(33,98,255,0.4)] rounded-xl bg-[rgba(33,98,255,0.06)] flex flex-col gap-2 items-start">
+            <h2 class="text-[1.05rem] font-semibold tracking-[-0.01em]">Run it yourself</h2>
+            <p class="text-[0.92rem] opacity-80">
+                Pipper Code is a free desktop app for running multiple AI coding agents from one
+                interface.
+            </p>
+            <a
+                href="/download"
+                class="mt-1 px-4 py-2 rounded-lg bg-[#2162ff] text-white text-[0.9rem] font-medium"
+                >Download pipper</a
+            >
+        </div>
+    </div>
+</Layout>

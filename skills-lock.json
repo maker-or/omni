@@ -13,6 +13,24 @@
       "skillPath": "skills/productivity/grill-me/SKILL.md",
       "computedHash": "f321507f77702a54af1db66549ec1685fc625390d06c57d7949cdcda8eb1b5c7"
     },
+    "human-writing": {
+      "source": "vercel/eve",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/human-writing/SKILL.md",
+      "computedHash": "df053b7c00ae74289efe3db6bd826797c64db3aeb4e2537809c71b97469cc38a"
+    },
+    "seo-audit": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "marketing/skills/seo-audit/SKILL.md",
+      "computedHash": "8e2ca1e7267fab10969f83a4ae6dbc15ce4082f35d8bc7fcd004b7af41ee9e4d"
+    },
+    "thermo-nuclear-review": {
+      "source": "cursor/plugins",
+      "sourceType": "github",
+      "skillPath": "thermos/skills/thermo-nuclear-review/SKILL.md",
+      "computedHash": "c13babcfb10d8f33325af0b00c3eff7b5efb034147f93993c4d9ed569faa5570"
+    },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",

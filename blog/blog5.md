@@ -1,100 +1,149 @@
-# how to use multiple ai coding agents without losing your place
+---
+title: "How to Use Multiple AI Coding Agents Without Losing Your Place"
+description: "Learn to run multiple AI coding agents without losing your spot. Clear roles, one project context, and handoff notes keep the workflow readable. Free download."
+category: "Guides"
+author: "The Piper team"
+date: 2026-08-08
+slug: how-to-use-multiple-ai-coding-agents
+keywords:
+  - multiple ai coding agents
+  - how to use multiple ai coding agents
+  - run multiple coding agents workflow
+  - agent handoff
+tags:
+  - multiple AI coding agents
+  - AI agent handoff
+  - multi-agent workflow
+  - AI coding agents
+  - developer tools
+---
 
-using multiple ai coding agents can help you plan, build, and review software. the hard part is keeping their work clear and connected.
+# How to Use Multiple AI Coding Agents Without Losing Your Place
 
-this guide shows a simple workflow for using more than one coding agent. it covers clear jobs, useful notes, and safe handoffs. if you are new to ai coding tools, start with one small task.
+Run more than one coding agent at a time and the wall of chat windows fills up fast. You forget which tool built which file, which chat holds the plan, and what the next step was. The fix is not fewer agents — it is how you use them. This guide shows how to use multiple AI coding agents with clear jobs, one shared context, and a short note card between handoffs — so you keep your place even when three tools run at once.
 
-## why use multiple ai coding agents?
+**TL;DR:** Give each agent one job, keep one source of truth for project context, and write a handoff note every time work changes hands. Pipper is a free desktop app that runs Claude Code, Codex, Cursor, OpenCode, Copilot, and Grok on one board, so the handoffs have a home. [Download Pipper](/download) and try the workflow below today.
 
-different agents can be useful for different kinds of work. one may be good at writing code from a short request. another may be better at reading a large error message. a third may help you think of test cases. using each tool for a clear purpose can make your work easier to check.
+## Why More Than One Agent?
 
-you might use one agent for your web app and another for a small script. the value comes from how you organize the work, not from the number of tools you open.
+Anyone who edits a repo alone knows the feeling: a terminal to refactor, a tab to review tests, a chat window for a second opinion — and the context drifts between them. Running several AI coding agents fixes that, when the split is deliberate.
 
-## give each agent one clear job
+One is careful with a surgical refactor; another races through a broad spike; a third reads a stack trace better than you do at 6 p.m. Routing each task to the agent that fits is normal engineering. What is not normal is the coordination: every new agent starts from scratch unless you hand it the repo, the goal, and the constraints you already decided. Get the handoffs right and the work becomes a clean relay; get them wrong and nobody knows who changed what.
 
-start by writing down the jobs you need. keep each job small enough that you can tell when it is done. a simple set of roles could look like this:
+## Rule 1: Give Each Agent One Clear Job
 
-- the planner turns a feature idea into small steps.
-- the builder changes the code for one step.
-- the tester suggests checks and runs the tests you choose.
-- the reviewer looks for bugs, missing cases, and confusing code.
+The most common failure is treating an agent as a generalist: paste a whole ticket in and it tries everything at once, half-fixing three files and finishing nothing. Split the work into small, honest roles, one deliverable and one definition of done each:
 
-you can use the same agent for more than one job if it does both well. the important part is to tell the agent what you want before it starts.
+| Role     | Task                                     | Definition of done                     |
+| -------- | ---------------------------------------- | -------------------------------------- |
+| Planner  | Turns a goal into ordered, small steps   | A written plan, no files changed       |
+| Builder  | Implements one approved step             | A focused diff of the relevant files   |
+| Tester   | Suggests and runs the smallest checks    | A passing targeted test for the change |
+| Reviewer | Reads the fix for bugs and missing cases | Notes of problems plus a next step     |
 
-for example, give the planner a request like this:
+One agent can take many roles. What matters is that each task is one clear job. A planner might get:
 
-> read the login folder and suggest a small plan for adding a password reset page. do not change any files. list the files you would inspect and the tests we should add.
+> You are the planner. Do not change any files. Read `src/auth/`, then propose a 3-step plan to add password reset. Name the file and test each step touches.
 
-then give the builder only the approved plan:
+And the builder gets the approved plan, not a second guess:
 
-> make step one from this plan. change only the login page and its related test. explain each file you edit, and stop if you find a larger issue.
+> You are the builder. Implement step 1 from the plan: add a password reset page under `src/auth/`. Edit only the files you need, describe each edit, and stop if you hit something large.
 
-clear limits make the result easier to review. they also help you notice when an agent starts to solve a different problem.
+## Rule 2: Keep a Single Source of Project Context
 
-## keep one source of project context
+The next failure is context sprawl. Every agent lives in its own chat, each gets a fresh copy of "here is what we are building," and once the copies drift the agents disagree about the same codebase. The check that should be cheap becomes a gamble.
 
-agents need context, but you do not need to paste your whole project into every chat. keep a short project note in a place your team can find. it can be a markdown file, a task note, or an issue description. include the parts that change how work should be done:
+The fix is not a wiki. Keep a small, flat file — `PROJECT.md` or a task note — and hand it to every agent at kickoff. Put five things in it:
 
-- what the project does
-- how to start it and run its tests
-- the current task
-- files that are part of the task
-- choices you have already made
-- known problems or limits
+- What the project is, in two sentences.
+- How to run it and how to run the tests.
+- The current task and why it matters now.
+- Files in scope for this task.
+- Decisions made so far, and known limits.
 
-write facts in plain language. for example, say, “the page must work without a network request.” update the note when a decision changes. a short, current note is more useful than a long page that no one trusts.
+Write it plain. "Must work with zero network requests" is a rule; "should be resilient" is a mood. Update the note when a decision changes, and hand the same file to the next agent. Same source, quick review.
 
-give each agent the same small context at the start of a task. include the goal, the limits, and the latest decisions. if an agent needs more information, let it ask for a specific file or command result.
+## Rule 3: Write a Handoff Note Between Agents
 
-## use a handoff note between agents
-
-do not pass only the final code from one agent to the next. pass the reason for the change and the open questions too. a handoff note can use this format:
+The classic gap: the builder hands a diff to the reviewer and nothing else. A diff says what changed, not why — or what was tried, or what might break. A handoff note card travels with the work and takes thirty seconds:
 
 ```text
-goal: add a password reset page
-done: added the page and a form test
-files changed: login/reset-page.tsx, login/reset-page.test.tsx
-checks: the form test passes
-open questions: the api error message is not yet shown to users
-next job: review the error state and suggest a test
+HANDOFF NOTE — password reset
+
+Goal: add a working password reset page
+Done: added the reset route, form, and one test
+Changed: src/auth/reset.tsx, src/auth/reset.test.tsx
+Verified: npx vitest src/auth/reset.test.ts --run  PASS
+Open: the API still shows a generic error on a bad token
+Next job: tester — try a bad token and capture the real API message
 ```
 
-this note gives the next agent a clean starting point and helps you return to the task after a break. keep it near the task, and add the date if several people are working on it.
+That block is the whole contract: what is done, what to run first, and the open question that blocks "finished." A "Next job" line means the reviewer never guesses. Keep the cards in `HANDOFF.md` or pinned to the task, and the agent handoff stops being the leaky part.
 
-you can keep a short decision log as well. record choices such as “we will show a general error message” or “we will not change the database in this task.”
+## A Complete Workflow You Can Run Today
 
-## check work at each step
+Four steps, run in order, with the note card updated as you go.
 
-let an agent do one useful piece of work, then check it before moving on. read the changed files and run the smallest related test. when a test fails, record the exact error in the handoff note.
+**Step 1 — Plan.** Write the goal in `PROJECT.md`, then have a planner read it and propose steps — no file changes.
 
-avoid asking several agents to edit the same files at the same time. their changes can conflict, and it may be hard to tell which change caused a problem. if you want two opinions, ask both agents for plans or reviews first. choose one path, then let one builder make the change.
+```bash
+pipper run claude-code --prompt "Read PROJECT.md. Plan password reset in <= 3 steps. Do not change anything."
+```
 
-you are still responsible for the final choice. an agent may not know your users, release plan, or team rules. treat its answer as a draft, and use tests, review, and your own judgment before you ship it.
+**Step 2 — Build.** Hand the builder only the plan file and keep edits inside the files the planner named.
 
-## use pipper as one control point
+```bash
+pipper run codex --prompt "Build step 1 from PLAN.md. Only touch src/auth/."
+```
 
-when several tools are involved, switching between them can make the task feel scattered. pipper gives you one interface for using the agent tools you choose. you can bring your own ai agents and use them through pipper, while keeping the work in one place.
+**Step 3 — Verify.** Run the smallest test for the change and paste the result into the handoff card.
 
-you might use pipper to send the same project note to a planner and a reviewer, then choose which result to hand to your coding agent. the tools still have different jobs, but you have one control point for the workflow. this can make it easier to compare answers, keep the next step visible, and return to earlier context.
+```bash
+npx vitest src/auth/reset.test.ts
+```
 
-pipper is free to use, so you can try this workflow without a required product payment. it does not replace your editor, terminal, repository host, or other tools. pipper is an ai interface that improves itself, and it helps you control the agent tools you choose from one interface.
+**Step 4 — Review and hand off.** Ask a reviewer to read the diff against the card, list missing tests, and point the next agent at its first fix.
 
-## a simple daily workflow
+```bash
+pipper run opencode --prompt "Review the diff against HANDOFF.md. List missing tests and the first fix to make."
+```
 
-for a small feature, try this sequence:
+That is the pattern — plan, build, verify, review — one clear job per stage, every stage visible on one board.
 
-1. write the goal and limits in a short task note.
-2. ask a planning agent for a small plan without changing files.
-3. review the plan and remove steps you do not need.
-4. ask one coding agent to make one step at a time.
-5. run a focused test after each meaningful change.
-6. ask a review agent to inspect the diff and open questions.
-7. update the handoff note, then decide whether the work is ready.
+## When to Keep It Simple
 
-for a very small task, skip extra roles. for a task that touches data or user accounts, add more review and testing.
+More agents is not always better. A typo fix, a dependency bump, a rename — one agent handles it. Standing up a four-role team for two changed lines costs more coordination than it saves.
 
-## conclusion
+The relay earns its keep for hour-long work, or when several files hang together in one feature, or when an error can leak across them. Jobs that touch data or user accounts deserve the extra review pass. New to the tools? Start with one planner and one builder, and add a tester when the small cycle feels steady. The isolation each stage gets — Git-worktree-style in Pipper — is what makes parallel agents safe: each works in its own workspace and cannot collide with the next.
 
-multiple ai coding agents can be useful when every tool has a clear job and every handoff has clear notes. keep one current project context, move through small steps, and check the work as you go. start with a planner and a builder, then add a tester or reviewer when the task needs another view.
+## Key Takeaways
 
-if you want one place to guide these tools, try pipper with the agents you already use. a clear workflow will help you keep your place, whether you use one agent today or several agents next month.
+- Give every agent one clear, well-scoped job instead of a whole repo.
+- Keep a single project context and share the same file with every agent.
+- Write a handoff note card with goal, status, verification, and next job.
+- Run the four-step loop: plan, build, verify, review — with a fresh card.
+- Pipper runs Claude Code, Codex, Cursor, OpenCode, Copilot, and Grok from one board, so handoffs stay visible.
+
+## FAQ
+
+### How do I run multiple AI coding agents at once without conflicts?
+
+Give each builder its own scope or worktree so agents cannot stomp on the same file. Run the smallest test after every change and let one reviewer own the final read. Serial at the file level, parallel by hand — that is the honest balance.
+
+### What does a good agent handoff look like?
+
+A card with context: the goal, what was done, what was verified, one open question, and the next job. Hand the card over, not just the diff — that thirty seconds is what keeps the relay running.
+
+### What if I only have two agents?
+
+Nothing breaks. Use one agent for planning and building, the second as reviewer on trickier features. The roles table is a menu — pick what a task needs. When the work gets long, reopen the planner role.
+
+### Can Pipper run the agents I already own?
+
+Yes. Pipper is ACP-based, so it orchestrates the coding agents you already use — Claude Code, Codex, Cursor, OpenCode, Copilot, Grok — with parallel runs, subagents, and worktree-style isolation. It is free on macOS and Windows, and the download is the only step.
+
+## Get Started With Clear Ownership
+
+You do not have to change your agents or your editor — only the workflow. Assign each agent one job, keep one project context, and let a card travel with each handoff. Do that, and you never lose your place.
+
+Pipper is the board that keeps those cards in place — free, ACP-based, on macOS and Windows, driving the agents you already use from one window. [Download Pipper for free](/download). New to agent interfaces? Start with [what an AI agent interface is](/blog/blog1.md); for a tighter daily loop, see [idea to working software](/blog/blog9.md).

@@ -332,7 +332,10 @@ export function ThreadComposer({
         const visibleEntities = entities.filter((entity) => entity.kind !== "agent");
         if (visibleEntities.length === 0) return null;
         return (
-          <div className="flex flex-wrap items-center gap-1.5 px-0.5" data-pipper-id="composer-chips">
+          <div
+            className="flex flex-wrap items-center gap-1.5 px-0.5"
+            data-pipper-id="composer-chips"
+          >
             {visibleEntities.map((entity) => (
               <span
                 key={`${entity.kind}:${entity.id}${entity.kind === "model" && entity.agentId ? `:${entity.agentId}` : ""}`}

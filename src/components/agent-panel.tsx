@@ -669,13 +669,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const availableAgents = registry.agents.filter(
       (a) => registry.selectedAgentIds.includes(a.id) && a.available !== false,
     );
-    const pool = availableAgents.length > 0
-      ? availableAgents
-      : registry.agents.filter((a) => a.available !== false);
+    const pool =
+      availableAgents.length > 0
+        ? availableAgents
+        : registry.agents.filter((a) => a.available !== false);
     if (pool.length > 0) {
       const connectedId = useAgentStore.getState().state?.agentId ?? null;
-      const preferred =
-        (connectedId ? pool.find((a) => a.id === connectedId) : null) ?? pool[0]!;
+      const preferred = (connectedId ? pool.find((a) => a.id === connectedId) : null) ?? pool[0]!;
       setDraftAgent(preferred.id);
     }
     setDraftContent(content);
@@ -1582,9 +1582,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
     const agentNameById = new Map(draftAgentItems.map((a) => [a.id, a.label]));
     const agentIds =
-      draftAgentItems.length > 0
-        ? draftAgentItems.map((a) => a.id)
-        : Object.keys(catalogByAgentId);
+      draftAgentItems.length > 0 ? draftAgentItems.map((a) => a.id) : Object.keys(catalogByAgentId);
 
     const items: Array<{
       id: string;
@@ -1616,13 +1614,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       }
     }
     return items;
-  }, [
-    isDraftMode,
-    models,
-    snapshot?.agentId,
-    draftAgentItems,
-    catalogByAgentId,
-  ]);
+  }, [isDraftMode, models, snapshot?.agentId, draftAgentItems, catalogByAgentId]);
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
   const fileProjectId = useMemo(

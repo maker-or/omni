@@ -1,0 +1,58 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { getCollection } from "astro:content";
+
+const posts = (await getCollection("blog")).sort(
+    (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
+);
+const categories = [...new Set(posts.map((p) => p.data.category))];
+const byDate = (fmt: string) =>
+    new Date(fmt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+    });
+---
+<Layout
+    title="Blog — pipper | Guides for AI agents & multi-agent workflows"
+    description="Guides, comparisons, and essays on running multiple AI coding agents: harnesses, orchestration, and the tools developers actually use."
+    pageClass="blog-page"
+>
+    <section class="blog-shell w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-12 md:pt-16 pb-16 flex flex-col gap-8 font-geist">
+        <header class="blog-heading flex flex-col gap-3">
+            <p class="blog-kicker">pipper / field notes</p>
+            <h1 class="font-medium text-[clamp(2.25rem,5vw,3.75rem)] tracking-[-0.04em] leading-[1.05]">
+                The pipper blog
+            </h1>
+            <p class="blog-sub text-[1.02rem] max-w-[46rem]">
+                Practical guides and honest comparisons for developers running multiple AI
+                coding agents — what works, what doesn't, and how the pieces fit together.
+            </p>
+            <div class="blog-cats flex flex-wrap gap-2">
+                {categories
+                    .map((c) => (
+                        <span class="blog-cat">{c}</span>
+                    ))}
+            </div>
+        </header>
+        <div class="blog-list flex flex-col divide-y divide-black/10 border-t border-black/10">
+            {
+                posts.map(({ data }) => (
+                    <article class="blog-card py-5 group">
+                        <a href={`/blog/${data.slug}/`} class="flex flex-col gap-1.5 no-underline">
+                            <time class="text-[0.78rem] uppercase tracking-[0.12em] opacity-50">
+                                {byDate(data.date.toString())} · {data.category}
+                            </time>
+                            <h2 class="text-[1.25rem] leading-snug tracking-[-0.02em] group-hover:text-[#2162ff]">
+                                {data.title}
+                            </h2>
+                            <p class="text-[0.92rem] opacity-70 max-w-[52rem]">
+                                {data.description}
+                            </p>
+                        </a>
+                    </article>
+                ))
+            }
+        </div>
+    </section>
+</Layout>

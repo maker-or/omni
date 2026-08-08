@@ -24,9 +24,7 @@ describe("model-catalog-store", () => {
       { modelId: "sonnet", name: "Sonnet" },
       { modelId: "opus", name: "Opus" },
     ]);
-    useModelCatalogStore.getState().remember("opencode-acp", [
-      { modelId: "gpt-4", name: "GPT-4" },
-    ]);
+    useModelCatalogStore.getState().remember("opencode-acp", [{ modelId: "gpt-4", name: "GPT-4" }]);
     // Empty lists must not clobber a known catalog (transient session config).
     useModelCatalogStore.getState().remember("claude-agent-acp", []);
 
@@ -34,7 +32,9 @@ describe("model-catalog-store", () => {
       { agentId: "claude-agent-acp", modelId: "sonnet", name: "Sonnet" },
       { agentId: "claude-agent-acp", modelId: "opus", name: "Opus" },
     ]);
-    expect(useModelCatalogStore.getState().modelsForAgents(["opencode-acp", "claude-agent-acp"])).toEqual([
+    expect(
+      useModelCatalogStore.getState().modelsForAgents(["opencode-acp", "claude-agent-acp"]),
+    ).toEqual([
       { agentId: "opencode-acp", modelId: "gpt-4", name: "GPT-4" },
       { agentId: "claude-agent-acp", modelId: "sonnet", name: "Sonnet" },
       { agentId: "claude-agent-acp", modelId: "opus", name: "Opus" },

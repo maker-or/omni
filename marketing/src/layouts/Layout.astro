@@ -6,8 +6,11 @@ const {
     description = "pipper — self-improving agent interface",
     pageClass,
     hideHeader,
+    noindex = false,
 } = Astro.props;
 const pagePath = Astro.url.pathname;
+const site = Astro.site ?? new URL("https://www.pipper.dev");
+const canonical = new URL(pagePath, site);
 const pageName =
     pagePath === "/"
         ? "home"
@@ -50,6 +53,29 @@ const isCanvasPage = [
             rel="stylesheet"
         />
         <link rel="icon" href="/favicon.ico" sizes="48x48" />
+        <link rel="canonical" href={canonical} />
+        {noindex && <meta name="robots" content="noindex" />}
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="pipper" />
+        <meta property="og:title" content={title} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonical} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={title} />
+        <meta name="twitter:description" content={description} />
+        <script
+            type="application/ld+json"
+            is:inline
+            set:html={JSON.stringify({
+                "@context": "https://schema.org",
+                "@type": "Organization",
+                name: "pipper code",
+                url: site.toString(),
+                logo: `${site}favicon.ico`,
+                description:
+                    "pipper — an interface for your AI agents. Run, orchestrate, and manage multiple coding agents from one desktop app.",
+            })}
+        />
         <title>{title}</title>
     </head>
     <body

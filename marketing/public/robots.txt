@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /sign-in
+Disallow: /sign-up
+Disallow: /auth
+Disallow: /api/
+
+Sitemap: https://www.pipper.dev/sitemap-index.xml

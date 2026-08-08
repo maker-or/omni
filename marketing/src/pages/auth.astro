@@ -7,7 +7,7 @@ const callbackUrl = new URL("/auth/complete", Astro.url);
 if (returnTo) callbackUrl.searchParams.set("return_to", returnTo);
 ---
 
-<Layout title="Sign in — Pipper Code" description="Sign in to Pipper Code." pageClass="auth-page">
+<Layout title="Sign in — Pipper Code" description="Sign in to Pipper Code." pageClass="auth-page" noindex>
     <main class="auth-main" aria-label="Sign in">
         <SignInButton
             asChild
