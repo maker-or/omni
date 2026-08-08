@@ -282,9 +282,7 @@ function applySessionUpdateUnbounded(
       const used =
         typeof (update as { used?: number }).used === "number"
           ? (update as { used: number }).used
-          : typeof (update as { size?: number }).size === "number"
-            ? 0
-            : (state.usage?.used ?? 0);
+          : (state.usage?.used ?? 0);
       const size =
         typeof (update as { size?: number }).size === "number"
           ? (update as { size: number }).size

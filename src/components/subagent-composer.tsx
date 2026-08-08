@@ -127,9 +127,13 @@ export function SubagentComposer({
 
   const updateConfig = (partial: Partial<SubagentConfig>) => {
     if (!config) return;
+    const previous = config;
     const next = { ...config, ...partial };
     setConfig(next);
-    void window.omni?.subagents?.setConfig(partial).catch(() => {});
+    void window.omni?.subagents
+      ?.setConfig(partial)
+      .then((saved) => setConfig(saved))
+      .catch(() => setConfig(previous));
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

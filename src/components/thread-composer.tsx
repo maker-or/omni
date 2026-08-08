@@ -96,6 +96,7 @@ export function ThreadComposer({
 }: ThreadComposerProps) {
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = externalTextareaRef ?? internalRef;
+  const mentionFrameRef = useRef<number | null>(null);
   const entities = useMemo(() => getEntityTokens(content), [content]);
   const freeText = useMemo(() => getFreeText(content), [content]);
 
@@ -198,13 +199,21 @@ export function ThreadComposer({
       onContentChange(setFreeText(content, next));
       const el = textareaRef.current;
       const cursor = el?.selectionStart ?? next.length;
-      requestAnimationFrame(() => {
+      if (mentionFrameRef.current !== null) cancelAnimationFrame(mentionFrameRef.current);
+      mentionFrameRef.current = requestAnimationFrame(() => {
         const liveCursor = textareaRef.current?.selectionStart ?? cursor;
         syncMentionFromText(next, liveCursor);
+        mentionFrameRef.current = null;
       });
     },
     [content, onContentChange, syncMentionFromText, textareaRef],
   );
+
+  useEffect(() => {
+    return () => {
+      if (mentionFrameRef.current !== null) cancelAnimationFrame(mentionFrameRef.current);
+    };
+  }, []);
 
   const handleKindChange = useCallback((kind: ComposerMentionKind) => {
     stickyKindRef.current = kind;

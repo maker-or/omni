@@ -97,7 +97,7 @@ export function ProjectFileTree({ projectName, reloadKey }: ProjectFileTreeProps
         ) : snapshot.paths.length === 0 ? (
           <div className="px-4 py-3 text-[12px] text-muted-foreground">No project files found.</div>
         ) : (
-          <ProjectFileTreeContent key={reloadKey} snapshot={snapshot} />
+          <ProjectFileTreeContent snapshot={snapshot} />
         )}
       </div>
     </div>

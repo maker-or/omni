@@ -174,9 +174,12 @@ export function GlobalTabBar() {
   useEffect(() => {
     if (!snapshotThreadId) return;
     if (closingTabIdsRef.current.has(snapshotThreadId)) return;
-    void window.omni.tabs.open(snapshotThreadId).then(() => {
-      void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
-    });
+    void window.omni.tabs
+      .open(snapshotThreadId)
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+      })
+      .catch(() => {});
   }, [snapshotThreadId, queryClient]);
 
   useEffect(() => {

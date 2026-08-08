@@ -330,6 +330,16 @@ describe("acp-session-reducer", () => {
     expect(state.configOptions[0]?.id).toBe("model");
   });
 
+  test("preserves known usage when an update only reports context size", () => {
+    let state = createEmptySessionSlice({ usage: { used: 123, size: 10_000_000 } });
+    state = applySessionUpdate(state, {
+      sessionUpdate: "usage_update",
+      size: 20_000_000,
+    } as never);
+
+    expect(state.usage).toMatchObject({ used: 123, size: 20_000_000 });
+  });
+
   test("session_info_update sets titleChanged", () => {
     let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {

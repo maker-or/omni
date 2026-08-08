@@ -115,6 +115,18 @@ export function listMonitorSessions(limit = 50): MonitorSession[] {
   }));
 }
 
+export function getMonitorSession(sessionId: string): MonitorSession | null {
+  ensureMonitorTables();
+  const row = getDb()
+    .prepare(
+      `SELECT id, label, started_at AS startedAt, ended_at AS endedAt
+       FROM monitor_sessions
+       WHERE id = ?`,
+    )
+    .get(sessionId) as MonitorSession | undefined;
+  return row ? { ...row, endedAt: row.endedAt ?? null } : null;
+}
+
 export function insertSampleBatch(sessionId: string | null, tick: MonitorSampleTick): void {
   ensureMonitorTables();
   const stmt = getDb().prepare(

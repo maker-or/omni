@@ -79,7 +79,10 @@ export default function App() {
   const [monitorEnabled, setMonitorEnabled] = useState(false);
 
   useEffect(() => {
-    void window.omni.monitor?.isEnabled().then((enabled) => setMonitorEnabled(enabled));
+    void window.omni.monitor
+      ?.isEnabled()
+      .then((enabled) => setMonitorEnabled(enabled))
+      .catch(() => setMonitorEnabled(false));
   }, []);
 
   useMonitorTabSync(monitorEnabled);

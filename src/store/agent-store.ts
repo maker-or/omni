@@ -472,7 +472,7 @@ function applyBridgeEvent(
         state: payload.state,
         threadToolCalls: payload.state.threadId
           ? { ...state.threadToolCalls, [payload.state.threadId]: payload.state.toolCalls }
-          : {},
+          : state.threadToolCalls,
         slice: createEmptySessionSlice({
           entries: payload.state.entries,
           toolCalls: payload.state.toolCalls,

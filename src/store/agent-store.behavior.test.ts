@@ -274,11 +274,19 @@ describe("agent store ACP bridge behavior", () => {
     await store.getState().connect();
     expect(store.getState().snapshot?.threadId).toBe("thread-a");
 
+    bridgeHandler?.({
+      type: "thread-tool-calls",
+      threadId: "thread-a",
+      toolCalls: { t1: { toolCallId: "t1", title: "Edit", status: "completed" } },
+    });
+
     bridgeHandler?.({ type: "session-state", state: sessionState(null) });
 
     expect(store.getState().state?.threadId).toBeNull();
     expect(store.getState().snapshot?.threadId).toBeNull();
-    expect(store.getState().threadToolCalls).toEqual({});
+    expect(store.getState().threadToolCalls).toEqual({
+      "thread-a": { t1: { toolCallId: "t1", title: "Edit", status: "completed" } },
+    });
   });
 
   test("tracks which threads are running across open tabs", async () => {

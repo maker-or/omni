@@ -76,6 +76,13 @@ import { SubagentComposer, type SubagentComposerSubmit } from "@/components/suba
 import { SubagentActivity } from "@/components/subagent-activity";
 /** Max agents shown in (and selectable from) the `/continue` picker. */
 const MAX_CONTINUE_AGENTS = 8;
+const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -805,21 +812,25 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     if (!timeVal) return undefined;
     const date = new Date(timeVal);
     if (isNaN(date.getTime())) return undefined;
-    return new Intl.DateTimeFormat("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(date);
+    return messageTimeFormatter.format(date);
   };
+
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const handleCopy = async (msgId: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedMessageId(msgId);
-      setTimeout(() => {
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
         setCopiedMessageId((prev) => (prev === msgId ? null : prev));
+        copyTimerRef.current = null;
       }, 2000);
     } catch (err) {
       toast({
@@ -1008,10 +1019,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const distanceFromBottom =
       scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
     const shouldScroll =
-      !isStreaming ||
-      autoScrollPinnedRef.current ||
-      distanceFromBottom <= 120 ||
-      allMessages.length === 0;
+      autoScrollPinnedRef.current || distanceFromBottom <= 120 || allMessages.length === 0;
     if (!shouldScroll) return;
 
     if (!isStreaming) {
@@ -1019,11 +1027,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         cancelAnimationFrame(scrollRafRef.current);
         scrollRafRef.current = null;
       }
-      requestAnimationFrame(() => {
+      scrollRafRef.current = requestAnimationFrame(() => {
         const el = messagesScrollRef.current;
-        if (!el) return;
-        el.scrollTop = el.scrollHeight;
-        autoScrollPinnedRef.current = true;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+          autoScrollPinnedRef.current = true;
+        }
+        scrollRafRef.current = null;
       });
       return;
     }
@@ -1273,7 +1283,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           description: err instanceof Error ? err.message : "The agent did not accept the message.",
         });
       });
-      if (snapshot?.threadId === operationThreadId) {
+      if (useAgentStore.getState().state?.threadId === operationThreadId) {
         setInputValue("");
         setAttachedFiles([]);
         setEditState(null);
@@ -1553,10 +1563,15 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   );
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
+  const fileProjectId = useMemo(
+    () =>
+      isDraftMode
+        ? (draft?.projectId ?? extractProjectId(draftContent))
+        : (snapshot?.projectId ?? null),
+    [isDraftMode, draft?.projectId, draftContent, snapshot?.projectId],
+  );
   useEffect(() => {
-    const canList = Boolean(
-      isDraftMode ? (draft?.projectId ?? extractProjectId(draftContent)) : snapshot?.projectId,
-    );
+    const canList = Boolean(fileProjectId);
     if (!canList || !window.omni?.projects?.listFiles) {
       setProjectFileItems([]);
       return;
@@ -1580,7 +1595,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [isDraftMode, draft?.projectId, draftContent, snapshot?.projectId, activeProject?.id]);
+  }, [fileProjectId, activeProject?.id]);
 
   // Keep live free-text content aligned when not using entity chips from draft.
   useEffect(() => {
@@ -1694,12 +1709,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                         .map((m) => stringifyMessageContent(m))
                         .filter(Boolean)
                         .join("\n\n");
+                      const groupedImages = extractGroupedMessageImages(messages);
                       const timeStr = isStreaming
                         ? undefined
                         : formatMessageTime(messages[messages.length - 1]);
                       const hasContent =
                         bodyText.trim() !== "" ||
-                        extractGroupedMessageImages(messages).length > 0 ||
+                        groupedImages.length > 0 ||
                         (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
 
                       const actions =
@@ -1729,7 +1745,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                 setAttachedFiles([]);
                                 setEditState({
                                   targetEntryId: snapshot!.messageEntryRefs[originalIndex]!.entryId,
-                                  images: extractGroupedMessageImages(messages),
+                                  images: groupedImages,
                                 });
                                 if (composerTextareaRef.current) {
                                   composerTextareaRef.current.focus();
@@ -1786,9 +1802,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                 }
                               />
                             ) : undefined}
-                            {extractGroupedMessageImages(messages).length > 0 && (
+                            {groupedImages.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-2">
-                                {extractGroupedMessageImages(messages).map((image) => (
+                                {groupedImages.map((image) => (
                                   <button
                                     key={image.id}
                                     type="button"

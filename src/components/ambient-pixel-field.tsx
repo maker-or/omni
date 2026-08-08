@@ -61,8 +61,12 @@ const AmbientPixelField = ({
 
   const { width, height } = dimensions;
   const stride = pixelSize + gap;
-  const cols = Math.max(0, Math.floor((width + gap) / stride));
-  const rows = Math.max(0, Math.floor((height + gap) / stride));
+  const rawCols = Math.max(0, Math.floor((width + gap) / stride));
+  const rawRows = Math.max(0, Math.floor((height + gap) / stride));
+  const maxPixels = 4000;
+  const pixelScale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, rawCols * rawRows)));
+  const cols = Math.max(0, Math.floor(rawCols * pixelScale));
+  const rows = Math.max(0, Math.floor(rawRows * pixelScale));
 
   // Memoize the pixels so we don't recreate DOM nodes on every render,
   // only when the grid dimensions, pixel settings, or intensity change.

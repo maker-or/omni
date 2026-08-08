@@ -16,6 +16,7 @@ import { samplePid } from "./platform-sampler.ts";
 import {
   ensureMonitorTables,
   finishMonitorSession,
+  getMonitorSession,
   insertIncident,
   insertMonitorSession,
   insertSampleBatch,
@@ -111,7 +112,7 @@ export class MonitorService {
 
   getRecordedSession(sessionId: string) {
     const ticks = getSessionTicks(sessionId);
-    const session = listMonitorSessions(200).find((entry) => entry.id === sessionId) ?? null;
+    const session = getMonitorSession(sessionId);
     const incidents = listIncidents(500).filter((incident) => {
       const payloadSessionId = incident.payload.sessionId;
       return payloadSessionId === sessionId;
