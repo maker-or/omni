@@ -6,6 +6,7 @@ const {
     description = "pipper — self-improving agent interface",
     pageClass,
     hideHeader,
+    hideFooter = false,
     noindex = false,
 } = Astro.props;
 const pagePath = Astro.url.pathname;
@@ -74,6 +75,7 @@ const isCanvasPage = [
                 logo: `${site}favicon.ico`,
                 description:
                     "pipper — an interface for your AI agents. Run, orchestrate, and manage multiple coding agents from one desktop app.",
+                sameAs: ["https://github.com/maker-or/omni"],
             })}
         />
         <title>{title}</title>
@@ -123,6 +125,17 @@ const isCanvasPage = [
             <main class="main flex-1 flex flex-col items-center w-full min-h-0">
                 <slot />
             </main>
+            {
+                !hideFooter && (
+                    <footer class="site-footer">
+                        <span>© {new Date().getFullYear()} pipper code</span>
+                        <nav class="site-footer-nav" aria-label="Legal">
+                            <a href="/legal/terms/">Terms</a>
+                            <a href="/legal/privacy/">Privacy</a>
+                        </nav>
+                    </footer>
+                )
+            }
         </div>
     </body>
 </html>
@@ -176,6 +189,50 @@ const isCanvasPage = [
     .site-logo:focus-visible {
         outline: 2px solid currentColor;
         outline-offset: 4px;
+    }
+
+    .site-footer {
+        display: flex;
+        width: min(calc(100% - 3rem), 120rem);
+        margin: 0 auto;
+        padding: 0.75rem 0 2rem;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        font-family: "Figtree Variable", sans-serif;
+        font-size: 0.8rem;
+        color: currentColor;
+        opacity: 0.75;
+        flex-shrink: 0;
+    }
+
+    .site-footer-nav {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+    }
+
+    .site-footer-nav a {
+        color: currentColor;
+        text-decoration: none;
+        transition: color 160ms ease;
+    }
+
+    .site-footer-nav a:hover,
+    .site-footer-nav a:focus-visible {
+        color: #2162ff;
+    }
+
+    .site-header--blue .site-footer-nav a:hover,
+    .site-header--blue .site-footer-nav a:focus-visible {
+        color: #fff;
+    }
+
+    @media (max-width: 38rem) {
+        .site-footer {
+            width: min(calc(100% - 2rem), 120rem);
+            font-size: 0.75rem;
+        }
     }
 
     @media (max-width: 38rem) {

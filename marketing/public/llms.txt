@@ -1,0 +1,38 @@
+# Pipper Code
+
+> Pipper is a free desktop app for running, directing, and improving multiple AI coding agents — Claude Code, Codex, Cursor, OpenCode, Copilot, Grok — from a single interface instead of a wall of terminals. It is an AI agent interface and harness built on the Agent Client Protocol (ACP).
+
+Pipper Code is an Electron desktop application for macOS and Windows. It sits between you and the agents you already use, giving them a shared workspace, parallel runs, and a single review surface. Your prompts, code, and agent activity stay local to your machine.
+
+## Key Pages
+
+- [Pipper](https://www.pipper.dev/): Homepage overview of pipper and its agent interface.
+- [Download Pipper Code for macOS and Windows](https://www.pipper.dev/download/): Download the free desktop app.
+- [Blog](https://www.pipper.dev/blog/): Guides, comparisons, and essays on running multiple AI coding agents.
+- [Terms of Service](https://www.pipper.dev/legal/terms/): Terms of service.
+- [Privacy Policy](https://www.pipper.dev/legal/privacy/): How pipper handles your data.
+
+## Blog Posts
+
+- [What Is an AI Agent Interface?](https://www.pipper.dev/blog/what-is-an-ai-agent-interface/): A developer's guide to AI agent interfaces.
+- [Pipper vs Cursor](https://www.pipper.dev/blog/pipper-vs-cursor/): Comparing the AI agent orchestrator with the AI code editor.
+- [Pipper vs Codex](https://www.pipper.dev/blog/pipper-vs-codex/): Comparing the multi-agent interface with OpenAI Codex.
+- [Pipper vs Claude Code](https://www.pipper.dev/blog/pipper-vs-claude-code/): Comparing the agent interface with Claude Code.
+- [How to Use Multiple AI Coding Agents](https://www.pipper.dev/blog/how-to-use-multiple-ai-coding-agents/): Running several agents in one workflow.
+- [How to Choose an AI Coding Tool](https://www.pipper.dev/blog/how-to-choose-an-ai-coding-tool/): Selecting between AI code editors and agent orchestrators.
+- [Self-Improving AI Tools](https://www.pipper.dev/blog/self-improving-ai-tools/): What self-improving software promises and how pipper works toward it.
+- [Bring Your Own AI Agents](https://www.pipper.dev/blog/bring-your-own-ai-agents/): Running the agents you already use, together.
+- [From Idea to Software](https://www.pipper.dev/blog/simple-ai-development-workflow/): A simple, repeatable AI development workflow.
+- [Best Free AI Interface for Developers](https://www.pipper.dev/blog/best-free-ai-interface-for-developers/): What makes a free AI interface worth using.
+- [What Is an AI Agent Harness?](https://www.pipper.dev/blog/what-is-an-ai-agent-harness/): A developer's guide to agent harnesses.
+- [Run Multiple AI Coding Agents at Once](https://www.pipper.dev/blog/how-to-run-multiple-ai-coding-agents/): A practical guide to running several agents simultaneously.
+- [Multi-Agent Terminal](https://www.pipper.dev/blog/multi-agent-terminal/): How a multi-agent terminal improves agent workflows.
+- [Agent Client Protocol (ACP) Explained](https://www.pipper.dev/blog/agent-client-protocol-explained/): What ACP is and why neutral agent protocols matter.
+- [AI Agent Orchestration](https://www.pipper.dev/blog/ai-agent-orchestration/): Managing and directing multiple agents at once.
+- [Run AI Agents in Parallel](https://www.pipper.dev/blog/run-ai-agents-in-parallel/): Splitting work across agents in parallel.
+- [Subagents vs Separate Agents](https://www.pipper.dev/blog/subagents-vs-separate-agents/): When to use in-process subagents vs separate agent runs.
+- [Best AI Coding Agents Compared](https://www.pipper.dev/blog/best-ai-coding-agents-compared/): Claude Code, Codex, Cursor, OpenCode, Copilot, and more.
+- [AI Agent Launcher](https://www.pipper.dev/blog/what-is-an-ai-agent-launcher/): What an AI agent launcher is and how to pick one.
+- [MCP vs ACP](https://www.pipper.dev/blog/mcp-vs-acp-explained/): The two protocols powering AI coding agents.
+
+For the full text of this site, see [llms-full.txt](https://www.pipper.dev/llms-full.txt).

@@ -1,0 +1,112 @@
+---
+import Layout from "../../layouts/Layout.astro";
+---
+
+<Layout
+    title="Privacy Policy — pipper"
+    description="How the pipper website and the Pipper Code desktop application collect, use, and protect your data."
+    pageClass="legal-page"
+>
+    <article class="legal-shell w-full max-w-[46rem] mx-auto px-[clamp(1.25rem,4vw,2rem)] pt-12 md:pt-16 pb-20 flex flex-col gap-6 font-geist">
+        <header class="legal-head flex flex-col gap-3">
+            <h1 class="font-medium text-[clamp(1.8rem,4.5vw,3rem)] tracking-[-0.035em] leading-[1.1]">
+                Privacy Policy
+            </h1>
+            <p class="text-[0.85rem] opacity-60">Last updated: August 9, 2026</p>
+        </header>
+
+        <div class="legal-body text-[1.02rem] leading-[1.7] min-w-0">
+            <h2>1. Overview</h2>
+            <p>
+                This Privacy Policy explains what information the pipper website (pipper.dev) and
+                the Pipper Code desktop application (together, the "Service") collect, how we use
+                it, and the choices you have. We keep what we collect minimal.
+            </p>
+
+            <h2>2. Website Analytics</h2>
+            <p>
+                The website uses Vercel Web Analytics to collect aggregate, privacy-friendly usage
+                statistics such as page views and referrer sites. This data is used to understand
+                how visitors use the site and does not identify you personally.
+            </p>
+
+            <h2>3. Newsletter</h2>
+            <p>
+                If you subscribe to the Sandesh newsletter, we collect your email address and store
+                it in Mailchimp, our email provider. We use it only to send you the newsletter you
+                requested. You can unsubscribe at any time using the link in every email, and we
+                delete or retain your address only as long as you remain subscribed.
+            </p>
+
+            <h2>4. Accounts and Authentication</h2>
+            <p>
+                Sign-in and account features are powered by Clerk. When you sign in, Clerk processes
+                your identity data (such as your name, email address, and avatar, depending on your
+                identity provider) to authenticate you. We receive only limited account information
+                needed for the Software to work. Your password is never handled by us.
+            </p>
+
+            <h2>5. The Desktop Application</h2>
+            <p>
+                The Software runs AI coding agents locally on your device. Your prompts, code, files,
+                sessions, and agent activity stay on your machine. The Software does not transmit your
+                source code, prompts, or agent outputs to us. Where the Software reaches out to your
+                chosen AI agent providers, that traffic is between you and those providers and is
+                governed by their privacy policies.
+            </p>
+            <p>
+                The Website does check for available versions from our servers when you use the
+                Download page, so we can present the latest release. That check does not include your
+                personal data.
+            </p>
+
+            <h2>6. Community</h2>
+            <p>
+                If you join our Discord server or contribute to our public GitHub repository, any
+                information you share there is governed by those platforms' own policies and is
+                visible to members of those communities.
+            </p>
+
+            <h2>7. Cookies and Local Storage</h2>
+            <p>
+                The website and Software may use local storage and cookies to keep you signed in and
+                remember preferences. We do not use them for cross-site advertising trackers.
+            </p>
+
+            <h2>8. Data Sharing</h2>
+            <p>
+                We do not sell your personal data. We share data only with the service providers
+                described above (Vercel, Clerk, Mailchimp) to operate the Software, and where required
+                by law.
+            </p>
+
+            <h2>9. Retention and Your Rights</h2>
+            <p>
+                We keep personal data only as long as needed for the purposes above. Depending on your
+                jurisdiction, you may have rights to access, correct, or delete your personal data; to
+                opt out of marketing; and to request that we stop processing your data. To exercise
+                these rights, contact us via the Discord server linked from the site.
+            </p>
+
+            <h2>10. Changes</h2>
+            <p>
+                We may update this policy from time to time. Material changes will be reflected by
+                updating the "Last updated" date above.
+            </p>
+        </div>
+    </article>
+</Layout>
+
+<style>
+    :global(.legal-page) {
+        background: #f0efed !important;
+        color: #111111 !important;
+    }
+    .legal-shell h2 {
+        font-size: 1.15rem;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+        margin-top: 2rem;
+    }
+    .legal-shell p { color: rgb(17 17 17 / 0.78); }
+</style>

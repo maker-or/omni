@@ -10,6 +10,27 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
     description="Download pipper code for macOS and Windows."
     pageClass="download-page"
 >
+    <script
+        type="application/ld+json"
+        is:inline
+        set:html={JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "Pipper Code",
+            applicationCategory: "DeveloperApplication",
+            operatingSystem: "macOS, Windows",
+            url: "https://www.pipper.dev/download",
+            downloadUrl: "https://www.pipper.dev/download",
+            sameAs: "https://github.com/maker-or/omni",
+            description:
+                "Pipper Code is a free desktop app for running multiple AI coding agents — Claude Code, Codex, Cursor, OpenCode, Copilot, Grok — from one interface.",
+            offers: {
+                "@type": "Offer",
+                price: "0",
+                priceCurrency: "USD",
+            },
+        })}
+    />
     <section
         class="download-shell w-full max-w-[80rem] mx-auto px-[clamp(1.5rem,5vw,2.5rem)] pt-10 md:pt-14 pb-10 flex flex-col items-center flex-1 min-h-0 overflow-y-auto font-geist"
     >
