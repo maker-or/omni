@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { PaperclipIcon, XIcon } from "@phosphor-icons/react";
+import { PlusIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { InputMessage } from "@/components/ui/input-message";
 import { MentionPopover, mentionChipClass, type MentionItem } from "@/components/mention-popover";
@@ -99,6 +99,10 @@ export function ThreadComposer({
   const mentionFrameRef = useRef<number | null>(null);
   const entities = useMemo(() => getEntityTokens(content), [content]);
   const freeText = useMemo(() => getFreeText(content), [content]);
+  const inlineTextRef = useRef<HTMLSpanElement | null>(null);
+  const inlineEditorRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef(content);
+  contentRef.current = content;
 
   const filesAvailable = projectFiles.length > 0 || mode === "live" || mode === "draft";
   const kinds = useMemo(
@@ -150,7 +154,7 @@ export function ThreadComposer({
   }, [mentionQuery, mentionKind, filteredItems.length]);
 
   const updateAnchor = useCallback(() => {
-    const el = textareaRef.current;
+    const el = textareaRef.current ?? inlineEditorRef.current;
     if (!el) {
       setAnchorRect(null);
       return;
@@ -165,17 +169,39 @@ export function ThreadComposer({
     stickyKindRef.current = null;
   }, []);
 
+  const placeInlineCaret = useCallback((offset: number) => {
+    const editor = inlineTextRef.current;
+    if (!editor) return;
+    editor.focus();
+    const textNode = editor.firstChild ?? editor.appendChild(document.createTextNode(""));
+    const range = document.createRange();
+    const safeOffset = Math.max(0, Math.min(offset, textNode.textContent?.length ?? 0));
+    range.setStart(textNode, safeOffset);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, []);
+
+  const inlineCursorOffset = useCallback(() => {
+    const selection = window.getSelection();
+    const editor = inlineTextRef.current;
+    if (!selection?.isCollapsed || !editor || !selection.anchorNode) return null;
+    if (!editor.contains(selection.anchorNode)) return null;
+    return selection.anchorOffset;
+  }, []);
+
   const resolveKindForQuery = useCallback(
     (query: string) =>
       resolveDefaultMentionKind({
         mode,
-        content,
+        content: contentRef.current,
         filesAvailable,
         query,
         preferredKind: stickyKindRef.current,
         availability,
       }),
-    [mode, content, filesAvailable, availability],
+    [mode, filesAvailable, availability],
   );
 
   const syncMentionFromText = useCallback(
@@ -195,10 +221,12 @@ export function ThreadComposer({
   );
 
   const handleValueChange = useCallback(
-    (next: string) => {
-      onContentChange(setFreeText(content, next));
+    (next: string, nextCursor?: number) => {
+      const nextContent = setFreeText(contentRef.current, next);
+      contentRef.current = nextContent;
+      onContentChange(nextContent);
       const el = textareaRef.current;
-      const cursor = el?.selectionStart ?? next.length;
+      const cursor = nextCursor ?? el?.selectionStart ?? next.length;
       if (mentionFrameRef.current !== null) cancelAnimationFrame(mentionFrameRef.current);
       mentionFrameRef.current = requestAnimationFrame(() => {
         const liveCursor = textareaRef.current?.selectionStart ?? cursor;
@@ -206,7 +234,7 @@ export function ThreadComposer({
         mentionFrameRef.current = null;
       });
     },
-    [content, onContentChange, syncMentionFromText, textareaRef],
+    [onContentChange, syncMentionFromText, textareaRef],
   );
 
   useEffect(() => {
@@ -223,12 +251,20 @@ export function ThreadComposer({
 
   const pickItem = useCallback(
     (item: MentionItem) => {
+      const currentContent = contentRef.current;
+      const currentFreeText = getFreeText(currentContent);
       const el = textareaRef.current;
-      const cursor = el?.selectionStart ?? freeText.length;
-      const mention = findActiveMention(freeText, cursor);
-      let nextText = freeText;
+      const selection = window.getSelection();
+      const inlineText = inlineTextRef.current;
+      const cursor =
+        el?.selectionStart ??
+        (selection?.anchorNode && inlineText?.contains(selection.anchorNode)
+          ? selection.anchorOffset
+          : currentFreeText.length);
+      const mention = findActiveMention(currentFreeText, cursor);
+      let nextText = currentFreeText;
       if (mention) {
-        nextText = removeMentionFromText(freeText, mention);
+        nextText = removeMentionFromText(currentFreeText, mention);
       }
 
       // Files insert as plain `@path` text (agent-readable), not control chips.
@@ -236,12 +272,13 @@ export function ThreadComposer({
         const insertAt = mention?.atIndex ?? nextText.length;
         const insertion = `@${item.label} `;
         nextText = `${nextText.slice(0, insertAt)}${insertion}${nextText.slice(insertAt)}`;
-        onContentChange(setFreeText(content, nextText));
+        const nextContent = setFreeText(currentContent, nextText);
+        contentRef.current = nextContent;
+        onContentChange(nextContent);
         closeMention();
         requestAnimationFrame(() => {
           const caret = insertAt + insertion.length;
-          textareaRef.current?.focus();
-          textareaRef.current?.setSelectionRange(caret, caret);
+          placeInlineCaret(caret);
         });
         return;
       }
@@ -259,35 +296,37 @@ export function ThreadComposer({
           agentId: item.agentId,
         };
       }
-      const withEntity = upsertEntity(setFreeText(content, nextText), entity);
+      const withEntity = upsertEntity(setFreeText(currentContent, nextText), entity);
+      contentRef.current = withEntity;
       onContentChange(withEntity);
       closeMention();
       requestAnimationFrame(() => {
         const caret = Math.min(mention?.atIndex ?? nextText.length, nextText.length);
-        textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(caret, caret);
+        placeInlineCaret(caret);
       });
     },
-    [closeMention, content, freeText, mentionKind, onContentChange, textareaRef],
+    [closeMention, mentionKind, onContentChange, placeInlineCaret, textareaRef],
   );
 
   const removeChip = useCallback(
     (kind: ComposerEntityToken["kind"]) => {
-      onContentChange(removeEntityKind(content, kind));
+      const nextContent = removeEntityKind(contentRef.current, kind);
+      contentRef.current = nextContent;
+      onContentChange(nextContent);
     },
-    [content, onContentChange],
+    [onContentChange],
   );
 
   const handleSend = useCallback(
     (_value: string, sendFiles: File[]) => {
       if (disabled || isSubmitting) return;
-      onSend(content, sendFiles);
+      onSend(contentRef.current, sendFiles);
     },
-    [content, disabled, isSubmitting, onSend],
+    [disabled, isSubmitting, onSend],
   );
 
   const onKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    (event: ReactKeyboardEvent<HTMLElement>) => {
       if (mentionOpen && filteredItems.length > 0) {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
@@ -309,7 +348,7 @@ export function ThreadComposer({
           return;
         }
       }
-      onTextareaKeyDown?.(event);
+      onTextareaKeyDown?.(event as ReactKeyboardEvent<HTMLTextAreaElement>);
     },
     [closeMention, filteredItems, mentionIndex, mentionOpen, onTextareaKeyDown, pickItem],
   );
@@ -325,48 +364,104 @@ export function ThreadComposer({
     setMentionKind(resolveDefaultMentionKind({ mode, content, filesAvailable, availability }));
   }, [mode, content, filesAvailable, availability, mentionOpen]);
 
-  return (
-    <div className={cn("flex flex-col gap-1.5", className)} data-pipper-id="thread-composer">
-      {(() => {
-        // Agent is inferred from the model (model-first); never surface as a chip.
-        const visibleEntities = entities.filter((entity) => entity.kind !== "agent");
-        if (visibleEntities.length === 0) return null;
-        return (
-          <div
-            className="flex flex-wrap items-center gap-1.5 px-0.5"
-            data-pipper-id="composer-chips"
-          >
-            {visibleEntities.map((entity) => (
-              <span
-                key={`${entity.kind}:${entity.id}${entity.kind === "model" && entity.agentId ? `:${entity.agentId}` : ""}`}
-                className={cn(
-                  "inline-flex max-w-full items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
-                  mentionChipClass(entity.kind),
-                )}
-              >
-                <span className="truncate">@{entity.label}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${entity.kind} ${entity.label}`}
-                  className="inline-flex size-4 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100"
-                  onClick={() => removeChip(entity.kind)}
-                  disabled={disabled}
-                >
-                  <XIcon size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        );
-      })()}
+  // The editable text node is intentionally uncontrolled while the user types.
+  // Sync only external changes so React never reconciles children inside a
+  // contentEditable element.
+  useEffect(() => {
+    const editor = inlineTextRef.current;
+    if (editor && editor.textContent !== freeText) editor.textContent = freeText;
+  }, [freeText]);
 
+  const inlineEditor = (
+    <div
+      ref={inlineEditorRef}
+      className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1 px-2 py-2 text-[14px] text-foreground outline-none"
+      suppressContentEditableWarning
+      role="textbox"
+      aria-multiline="true"
+      aria-label={mode === "draft" ? "New thread composer" : "Message composer"}
+      onInput={(event) => {
+        const text =
+          event.currentTarget.querySelector<HTMLElement>("[data-inline-text]")?.textContent ?? "";
+        const selection = window.getSelection();
+        const textNode = event.currentTarget.querySelector<HTMLElement>("[data-inline-text]");
+        const cursor =
+          selection && textNode && selection.anchorNode && textNode.contains(selection.anchorNode)
+            ? selection.anchorOffset
+            : text.length;
+        handleValueChange(text, cursor);
+      }}
+      onKeyDown={(event) => {
+        const cursor = inlineCursorOffset();
+        const visibleEntities = entities.filter((entity) => entity.kind !== "agent");
+        if (cursor === 0 && visibleEntities.length > 0 && event.key === "Backspace") {
+          event.preventDefault();
+          const previous = visibleEntities[visibleEntities.length - 1]!;
+          const nextContent = removeEntityKind(contentRef.current, previous.kind);
+          contentRef.current = nextContent;
+          onContentChange(nextContent);
+          requestAnimationFrame(() => placeInlineCaret(0));
+          return;
+        }
+        if (cursor === 0 && visibleEntities.length > 0 && event.key === "Delete") {
+          event.preventDefault();
+          const nextContent = removeEntityKind(contentRef.current, visibleEntities[0]!.kind);
+          contentRef.current = nextContent;
+          onContentChange(nextContent);
+          requestAnimationFrame(() => placeInlineCaret(0));
+          return;
+        }
+        onKeyDown(event);
+        if (event.defaultPrevented) return;
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          handleSend(getFreeText(content), files);
+        }
+      }}
+    >
+      {entities
+        .filter((entity) => entity.kind !== "agent")
+        .map((entity) => (
+          <span
+            key={`${entity.kind}:${entity.id}`}
+            contentEditable={false}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
+              mentionChipClass(entity.kind),
+            )}
+          >
+            <span>@{entity.label}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${entity.kind} ${entity.label}`}
+              className="inline-flex size-4 items-center justify-center rounded-full opacity-70 hover:opacity-100"
+              onClick={() => removeChip(entity.kind)}
+            >
+              <XIcon size={11} />
+            </button>
+          </span>
+        ))}
+      <span
+        ref={inlineTextRef}
+        data-inline-text
+        contentEditable={!disabled}
+        className="min-w-[12ch] flex-1 whitespace-pre-wrap outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        data-placeholder={resolvedPlaceholder}
+      />
+    </div>
+  );
+
+  return (
+    <div className={cn("flex flex-col gap-1.5")} data-pipper-id="thread-composer">
       <InputMessage
-        className="relative z-10"
+        className="relative z-10 rounded-full "
         textareaRef={textareaRef}
         value={freeText}
         onValueChange={handleValueChange}
         placeholder={resolvedPlaceholder}
         onSend={handleSend}
+        customInput={inlineEditor}
+        compact
         disabled={disabled}
         canSendWhenEmpty={files.length > 0}
         files={onFilesChange ? files : undefined}
@@ -392,7 +487,7 @@ export function ThreadComposer({
                     aria-label="Attach images"
                     onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
                   >
-                    <PaperclipIcon size={15} />
+                    <PlusIcon size={17} />
                   </Button>
                 </>
               )

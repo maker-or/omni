@@ -83,6 +83,36 @@ export interface AgentMonitorObserver {
 const ACP_SWITCH_PHASE_TIMEOUT_MS = 10_000;
 const ACP_PROMPT_TIMEOUT_MS = 10 * 60_000;
 
+function modelOptionsFromConfig(
+  options: SessionConfigOption[] | undefined,
+): Array<{ modelId: string; name: string; provider?: string }> {
+  const option =
+    options?.find((o) => o.category === "model") ?? options?.find((o) => o.id === "model");
+  if (!option || option.type !== "select" || !Array.isArray(option.options)) return [];
+  const out: Array<{ modelId: string; name: string; provider?: string }> = [];
+  for (const item of option.options as Array<Record<string, unknown>>) {
+    if (typeof item.value === "string") {
+      out.push({
+        modelId: item.value,
+        name: typeof item.name === "string" ? item.name : item.value,
+        provider: typeof item.provider === "string" ? item.provider : undefined,
+      });
+      continue;
+    }
+    if (!Array.isArray(item.options)) continue;
+    const provider = typeof item.name === "string" ? item.name : undefined;
+    for (const nested of item.options as Array<Record<string, unknown>>) {
+      if (typeof nested.value !== "string") continue;
+      out.push({
+        modelId: nested.value,
+        name: typeof nested.name === "string" ? nested.name : nested.value,
+        provider: typeof nested.provider === "string" ? nested.provider : provider,
+      });
+    }
+  }
+  return out;
+}
+
 function requestWithTimeout<T>(
   request: Promise<T>,
   timeoutMs: number,
@@ -378,6 +408,39 @@ export class AgentConnectionManager {
   listAgents(): AcpAgentDescriptor[] {
     // Always re-probe PATH so onboarding reflects install state.
     return listRegisteredAgents();
+  }
+
+  getModelCatalogs(): Record<string, Array<{ modelId: string; name: string; provider?: string }>> {
+    const result: Record<string, Array<{ modelId: string; name: string; provider?: string }>> = {};
+    const add = (
+      agentId: string,
+      models: Array<{ modelId: string; name: string; provider?: string }>,
+    ) => {
+      if (!models.length) return;
+      const current = result[agentId] ?? [];
+      const seen = new Set(current.map((model) => `${model.provider ?? ""}:${model.modelId}`));
+      for (const model of models) {
+        const key = `${model.provider ?? ""}:${model.modelId}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          current.push(model);
+        }
+      }
+      result[agentId] = current;
+    };
+    for (const runtime of this.sessions.values()) {
+      add(runtime.agentId, modelOptionsFromConfig(runtime.slice.configOptions));
+    }
+    for (const live of this.connections.values()) {
+      add(
+        live.agentId,
+        (live.modelState?.availableModels ?? []).map((model) => ({
+          modelId: model.modelId,
+          name: model.name,
+        })),
+      );
+    }
+    return result;
   }
 
   getPreferredAgentId(): string {

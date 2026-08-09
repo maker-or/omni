@@ -106,7 +106,8 @@ const api = {
     create: (input: CreateProjectInput): Promise<Project> =>
       ipcRenderer.invoke("projects:create", input),
     getActive: (): Promise<Project | null> => ipcRenderer.invoke("projects:getActive"),
-    listFiles: (): Promise<string[]> => ipcRenderer.invoke("projects:listFiles"),
+    listFiles: (projectId?: string, worktreePath?: string | null): Promise<string[]> =>
+      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null),
     getFileTree: (): Promise<ProjectFileTreeSnapshot> => ipcRenderer.invoke("projects:getFileTree"),
     setActive: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("projects:setActive", projectId),
@@ -237,6 +238,9 @@ const api = {
       cancelled?: boolean;
     }): Promise<void> => ipcRenderer.invoke("agent:respondToPermission", response),
     listAgents: (): Promise<AcpAgentDescriptor[]> => ipcRenderer.invoke("agent:listAgents"),
+    getModelCatalogs: (): Promise<
+      Record<string, Array<{ modelId: string; name: string; provider?: string }>>
+    > => ipcRenderer.invoke("agent:getModelCatalogs"),
     probeAgent: (agentId: string): Promise<AgentProbeResult> =>
       ipcRenderer.invoke("agent:probeAgent", agentId),
     switchAgent: (agentId: string): Promise<void> =>

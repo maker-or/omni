@@ -6,7 +6,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   CheckIcon as ModelCheckIcon,
   ChatCircleTextIcon,
-  MagnifyingGlassIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -594,18 +593,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     images: ChatImageAttachment[];
   } | null>(null);
   const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [showThinkingSlider, setShowThinkingSlider] = useState(false);
-  const [modelSearch, setModelSearch] = useState("");
   const [dismissedAgentError, setDismissedAgentError] = useState<string | null>(null);
   const [traceDeckOpenByKey, setTraceDeckOpenByKey] = useState<Record<string, boolean>>({});
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const scrollRafRef = useRef<number | null>(null);
   const autoScrollPinnedRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const ChevronDownIcon = useIcon("chevron-down");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
@@ -773,7 +768,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const pendingContinuation = useContinuationStore((state) =>
     snapshot?.threadId ? (state.pendingByThreadId[snapshot.threadId] ?? null) : null,
   );
-  const modelName = snapshot?.model?.name ?? "No model";
   const models = snapshot?.models ?? [];
 
   // ── Thinking level options ────────────────────────────────────────────
@@ -895,11 +889,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   }, []);
 
   useEffect(() => {
-    if (!isModelDropdownOpen) return;
-    setModelSearch("");
-  }, [isModelDropdownOpen]);
-
-  useEffect(() => {
     if (activeProject?.id) {
       void refresh();
     }
@@ -915,21 +904,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }, uiRequest.timeoutMs + 250);
     return () => window.clearTimeout(timeout);
   }, [respondToUiRequest, uiRequest]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as Node;
-      if (
-        isModelDropdownOpen &&
-        modelDropdownRef.current &&
-        !modelDropdownRef.current.contains(target)
-      ) {
-        setIsModelDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isModelDropdownOpen]);
 
   const snapshotThreadId = snapshot?.threadId ?? "";
   const threadId = requestedThreadId ?? snapshotThreadId;
@@ -1499,22 +1473,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
   };
 
-  const visibleModels = useMemo(() => {
-    const query = modelSearch.trim().toLowerCase();
-    return models.filter(
-      (model) =>
-        !query ||
-        String(model.name ?? "")
-          .toLowerCase()
-          .includes(query) ||
-        String(model.modelId ?? "")
-          .toLowerCase()
-          .includes(query) ||
-        formatProviderName(model.provider).toLowerCase().includes(query),
-    );
-  }, [modelSearch, models]);
-  const visibleModelCount = visibleModels.length;
-  const selectedModelProvider = snapshot?.model?.provider;
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const draftProjectName =
     draft?.projectId != null
@@ -1560,7 +1518,15 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
   // Ensure the agent catalog is loaded for draft model ownership labels.
   useEffect(() => {
-    void useAgentRegistryStore.getState().load();
+    void (async () => {
+      await useAgentRegistryStore.getState().load();
+      const catalogs = await window.omni?.agent?.getModelCatalogs?.();
+      if (!catalogs) return;
+      const remember = useModelCatalogStore.getState().remember;
+      for (const [agentId, models] of Object.entries(catalogs)) {
+        remember(agentId, models);
+      }
+    })();
   }, []);
   const catalogByAgentId = useModelCatalogStore((state) => state.byAgentId);
   /**
@@ -1597,18 +1563,18 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       // freshest catalog. Otherwise fall back to last-seen models for that agent.
       const liveForAgent =
         snapshot?.agentId === agentId && models.length > 0
-          ? models.map((m) => ({ modelId: m.modelId, name: m.name }))
+          ? models.map((m) => ({ modelId: m.modelId, name: m.name, provider: m.provider }))
           : null;
       const source = liveForAgent ?? catalogByAgentId[agentId] ?? [];
       const agentLabel = agentNameById.get(agentId) ?? formatProviderName(agentId);
       for (const model of source) {
-        const key = `${agentId}:${model.modelId}`;
+        const key = `${agentId}:${model.provider ?? ""}:${model.modelId}`;
         if (seen.has(key)) continue;
         seen.add(key);
         items.push({
           id: model.modelId,
           label: model.name,
-          description: agentLabel,
+          description: model.provider ? formatProviderName(model.provider) : agentLabel,
           agentId,
         });
       }
@@ -1632,7 +1598,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
     let cancelled = false;
     void window.omni.projects
-      .listFiles()
+      .listFiles(
+        isDraftMode ? (fileProjectId ?? undefined) : undefined,
+        draft?.worktreePath ?? null,
+      )
       .then((paths) => {
         if (cancelled) return;
         setProjectFileItems(
@@ -2213,10 +2182,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           }
                         }}
                         rightSlotExtra={
-                          <div
-                            ref={modelDropdownRef}
-                            className="relative flex items-center gap-1.5"
-                          >
+                          <div className="flex items-center gap-1.5">
                             {thoughtLevelValues.length > 0 && (
                               <Button
                                 variant="ghost"
@@ -2228,140 +2194,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                   snapshot?.thinkingLevel ??
                                   "Reasoning"}
                               </Button>
-                            )}
-                            <Button
-                              data-pipper-id="model-selector"
-                              variant="ghost"
-                              size="sm"
-                              trailingIcon={ChevronDownIcon}
-                              active={isModelDropdownOpen}
-                              disabled={models.length === 0 || runtimeControlsDisabled}
-                              onClick={() => {
-                                setIsModelDropdownOpen((prev) => !prev);
-                              }}
-                            >
-                              <span className="inline-flex min-w-0 items-center gap-1.5">
-                                {selectedModelProvider && (
-                                  <ProviderMark
-                                    provider={selectedModelProvider}
-                                    className="h-3.5 w-3.5 opacity-85"
-                                  />
-                                )}
-                                <span className="truncate">{modelName}</span>
-                              </span>
-                            </Button>
-                            {isModelDropdownOpen && models.length > 0 && (
-                              <div
-                                data-pipper-id="model-dropdown"
-                                className="absolute right-0 bottom-full mb-1.5 z-[250]"
-                              >
-                                <Elevated
-                                  offset={2}
-                                  shadowLevel={5}
-                                  className="flex h-[360px] w-[320px] flex-col overflow-hidden rounded-xl border border-border/80 p-1.5"
-                                >
-                                  <label className="flex h-9 shrink-0 items-center gap-2 px-2.5 text-muted-foreground focus-within:text-foreground">
-                                    <MagnifyingGlassIcon size={14} />
-                                    <input
-                                      value={modelSearch}
-                                      onChange={(event) => setModelSearch(event.target.value)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Escape") setIsModelDropdownOpen(false);
-                                      }}
-                                      placeholder="Find a model"
-                                      aria-label="Find a model"
-                                      className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60"
-                                      autoFocus
-                                    />
-                                  </label>
-                                  <div className="mx-2 border-t border-border/60" />
-                                  <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                                    {visibleModels.map((model) => {
-                                      const isSelected =
-                                        model.provider === snapshot?.model?.provider &&
-                                        model.modelId === snapshot?.model?.modelId;
-                                      const providerLabel = formatProviderName(model.provider);
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={`${model.provider}:${model.modelId}`}
-                                          aria-label={`${model.name}, ${providerLabel}`}
-                                          title={`${model.name} · ${providerLabel}`}
-                                          disabled={isRuntimeActionPending}
-                                          className={cn(
-                                            "group/model-row flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-                                            isSelected
-                                              ? "bg-accent text-foreground"
-                                              : "text-muted-foreground hover:bg-hover hover:text-foreground",
-                                            isRuntimeActionPending && "opacity-50",
-                                          )}
-                                          onClick={async () => {
-                                            if (isRuntimeActionPending) return;
-                                            setIsRuntimeActionPending(true);
-                                            try {
-                                              const success = await setModel({
-                                                provider: model.provider,
-                                                modelId: model.modelId,
-                                              });
-                                              if (success) {
-                                                setIsModelDropdownOpen(false);
-                                              } else {
-                                                toast({
-                                                  icon: (
-                                                    <WarningIcon className="size-5 text-red-500" />
-                                                  ),
-                                                  title: "Model change failed",
-                                                  description:
-                                                    "The selected model was not applied.",
-                                                });
-                                              }
-                                            } catch (err) {
-                                              toast({
-                                                icon: (
-                                                  <WarningIcon className="size-5 text-red-500" />
-                                                ),
-                                                title: "Model change failed",
-                                                description:
-                                                  err instanceof Error
-                                                    ? err.message
-                                                    : "The selected model was not applied.",
-                                              });
-                                            } finally {
-                                              setIsRuntimeActionPending(false);
-                                            }
-                                          }}
-                                        >
-                                          <span
-                                            className={cn(
-                                              "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
-                                              isSelected
-                                                ? "border-border/70 bg-surface-4 text-foreground"
-                                                : "border-transparent bg-transparent text-muted-foreground/70 group-hover/model-row:bg-surface-3 group-hover/model-row:text-foreground",
-                                            )}
-                                          >
-                                            <ProviderMark provider={model.provider} />
-                                          </span>
-                                          <span className="min-w-0 flex-1 truncate">
-                                            {model.name}
-                                          </span>
-                                          {isSelected && (
-                                            <ModelCheckIcon
-                                              className="shrink-0"
-                                              size={13}
-                                              weight="bold"
-                                            />
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                    {visibleModelCount === 0 && (
-                                      <div className="flex h-24 items-center justify-center px-6 text-center text-[12px] text-muted-foreground">
-                                        No matching models
-                                      </div>
-                                    )}
-                                  </div>
-                                </Elevated>
-                              </div>
                             )}
                           </div>
                         }

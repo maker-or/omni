@@ -1,9 +1,9 @@
 # Omni — Runtime Insights & Performance Monitoring
 
-> **Developer-only tool, never shipped to end users.** This is the operating
-> contract for the local observability layer. It lives on the development
-> machine, sends nothing to PostHog / OTLP, and is designed to answer an
-> incident question with evidence rather than a generic health score.
+> **Local runtime diagnostics shipped with the product.** This is the operating
+> contract for the local observability layer. It sends nothing to PostHog / OTLP
+> and is designed to answer an incident question with evidence rather than a
+> generic health score.
 
 ## What the monitor must answer
 
@@ -190,14 +190,14 @@ That answers "our client, a crash, or a hang" for every lost connection.
   SQLite) for per-agent min/mean/max CPU + memory and the exact event log (freeze,
   connection loss), so any incident is reconstructable after the fact. This is the
   "durable" part.
-- Everything stays **on the dev machine**. No cloud summaries, no PostHog / OTLP
-  export, no telemetry shipping. This is a developer diagnostic store, not product
+- Everything stays **on the local machine**. No cloud summaries, no PostHog / OTLP
+  export, and no telemetry shipping. This is a diagnostic store, not product
   analytics.
 
 ### Layer 5 — Dev console (renderer UI)
 
-A developer-only surface (not a user feature, not flag-gated for end users) that
-consumes the ring and store:
+A local diagnostic surface shipped with the product that consumes the ring and
+store:
 
 - **Live view** during work: per-process gauges (CPU / memory / threads) with the
   agent / session / role label for each, plus a time-series sparkline per
@@ -339,5 +339,5 @@ thread's chat or changes.
 
 Design decision: the sampler and store live in the **main process**, far
 from the renderer's critical path, with the renderer only ever receiving pushed
-subscription snapshots. Everything is **local and developer-only** -- never
-shipped to end users, never exported to PostHog / OTLP.
+subscription snapshots. Everything is **local and never exported** -- no cloud
+shipping and no PostHog / OTLP export.

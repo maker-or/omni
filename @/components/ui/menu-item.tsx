@@ -15,6 +15,7 @@ const shape = shapeMap.rounded;
 interface MenuItemProps extends HTMLAttributes<HTMLDivElement> {
   icon?: IconComponent;
   label: string;
+  description?: string;
   index: number;
   checked?: boolean;
   onSelect?: () => void;
@@ -22,7 +23,10 @@ interface MenuItemProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
-  ({ icon: Icon, label, index, checked, onSelect, className, pipperId, ...props }, ref) => {
+  (
+    { icon: Icon, label, description, index, checked, onSelect, className, pipperId, ...props },
+    ref,
+  ) => {
     const internalRef = useRef<HTMLDivElement>(null);
     const hasMounted = useRef(false);
     const { registerItem, activeIndex, checkedIndex } = useDropdown();
@@ -81,25 +85,30 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
               />
             </span>
           )}
-          <span className="inline-grid flex-1 text-[13px]">
-            <span
-              className="col-start-1 row-start-1 invisible"
-              style={{ fontVariationSettings: fontWeights.semibold }}
-              aria-hidden="true"
-            >
-              {label}
+          <span className="flex min-w-0 flex-1 flex-col text-[13px]">
+            <span className="inline-grid min-w-0">
+              <span
+                className="col-start-1 row-start-1 invisible truncate"
+                style={{ fontVariationSettings: fontWeights.semibold }}
+                aria-hidden="true"
+              >
+                {label}
+              </span>
+              <span
+                className={cn(
+                  "col-start-1 row-start-1 truncate transition-[color,font-variation-settings] duration-80",
+                  isActive || checked ? "text-foreground" : "text-muted-foreground",
+                )}
+                style={{
+                  fontVariationSettings: checked ? fontWeights.semibold : fontWeights.normal,
+                }}
+              >
+                {label}
+              </span>
             </span>
-            <span
-              className={cn(
-                "col-start-1 row-start-1 transition-[color,font-variation-settings] duration-80",
-                isActive || checked ? "text-foreground" : "text-muted-foreground",
-              )}
-              style={{
-                fontVariationSettings: checked ? fontWeights.semibold : fontWeights.normal,
-              }}
-            >
-              {label}
-            </span>
+            {description ? (
+              <span className="truncate text-[11px] text-muted-foreground">{description}</span>
+            ) : null}
           </span>
           <AnimatePresence>
             {checked && (

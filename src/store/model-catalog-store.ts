@@ -15,6 +15,7 @@ export type CatalogModel = {
   agentId: string;
   modelId: string;
   name: string;
+  provider?: string;
 };
 
 const STORAGE_KEY = "pipper.model-catalog.v1";
@@ -34,11 +35,13 @@ function loadPersisted(): Record<string, CatalogModel[]> {
         if (!item || typeof item !== "object") continue;
         const modelId = (item as { modelId?: unknown }).modelId;
         const name = (item as { name?: unknown }).name;
+        const provider = (item as { provider?: unknown }).provider;
         if (typeof modelId !== "string" || !modelId) continue;
         models.push({
           agentId,
           modelId,
           name: typeof name === "string" && name ? name : modelId,
+          provider: typeof provider === "string" ? provider : undefined,
         });
       }
       if (models.length > 0) out[agentId] = models;
@@ -63,7 +66,12 @@ function listsEqual(a: CatalogModel[] | undefined, b: CatalogModel[]): boolean {
   for (let i = 0; i < a.length; i += 1) {
     const left = a[i]!;
     const right = b[i]!;
-    if (left.modelId !== right.modelId || left.name !== right.name) return false;
+    if (
+      left.modelId !== right.modelId ||
+      left.name !== right.name ||
+      left.provider !== right.provider
+    )
+      return false;
   }
   return true;
 }
@@ -74,7 +82,10 @@ interface ModelCatalogState {
    * Record models advertised by an agent session. Empty lists are ignored so a
    * transient session without a model option does not wipe a known catalog.
    */
-  remember: (agentId: string, models: Array<{ modelId: string; name: string }>) => void;
+  remember: (
+    agentId: string,
+    models: Array<{ modelId: string; name: string; provider?: string }>,
+  ) => void;
   /** Flat list for one or more agents (order preserved by agentIds then catalog). */
   modelsForAgents: (agentIds: readonly string[]) => CatalogModel[];
 }
@@ -88,6 +99,7 @@ export const useModelCatalogStore = create<ModelCatalogState>((set, get) => ({
       agentId,
       modelId: m.modelId,
       name: m.name || m.modelId,
+      provider: m.provider,
     }));
     const prev = get().byAgentId[agentId];
     if (listsEqual(prev, next)) return;

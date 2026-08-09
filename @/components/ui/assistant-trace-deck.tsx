@@ -465,13 +465,13 @@ function AssistantTraceDeck({
                 )}
 
                 {resultMsg?.isError && (
-                  <div className="mt-1.5 text-red-500 text-[12px] font-medium leading-snug">
+                  <div className="mt-1.5 text-amber-700 dark:text-amber-300 text-[12px] font-medium leading-snug">
                     Error: {resultText}
                   </div>
                 )}
 
                 {missingResult && (
-                  <div className="mt-1.5 text-red-500 text-[12px] font-medium leading-snug">
+                  <div className="mt-1.5 text-amber-700 dark:text-amber-300 text-[12px] font-medium leading-snug">
                     Missing tool result.
                   </div>
                 )}

@@ -202,7 +202,7 @@ function currentSelectValue(option: SessionConfigOption | undefined): string | n
 
 function selectOptionsList(
   option: SessionConfigOption | undefined,
-): Array<{ value: string; name: string }> {
+): Array<{ value: string; name: string; provider?: string }> {
   if (!option || option.type !== "select") return [];
   const raw = (option as { options?: unknown }).options;
   if (!Array.isArray(raw)) return [];
@@ -210,11 +210,21 @@ function selectOptionsList(
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     if ("value" in item && "name" in item) {
-      out.push({ value: String((item as any).value), name: String((item as any).name) });
+      out.push({
+        value: String((item as any).value),
+        name: String((item as any).name),
+        provider: typeof (item as any).provider === "string" ? (item as any).provider : undefined,
+      });
     } else if ("options" in item && Array.isArray((item as any).options)) {
+      const provider =
+        typeof (item as any).name === "string" ? String((item as any).name) : undefined;
       for (const nested of (item as any).options) {
         if (nested && typeof nested === "object" && "value" in nested) {
-          out.push({ value: String(nested.value), name: String(nested.name ?? nested.value) });
+          out.push({
+            value: String(nested.value),
+            name: String(nested.name ?? nested.value),
+            provider: typeof nested.provider === "string" ? nested.provider : provider,
+          });
         }
       }
     }
@@ -327,7 +337,7 @@ export function toPanelSnapshot(state: AcpSessionState | null): AgentPanelSnapsh
   const modelName =
     selectOptionsList(modelOpt).find((o) => o.value === modelValue)?.name ?? modelValue;
   const models = selectOptionsList(modelOpt).map((o) => ({
-    provider: state.agentId ?? "agent",
+    provider: o.provider ?? state.agentId ?? "agent",
     modelId: o.value,
     name: o.name,
   }));
@@ -618,6 +628,7 @@ function rememberModelsFromState(state: AcpSessionState | null | undefined): voi
   const models = selectOptionsList(modelOpt).map((o) => ({
     modelId: o.value,
     name: o.name,
+    provider: o.provider,
   }));
   if (models.length === 0) return;
   useModelCatalogStore.getState().remember(state.agentId, models);

@@ -157,14 +157,14 @@ function ThinkingStep({
                   name={icon}
                   size={14}
                   strokeWidth={1.5}
-                  className={isError ? "text-red-500" : "text-muted-foreground"}
+                  className={isError ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground"}
                 />
               ) : (
                 <div className="w-[14px] h-[14px] flex items-center justify-center">
                   <div
                     className={cn(
                       "w-1.5 h-1.5 rounded-full",
-                      isError ? "bg-red-500" : "bg-muted-foreground/60",
+                      isError ? "bg-amber-600 dark:bg-amber-300" : "bg-muted-foreground/60",
                     )}
                   />
                 </div>
@@ -180,7 +180,7 @@ function ThinkingStep({
               className={cn(
                 "text-[13px] leading-tight text-foreground",
                 isActive && "shimmer-text",
-                isError && "text-red-500",
+                isError && "text-amber-700 dark:text-amber-300",
               )}
               style={{ fontVariationSettings: fontWeights.medium }}
             >

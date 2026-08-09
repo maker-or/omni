@@ -134,7 +134,7 @@ function MonitorApp() {
   if (!enabled) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Runtime monitor is only available in development builds.
+        Runtime monitor is unavailable.
       </div>
     );
   }

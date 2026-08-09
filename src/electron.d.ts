@@ -74,7 +74,7 @@ declare global {
         list: () => Promise<Project[]>;
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
-        listFiles: () => Promise<string[]>;
+        listFiles: (projectId?: string, worktreePath?: string | null) => Promise<string[]>;
         getFileTree: () => Promise<ProjectFileTreeSnapshot>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
@@ -168,6 +168,9 @@ declare global {
           cancelled?: boolean;
         }) => Promise<void>;
         listAgents: () => Promise<AcpAgentDescriptor[]>;
+        getModelCatalogs: () => Promise<
+          Record<string, Array<{ modelId: string; name: string; provider?: string }>>
+        >;
         probeAgent: (agentId: string) => Promise<AgentProbeResult>;
         switchAgent: (agentId: string) => Promise<void>;
         getPreferredAgentId: () => Promise<string>;

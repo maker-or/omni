@@ -19,6 +19,7 @@ export interface RawProcessMetrics {
 }
 
 const linuxCpuPrev = new Map<number, { utime: number; stime: number; timestamp: number }>();
+let currentProcessCpuPrev: { user: number; system: number; timestamp: number } | undefined;
 
 function parsePositiveInt(value: string | undefined, fallback = 0): number {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -48,6 +49,36 @@ function withSystemCpu(metrics: Omit<RawProcessMetrics, "cpuPercentOfSystem">): 
     ...metrics,
     cpuPercentOfSystem: metrics.cpuPercent / systemCpuCount,
   };
+}
+
+function sampleCurrentProcess(): RawProcessMetrics {
+  const timestamp = Date.now();
+  const cpuUsage = process.cpuUsage();
+  const previous = currentProcessCpuPrev;
+  let cpuPercent = 0;
+  if (previous) {
+    const cpuDelta = Math.max(cpuUsage.user + cpuUsage.system - previous.user - previous.system, 0);
+    const wallDeltaMs = Math.max(timestamp - previous.timestamp, 1);
+    cpuPercent = (cpuDelta / (wallDeltaMs * 1_000)) * 100;
+  }
+  currentProcessCpuPrev = {
+    user: cpuUsage.user,
+    system: cpuUsage.system,
+    timestamp,
+  };
+
+  return withSystemCpu({
+    cpuPercent,
+    memoryBytes: process.memoryUsage().rss,
+    // Node does not expose the OS thread count. One is safer than dropping
+    // the main process entirely when macOS process inspection is unavailable.
+    threadCount: 1,
+    busyThreads: 0,
+    idleThreads: 1,
+    runnableThreads: 0,
+    blockedThreads: 0,
+    sleepingThreads: 1,
+  });
 }
 
 async function sampleLinux(pid: number): Promise<RawProcessMetrics | null> {
@@ -144,7 +175,7 @@ async function sampleDarwin(pid: number): Promise<RawProcessMetrics | null> {
       "rss=",
     ]);
     const parts = procOut.trim().split(/\s+/);
-    if (parts.length < 2) return null;
+    if (parts.length < 2) return pid === process.pid ? sampleCurrentProcess() : null;
     const cpuPercent = parsePositiveFloat(parts[0]);
     const memoryBytes = parsePositiveInt(parts[1]) * 1024;
 
@@ -193,7 +224,7 @@ async function sampleDarwin(pid: number): Promise<RawProcessMetrics | null> {
       sleepingThreads,
     });
   } catch {
-    return null;
+    return pid === process.pid ? sampleCurrentProcess() : null;
   }
 }
 
@@ -201,7 +232,7 @@ async function sampleGenericPs(pid: number): Promise<RawProcessMetrics | null> {
   try {
     const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "pcpu=", "-o", "rss="]);
     const parts = stdout.trim().split(/\s+/);
-    if (parts.length < 2) return null;
+    if (parts.length < 2) return pid === process.pid ? sampleCurrentProcess() : null;
     return withSystemCpu({
       cpuPercent: parsePositiveFloat(parts[0]),
       memoryBytes: parsePositiveInt(parts[1]) * 1024,
@@ -213,7 +244,7 @@ async function sampleGenericPs(pid: number): Promise<RawProcessMetrics | null> {
       sleepingThreads: 1,
     });
   } catch {
-    return null;
+    return pid === process.pid ? sampleCurrentProcess() : null;
   }
 }
 

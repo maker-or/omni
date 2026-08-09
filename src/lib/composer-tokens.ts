@@ -421,6 +421,11 @@ export function resolveDefaultMentionKind(ctx: MentionContext): ComposerMentionK
 
   // All control slots filled or empty catalogs — prefer files, else any kind with items.
   const withItems = allowed.filter((kind) => kindHasItems(kind, ctx.availability));
+  // Files are a persistent final slot. If the project file catalog is known
+  // to be empty (often while it is still loading after project selection), do
+  // not fall back to the first control tab and make the user re-enter the
+  // mention. Keep the popover on Files so it can update when the catalog lands.
+  if (allowed.includes("file") && ctx.availability?.file === 0) return "file";
   if (withItems.includes("file")) return "file";
   if (withItems[0]) return withItems[0];
   return allowed[0]!;

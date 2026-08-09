@@ -121,6 +121,12 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   /** Content rendered in the bottom-right action area, before the built-in
    *  send button. Same render-fn shape as leftSlot. */
   rightSlot?: InputMessageSlot;
+  /** Content rendered inside the composer above the textarea. */
+  topSlot?: InputMessageSlot;
+  /** Replaces the textarea content region with a custom inline editor. */
+  customInput?: ReactNode;
+  /** Compact single-row composer treatment used by the agent composer. */
+  compact?: boolean;
   /** Disables the textarea, send button, and drag-and-drop. */
   disabled?: boolean;
   /** Allows submission when value/files are empty because the caller has retained content. */
@@ -229,6 +235,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       placeholder = "Ask me anything…",
       leftSlot,
       rightSlot,
+      topSlot,
+      customInput,
+      compact = false,
       disabled,
       canSendWhenEmpty = false,
       minRows = 1,
@@ -587,6 +596,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     );
     const leftContent = typeof leftSlot === "function" ? leftSlot(slotCtx) : leftSlot;
     const rightContent = typeof rightSlot === "function" ? rightSlot(slotCtx) : rightSlot;
+    const topContent = typeof topSlot === "function" ? topSlot(slotCtx) : topSlot;
 
     // ── Drag-and-drop ────────────────────────────────────────────────
     const handleDragOver = useCallback(
@@ -627,6 +637,96 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       [addFiles],
     );
 
+    const actionButton = showActionButton ? (
+      <Elevated
+        offset={1}
+        className={cn(
+          shape.button,
+          compact ? "inline-flex h-10 w-10 shrink-0" : "inline-flex h-8 w-8 shrink-0",
+          actionDisabled && "opacity-50 pointer-events-none",
+        )}
+      >
+        <button
+          type="button"
+          onClick={handleAction}
+          disabled={actionDisabled}
+          aria-label={actionLabel}
+          className={cn(
+            "flex h-full w-full items-center justify-center outline-none cursor-pointer",
+            "text-foreground transition-colors duration-80",
+            "hover:bg-hover active:bg-active",
+            "focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
+            "disabled:cursor-not-allowed",
+            shape.button,
+          )}
+        >
+          <span className="grid size-3.5 place-items-center">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {isStreaming ? (
+                <motion.span
+                  key="stop"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.06 } }}
+                  transition={springs.fast}
+                  className="col-start-1 row-start-1 flex items-center justify-center"
+                >
+                  <CircleIcon
+                    size={compact ? 16 : 14}
+                    weight="fill"
+                    className="fill-current stroke-none"
+                  />
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="send"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.06 } }}
+                  transition={springs.fast}
+                  className="col-start-1 row-start-1 flex items-center justify-center"
+                >
+                  <Icon name="arrow-up" size={compact ? 16 : 14} strokeWidth={2} />
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </span>
+        </button>
+      </Elevated>
+    ) : null;
+
+    const inputControl = customInput ? (
+      customInput
+    ) : (
+      <div className={cn("flex items-start", topContent && "gap-1")}>
+        {topContent ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-1 px-2 pt-2">{topContent}</div>
+        ) : null}
+        <textarea
+          ref={mergedTextareaRef}
+          value={value}
+          onChange={handleTextareaChange}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onFocus={(e) => {
+            if (e.target.matches(":focus-visible")) setFocusVisible(true);
+          }}
+          onBlur={() => setFocusVisible(false)}
+          placeholder={dragOver && supportsFiles ? "Drop files here to add to chat" : placeholder}
+          disabled={disabled}
+          rows={minRows}
+          aria-label={textareaProps?.["aria-label"] ?? "Message"}
+          className={cn(
+            "min-w-0 flex-1 resize-none bg-transparent outline-none",
+            "text-[14px] text-foreground placeholder:text-muted-foreground",
+            "px-2 py-2",
+          )}
+          style={{ fontVariationSettings: fontWeights.normal }}
+          {...forwardedTextareaProps}
+        />
+      </div>
+    );
+
     return (
       <>
         <div
@@ -638,6 +738,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
           onDrop={handleDrop}
           className={cn(
             "flex flex-col gap-1 p-2 transition-[box-shadow,color] duration-80",
+            compact && "gap-0.5 p-1.5 rounded-full",
             surfaceClasses(2, 2),
             shape.container,
             clickToFocus && !disabled && "cursor-text",
@@ -735,101 +836,27 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               )}
             </AnimatePresence>
 
-            <textarea
-              ref={mergedTextareaRef}
-              value={value}
-              onChange={handleTextareaChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              onFocus={(e) => {
-                if (e.target.matches(":focus-visible")) setFocusVisible(true);
-              }}
-              onBlur={() => setFocusVisible(false)}
-              placeholder={
-                dragOver && supportsFiles ? "Drop files here to add to chat" : placeholder
-              }
-              disabled={disabled}
-              rows={minRows}
-              aria-label={textareaProps?.["aria-label"] ?? "Message"}
-              className={cn(
-                "w-full resize-none bg-transparent outline-none",
-                "text-[14px] text-foreground placeholder:text-muted-foreground",
-                "px-2 py-2",
-              )}
-              style={{ fontVariationSettings: fontWeights.normal }}
-              {...forwardedTextareaProps}
-            />
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">{leftContent}</div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {rightContent}
-                {showActionButton && (
-                  <Elevated
-                    offset={1}
-                    className={cn(
-                      shape.button,
-                      "inline-flex h-8 w-8 shrink-0",
-                      actionDisabled && "opacity-50 pointer-events-none",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={handleAction}
-                      disabled={actionDisabled}
-                      aria-label={actionLabel}
-                      className={cn(
-                        "flex h-full w-full items-center justify-center outline-none cursor-pointer",
-                        "text-foreground transition-colors duration-80",
-                        "hover:bg-hover active:bg-active",
-                        "focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
-                        "disabled:cursor-not-allowed",
-                        shape.button,
-                      )}
-                    >
-                      <span className="grid size-3.5 place-items-center">
-                        <AnimatePresence mode="popLayout" initial={false}>
-                          {isStreaming ? (
-                            <motion.span
-                              key="stop"
-                              initial={{ opacity: 0, scale: 0.85 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{
-                                opacity: 0,
-                                scale: 0.85,
-                                transition: { duration: 0.06 },
-                              }}
-                              transition={springs.fast}
-                              className="col-start-1 row-start-1 flex items-center justify-center"
-                            >
-                              <CircleIcon
-                                size={14}
-                                weight="fill"
-                                className="fill-current stroke-none"
-                              />
-                            </motion.span>
-                          ) : (
-                            <motion.span
-                              key="send"
-                              initial={{ opacity: 0, scale: 0.85 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{
-                                opacity: 0,
-                                scale: 0.85,
-                                transition: { duration: 0.06 },
-                              }}
-                              transition={springs.fast}
-                              className="col-start-1 row-start-1 flex items-center justify-center"
-                            >
-                              <Icon name="arrow-up" size={14} strokeWidth={2} />
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </span>
-                    </button>
-                  </Elevated>
-                )}
+            {compact ? (
+              <div className="flex min-h-11 items-center gap-1.5">
+                <div className="flex shrink-0 items-center gap-1.5">{leftContent}</div>
+                <div className="min-w-0 flex-1">{inputControl}</div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {rightContent}
+                  {actionButton}
+                </div>
               </div>
-            </div>
+            ) : (
+              <>
+                {inputControl}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5">{leftContent}</div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {rightContent}
+                    {actionButton}
+                  </div>
+                </div>
+              </>
+            )}
           </SurfaceProvider>
         </div>
       </>

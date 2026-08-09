@@ -674,7 +674,6 @@ async function createMainWindow(): Promise<void> {
 }
 
 function createMonitorWindow(): void {
-  if (!isDev) return;
   if (monitorWindow && !monitorWindow.isDestroyed()) {
     monitorWindow.show();
     monitorWindow.focus();
@@ -716,7 +715,7 @@ function broadcastToMonitor(channel: string, payload: unknown): void {
 }
 
 function initializeMonitorService(): void {
-  if (!isDev || monitorService) return;
+  if (monitorService) return;
 
   monitorService = new MonitorService({
     getInventory: () =>
@@ -846,16 +845,12 @@ function buildAppMenu(): void {
         { role: "reload" },
         { role: "forceReload" },
         { role: "toggleDevTools" },
-        ...(isDev
-          ? ([
-              { type: "separator" as const },
-              {
-                label: "Runtime Monitor",
-                accelerator: "CommandOrControl+Shift+M",
-                click: () => createMonitorWindow(),
-              },
-            ] as Electron.MenuItemConstructorOptions[])
-          : []),
+        { type: "separator" as const },
+        {
+          label: "Runtime Monitor",
+          accelerator: "CommandOrControl+Shift+M",
+          click: () => createMonitorWindow(),
+        },
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
@@ -963,16 +958,24 @@ function registerIpc(): void {
     return id ? getProject(id) : null;
   });
 
-  ipcMain.handle("projects:listFiles", async () => {
-    // Follow the active worktree's cwd, not the project root, so file paths
-    // reflect the selected workspace. Falls back to the project root.
-    const cwd = requireAgentManager().getActiveCwd();
-    if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
-    const id = getActiveProjectId();
-    const project = id ? getProject(id) : null;
-    if (!project || !fs.existsSync(project.path)) return [];
-    return listProjectFiles(project.path);
-  });
+  ipcMain.handle(
+    "projects:listFiles",
+    async (_event, projectId?: string, worktreePath?: string | null) => {
+      if (projectId) {
+        const project = getProject(projectId);
+        const cwd = worktreePath && fs.existsSync(worktreePath) ? worktreePath : project?.path;
+        return cwd && fs.existsSync(cwd) ? listProjectFiles(cwd) : [];
+      }
+      // Follow the active worktree's cwd, not the project root, so file paths
+      // reflect the selected workspace. Falls back to the project root.
+      const cwd = requireAgentManager().getActiveCwd();
+      if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
+      const id = getActiveProjectId();
+      const project = id ? getProject(id) : null;
+      if (!project || !fs.existsSync(project.path)) return [];
+      return listProjectFiles(project.path);
+    },
+  );
 
   ipcMain.handle("projects:getFileTree", async () => {
     // Keep the flyout aligned with the currently selected worktree.
@@ -1323,6 +1326,7 @@ function registerIpc(): void {
     requireAgentManager().respondToPermission(response),
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
+  ipcMain.handle("agent:getModelCatalogs", () => requireAgentManager().getModelCatalogs());
   ipcMain.handle("agent:probeAgent", (_event, agentId: string) => probeAgentById(agentId));
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
@@ -1502,35 +1506,33 @@ function registerIpc(): void {
     },
   );
 
-  if (isDev) {
-    ipcMain.handle("monitor:isEnabled", () => true);
-    ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
-    ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
-    ipcMain.handle("monitor:getSessions", () => monitorService?.getSessions() ?? []);
-    ipcMain.handle(
-      "monitor:getRecordedSession",
-      (_event, sessionId: string) =>
-        monitorService?.getRecordedSession(sessionId) ?? {
-          session: null,
-          ticks: [],
-          incidents: [],
-        },
-    );
-    ipcMain.handle("monitor:startRecording", (_event, label?: string) => {
-      if (!monitorService) throw new Error("Monitor service is not initialized.");
-      return monitorService.startRecording(label);
-    });
-    ipcMain.handle("monitor:stopRecording", () => monitorService?.stopRecording() ?? null);
-    ipcMain.handle("monitor:reportRendererFreeze", (_event, report) => {
-      monitorService?.reportRendererFreeze(report);
-    });
-    ipcMain.handle("monitor:reportTabMismatch", (_event, report) => {
-      monitorService?.reportTabMismatch(report);
-    });
-    ipcMain.handle("monitor:openWindow", () => {
-      createMonitorWindow();
-    });
-  }
+  ipcMain.handle("monitor:isEnabled", () => true);
+  ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
+  ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
+  ipcMain.handle("monitor:getSessions", () => monitorService?.getSessions() ?? []);
+  ipcMain.handle(
+    "monitor:getRecordedSession",
+    (_event, sessionId: string) =>
+      monitorService?.getRecordedSession(sessionId) ?? {
+        session: null,
+        ticks: [],
+        incidents: [],
+      },
+  );
+  ipcMain.handle("monitor:startRecording", (_event, label?: string) => {
+    if (!monitorService) throw new Error("Monitor service is not initialized.");
+    return monitorService.startRecording(label);
+  });
+  ipcMain.handle("monitor:stopRecording", () => monitorService?.stopRecording() ?? null);
+  ipcMain.handle("monitor:reportRendererFreeze", (_event, report) => {
+    monitorService?.reportRendererFreeze(report);
+  });
+  ipcMain.handle("monitor:reportTabMismatch", (_event, report) => {
+    monitorService?.reportTabMismatch(report);
+  });
+  ipcMain.handle("monitor:openWindow", () => {
+    createMonitorWindow();
+  });
 
   // ─── Onboarding IPC ─────────────────────────────────────────────────────────────
   ipcMain.handle("onboarding:verifyGit", async () => {

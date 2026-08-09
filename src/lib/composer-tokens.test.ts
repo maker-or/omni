@@ -257,6 +257,23 @@ describe("composer-tokens", () => {
     ).toBe("file");
   });
 
+  test("keeps the final mention on files while the file catalog is empty", () => {
+    const withModel = buildContent(
+      [
+        { kind: "project", id: "p1", label: "Omni" },
+        { kind: "model", id: "m1", label: "Sonnet" },
+      ],
+      "",
+    );
+    expect(
+      resolveDefaultMentionKind({
+        mode: "draft",
+        content: withModel,
+        availability: { project: 3, model: 1, file: 0 },
+      }),
+    ).toBe("file");
+  });
+
   test("path-like query forces file kind", () => {
     expect(queryLooksLikeFilePath("src/app")).toBe(true);
     expect(queryLooksLikeFilePath("foo.ts")).toBe(true);

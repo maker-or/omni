@@ -2,8 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Elevated } from "@/lib/elevated";
 import { cn } from "@/lib/utils";
+import { Dropdown } from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import type { ComposerMentionKind } from "../../contracts/composer.ts";
 
 export type MentionItem = {
@@ -64,7 +65,7 @@ export function MentionPopover({
 
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(
-      `[data-mention-index="${selectedIndex}"]`,
+      `[data-proximity-index="${selectedIndex}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
@@ -95,12 +96,9 @@ export function MentionPopover({
       role="listbox"
       aria-label={`${KIND_LABEL[kind]} mentions`}
     >
-      <Elevated
-        offset={2}
-        className="w-72 max-h-64 overflow-hidden rounded-xl border border-border"
-      >
+      <div ref={listRef}>
         {kinds && kinds.length > 1 && onKindChange ? (
-          <div className="flex gap-1 border-b border-border/60 p-1.5">
+          <div className="flex gap-1  p-1.5">
             {kinds.map((k) => (
               <button
                 key={k}
@@ -124,42 +122,34 @@ export function MentionPopover({
             {query ? ` · ${query}` : ""}
           </div>
         )}
-        <div ref={listRef} className="max-h-52 overflow-y-auto p-1">
+        <Dropdown
+          checkedIndex={selectedIndex}
+          className="w-72 max-h-64 overflow-y-auto rounded-xl"
+          role="listbox"
+          aria-label={`${KIND_LABEL[kind]} mentions`}
+        >
           {items.length === 0 ? (
             <div className="px-2 py-3 text-[12px] text-muted-foreground">No matches</div>
           ) : (
             items.map((item, index) => {
-              const active = index === selectedIndex;
               return (
-                <button
+                <MenuItem
                   key={item.agentId ? `${item.agentId}:${item.id}` : item.id}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  data-mention-index={index}
-                  className={cn(
-                    "flex w-full flex-col rounded-lg px-2 py-1.5 text-left transition-colors",
-                    active ? "bg-accent text-foreground" : "text-foreground hover:bg-hover",
-                  )}
+                  label={item.label}
+                  description={item.description}
+                  index={index}
+                  className="w-full"
                   onMouseDown={(e) => {
-                    // Prevent textarea blur before pick.
                     e.preventDefault();
                   }}
                   onMouseEnter={() => onSelectedIndexChange(index)}
-                  onClick={() => onPick(item)}
-                >
-                  <span className="truncate text-[13px] font-medium">{item.label}</span>
-                  {item.description ? (
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {item.description}
-                    </span>
-                  ) : null}
-                </button>
+                  onSelect={() => onPick(item)}
+                />
               );
             })
           )}
-        </div>
-      </Elevated>
+        </Dropdown>
+      </div>
     </div>,
     document.body,
   );
