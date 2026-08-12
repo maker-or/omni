@@ -1,8 +1,5 @@
-"use client";
-
 import type { ComponentType } from "react";
-
-// ── Phosphor (Primary Synchronous Bundle) ────────────────────
+import type { IconComponent, IconName, IconComponentProps } from "../icon-map";
 import {
   CaretRight as PhCaretRight,
   CaretDown as PhCaretDown,
@@ -52,77 +49,6 @@ import {
   SkipForward as PhSkipForward,
   ArrowElbowDownRight as PhArrowElbowDownRight,
 } from "@phosphor-icons/react";
-
-// ── Types ───────────────────────────────────────────────────
-
-export interface IconComponentProps {
-  size?: number;
-  strokeWidth?: number;
-  className?: string;
-}
-
-export type IconComponent = ComponentType<IconComponentProps>;
-
-export type IconLibrary = "lucide" | "tabler" | "phosphor" | "hugeicons" | "untitledui";
-
-export type IconName =
-  | "chevron-right"
-  | "chevron-down"
-  | "x"
-  | "copy"
-  | "menu"
-  | "dot"
-  | "monitor"
-  | "sun"
-  | "moon"
-  | "rectangle-horizontal"
-  | "circle"
-  | "square-library"
-  | "clock"
-  | "star"
-  | "settings"
-  | "plus"
-  | "arrow-left"
-  | "arrow-right"
-  | "arrow-up"
-  | "search"
-  | "loader"
-  | "users"
-  | "lock"
-  | "mail"
-  | "bell"
-  | "shield"
-  | "palette"
-  | "lightbulb"
-  | "rocket"
-  | "heart"
-  | "paintbrush"
-  | "brain"
-  | "globe"
-  | "user"
-  | "image"
-  | "link"
-  | "check"
-  | "rotate-ccw"
-  | "play"
-  | "pause"
-  | "pipette"
-  | "home"
-  | "message-circle"
-  | "inbox"
-  | "pencil"
-  | "skip-forward"
-  | "corner-down-right";
-
-export const iconLibraryOrder: IconLibrary[] = [
-  "phosphor",
-  "lucide",
-  "tabler",
-  "hugeicons",
-  "untitledui",
-];
-
-// ── Primary Phosphor Map ─────────────────────────────────────
 
 type PhosphorWeight = "thin" | "light" | "regular" | "bold";
 function phosphor(
@@ -184,54 +110,4 @@ export const phosphorMap: Record<IconName, IconComponent> = {
   "corner-down-right": phosphor(PhArrowElbowDownRight),
 };
 
-// ── Cache & Async Loaders ─────────────────────────────────────
-
-const loadedIconMaps: Partial<Record<IconLibrary, Record<IconName, IconComponent>>> = {
-  phosphor: phosphorMap,
-};
-
-const pendingPromises: Partial<Record<IconLibrary, Promise<Record<IconName, IconComponent>>>> = {};
-
-const iconSetLoaders: Record<
-  Exclude<IconLibrary, "phosphor">,
-  () => Promise<{ default: Record<IconName, IconComponent> }>
-> = {
-  lucide: () => import("./icon-sets/lucide"),
-  tabler: () => import("./icon-sets/tabler"),
-  hugeicons: () => import("./icon-sets/hugeicons"),
-  untitledui: () => import("./icon-sets/untitledui"),
-};
-
-export async function loadIconLibrary(
-  lib: IconLibrary,
-): Promise<Record<IconName, IconComponent>> {
-  if (loadedIconMaps[lib]) return loadedIconMaps[lib]!;
-
-  if (!pendingPromises[lib]) {
-    const loader = iconSetLoaders[lib as keyof typeof iconSetLoaders];
-    if (loader) {
-      pendingPromises[lib] = loader().then((mod) => {
-        loadedIconMaps[lib] = mod.default;
-        delete pendingPromises[lib];
-        return mod.default;
-      });
-    } else {
-      return phosphorMap;
-    }
-  }
-
-  return pendingPromises[lib]!;
-}
-
-export function getLoadedIconMap(lib: IconLibrary): Record<IconName, IconComponent> {
-  return loadedIconMaps[lib] ?? phosphorMap;
-}
-
-export const iconMap: Record<IconLibrary, Record<IconName, IconComponent>> = new Proxy(
-  {} as Record<IconLibrary, Record<IconName, IconComponent>>,
-  {
-    get(_target, prop: string) {
-      return getLoadedIconMap(prop as IconLibrary);
-    },
-  },
-);
+export default phosphorMap;

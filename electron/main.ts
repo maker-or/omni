@@ -85,6 +85,13 @@ import {
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
+const startupStartedAt = performance.now();
+
+function logStartupMilestone(label: string, details?: string): void {
+  const elapsedMs = (performance.now() - startupStartedAt).toFixed(1);
+  console.log(`[Startup] ${label} +${elapsedMs}ms${details ? ` ${details}` : ""}`);
+}
+
 interface RendererPtySession {
   process: pty.IPty;
   dataDisposable: pty.IDisposable;
@@ -606,11 +613,14 @@ function loadInto(
   page: "main" | "launch" | "monitor",
   stage?: string,
 ): Promise<void> {
+  logStartupMilestone("loadInto:start", `page=${page}${stage ? ` stage=${stage}` : ""}`);
   console.log(`[Main] loadInto - page: ${page}, stage: ${stage}, isDev: ${isDev}`);
   if (isDev) {
     const url = resolveRendererUrl(page, stage);
     console.log(`[Main] loadInto (dev) - loading url: ${url}`);
-    return win.loadURL(url);
+    return win.loadURL(url).then(() => {
+      logStartupMilestone("loadInto:complete", `page=${page}`);
+    });
   }
   const file = resolveRendererFile(page);
   const urlObj = pathToFileURL(file);
@@ -619,16 +629,20 @@ function loadInto(
   }
   const fileUrl = urlObj.toString();
   console.log(`[Main] loadInto (prod) - loading file url: ${fileUrl}`);
-  return win.loadURL(fileUrl);
+  return win.loadURL(fileUrl).then(() => {
+    logStartupMilestone("loadInto:complete", `page=${page}`);
+  });
 }
 
 async function createMainWindow(): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    logStartupMilestone("main-window:reuse");
     mainWindow.show();
     mainWindow.focus();
     return;
   }
 
+  logStartupMilestone("main-window:create");
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -648,7 +662,15 @@ async function createMainWindow(): Promise<void> {
   });
 
   mainWindow.on("ready-to-show", () => {
+    logStartupMilestone("main-window:ready-to-show");
     mainWindow?.show();
+  });
+
+  mainWindow.webContents.once("dom-ready", () => {
+    logStartupMilestone("main-renderer:dom-ready");
+  });
+  mainWindow.webContents.once("did-finish-load", () => {
+    logStartupMilestone("main-renderer:did-finish-load");
   });
 
   mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
@@ -1626,6 +1648,7 @@ function startTelemetryFlush(): void {
 }
 
 app.whenReady().then(async () => {
+  logStartupMilestone("app:when-ready");
   startUsageHeartbeat();
   startTelemetryFlush();
   if (process.platform === "darwin") {
@@ -1639,7 +1662,9 @@ app.whenReady().then(async () => {
     }
   }
   buildAppMenu();
+  logStartupMilestone("database:init:start");
   getDb();
+  logStartupMilestone("database:init:complete");
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {
     identifyAnalyticsUser({
@@ -1689,21 +1714,42 @@ app.whenReady().then(async () => {
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
   });
   registerIpc();
-  await launcherUpdateManager.recover();
-  launcherUpdateManager.startPeriodicChecks();
-  void launcherUpdateManager.check();
+  logStartupMilestone("launcher-recovery:start");
+  const launcherRecovery = launcherUpdateManager.recover().then(() => {
+    logStartupMilestone("launcher-recovery:complete");
+    launcherUpdateManager?.startPeriodicChecks();
+    void launcherUpdateManager?.check();
+  });
 
+  logStartupMilestone("launch-state:read:start");
   const state = await readLaunchState();
+  logStartupMilestone("launch-state:read:complete", `completed=${state.completed}`);
   const currentAuthUser = getAuthenticatedUserForLaunch();
   if (state.completed && currentAuthUser) {
     if (state.projectId) {
       setActiveProjectId(state.projectId);
-      await agentManager.activateFromLaunchState();
     }
-    createMainWindow();
+    logStartupMilestone("main-window:starting-before-agent-activation");
+    void createMainWindow();
+    if (state.projectId) {
+      logStartupMilestone("agent-activation:start", `project=${state.projectId}`);
+      void agentManager
+        .activateFromLaunchState()
+        .then(() => {
+          logStartupMilestone("agent-activation:complete");
+        })
+        .catch((error) => {
+          console.error("[Startup] Agent activation failed:", error);
+        });
+    }
   } else {
+    logStartupMilestone("launch-window:starting");
     createLaunchWindow("list");
   }
+
+  void launcherRecovery.catch((error) => {
+    console.error("[Startup] Launcher recovery failed:", error);
+  });
 
   app.on("activate", async () => {
     const hasMain = mainWindow && !mainWindow.isDestroyed();

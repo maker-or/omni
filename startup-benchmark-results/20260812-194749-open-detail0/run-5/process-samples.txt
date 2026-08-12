@@ -1,0 +1,2 @@
+timestamp_ms=1786544397608 phase=process-visible
+80419     1 R     40.1 145344 00:00 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)

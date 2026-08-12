@@ -12,7 +12,7 @@ createRoot(document.getElementById("root")!).render(
     <ErrorBoundary>
       <AppQueryProvider>
         <ThemeProvider>
-          <IconProvider defaultLibrary="lucide">
+          <IconProvider defaultLibrary="phosphor">
             <App />
           </IconProvider>
         </ThemeProvider>

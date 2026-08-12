@@ -15,7 +15,7 @@ createRoot(document.getElementById("root")!).render(
       <ThemeProvider>
         <SurfaceProvider value={1}>
           <ShapeProvider defaultShape="rounded">
-            <IconProvider defaultLibrary="lucide">
+            <IconProvider defaultLibrary="phosphor">
               <LaunchApp />
               <Toaster />
             </IconProvider>

@@ -1,0 +1,39 @@
+app_path=/Applications/Pipper Code (Alpha).app
+app_name=Pipper Code (Alpha)
+executable=Pipper Code (Alpha)
+bundle_id=com.maker-or.omni
+version=0.0.22
+build=0.0.22
+launch_mode=open
+detail=0
+runs=5
+timeout_seconds=30
+captured_at=2026-08-12T14:17:49Z
+
+system:
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A5406e
+
+hardware:
+Hardware:
+
+    Hardware Overview:
+
+      Model Name: MacBook Air
+      Model Identifier: Mac15,12
+      Model Number: MC8G4LL/A
+      Chip: Apple M3
+      Total Number of Cores: 8 (4 Performance and 4 Efficiency)
+      Memory: 16 GB
+      System Firmware Version: 20457.1.27
+      OS Loader Version: 20457.1.27
+      Serial Number (system): DWMWYHQ7P7
+      Hardware UUID: F0ED2B74-C87E-5EF0-92C2-054A6C8E4CD7
+      Provisioning UDID: 00008122-001661D40263001C
+      Activation Lock Status: Enabled
+
+
+disk:
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s5   228Gi   166Gi    36Gi    83%    2.8M  377M    1%   /System/Volumes/Data

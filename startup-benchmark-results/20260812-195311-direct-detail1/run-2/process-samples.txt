@@ -1,0 +1,66 @@
+timestamp_ms=1786544626206 phase=process-visible
+42226 32138 R+    29.4 138496 00:00 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544626376 phase=process-ready
+42226 32138 R+    57.8 226288 00:00 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544626609 phase=waiting-for-window
+42226 32138 S+    41.7 237616 00:00 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544627202 phase=waiting-for-window
+42226 32138 S+    28.7 266592 00:01 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544628227 phase=waiting-for-window
+42226 32138 S+    24.8 299952 00:02 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544629220 phase=waiting-for-window
+42226 32138 S+     4.5 257504 00:03 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544630118 phase=waiting-for-window
+42226 32138 S+     0.6 257824 00:04 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544631223 phase=waiting-for-window
+42226 32138 S+     1.6 255408 00:05 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544632205 phase=waiting-for-window
+42226 32138 S+     0.4 169216 00:06 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544633143 phase=waiting-for-window
+42226 32138 S+     0.9 170336 00:07 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544634071 phase=waiting-for-window
+42226 32138 S+     2.2 171168 00:08 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544635136 phase=waiting-for-window
+42226 32138 S+     0.8 172544 00:09 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544636097 phase=waiting-for-window
+42226 32138 S+     1.2 173424 00:10 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544637265 phase=waiting-for-window
+42226 32138 S+     1.2 175040 00:11 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544638189 phase=waiting-for-window
+42226 32138 S+     4.4 179728 00:12 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544639130 phase=waiting-for-window
+42226 32138 S+     6.3 178336 00:13 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544640215 phase=waiting-for-window
+42226 32138 S+     0.7 179328 00:14 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544641198 phase=waiting-for-window
+42226 32138 S+     1.5 180032 00:15 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544642109 phase=waiting-for-window
+42226 32138 S+     1.7 180912 00:16 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544643206 phase=waiting-for-window
+42226 32138 S+     5.4 187376 00:17 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544644128 phase=waiting-for-window
+42226 32138 S+     1.6 189008 00:18 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544645235 phase=waiting-for-window
+42226 32138 S+     1.5 189920 00:19 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544646146 phase=waiting-for-window
+42226 32138 S+     1.9 191744 00:20 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544647205 phase=waiting-for-window
+42226 32138 S+     1.5 192624 00:21 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544648108 phase=waiting-for-window
+42226 32138 S+     0.7 195360 00:22 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544649228 phase=waiting-for-window
+42226 32138 S+     2.3 196256 00:23 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544650165 phase=waiting-for-window
+42226 32138 S+     0.6 196496 00:24 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544651107 phase=waiting-for-window
+42226 32138 S+     0.6 196512 00:25 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544652199 phase=waiting-for-window
+42226 32138 S+     0.4 196544 00:26 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544653130 phase=waiting-for-window
+42226 32138 S+     0.4 196656 00:27 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544654250 phase=waiting-for-window
+42226 32138 S+     0.6 197376 00:28 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544655178 phase=waiting-for-window
+42226 32138 S+     0.4 197488 00:29 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)
+timestamp_ms=1786544656117 phase=waiting-for-window
+42226 32138 S+     0.6 198032 00:30 /Applications/Pipper Code (Alpha).app/Contents/MacOS/Pipper Code (Alpha)

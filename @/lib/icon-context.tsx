@@ -14,6 +14,8 @@ import {
 import {
   iconMap,
   iconLibraryOrder,
+  loadIconLibrary,
+  getLoadedIconMap,
   type IconLibrary,
   type IconName,
   type IconComponent,
@@ -26,6 +28,7 @@ export { iconLibraryOrder } from "@/lib/icon-map";
 interface IconContextValue {
   iconLibrary: IconLibrary;
   setIconLibrary: (lib: IconLibrary) => void;
+  loadedLibrary: IconLibrary;
 }
 
 const IconContext = createContext<IconContextValue | null>(null);
@@ -42,37 +45,56 @@ function useIconLibrary() {
 
 /**
  * Returns a single icon component for the given name.
- * Falls back to Lucide if no provider is present.
+ * Falls back to Phosphor if no provider is present or during loading.
  */
 function useIcon(name: IconName): IconComponent {
   const ctx = useContext(IconContext);
-  if (!ctx) return iconMap.lucide[name];
-  return iconMap[ctx.iconLibrary][name];
+  if (!ctx) return getLoadedIconMap("phosphor")[name];
+  return getLoadedIconMap(ctx.iconLibrary)[name];
 }
 
 /**
  * Returns the full icon map for the current library.
- * Falls back to Lucide if no provider is present.
+ * Falls back to Phosphor if no provider is present or during loading.
  */
 function useIcons(): Record<IconName, IconComponent> {
   const ctx = useContext(IconContext);
-  const lib = ctx?.iconLibrary ?? "lucide";
-  // iconMap is a module-level constant, so iconMap[lib] is already stable.
-  return iconMap[lib];
+  const lib = ctx?.iconLibrary ?? "phosphor";
+  return getLoadedIconMap(lib);
 }
 
 function IconProvider({
   children,
-  defaultLibrary = "lucide",
+  defaultLibrary = "phosphor",
 }: {
   children: ReactNode;
   defaultLibrary?: IconLibrary;
 }) {
   const [iconLibrary, setIconLibraryState] = useState<IconLibrary>(defaultLibrary);
+  const [loadedLibrary, setLoadedLibrary] = useState<IconLibrary>(defaultLibrary);
 
   const setIconLibrary = useCallback((next: IconLibrary) => {
     setIconLibraryState(next);
   }, []);
+
+  // Preload/load icon library dynamically when active selection changes
+  useEffect(() => {
+    let active = true;
+    if (iconLibrary === "phosphor") {
+      setLoadedLibrary("phosphor");
+      return;
+    }
+
+    loadIconLibrary(iconLibrary).then(() => {
+      if (active) {
+        setLoadedLibrary(iconLibrary);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [iconLibrary]);
 
   // Global keyboard shortcut: I to cycle icon library
   useEffect(() => {
@@ -92,7 +114,10 @@ function IconProvider({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const value = useMemo(() => ({ iconLibrary, setIconLibrary }), [iconLibrary, setIconLibrary]);
+  const value = useMemo(
+    () => ({ iconLibrary, setIconLibrary, loadedLibrary }),
+    [iconLibrary, setIconLibrary, loadedLibrary],
+  );
 
   return <IconContext.Provider value={value}>{children}</IconContext.Provider>;
 }

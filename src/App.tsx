@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, lazy, Suspense } from "react";
 import { Group, Panel, Separator, useGroupRef } from "react-resizable-panels";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProjectIcon } from "@/components/ui/icon-picker";
@@ -11,7 +11,6 @@ import { toast } from "@/components/ui/toast";
 import { AgentView } from "@/components/agent-view";
 import { GlobalTabBar } from "@/components/global-tab-bar";
 import { TerminalSession } from "@/components/terminal-session";
-import { DiffView } from "@/components/diff-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { useDiffStore } from "@/store/diff-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
@@ -21,14 +20,9 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
 import { ProjectFileTree } from "@/components/project-file-tree";
-import {
-  GitDiffIcon,
-  Bell,
-  FolderPlus,
-  GitBranch,
-  Plus,
-  TreeViewIcon,
-} from "@phosphor-icons/react";
+import { GitDiffIcon } from "@phosphor-icons/react";
+
+const DiffView = lazy(() => import("@/components/diff-view").then((m) => ({ default: m.DiffView })));
 import type { Worktree } from "../contracts/worktrees.ts";
 import {
   createMonitorObserverId,
@@ -881,7 +875,9 @@ export default function App() {
             >
               <section className="h-full w-full flex flex-col bg-surface-1 p-2">
                 <div className="flex-1 overflow-hidden min-h-0 rounded-md">
-                  <DiffView />
+                  <Suspense fallback={null}>
+                    <DiffView />
+                  </Suspense>
                 </div>
               </section>
             </Panel>
