@@ -202,9 +202,7 @@ const iconSetLoaders: Record<
   untitledui: () => import("./icon-sets/untitledui"),
 };
 
-export async function loadIconLibrary(
-  lib: IconLibrary,
-): Promise<Record<IconName, IconComponent>> {
+export async function loadIconLibrary(lib: IconLibrary): Promise<Record<IconName, IconComponent>> {
   if (loadedIconMaps[lib]) return loadedIconMaps[lib]!;
 
   if (!pendingPromises[lib]) {

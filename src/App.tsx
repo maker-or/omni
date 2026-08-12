@@ -22,7 +22,9 @@ import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launche
 import { ProjectFileTree } from "@/components/project-file-tree";
 import { GitDiffIcon } from "@phosphor-icons/react";
 
-const DiffView = lazy(() => import("@/components/diff-view").then((m) => ({ default: m.DiffView })));
+const DiffView = lazy(() =>
+  import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
+);
 import type { Worktree } from "../contracts/worktrees.ts";
 import {
   createMonitorObserverId,
