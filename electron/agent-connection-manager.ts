@@ -19,9 +19,10 @@ import type {
   AcpReplacePromptInput,
   AcpSessionState,
 } from "../contracts/acp.ts";
-import type { Thread } from "../contracts/threads.ts";
+import type { OpenTabsState, Thread } from "../contracts/threads.ts";
 import { recordThreadSwitch } from "./open-tabs.ts";
 import { getProject } from "./projects.ts";
+import { getSelectedAgentIds } from "./db.ts";
 import { setActiveProjectId } from "./session.ts";
 import {
   getThread,
@@ -325,6 +326,12 @@ export class AgentConnectionManager {
   private preferredAgentId: string = getDefaultAgentId();
   private readonly sessions = new Map<string, ThreadSessionRuntime>();
   /**
+   * Session replay is delivered as session/update notifications while
+   * session/load is still in flight. Keep those notifications in the main
+   * process until the activation can publish one complete authoritative state.
+   */
+  private readonly loadingSessionThreads = new Set<string>();
+  /**
    * Path guard: ACP session id → the set of filesystem roots that session may
    * touch. Seeded from the session's cwd (the worktree or project root) so a
    * worktree-bound agent can't read/write into a sibling worktree. Sessions
@@ -410,7 +417,25 @@ export class AgentConnectionManager {
     return listRegisteredAgents();
   }
 
-  getModelCatalogs(): Record<string, Array<{ modelId: string; name: string; provider?: string }>> {
+  async getModelCatalogs(): Promise<
+    Record<string, Array<{ modelId: string; name: string; provider?: string }>>
+  > {
+    // Draft model pickers need catalogs before a thread exists. Warm every
+    // selected agent so the picker is not limited to whichever providers have
+    // already been used in a live session. A provider that is unavailable or
+    // needs authentication is skipped; its catalog can still be populated by
+    // a later successful session.
+    const selectedAgentIds = getSelectedAgentIds();
+    await Promise.all(
+      selectedAgentIds.map(async (agentId) => {
+        try {
+          await this.acquireConnection(agentId);
+        } catch {
+          // Best effort: one unavailable provider must not hide the others.
+        }
+      }),
+    );
+
     const result: Record<string, Array<{ modelId: string; name: string; provider?: string }>> = {};
     const add = (
       agentId: string,
@@ -440,6 +465,52 @@ export class AgentConnectionManager {
         })),
       );
     }
+
+    // A number of ACP agents only advertise model choices in the
+    // session/new response, not initialize. Probe a temporary session for
+    // selected agents whose catalog is still empty so draft @model is not
+    // limited to providers with a currently open thread.
+    const catalogCwd =
+      this.getActiveCwd() ??
+      (this.activeProjectId ? (getProject(this.activeProjectId)?.path ?? process.cwd()) : process.cwd());
+    await Promise.all(
+      selectedAgentIds.map(async (agentId) => {
+        if (result[agentId]?.length) return;
+        const live = this.connections.get(agentId);
+        if (!live) return;
+        let attached: Awaited<ReturnType<typeof this.sessionMcpServers>> | null = null;
+        let sessionId: string | null = null;
+        try {
+          attached = await this.sessionMcpServers(live, catalogCwd);
+          const created = (await requestWithTimeout(
+            live.agent.request(acp.methods.agent.session.new, {
+              cwd: catalogCwd,
+              mcpServers: attached.servers as never,
+            }),
+            ACP_SWITCH_PHASE_TIMEOUT_MS,
+            "agent/model-catalog-session-new",
+          )) as { sessionId: string; configOptions?: SessionConfigOption[] | null };
+          sessionId = created.sessionId;
+          add(agentId, modelOptionsFromConfig(this.withModelOption(live, created.configOptions ?? [])));
+        } catch {
+          // Model discovery is best effort; the provider can still populate
+          // its catalog when the user opens a real thread later.
+        } finally {
+          if (sessionId) {
+            try {
+              await requestWithTimeout(
+                live.agent.request(acp.methods.agent.session.close, { sessionId }),
+                ACP_SWITCH_PHASE_TIMEOUT_MS,
+                "agent/model-catalog-session-close",
+              );
+            } catch {
+              // best effort
+            }
+          }
+          attached?.release();
+        }
+      }),
+    );
     return result;
   }
 
@@ -1008,6 +1079,12 @@ export class AgentConnectionManager {
     }
     // A background thread's streaming can flip via updates without a pushState; keep tabs in sync.
     this.emitRunningThreads();
+
+    // A session/load replay is not a live turn. Publishing each replay chunk
+    // here exposes a partially hydrated target session to the renderer before
+    // its thread identity has become authoritative. The activation publishes
+    // the complete runtime once loading finishes.
+    if (this.loadingSessionThreads.has(runtime.threadId)) return;
 
     if (runtime.slice.titleChanged && runtime.slice.title && this.sessions.has(runtime.threadId)) {
       updateThreadTitle(runtime.threadId, runtime.slice.title);
@@ -1580,11 +1657,11 @@ export class AgentConnectionManager {
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
 
-  async switchThread(threadId: string): Promise<void> {
+  async switchThread(threadId: string): Promise<OpenTabsState> {
     return this.enqueueThreadActivation(() => this.switchThreadInternal(threadId));
   }
 
-  private async switchThreadInternal(threadId: string): Promise<void> {
+  private async switchThreadInternal(threadId: string): Promise<OpenTabsState> {
     const thread = getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     const project = getProject(thread.project_id);
@@ -1633,6 +1710,7 @@ export class AgentConnectionManager {
         promptInFlight: false,
       };
       this.sessions.set(threadId, runtime);
+      this.loadingSessionThreads.add(threadId);
 
       try {
         let sessionId = thread.agent_session_id;
@@ -1679,6 +1757,8 @@ export class AgentConnectionManager {
         this.sessions.delete(threadId);
         this.threadActivationGenerations.delete(threadId);
         throw err;
+      } finally {
+        this.loadingSessionThreads.delete(threadId);
       }
     }
 
@@ -1690,8 +1770,12 @@ export class AgentConnectionManager {
     // fallbacks, and orchestration switches alike.
     await updateWorkspaceSelection(project.id, cwd);
     await updateLaunchSelection({ projectId: project.id, threadId });
-    await recordThreadSwitch(threadId);
+    // Return the state produced by the same queued mutation. Callers that need
+    // to broadcast the tab state can use this result without performing a
+    // second read-modify-write for the same switch.
+    const openTabsState = await recordThreadSwitch(threadId);
     this.pushState(threadId);
+    return openTabsState;
   }
 
   async createThread(

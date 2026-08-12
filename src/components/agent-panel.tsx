@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { SliderComfortable } from "@/components/ui/slider";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { ThreadComposer, initialDraftContent } from "@/components/thread-composer";
+import type { MentionProvider } from "@/components/mention-popover";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
@@ -28,7 +29,6 @@ import {
   assertCreatable,
   blankContent,
   buildContent,
-  extractAgentId,
   extractModelId,
   extractModelToken,
   extractProjectId,
@@ -631,6 +631,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     (state) => state.selectedWorktreePathByProject,
   );
   const selectedAgentIds = useAgentRegistryStore((state) => state.selectedAgentIds);
+  const selectedAgentKey = selectedAgentIds.join("\0");
   const [draftContent, setDraftContent] = useState<ComposerContent>(blankContent());
   const [liveContent, setLiveContent] = useState<ComposerContent>(blankContent());
   const [projectFileItems, setProjectFileItems] = useState<
@@ -906,7 +907,11 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   }, [respondToUiRequest, uiRequest]);
 
   const snapshotThreadId = snapshot?.threadId ?? "";
-  const threadId = requestedThreadId ?? snapshotThreadId;
+  // Conversation data remains authoritative for snapshotThreadId until the
+  // target session publishes its complete session-state. Using the optimistic
+  // target here makes scroll/virtualization state claim to belong to a thread
+  // whose messages are not authoritative yet.
+  const threadId = snapshotThreadId;
   const isSwitchingThread = Boolean(requestedThreadId && requestedThreadId !== snapshotThreadId);
   // Match by the agent session id the request carries against the session the
   // user is currently viewing — this is the identity the agent itself used, so
@@ -1527,7 +1532,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         remember(agentId, models);
       }
     })();
-  }, []);
+  }, [selectedAgentKey]);
   const catalogByAgentId = useModelCatalogStore((state) => state.byAgentId);
   /**
    * Draft model list is agent-scoped via the learned catalog — never the active
@@ -1538,11 +1543,17 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
    */
   const modelMentionItems = useMemo(() => {
     if (!isDraftMode) {
+      const providerId = snapshot?.agentId ?? models[0]?.provider;
+      const providerLabel =
+        registryAgents.find((agent) => agent.id === snapshot?.agentId)?.displayName ??
+        (providerId ? formatProviderName(providerId) : undefined);
       return models.map((model) => ({
         id: model.modelId,
         label: model.name,
         description: formatProviderName(model.provider),
         agentId: snapshot?.agentId ?? undefined,
+        providerId,
+        providerLabel,
       }));
     }
 
@@ -1555,6 +1566,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       label: string;
       description?: string;
       agentId?: string;
+      providerId?: string;
+      providerLabel?: string;
     }> = [];
     const seen = new Set<string>();
 
@@ -1576,19 +1589,55 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           label: model.name,
           description: model.provider ? formatProviderName(model.provider) : agentLabel,
           agentId,
+          providerId: agentId,
+          providerLabel: agentLabel,
         });
       }
     }
     return items;
-  }, [isDraftMode, models, snapshot?.agentId, draftAgentItems, catalogByAgentId]);
+  }, [isDraftMode, models, snapshot?.agentId, draftAgentItems, catalogByAgentId, registryAgents]);
+
+  const modelProviderItems = useMemo<MentionProvider[]>(() => {
+    if (isDraftMode) return draftAgentItems.map(({ id, label }) => ({ id, label }));
+    const providerId = snapshot?.agentId ?? models[0]?.provider;
+    if (!providerId) return [];
+    return [
+      {
+        id: providerId,
+        label:
+          registryAgents.find((agent) => agent.id === snapshot?.agentId)?.displayName ??
+          formatProviderName(providerId),
+      },
+    ];
+  }, [isDraftMode, draftAgentItems, snapshot?.agentId, models, registryAgents]);
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
   const fileProjectId = useMemo(
     () =>
       isDraftMode
         ? (draft?.projectId ?? extractProjectId(draftContent))
-        : (snapshot?.projectId ?? null),
-    [isDraftMode, draft?.projectId, draftContent, snapshot?.projectId],
+        : (snapshot?.projectId ?? activeProject?.id ?? null),
+    [isDraftMode, draft?.projectId, draftContent, snapshot?.projectId, activeProject?.id],
+  );
+  const fileWorktreePath = useMemo(
+    () =>
+      isDraftMode
+        ? (draft?.worktreePath ??
+          selectedWorktreePathByProject[fileProjectId ?? ""] ??
+          activeProject?.path ??
+          null)
+        : (snapshot?.cwd ??
+          selectedWorktreePathByProject[fileProjectId ?? ""] ??
+          activeProject?.path ??
+          null),
+    [
+      isDraftMode,
+      draft?.worktreePath,
+      snapshot?.cwd,
+      selectedWorktreePathByProject,
+      fileProjectId,
+      activeProject?.path,
+    ],
   );
   useEffect(() => {
     const canList = Boolean(fileProjectId);
@@ -1599,8 +1648,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     let cancelled = false;
     void window.omni.projects
       .listFiles(
-        isDraftMode ? (fileProjectId ?? undefined) : undefined,
-        draft?.worktreePath ?? null,
+        fileProjectId ?? undefined,
+        fileWorktreePath,
       )
       .then((paths) => {
         if (cancelled) return;
@@ -1618,7 +1667,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [fileProjectId, activeProject?.id]);
+  }, [fileProjectId, fileWorktreePath]);
 
   // Keep live free-text content aligned when not using entity chips from draft.
   useEffect(() => {
@@ -2014,6 +2063,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                       projects={draftProjectItems}
                       agents={[]}
                       models={modelMentionItems}
+                      modelProviders={modelProviderItems}
                       projectFiles={projectFileItems}
                       files={attachedFiles}
                       onFilesChange={handleFilesChange}
@@ -2118,6 +2168,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                         onStop={() => void handleAbort()}
                         isStopping={isAborting}
                         models={modelMentionItems}
+                        modelProviders={modelProviderItems}
                         projectFiles={projectFileItems}
                         files={attachedFiles}
                         onFilesChange={handleFilesChange}

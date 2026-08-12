@@ -173,6 +173,10 @@ export function GlobalTabBar() {
 
   useEffect(() => {
     if (!snapshotThreadId) return;
+    // While a user switch is pending, snapshotThreadId is intentionally still
+    // the previous thread. Persisting it here races the target activation and
+    // makes the tab highlight jump back to the old thread.
+    if (pendingThreadTarget) return;
     if (closingTabIdsRef.current.has(snapshotThreadId)) return;
     void window.omni.tabs
       .open(snapshotThreadId)
@@ -180,7 +184,7 @@ export function GlobalTabBar() {
         void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       })
       .catch(() => {});
-  }, [snapshotThreadId, queryClient]);
+  }, [snapshotThreadId, pendingThreadTarget, queryClient]);
 
   useEffect(() => {
     if (!requestedThreadId) return;
@@ -274,7 +278,7 @@ export function GlobalTabBar() {
     if (closingTabIdsRef.current.has(id)) return;
     closingTabIdsRef.current.add(id);
     try {
-      const wasActive = id === (optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId);
+      const wasActive = id === (snapshotThreadId ?? activeThreadId);
       const nextState = await window.omni.tabs.close(id);
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       if (!wasActive) return;

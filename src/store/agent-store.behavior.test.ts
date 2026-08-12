@@ -150,7 +150,7 @@ describe("agent store ACP bridge behavior", () => {
     expect(store.getState().error).toBeNull();
   });
 
-  test("accepts authoritative session-state while waiting for a requested thread", async () => {
+  test("ignores stale session-state while waiting for a requested thread", async () => {
     let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
     let currentState = sessionState("thread-a");
     let resolveSwitch: (() => void) | null = null;
@@ -188,7 +188,24 @@ describe("agent store ACP bridge behavior", () => {
       state: sessionState("thread-a", { title: "stale" }),
     });
     expect(store.getState().state?.threadId).toBe("thread-a");
-    expect(store.getState().state?.title).toBe("stale");
+    expect(store.getState().state?.title).toBeNull();
+
+    // Replay chunks from the target must not be merged into thread A's state
+    // before the target's complete session-state arrives.
+    bridgeHandler?.({
+      type: "session-update",
+      sessionId: "session-thread-b",
+      threadId: "thread-b",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "replay",
+        content: { type: "text", text: "partial target replay" },
+      },
+    });
+    expect(store.getState().state?.threadId).toBe("thread-a");
+    expect(
+      store.getState().state?.entries.some((entry) => entry.text === "partial target replay"),
+    ).toBe(false);
 
     bridgeHandler?.({
       type: "session-state",

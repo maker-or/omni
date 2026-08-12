@@ -11,7 +11,12 @@ import {
 import { PlusIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { InputMessage } from "@/components/ui/input-message";
-import { MentionPopover, mentionChipClass, type MentionItem } from "@/components/mention-popover";
+import {
+  MentionPopover,
+  mentionChipClass,
+  type MentionItem,
+  type MentionProvider,
+} from "@/components/mention-popover";
 import { cn } from "@/lib/utils";
 import type {
   ComposerContent,
@@ -19,7 +24,6 @@ import type {
   ComposerMentionKind,
 } from "../../contracts/composer.ts";
 import {
-  allowedMentionKinds,
   buildContent,
   extractTextContent,
   findActiveMention,
@@ -57,6 +61,8 @@ export type ThreadComposerProps = {
   agents?: MentionItem[];
   /** Model mention items (draft optional / live switch). */
   models?: MentionItem[];
+  /** Provider options for the model picker. Draft can provide all opted-in agents. */
+  modelProviders?: MentionProvider[];
   /** Project file paths for `@file` (inserted as text, not chips). */
   projectFiles?: MentionItem[];
   className?: string;
@@ -87,6 +93,7 @@ export function ThreadComposer({
   projects = [],
   agents = [],
   models = [],
+  modelProviders: providedModelProviders = [],
   projectFiles = [],
   className,
   textareaRef: externalTextareaRef,
@@ -105,10 +112,6 @@ export function ThreadComposer({
   contentRef.current = content;
 
   const filesAvailable = projectFiles.length > 0 || mode === "live" || mode === "draft";
-  const kinds = useMemo(
-    () => allowedMentionKinds(mode, { filesAvailable }),
-    [mode, filesAvailable],
-  );
   const availability = useMemo(
     () => ({
       project: projects.length,
@@ -126,8 +129,38 @@ export function ThreadComposer({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  /** When user picks a tab, stick to it until the popover closes. */
-  const stickyKindRef = useRef<ComposerMentionKind | null>(null);
+  const [selectedModelProviderId, setSelectedModelProviderId] = useState<string | null>(null);
+  const inferredModelProviders = useMemo<MentionProvider[]>(() => {
+    const seen = new Set<string>();
+    const result: MentionProvider[] = [];
+    for (const model of models) {
+      const id = model.providerId ?? model.agentId;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      result.push({
+        id,
+        label: model.providerLabel ?? model.agentId ?? id,
+      });
+    }
+    return result;
+  }, [models]);
+
+  const modelProviders = useMemo<MentionProvider[]>(() => {
+    const seen = new Set<string>();
+    const result: MentionProvider[] = [];
+    for (const provider of [...providedModelProviders, ...inferredModelProviders]) {
+      if (seen.has(provider.id)) continue;
+      seen.add(provider.id);
+      result.push(provider);
+    }
+    return result;
+  }, [inferredModelProviders, providedModelProviders]);
+
+  // A live thread has one fixed provider, so keep its icon visibly active.
+  // Draft mode intentionally starts unfiltered so all opted-in providers are usable.
+  const activeModelProviderId =
+    selectedModelProviderId ??
+    (mode === "live" && modelProviders.length === 1 ? modelProviders[0]?.id : null);
 
   const itemSource = useMemo(() => {
     if (mentionKind === "project") return projects;
@@ -138,8 +171,12 @@ export function ThreadComposer({
 
   const filteredItems = useMemo(() => {
     const q = mentionQuery.trim().toLowerCase();
-    if (!q) return itemSource.slice(0, 80);
-    return itemSource
+    const providerItems =
+      mentionKind === "model" && activeModelProviderId
+        ? itemSource.filter((item) => (item.providerId ?? item.agentId) === activeModelProviderId)
+        : itemSource;
+    if (!q) return providerItems.slice(0, 80);
+    return providerItems
       .filter(
         (item) =>
           item.label.toLowerCase().includes(q) ||
@@ -147,7 +184,7 @@ export function ThreadComposer({
           (item.description?.toLowerCase().includes(q) ?? false),
       )
       .slice(0, 80);
-  }, [itemSource, mentionQuery]);
+  }, [activeModelProviderId, itemSource, mentionKind, mentionQuery]);
 
   useEffect(() => {
     setMentionIndex(0);
@@ -166,7 +203,7 @@ export function ThreadComposer({
     setMentionOpen(false);
     setMentionQuery("");
     setAnchorRect(null);
-    stickyKindRef.current = null;
+    setSelectedModelProviderId(null);
   }, []);
 
   const placeInlineCaret = useCallback((offset: number) => {
@@ -198,7 +235,6 @@ export function ThreadComposer({
         content: contentRef.current,
         filesAvailable,
         query,
-        preferredKind: stickyKindRef.current,
         availability,
       }),
     [mode, filesAvailable, availability],
@@ -243,9 +279,8 @@ export function ThreadComposer({
     };
   }, []);
 
-  const handleKindChange = useCallback((kind: ComposerMentionKind) => {
-    stickyKindRef.current = kind;
-    setMentionKind(kind);
+  const handleProviderChange = useCallback((providerId: string | null) => {
+    setSelectedModelProviderId(providerId);
     setMentionIndex(0);
   }, []);
 
@@ -375,7 +410,7 @@ export function ThreadComposer({
   const inlineEditor = (
     <div
       ref={inlineEditorRef}
-      className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1 px-2 py-2 text-[14px] text-foreground outline-none"
+      className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1 overflow-hidden px-2 py-2 text-[14px] text-foreground outline-none"
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
@@ -425,12 +460,13 @@ export function ThreadComposer({
           <span
             key={`${entity.kind}:${entity.id}`}
             contentEditable={false}
+            title={`@${entity.label}`}
             className={cn(
-              "inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
+              "inline-flex min-w-0 max-w-[min(100%,28rem)] shrink items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
               mentionChipClass(entity.kind),
             )}
           >
-            <span>@{entity.label}</span>
+            <span className="min-w-0 truncate">@{entity.label}</span>
             <button
               type="button"
               aria-label={`Remove ${entity.kind} ${entity.label}`}
@@ -445,16 +481,16 @@ export function ThreadComposer({
         ref={inlineTextRef}
         data-inline-text
         contentEditable={!disabled}
-        className="min-w-[12ch] flex-1 whitespace-pre-wrap outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        className="min-w-0 flex-1 whitespace-pre-wrap outline-none empty:before:inline-block empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
         data-placeholder={resolvedPlaceholder}
       />
     </div>
   );
 
   return (
-    <div className={cn("flex flex-col gap-1.5")} data-pipper-id="thread-composer">
+    <div className={cn("flex flex-col gap-1.5", className)} data-pipper-id="thread-composer">
       <InputMessage
-        className="relative z-10 rounded-full "
+        className="relative z-10"
         textareaRef={textareaRef}
         value={freeText}
         onValueChange={handleValueChange}
@@ -506,14 +542,14 @@ export function ThreadComposer({
         <MentionPopover
           anchorRect={anchorRect}
           kind={mentionKind}
-          query={mentionQuery}
           items={filteredItems}
           selectedIndex={mentionIndex}
           onSelectedIndexChange={setMentionIndex}
           onPick={pickItem}
           onClose={closeMention}
-          kinds={kinds}
-          onKindChange={handleKindChange}
+          providers={modelProviders}
+          selectedProviderId={activeModelProviderId}
+          onProviderChange={handleProviderChange}
         />
       ) : null}
 

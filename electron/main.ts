@@ -51,7 +51,6 @@ import {
   closeThreadTab,
   openThreadTab,
   readOpenTabsState,
-  recordThreadSwitch,
   setActiveThreadTab,
 } from "./open-tabs";
 import { checkGit, installGit, prependStandardPaths } from "./dependency-installer";
@@ -1274,8 +1273,10 @@ function registerIpc(): void {
   ipcMain.handle("agent:switchThread", async (_event, threadId: string) => {
     const started = Date.now();
     try {
-      await requireAgentManager().switchThread(threadId);
-      const next = await recordThreadSwitch(threadId);
+      // AgentConnectionManager records the switch for all activation paths and
+      // returns the committed state. Reusing it avoids a duplicate launch
+      // state read-modify-write here.
+      const next = await requireAgentManager().switchThread(threadId);
       broadcastOpenTabsChanged(mainWindow, next);
       monitorService?.noteSwitchCompleted({
         threadId,

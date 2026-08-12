@@ -157,7 +157,9 @@ function ThinkingStep({
                   name={icon}
                   size={14}
                   strokeWidth={1.5}
-                  className={isError ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground"}
+                  className={
+                    isError ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground"
+                  }
                 />
               ) : (
                 <div className="w-[14px] h-[14px] flex items-center justify-center">

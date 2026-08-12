@@ -584,6 +584,13 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
           <span
             role="button"
             tabIndex={0}
+            onPointerDown={(e) => {
+              // Radix Tabs selects the parent tab during pointer-down. Stop
+              // that interaction here so closing an inactive tab does not
+              // activate and load it first.
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             onClick={(e) => {
               e.stopPropagation();
               onClose();

@@ -469,9 +469,12 @@ function applyBridgeEvent(
 
   switch (payload.type) {
     case "session-state": {
-      // Main is the authority for the active session. Accept a state for a
-      // different thread as a main-initiated activation or a recovery from a
-      // stale switch; dropping it can leave the tab highlight pinned forever.
+      // Do not let an old session-state settle a newer user-requested switch.
+      // During session/load the previous thread remains the renderer's
+      // authoritative state until the target session is complete.
+      if (pendingThreadTarget && payload.state.threadId !== pendingThreadTarget) {
+        return {};
+      }
       pendingThreadTarget = null;
       // A session-state for a different thread than the displayed one is a
       // MAIN-INITIATED activation (workspace switch, delete replacement,
@@ -500,10 +503,12 @@ function applyBridgeEvent(
       };
     }
     case "session-update": {
-      // Events from a thread running in the background must never be applied
-      // to whichever thread happens to be displayed right now — only to the
-      // thread currently shown (or the one we're switching into).
-      const displayedThreadId = pendingThreadTarget ?? state.state?.threadId ?? null;
+      // Replay updates for a target thread can arrive before its authoritative
+      // session-state. Applying them to the current slice mixes target
+      // messages with the previous thread's identity. Wait for the complete
+      // session-state instead.
+      if (pendingThreadTarget) return {};
+      const displayedThreadId = state.state?.threadId ?? null;
       if (payload.threadId !== displayedThreadId) {
         return {};
       }
@@ -529,7 +534,8 @@ function applyBridgeEvent(
       // Same reasoning as "session-update": a background thread finishing its
       // turn must not stop (or fail to stop) the streaming indicator for the
       // thread the user is actually looking at.
-      const displayedThreadId = pendingThreadTarget ?? state.state?.threadId ?? null;
+      if (pendingThreadTarget) return {};
+      const displayedThreadId = state.state?.threadId ?? null;
       if (payload.threadId !== displayedThreadId) {
         return {};
       }
