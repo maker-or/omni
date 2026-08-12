@@ -20,7 +20,7 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
 import { ProjectFileTree } from "@/components/project-file-tree";
-import { GitDiffIcon } from "@phosphor-icons/react";
+import { GitBranch, GitDiffIcon, TreeViewIcon } from "@phosphor-icons/react";
 
 const DiffView = lazy(() =>
   import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
