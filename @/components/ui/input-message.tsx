@@ -226,7 +226,7 @@ function FilePreviewTile({ file, onRemove, size }: FilePreviewTileProps) {
 
 // ─── InputMessage ─────────────────────────────────────────────────────────
 
-  const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
+const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
   (
     {
       value,
