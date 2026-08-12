@@ -252,5 +252,11 @@ export async function samplePid(pid: number): Promise<RawProcessMetrics | null> 
   if (!Number.isFinite(pid) || pid <= 0) return null;
   if (process.platform === "linux") return sampleLinux(pid);
   if (process.platform === "darwin") return sampleDarwin(pid);
+  if (process.platform === "win32") {
+    // Windows does not provide `ps`. Use Node's cross-platform process APIs
+    // for the current process instead of attempting a shell command that may
+    // not exist on the runner.
+    return pid === process.pid ? sampleCurrentProcess() : null;
+  }
   return sampleGenericPs(pid);
 }

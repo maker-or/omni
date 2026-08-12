@@ -24,6 +24,7 @@ import type {
   MonitorIncident,
   MonitorLiveSnapshot,
   MonitorRendererFreezeReport,
+  MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
   MonitorSessionSummary,
@@ -342,6 +343,8 @@ const api = {
       ipcRenderer.invoke("monitor:stopRecording"),
     reportRendererFreeze: (report: MonitorRendererFreezeReport): Promise<void> =>
       ipcRenderer.invoke("monitor:reportRendererFreeze", report),
+    reportRendererTelemetry: (telemetry: MonitorRendererTelemetry): Promise<void> =>
+      ipcRenderer.invoke("monitor:reportRendererTelemetry", telemetry),
     reportTabMismatch: (report: MonitorTabMismatchReport): Promise<void> =>
       ipcRenderer.invoke("monitor:reportTabMismatch", report),
     openWindow: (): Promise<void> => ipcRenderer.invoke("monitor:openWindow"),

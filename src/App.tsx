@@ -30,7 +30,11 @@ import {
   TreeViewIcon,
 } from "@phosphor-icons/react";
 import type { Worktree } from "../contracts/worktrees.ts";
-import { startMonitorFreezeObserver } from "@/lib/monitor-freeze-observer";
+import {
+  createMonitorObserverId,
+  startMonitorFreezeObserver,
+  startMonitorRuntimeObserver,
+} from "@/lib/monitor-runtime-observer";
 import { useMonitorTabSync } from "@/lib/monitor-tab-sync";
 
 const EMPTY_WORKTREES: Worktree[] = [];
@@ -89,13 +93,26 @@ export default function App() {
 
   useEffect(() => {
     if (!monitorEnabled) return;
-    return startMonitorFreezeObserver(({ blockedMs, longTaskMs }) => {
+    const observerId = createMonitorObserverId();
+    const context = {
+      observerId,
+      getActiveThreadId: () => useAgentStore.getState().state?.threadId ?? null,
+      getRunningThreadIds: () => useAgentStore.getState().runningThreadIds,
+    };
+    const stopFreezeObserver = startMonitorFreezeObserver(context, (report) => {
       void window.omni.monitor.reportRendererFreeze({
-        blockedMs,
-        longTaskMs,
-        activeThreadId: useAgentStore.getState().state?.threadId ?? null,
+        ...report,
+        activeThreadId: context.getActiveThreadId(),
+        runningThreadIds: context.getRunningThreadIds(),
       });
     });
+    const stopRuntimeObserver = startMonitorRuntimeObserver(context, (telemetry) => {
+      void window.omni.monitor.reportRendererTelemetry(telemetry);
+    });
+    return () => {
+      stopFreezeObserver();
+      stopRuntimeObserver();
+    };
   }, [monitorEnabled]);
 
   const [projectsList, setProjectsList] = useState<any[]>([]);

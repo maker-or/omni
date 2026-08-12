@@ -6,6 +6,7 @@ import type {
   MonitorIncidentKind,
   MonitorProcessRole,
   MonitorProcessSample,
+  MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
 } from "../../contracts/monitor.ts";
@@ -49,6 +50,36 @@ export function ensureMonitorTables(): void {
     CREATE INDEX IF NOT EXISTS idx_monitor_samples_session_ts
       ON monitor_samples(session_id, timestamp);
 
+    CREATE TABLE IF NOT EXISTS monitor_renderer_samples (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT,
+      timestamp INTEGER NOT NULL,
+      monotonic_ms REAL NOT NULL,
+      observer_id TEXT NOT NULL,
+      visibility_state TEXT NOT NULL,
+      focused INTEGER NOT NULL,
+      active_thread_id TEXT,
+      running_thread_count INTEGER NOT NULL,
+      js_heap_used_bytes INTEGER,
+      js_heap_total_bytes INTEGER,
+      js_heap_limit_bytes INTEGER,
+      dom_node_count INTEGER,
+      diff_thread_count INTEGER NOT NULL,
+      diff_tool_call_count INTEGER NOT NULL,
+      diff_file_count INTEGER NOT NULL,
+      diff_ingestion_count INTEGER NOT NULL,
+      diff_ingestion_ms REAL NOT NULL,
+      diff_serialized_utf16_bytes INTEGER NOT NULL,
+      diff_extracted_file_count INTEGER NOT NULL,
+      diff_changed_file_count INTEGER NOT NULL,
+      long_task_count INTEGER NOT NULL,
+      long_task_ms REAL NOT NULL,
+      gc_pause_count INTEGER NOT NULL,
+      gc_pause_ms REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_renderer_session_ts
+      ON monitor_renderer_samples(session_id, timestamp);
+
     CREATE TABLE IF NOT EXISTS monitor_incidents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp INTEGER NOT NULL,
@@ -70,6 +101,20 @@ export function ensureMonitorTables(): void {
   addColumnIfMissing(db, "monitor_samples", "runnable_threads", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "monitor_samples", "blocked_threads", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "monitor_samples", "sleeping_threads", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(
+    db,
+    "monitor_renderer_samples",
+    "long_task_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(db, "monitor_renderer_samples", "long_task_ms", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing(
+    db,
+    "monitor_renderer_samples",
+    "gc_pause_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(db, "monitor_renderer_samples", "gc_pause_ms", "REAL NOT NULL DEFAULT 0");
   tablesReady = true;
 }
 
@@ -140,6 +185,106 @@ export function insertSampleBatch(sessionId: string | null, tick: MonitorSampleT
   dbRunBatch(stmt, tick, sessionId);
 }
 
+export function insertRendererTelemetry(
+  sessionId: string | null,
+  telemetry: MonitorRendererTelemetry,
+): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_renderer_samples (
+        session_id, timestamp, monotonic_ms, observer_id, visibility_state, focused,
+        active_thread_id, running_thread_count, js_heap_used_bytes, js_heap_total_bytes,
+        js_heap_limit_bytes, dom_node_count, diff_thread_count, diff_tool_call_count,
+        diff_file_count, diff_ingestion_count, diff_ingestion_ms,
+        diff_serialized_utf16_bytes, diff_extracted_file_count, diff_changed_file_count,
+        long_task_count, long_task_ms, gc_pause_count, gc_pause_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      sessionId,
+      telemetry.timestamp,
+      telemetry.monotonicMs,
+      telemetry.observerId,
+      telemetry.visibilityState,
+      telemetry.focused ? 1 : 0,
+      telemetry.activeThreadId,
+      telemetry.runningThreadCount,
+      telemetry.jsHeapUsedBytes,
+      telemetry.jsHeapTotalBytes,
+      telemetry.jsHeapLimitBytes,
+      telemetry.domNodeCount,
+      telemetry.diffThreadCount,
+      telemetry.diffToolCallCount,
+      telemetry.diffFileCount,
+      telemetry.diffIngestionCount,
+      telemetry.diffIngestionMs,
+      telemetry.diffSerializedUtf16Bytes,
+      telemetry.diffExtractedFileCount,
+      telemetry.diffChangedFileCount,
+      telemetry.longTaskCount,
+      telemetry.longTaskMs,
+      telemetry.gcPauseCount,
+      telemetry.gcPauseMs,
+    );
+}
+
+export function getRendererTelemetry(
+  sessionId: string,
+  maxSamples = 12_000,
+): MonitorRendererTelemetry[] {
+  ensureMonitorTables();
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, monotonic_ms AS monotonicMs, observer_id AS observerId,
+              visibility_state AS visibilityState, focused, active_thread_id AS activeThreadId,
+              running_thread_count AS runningThreadCount, js_heap_used_bytes AS jsHeapUsedBytes,
+              js_heap_total_bytes AS jsHeapTotalBytes, js_heap_limit_bytes AS jsHeapLimitBytes,
+              dom_node_count AS domNodeCount, diff_thread_count AS diffThreadCount,
+              diff_tool_call_count AS diffToolCallCount, diff_file_count AS diffFileCount,
+              diff_ingestion_count AS diffIngestionCount, diff_ingestion_ms AS diffIngestionMs,
+              diff_serialized_utf16_bytes AS diffSerializedUtf16Bytes,
+              diff_extracted_file_count AS diffExtractedFileCount,
+              diff_changed_file_count AS diffChangedFileCount,
+              long_task_count AS longTaskCount, long_task_ms AS longTaskMs,
+              gc_pause_count AS gcPauseCount, gc_pause_ms AS gcPauseMs
+       FROM monitor_renderer_samples
+       WHERE session_id = ?
+       ORDER BY timestamp ASC
+       LIMIT ?`,
+    )
+    .all(sessionId, maxSamples) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    timestamp: Number(row.timestamp),
+    monotonicMs: Number(row.monotonicMs),
+    observerId: String(row.observerId),
+    visibilityState: String(row.visibilityState),
+    focused: Number(row.focused) === 1,
+    activeThreadId: (row.activeThreadId as string | null) ?? null,
+    runningThreadCount: Number(row.runningThreadCount),
+    jsHeapUsedBytes: nullableNumber(row.jsHeapUsedBytes),
+    jsHeapTotalBytes: nullableNumber(row.jsHeapTotalBytes),
+    jsHeapLimitBytes: nullableNumber(row.jsHeapLimitBytes),
+    domNodeCount: nullableNumber(row.domNodeCount),
+    diffThreadCount: Number(row.diffThreadCount),
+    diffToolCallCount: Number(row.diffToolCallCount),
+    diffFileCount: Number(row.diffFileCount),
+    diffIngestionCount: Number(row.diffIngestionCount),
+    diffIngestionMs: Number(row.diffIngestionMs),
+    diffSerializedUtf16Bytes: Number(row.diffSerializedUtf16Bytes),
+    diffExtractedFileCount: Number(row.diffExtractedFileCount),
+    diffChangedFileCount: Number(row.diffChangedFileCount),
+    longTaskCount: Number(row.longTaskCount),
+    longTaskMs: Number(row.longTaskMs),
+    gcPauseCount: Number(row.gcPauseCount),
+    gcPauseMs: Number(row.gcPauseMs),
+  }));
+}
+
+function nullableNumber(value: unknown): number | null {
+  return value == null ? null : Number(value);
+}
+
 function dbRunBatch(stmt: StatementSync, tick: MonitorSampleTick, sessionId: string | null): void {
   const db = getDb();
   db.exec("BEGIN IMMEDIATE;");
@@ -200,6 +345,48 @@ export function insertIncident(
     summary,
     payload,
   };
+}
+
+export function updateIncident(
+  id: number,
+  payload: Record<string, unknown>,
+  summary?: string,
+): MonitorIncident | null {
+  ensureMonitorTables();
+  const db = getDb();
+  const payloadJson = JSON.stringify(payload);
+  if (summary) {
+    db.prepare(`UPDATE monitor_incidents SET summary = ?, payload_json = ? WHERE id = ?`).run(
+      summary,
+      payloadJson,
+      id,
+    );
+  } else {
+    db.prepare(`UPDATE monitor_incidents SET payload_json = ? WHERE id = ?`).run(payloadJson, id);
+  }
+  const row = db
+    .prepare(
+      `SELECT id, timestamp, kind, summary, payload_json AS payloadJson
+       FROM monitor_incidents WHERE id = ?`,
+    )
+    .get(id) as
+    | {
+        id: number;
+        timestamp: number;
+        kind: MonitorIncidentKind;
+        summary: string;
+        payloadJson: string;
+      }
+    | undefined;
+  return row
+    ? {
+        id: row.id,
+        timestamp: row.timestamp,
+        kind: row.kind,
+        summary: row.summary,
+        payload: JSON.parse(row.payloadJson) as Record<string, unknown>,
+      }
+    : null;
 }
 
 export function listIncidents(limit = 100): MonitorIncident[] {
@@ -335,6 +522,9 @@ export function pruneOldSamples(retentionMs: number): void {
   const cutoff = Date.now() - retentionMs;
   getDb()
     .prepare(`DELETE FROM monitor_samples WHERE session_id IS NULL AND timestamp < ?`)
+    .run(cutoff);
+  getDb()
+    .prepare(`DELETE FROM monitor_renderer_samples WHERE session_id IS NULL AND timestamp < ?`)
     .run(cutoff);
   getDb().prepare(`DELETE FROM monitor_incidents WHERE timestamp < ?`).run(cutoff);
 }

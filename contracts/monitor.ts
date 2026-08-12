@@ -76,6 +76,8 @@ export interface MonitorLiveSnapshot {
   aggregate: MonitorAggregate;
   recentTicks: MonitorSampleTick[];
   runningThreadIds: string[];
+  rendererTelemetry: MonitorRendererTelemetry | null;
+  recentRendererTelemetry: MonitorRendererTelemetry[];
 }
 
 export interface MonitorAggregate {
@@ -100,10 +102,51 @@ export interface MonitorSessionSummary extends MonitorAggregate {
 }
 
 export interface MonitorRendererFreezeReport {
+  phase?: "start" | "end";
+  episodeId?: string;
+  observerId?: string;
+  sequence?: number;
+  source?: MonitorFreezeSource;
+  sources?: MonitorFreezeSource[];
   blockedMs: number;
   longTaskMs?: number;
+  maxBlockedMs?: number;
+  episodeDurationMs?: number;
+  signalCount?: number;
+  observedAt?: number;
+  monotonicMs?: number;
+  visibilityState?: string;
+  focused?: boolean;
   activeThreadId?: string | null;
   runningThreadIds?: string[];
+}
+
+export type MonitorFreezeSource = "longtask" | "raf_gap" | "timer_drift";
+
+export interface MonitorRendererTelemetry {
+  timestamp: number;
+  monotonicMs: number;
+  observerId: string;
+  visibilityState: string;
+  focused: boolean;
+  activeThreadId: string | null;
+  runningThreadCount: number;
+  jsHeapUsedBytes: number | null;
+  jsHeapTotalBytes: number | null;
+  jsHeapLimitBytes: number | null;
+  domNodeCount: number | null;
+  diffThreadCount: number;
+  diffToolCallCount: number;
+  diffFileCount: number;
+  diffIngestionCount: number;
+  diffIngestionMs: number;
+  diffSerializedUtf16Bytes: number;
+  diffExtractedFileCount: number;
+  diffChangedFileCount: number;
+  longTaskCount: number;
+  longTaskMs: number;
+  gcPauseCount: number;
+  gcPauseMs: number;
 }
 
 export interface MonitorTabMismatchReport {

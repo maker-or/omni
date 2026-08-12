@@ -48,6 +48,19 @@ developer monitor window:
   mismatch detection has a timer so a mismatch is reported even when no new
   React state arrives. Connection and switch incidents include the recent
   sample ring.
+- Renderer diagnostics now emit bounded freeze episodes rather than persisting
+  every overlapping rAF/timer/Long Task signal. Each episode carries an
+  observer id, signal source, monotonic timing, visibility/focus state, active
+  ACP context, and a small process/renderer context window.
+- A low-frequency renderer telemetry stream records JS heap values when the
+  Chromium runtime exposes them, DOM node count, visibility/focus, active
+  thread context, Long Task totals, GC pause totals when supported, and
+  diff-ingestion counters. These samples are persisted separately from
+  incident payloads so incident history does not duplicate a large time-series
+  window.
+- Diff ingestion reports serialized payload volume, extraction/change counts,
+  and elapsed time. The instrumentation also avoids serializing each tool call
+  twice while calculating its version fingerprint.
 
 The monitor is still intentionally a diagnostic sampler, not a profiler. It
 does not identify individual JavaScript functions or provide kernel-level

@@ -40,7 +40,7 @@ describe("diff-store", () => {
       unseenCount: 0,
     });
 
-    useDiffStore.getState().ingestToolCalls("thread-1", {
+    const metrics = useDiffStore.getState().ingestToolCalls("thread-1", {
       "tc-a": editToolCall("/repo/a.ts", "old", "new"),
     });
 
@@ -49,6 +49,14 @@ describe("diff-store", () => {
     expect(state.files["/repo/a.ts"]).toMatchObject({ oldText: "old", newText: "new" });
     expect(state.isOpen).toBe(true);
     expect(state.activePath).toBe("/repo/a.ts");
+    expect(metrics).toMatchObject({
+      toolCallCount: 1,
+      extractedFileCount: 1,
+      changedFileCount: 1,
+      fileCount: 1,
+    });
+    expect(metrics?.serializedUtf16Bytes).toBeGreaterThan(0);
+    expect(metrics?.durationMs).toBeGreaterThanOrEqual(0);
   });
 
   test("dedupes unchanged diff content and does not reopen a closed tab", () => {

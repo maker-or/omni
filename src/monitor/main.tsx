@@ -7,6 +7,7 @@ import type {
   MonitorLiveSnapshot,
   MonitorProcessSample,
   MonitorSampleTick,
+  MonitorRendererTelemetry,
   MonitorSession,
   MonitorSessionSummary,
 } from "../../contracts/monitor.ts";
@@ -79,6 +80,9 @@ function MonitorApp() {
   const [sessions, setSessions] = useState<MonitorSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionTicks, setSessionTicks] = useState<MonitorSampleTick[]>([]);
+  const [sessionRendererTelemetry, setSessionRendererTelemetry] = useState<
+    MonitorRendererTelemetry[]
+  >([]);
   const [sessionSummary, setSessionSummary] = useState<MonitorSessionSummary | null>(null);
   const [enabled, setEnabled] = useState(false);
 
@@ -122,6 +126,7 @@ function MonitorApp() {
     }
     void window.omni.monitor.getRecordedSession(selectedSessionId).then((payload) => {
       setSessionTicks(payload.ticks);
+      setSessionRendererTelemetry(payload.rendererTelemetry);
       setSessionSummary(payload.summary);
     });
   }, [selectedSessionId]);
@@ -248,6 +253,61 @@ function MonitorApp() {
               <div className="rounded-lg border border-border p-3">
                 <div className="text-xs text-muted-foreground">Incident history</div>
                 <div className="text-lg font-semibold">{incidents.length}</div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                Renderer diagnostics
+              </div>
+              <div className="grid gap-3 text-xs sm:grid-cols-4">
+                <div>
+                  <div className="text-muted-foreground">JS heap</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.jsHeapUsedBytes != null
+                      ? formatBytes(live.rendererTelemetry.jsHeapUsedBytes)
+                      : "Unavailable"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">DOM nodes</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.domNodeCount?.toLocaleString() ?? "Unavailable"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Diff work / 5s</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.diffIngestionCount ?? 0} ingestions
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Diff time / 5s</div>
+                  <div className="font-semibold">
+                    {live
+                      ? `${live.rendererTelemetry?.diffIngestionMs.toFixed(1) ?? "0.0"}ms`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Long tasks / 5s</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.longTaskCount ?? 0} ·{" "}
+                    {live?.rendererTelemetry?.longTaskMs.toFixed(1) ?? "0.0"}ms
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">GC pauses / 5s</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.gcPauseCount ?? 0} ·{" "}
+                    {live?.rendererTelemetry?.gcPauseMs.toFixed(1) ?? "0.0"}ms
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                {live?.rendererTelemetry
+                  ? `${live.rendererTelemetry.visibilityState} · ${live.rendererTelemetry.focused ? "focused" : "unfocused"} · ${live.rendererTelemetry.diffSerializedUtf16Bytes.toLocaleString()} serialized UTF-16 bytes / 5s`
+                  : "Waiting for renderer telemetry…"}
               </div>
             </div>
 
@@ -406,6 +466,59 @@ function MonitorApp() {
                         <div className="text-[11px] text-muted-foreground">
                           {sessionSummary.sampleCount} one-second samples
                         </div>
+                      </div>
+                    </div>
+                  )}
+                  {sessionRendererTelemetry.length > 0 && (
+                    <div className="rounded border border-border/70 p-2 text-xs">
+                      <div className="font-medium">Renderer telemetry</div>
+                      <div className="mt-1 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-4">
+                        <span>
+                          Heap peak:{" "}
+                          {formatBytes(
+                            Math.max(
+                              0,
+                              ...sessionRendererTelemetry.map(
+                                (entry) => entry.jsHeapUsedBytes ?? 0,
+                              ),
+                            ),
+                          )}
+                        </span>
+                        <span>
+                          DOM peak:{" "}
+                          {Math.max(
+                            0,
+                            ...sessionRendererTelemetry.map((entry) => entry.domNodeCount ?? 0),
+                          ).toLocaleString()}
+                        </span>
+                        <span>
+                          Diff ingestions:{" "}
+                          {sessionRendererTelemetry.reduce(
+                            (sum, entry) => sum + entry.diffIngestionCount,
+                            0,
+                          )}
+                        </span>
+                        <span>
+                          Diff time:{" "}
+                          {sessionRendererTelemetry
+                            .reduce((sum, entry) => sum + entry.diffIngestionMs, 0)
+                            .toFixed(1)}
+                          ms
+                        </span>
+                        <span>
+                          Long tasks:{" "}
+                          {sessionRendererTelemetry
+                            .reduce((sum, entry) => sum + entry.longTaskMs, 0)
+                            .toFixed(1)}
+                          ms
+                        </span>
+                        <span>
+                          GC pauses:{" "}
+                          {sessionRendererTelemetry
+                            .reduce((sum, entry) => sum + entry.gcPauseMs, 0)
+                            .toFixed(1)}
+                          ms
+                        </span>
                       </div>
                     </div>
                   )}

@@ -17,6 +17,15 @@ export interface DiffThreadState {
   lastSeenToolCallVersions: Record<string, string>;
 }
 
+export interface DiffIngestionMetrics {
+  toolCallCount: number;
+  serializedUtf16Bytes: number;
+  extractedFileCount: number;
+  changedFileCount: number;
+  durationMs: number;
+  fileCount: number;
+}
+
 interface DiffState {
   /** Active thread projection kept for existing DiffView consumers. */
   threadId: string | null;
@@ -31,7 +40,7 @@ interface DiffState {
     threadId: string | null,
     toolCalls: Record<string, AcpToolCallState>,
     isActive?: boolean,
-  ) => void;
+  ) => DiffIngestionMetrics | null;
   setActivePath: (path: string) => void;
   open: () => void;
   close: () => void;
@@ -88,15 +97,27 @@ function extractDiffs(
 function ingestThread(
   previous: DiffThreadState,
   toolCalls: Record<string, AcpToolCallState>,
-): { next: DiffThreadState; added: number; changed: boolean } {
+): {
+  next: DiffThreadState;
+  added: number;
+  changed: boolean;
+  changedFileCount: number;
+  serializedUtf16Bytes: number;
+} {
   const files = { ...previous.files };
   const order = [...previous.order];
   let added = 0;
   let changed = false;
+  let changedFileCount = 0;
   let lastAddedPath: string | null = null;
+  let serializedUtf16Bytes = 0;
+  const nextVersions: Record<string, string> = {};
 
   for (const [id, toolCall] of Object.entries(toolCalls)) {
-    const version = toolCallVersion(toolCall);
+    const versioned = toolCallVersion(toolCall);
+    const version = versioned.version;
+    serializedUtf16Bytes += versioned.serializedUtf16Bytes;
+    nextVersions[id] = version;
     if (version === previous.lastSeenToolCallVersions[id]) continue;
 
     // In-flight edits are useful partial evidence. The file entry is updated
@@ -121,6 +142,7 @@ function ingestThread(
         updatedAt: Date.now(),
       };
       changed = true;
+      changedFileCount += 1;
     }
   }
 
@@ -135,16 +157,19 @@ function ingestThread(
       order,
       activePath,
       unseenCount: previous.unseenCount + added,
-      lastSeenToolCallVersions: Object.fromEntries(
-        Object.entries(toolCalls).map(([id, toolCall]) => [id, toolCallVersion(toolCall)]),
-      ),
+      lastSeenToolCallVersions: nextVersions,
     },
     added,
     changed,
+    changedFileCount,
+    serializedUtf16Bytes,
   };
 }
 
-function toolCallVersion(toolCall: AcpToolCallState): string {
+function toolCallVersion(toolCall: AcpToolCallState): {
+  version: string;
+  serializedUtf16Bytes: number;
+} {
   // Hash the serialized shape instead of retaining the entire payload in the
   // diff store. This still notices same-length streaming edits while keeping
   // one compact string per tool call.
@@ -162,7 +187,10 @@ function toolCallVersion(toolCall: AcpToolCallState): string {
     hash ^= serialized.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `${serialized.length}:${hash >>> 0}`;
+  return {
+    version: `${serialized.length}:${hash >>> 0}`,
+    serializedUtf16Bytes: serialized.length * 2,
+  };
 }
 
 export const useDiffStore = create<DiffState>((set, get) => ({
@@ -175,7 +203,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   threads: {},
 
   ingestToolCalls: (threadId, toolCalls, isActive = true) => {
-    if (!threadId) return;
+    if (!threadId) return null;
+    const startedAt = globalThis.performance?.now?.() ?? Date.now();
     const state = get();
     const previous =
       state.threads[threadId] ??
@@ -207,7 +236,14 @@ export const useDiffStore = create<DiffState>((set, get) => ({
 
     if (!isActive) {
       set({ threads, unseenCount: state.unseenCount + result.added });
-      return;
+      return {
+        toolCallCount: Object.keys(toolCalls).length,
+        serializedUtf16Bytes: result.serializedUtf16Bytes,
+        extractedFileCount: result.added,
+        changedFileCount: result.changedFileCount,
+        durationMs: (globalThis.performance?.now?.() ?? Date.now()) - startedAt,
+        fileCount: result.next.order.length,
+      };
     }
 
     set({
@@ -219,6 +255,14 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       isOpen: result.added > 0 ? true : state.isOpen,
       unseenCount: state.unseenCount + result.added,
     });
+    return {
+      toolCallCount: Object.keys(toolCalls).length,
+      serializedUtf16Bytes: result.serializedUtf16Bytes,
+      extractedFileCount: result.added,
+      changedFileCount: result.changedFileCount,
+      durationMs: (globalThis.performance?.now?.() ?? Date.now()) - startedAt,
+      fileCount: result.next.order.length,
+    };
   },
 
   setActivePath: (path) => set({ activePath: path }),

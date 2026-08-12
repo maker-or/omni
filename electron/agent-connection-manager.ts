@@ -472,7 +472,9 @@ export class AgentConnectionManager {
     // limited to providers with a currently open thread.
     const catalogCwd =
       this.getActiveCwd() ??
-      (this.activeProjectId ? (getProject(this.activeProjectId)?.path ?? process.cwd()) : process.cwd());
+      (this.activeProjectId
+        ? (getProject(this.activeProjectId)?.path ?? process.cwd())
+        : process.cwd());
     await Promise.all(
       selectedAgentIds.map(async (agentId) => {
         if (result[agentId]?.length) return;
@@ -491,7 +493,10 @@ export class AgentConnectionManager {
             "agent/model-catalog-session-new",
           )) as { sessionId: string; configOptions?: SessionConfigOption[] | null };
           sessionId = created.sessionId;
-          add(agentId, modelOptionsFromConfig(this.withModelOption(live, created.configOptions ?? [])));
+          add(
+            agentId,
+            modelOptionsFromConfig(this.withModelOption(live, created.configOptions ?? [])),
+          );
         } catch {
           // Model discovery is best effort; the provider can still populate
           // its catalog when the user opens a real thread later.

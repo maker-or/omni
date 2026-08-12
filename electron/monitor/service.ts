@@ -6,6 +6,7 @@ import type {
   MonitorLiveSnapshot,
   MonitorProcessDescriptor,
   MonitorProcessSample,
+  MonitorRendererTelemetry,
   MonitorRendererFreezeReport,
   MonitorSampleTick,
   MonitorSession,
@@ -19,15 +20,20 @@ import {
   getMonitorSession,
   insertIncident,
   insertMonitorSession,
+  insertRendererTelemetry,
   insertSampleBatch,
   listIncidents,
   listMonitorSessions,
   getSessionTicks,
+  getRendererTelemetry,
   pruneOldSamples,
+  updateIncident,
 } from "./db.ts";
 
 const SAMPLE_INTERVAL_MS = 1000;
 const RING_CAPACITY = 300;
+const RENDERER_RING_CAPACITY = 120;
+const MAX_RENDERER_EPISODES = 256;
 const SLOW_SWITCH_MS = 3000;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -56,6 +62,11 @@ export class MonitorService {
   private timer: NodeJS.Timeout | null = null;
   private sampling = false;
   private readonly ring: MonitorSampleTick[] = [];
+  private readonly rendererRing: MonitorRendererTelemetry[] = [];
+  private readonly rendererEpisodes = new Map<
+    string,
+    { incidentId: number; payload: Record<string, unknown> }
+  >();
   private recordingSessionId: string | null = null;
   private recordingStartedAt: number | null = null;
   private readonly connectionStartedAt = new Map<string, number>();
@@ -99,6 +110,8 @@ export class MonitorService {
       aggregate: aggregateSamples(latestTick?.processes ?? []),
       recentTicks,
       runningThreadIds: this.getRunningThreadIds(),
+      rendererTelemetry: this.rendererRing.at(-1) ?? null,
+      recentRendererTelemetry: [...this.rendererRing],
     };
   }
 
@@ -120,6 +133,7 @@ export class MonitorService {
     return {
       session,
       ticks,
+      rendererTelemetry: getRendererTelemetry(sessionId),
       incidents,
       summary: summarizeSession(ticks, session, incidents.length),
     };
@@ -180,18 +194,50 @@ export class MonitorService {
   }
 
   reportRendererFreeze(report: MonitorRendererFreezeReport): void {
-    if (report.blockedMs < 200) return;
+    if (report.blockedMs < 200 && report.phase !== "end") return;
+    const episodeId = report.episodeId ?? randomUUID();
+    const phase = report.phase ?? "start";
+    const existing = this.rendererEpisodes.get(episodeId);
+    if (phase === "end" && existing) {
+      const payload = { ...existing.payload, ...report, phase, endedAt: Date.now() };
+      const incident = updateIncident(
+        existing.incidentId,
+        payload,
+        `Renderer freeze episode ${Math.round(Number(payload.maxBlockedMs ?? report.blockedMs))}ms`,
+      );
+      this.rendererEpisodes.delete(episodeId);
+      if (incident) this.onBroadcast("monitor:incident", incident);
+      return;
+    }
+
+    if (existing) return;
+    const payload = {
+      ...report,
+      phase: "start",
+      episodeId,
+      runningThreadIds: report.runningThreadIds ?? this.getRunningThreadIds(),
+      preDropTicks: this.ring.slice(-5),
+      rendererTelemetry: this.rendererRing.slice(-3),
+      sessionId: this.recordingSessionId,
+    };
     const incident = insertIncident(
       "renderer_freeze",
-      `Renderer blocked ${Math.round(report.blockedMs)}ms`,
-      {
-        ...report,
-        runningThreadIds: report.runningThreadIds ?? this.getRunningThreadIds(),
-        preDropTicks: this.ring.slice(-15),
-        sessionId: this.recordingSessionId,
-      },
+      `Renderer freeze episode started (${Math.round(report.blockedMs)}ms)`,
+      payload,
     );
+    this.rendererEpisodes.set(episodeId, { incidentId: incident.id, payload });
+    while (this.rendererEpisodes.size > MAX_RENDERER_EPISODES) {
+      const oldest = this.rendererEpisodes.keys().next().value;
+      if (!oldest) break;
+      this.rendererEpisodes.delete(oldest);
+    }
     this.onBroadcast("monitor:incident", incident);
+  }
+
+  reportRendererTelemetry(telemetry: MonitorRendererTelemetry): void {
+    this.rendererRing.push(telemetry);
+    while (this.rendererRing.length > RENDERER_RING_CAPACITY) this.rendererRing.shift();
+    if (this.recordingSessionId) insertRendererTelemetry(this.recordingSessionId, telemetry);
   }
 
   reportTabMismatch(report: MonitorTabMismatchReport): void {

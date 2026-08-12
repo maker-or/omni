@@ -1517,6 +1517,7 @@ function registerIpc(): void {
       monitorService?.getRecordedSession(sessionId) ?? {
         session: null,
         ticks: [],
+        rendererTelemetry: [],
         incidents: [],
       },
   );
@@ -1527,6 +1528,9 @@ function registerIpc(): void {
   ipcMain.handle("monitor:stopRecording", () => monitorService?.stopRecording() ?? null);
   ipcMain.handle("monitor:reportRendererFreeze", (_event, report) => {
     monitorService?.reportRendererFreeze(report);
+  });
+  ipcMain.handle("monitor:reportRendererTelemetry", (_event, telemetry) => {
+    monitorService?.reportRendererTelemetry(telemetry);
   });
   ipcMain.handle("monitor:reportTabMismatch", (_event, report) => {
     monitorService?.reportTabMismatch(report);

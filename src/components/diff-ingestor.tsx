@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/store/agent-store";
 import { useDiffStore } from "@/store/diff-store";
 import type { AcpToolCallState } from "../../contracts/acp.ts";
+import { recordDiffIngestion } from "@/lib/monitor-runtime-observer";
 
 /**
  * Headless: streams the active agent thread's ACP tool-call diffs into the
@@ -41,7 +42,15 @@ export function DiffIngestor() {
       ) {
         continue;
       }
-      ingestToolCalls(threadId, typedToolCalls, threadId === activeThreadId);
+      const metrics = ingestToolCalls(threadId, typedToolCalls, threadId === activeThreadId);
+      if (metrics) {
+        recordDiffIngestion({
+          ...metrics,
+          threadCount: Object.keys(threadToolCalls).filter((id) => id !== "__none__").length,
+          toolCallCount: Object.keys(typedToolCalls).length,
+          fileCount: metrics.fileCount,
+        });
+      }
     }
     seenToolCalls.current = nextSeen;
     previousActiveThreadId.current = activeThreadId;

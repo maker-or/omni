@@ -1647,10 +1647,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
     let cancelled = false;
     void window.omni.projects
-      .listFiles(
-        fileProjectId ?? undefined,
-        fileWorktreePath,
-      )
+      .listFiles(fileProjectId ?? undefined, fileWorktreePath)
       .then((paths) => {
         if (cancelled) return;
         setProjectFileItems(

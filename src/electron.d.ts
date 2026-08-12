@@ -25,6 +25,7 @@ import type {
   MonitorIncident,
   MonitorLiveSnapshot,
   MonitorRendererFreezeReport,
+  MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
   MonitorSessionSummary,
@@ -226,12 +227,14 @@ declare global {
         getRecordedSession: (sessionId: string) => Promise<{
           session: MonitorSession | null;
           ticks: MonitorSampleTick[];
+          rendererTelemetry: MonitorRendererTelemetry[];
           incidents: MonitorIncident[];
           summary: MonitorSessionSummary;
         }>;
         startRecording: (label?: string) => Promise<MonitorSession>;
         stopRecording: () => Promise<MonitorSession | null>;
         reportRendererFreeze: (report: MonitorRendererFreezeReport) => Promise<void>;
+        reportRendererTelemetry: (telemetry: MonitorRendererTelemetry) => Promise<void>;
         reportTabMismatch: (report: MonitorTabMismatchReport) => Promise<void>;
         openWindow: () => Promise<void>;
         onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;
