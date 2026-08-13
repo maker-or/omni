@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { constants as fsConstants, existsSync, realpathSync } from "node:fs";
@@ -62,15 +63,26 @@ import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema
 import type { MonitorProcessDescriptor } from "../contracts/monitor.ts";
 
 export interface AgentMonitorObserver {
-  onConnectionSpawned: (input: { agentId: string; pid: number }) => void;
+  onConnectionSpawned: (input: {
+    connectionId: string;
+    agentId: string;
+    pid: number;
+    spawnedAt: number;
+    previousConnectionId: string | null;
+  }) => void;
+  onConnectionReady?: (input: { connectionId: string; initializedAt: number }) => void;
   onConnectionClosed?: (input: {
+    connectionId: string;
     agentId: string;
     pid: number | null;
     activeThreadId: string | null;
     runningThreadIds: string[];
     spawnedAt: number;
+    intentional: boolean;
+    stderrTail: string;
   }) => void;
   onConnectionExit: (input: {
+    connectionId: string;
     agentId: string;
     pid: number | null;
     exitCode: number | null;
@@ -78,6 +90,8 @@ export interface AgentMonitorObserver {
     activeThreadId: string | null;
     runningThreadIds: string[];
     spawnedAt: number;
+    intentional: boolean;
+    stderrTail: string;
   }) => void;
 }
 
@@ -173,6 +187,7 @@ type SendToRenderer = (channel: string, payload: unknown) => void;
 type EventSendToRenderer = (event: AcpBridgeEvent) => void;
 type SetWindowTitle = (title: string) => void;
 interface LiveConnection {
+  connectionId: string;
   agentId: string;
   agentInfoName: string;
   process: ChildProcessWithoutNullStreams;
@@ -353,6 +368,8 @@ export class AgentConnectionManager {
   private readonly toolCallStarts = new Map<string, { startedAt: number; kind?: string }>();
   private monitorObserver: AgentMonitorObserver | null = null;
   private readonly connectionSpawnedAt = new Map<string, number>();
+  private readonly intentionalConnectionIds = new Set<string>();
+  private readonly lastConnectionIds = new Map<string, string>();
   private threadActivationQueue: Promise<unknown> = Promise.resolve();
   private activationGeneration = 0;
   private readonly threadActivationGenerations = new Map<string, number>();
@@ -807,10 +824,59 @@ export class AgentConnectionManager {
       env,
     }) as ChildProcessWithoutNullStreams;
 
+    const connectionId = randomUUID();
+    const spawnedAt = Date.now();
+    const previousConnectionId = this.lastConnectionIds.get(descriptor.id) ?? null;
+    let stderrTail = "";
+    const appendStderr = (buf: Buffer): void => {
+      const text = buf.toString("utf8");
+      stderrTail = `${stderrTail}${text}`.slice(-16_384);
+    };
+
     child.stderr.on("data", (buf: Buffer) => {
+      appendStderr(buf);
       const text = buf.toString("utf8").trim();
       if (text) console.error(`[acp-agent:${descriptor.id}]`, text);
     });
+
+    // Register the lifecycle before the handshake. A process that dies or
+    // times out during initialize is still a real connection episode and must
+    // not disappear from diagnostics.
+    this.connectionSpawnedAt.set(connectionId, spawnedAt);
+    this.lastConnectionIds.set(descriptor.id, connectionId);
+    this.monitorObserver?.onConnectionSpawned({
+      connectionId,
+      agentId: descriptor.id,
+      pid: child.pid ?? 0,
+      spawnedAt,
+      previousConnectionId,
+    });
+    let exitReported = false;
+    const reportExit = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+      if (exitReported) return;
+      exitReported = true;
+      this.monitorObserver?.onConnectionExit({
+        connectionId,
+        agentId: descriptor.id,
+        pid: child.pid ?? null,
+        exitCode,
+        signal,
+        activeThreadId: this.activeThreadId,
+        runningThreadIds: this.getRunningThreadIds(),
+        spawnedAt,
+        intentional: this.intentionalConnectionIds.has(connectionId),
+        stderrTail,
+      });
+      this.connectionSpawnedAt.delete(connectionId);
+      this.intentionalConnectionIds.delete(connectionId);
+      const current = this.connections.get(descriptor.id);
+      if (this.connection?.process === child) this.connection = null;
+      if (current?.process === child) {
+        this.connections.delete(descriptor.id);
+        this.invalidateAgentSessions(descriptor.id);
+      }
+    };
+    child.on("exit", reportExit);
 
     const input = Writable.toWeb(child.stdin);
     const output = Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>;
@@ -914,49 +980,34 @@ export class AgentConnectionManager {
       (initResult as { _meta?: { modelState?: LiveConnection["modelState"] } })._meta?.modelState ??
       null;
 
-    const spawnedAt = Date.now();
     const closed = connection.closed.then(() => {
       // A transport can close while its child is still alive. That is a
       // different failure mode from a process exit and must be visible in the
       // incident log. The exit handler owns the latter case.
       if (child.exitCode == null && child.signalCode == null) {
         this.monitorObserver?.onConnectionClosed?.({
+          connectionId,
           agentId: descriptor.id,
           pid: child.pid ?? null,
           activeThreadId: this.activeThreadId,
           runningThreadIds: this.getRunningThreadIds(),
           spawnedAt,
+          intentional: this.intentionalConnectionIds.has(connectionId),
+          stderrTail,
         });
       }
-      if (this.connection?.process === child) {
-        this.connection = null;
+      const current = this.connections.get(descriptor.id);
+      if (this.connection?.process === child) this.connection = null;
+      if (current?.process === child) {
+        this.connections.delete(descriptor.id);
+        this.invalidateAgentSessions(descriptor.id);
       }
-      this.connections.delete(descriptor.id);
-      this.invalidateAgentSessions(descriptor.id);
     });
 
-    this.connectionSpawnedAt.set(descriptor.id, spawnedAt);
-    this.monitorObserver?.onConnectionSpawned({ agentId: descriptor.id, pid: child.pid ?? 0 });
-
-    child.on("exit", (exitCode, signal) => {
-      this.monitorObserver?.onConnectionExit({
-        agentId: descriptor.id,
-        pid: child.pid ?? null,
-        exitCode,
-        signal,
-        activeThreadId: this.activeThreadId,
-        runningThreadIds: this.getRunningThreadIds(),
-        spawnedAt: this.connectionSpawnedAt.get(descriptor.id) ?? spawnedAt,
-      });
-      this.connectionSpawnedAt.delete(descriptor.id);
-      if (this.connection?.process === child) {
-        this.connection = null;
-      }
-      this.connections.delete(descriptor.id);
-      this.invalidateAgentSessions(descriptor.id);
-    });
+    this.monitorObserver?.onConnectionReady?.({ connectionId, initializedAt: Date.now() });
 
     return {
+      connectionId,
       agentId: descriptor.id,
       agentInfoName,
       process: child,
@@ -988,6 +1039,7 @@ export class AgentConnectionManager {
     this.connections.clear();
     await Promise.all(
       liveConnections.map(async (live) => {
+        this.intentionalConnectionIds.add(live.connectionId);
         try {
           live.connection.close();
         } catch {

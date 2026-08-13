@@ -38,3 +38,6 @@ coverage
 
 # Vercel
 .vercel/
+
+# Startup benchmark results
+startup-benchmark-results/

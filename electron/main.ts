@@ -86,6 +86,13 @@ import {
 const mainDir = dirname(fileURLToPath(import.meta.url));
 
 const startupStartedAt = performance.now();
+const reportedRendererStartupMilestones = new Set<string>();
+const rendererStartupMilestoneLabels = new Set([
+  "entry",
+  "react-committed",
+  "first-contentful-paint",
+  "project-context-ready",
+]);
 
 function logStartupMilestone(label: string, details?: string): void {
   const elapsedMs = (performance.now() - startupStartedAt).toFixed(1);
@@ -272,6 +279,30 @@ let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
 let monitorWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let pendingStartupAgentProjectId: string | null = null;
+let startupAgentActivationStarted = false;
+let startupAgentActivationFallback: ReturnType<typeof setTimeout> | null = null;
+
+function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
+  if (startupAgentActivationStarted || !pendingStartupAgentProjectId || !agentManager) return;
+  startupAgentActivationStarted = true;
+  if (startupAgentActivationFallback) {
+    clearTimeout(startupAgentActivationFallback);
+    startupAgentActivationFallback = null;
+  }
+  logStartupMilestone(
+    "agent-activation:start",
+    `project=${pendingStartupAgentProjectId} reason=${reason}`,
+  );
+  void agentManager
+    .activateFromLaunchState()
+    .then(() => {
+      logStartupMilestone("agent-activation:complete");
+    })
+    .catch((error) => {
+      console.error("[Startup] Agent activation failed:", error);
+    });
+}
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let authCallbackServer: http.Server | null = null;
@@ -752,11 +783,15 @@ function initializeMonitorService(): void {
   monitorService.start();
 
   agentManager?.setMonitorObserver({
-    onConnectionSpawned: ({ agentId }) => {
-      monitorService?.noteConnectionStarted(agentId);
+    onConnectionSpawned: (event) => {
+      monitorService?.noteConnectionStarted(event);
+    },
+    onConnectionReady: (event) => {
+      monitorService?.noteConnectionReady(event);
     },
     onConnectionClosed: (event) => {
       monitorService?.noteConnectionLost({
+        connectionId: event.connectionId,
         agentId: event.agentId,
         pid: event.pid,
         cause: "transport_closed",
@@ -765,10 +800,13 @@ function initializeMonitorService(): void {
         activeThreadId: event.activeThreadId,
         runningThreadIds: event.runningThreadIds,
         uptimeMs: Date.now() - event.spawnedAt,
+        intentional: event.intentional,
+        stderrTail: event.stderrTail,
       });
     },
     onConnectionExit: (event) => {
       monitorService?.noteConnectionLost({
+        connectionId: event.connectionId,
         agentId: event.agentId,
         pid: event.pid,
         cause: "process_exit",
@@ -777,6 +815,8 @@ function initializeMonitorService(): void {
         activeThreadId: event.activeThreadId,
         runningThreadIds: event.runningThreadIds,
         uptimeMs: Date.now() - event.spawnedAt,
+        intentional: event.intentional,
+        stderrTail: event.stderrTail,
       });
     },
   });
@@ -927,6 +967,35 @@ function buildAppMenu(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.on(
+    "startup:renderer-milestone",
+    (event, payload: { label?: unknown; rendererElapsedMs?: unknown }) => {
+      if (event.sender !== mainWindow?.webContents) return;
+      if (
+        typeof payload?.label !== "string" ||
+        !rendererStartupMilestoneLabels.has(payload.label)
+      ) {
+        return;
+      }
+      if (
+        typeof payload.rendererElapsedMs !== "number" ||
+        !Number.isFinite(payload.rendererElapsedMs)
+      ) {
+        return;
+      }
+      const key = `${event.sender.id}:${payload.label}`;
+      if (reportedRendererStartupMilestones.has(key)) return;
+      reportedRendererStartupMilestones.add(key);
+      logStartupMilestone(
+        `renderer:${payload.label}`,
+        `renderer=${Math.round(payload.rendererElapsedMs)}ms`,
+      );
+      if (payload.label === "first-contentful-paint") {
+        startStartupAgentActivation("first-paint");
+      }
+    },
+  );
+
   ipcMain.handle("launcher-update:check", () => requireLauncherUpdateManager().check());
   ipcMain.handle("launcher-update:getState", () => requireLauncherUpdateManager().getState());
   ipcMain.handle("launcher-update:isDismissedForSession", () =>
@@ -1532,6 +1601,10 @@ function registerIpc(): void {
   ipcMain.handle("monitor:isEnabled", () => true);
   ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
   ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
+  ipcMain.handle(
+    "monitor:getConnectionEpisodes",
+    () => monitorService?.getConnectionEpisodes() ?? [],
+  );
   ipcMain.handle("monitor:getSessions", () => monitorService?.getSessions() ?? []);
   ipcMain.handle(
     "monitor:getRecordedSession",
@@ -1540,6 +1613,8 @@ function registerIpc(): void {
         session: null,
         ticks: [],
         rendererTelemetry: [],
+        diffIngestions: [],
+        connectionEpisodes: [],
         incidents: [],
       },
   );
@@ -1553,6 +1628,9 @@ function registerIpc(): void {
   });
   ipcMain.handle("monitor:reportRendererTelemetry", (_event, telemetry) => {
     monitorService?.reportRendererTelemetry(telemetry);
+  });
+  ipcMain.on("monitor:reportDiffIngestion", (_event, ingestion) => {
+    monitorService?.reportDiffIngestion(ingestion);
   });
   ipcMain.handle("monitor:reportTabMismatch", (_event, report) => {
     monitorService?.reportTabMismatch(report);
@@ -1732,15 +1810,18 @@ app.whenReady().then(async () => {
     logStartupMilestone("main-window:starting-before-agent-activation");
     void createMainWindow();
     if (state.projectId) {
-      logStartupMilestone("agent-activation:start", `project=${state.projectId}`);
-      void agentManager
-        .activateFromLaunchState()
-        .then(() => {
-          logStartupMilestone("agent-activation:complete");
-        })
-        .catch((error) => {
-          console.error("[Startup] Agent activation failed:", error);
-        });
+      // ACP activation spawns and handshakes with child processes. It must not
+      // overlap Chromium's renderer bootstrap or first paint. The renderer's
+      // initial getState call remains the authoritative catch-up path.
+      pendingStartupAgentProjectId = state.projectId;
+      startupAgentActivationStarted = false;
+      mainWindow?.once("ready-to-show", () => {
+        startupAgentActivationFallback = setTimeout(
+          () => startStartupAgentActivation("fallback"),
+          2000,
+        );
+        startupAgentActivationFallback.unref?.();
+      });
     }
   } else {
     logStartupMilestone("launch-window:starting");

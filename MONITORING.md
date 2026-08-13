@@ -61,6 +61,13 @@ developer monitor window:
 - Diff ingestion reports serialized payload volume, extraction/change counts,
   and elapsed time. The instrumentation also avoids serializing each tool call
   twice while calculating its version fingerprint.
+- ACP connections have a durable lifecycle episode keyed by a stable connection
+  id. Spawn, initialize-ready, transport-close, and process-exit timestamps are
+  joined into one record, with intentional shutdown classification, exit code /
+  signal, reconnect attempt and predecessor ids, active-thread context, and a
+  bounded stderr tail. A transport close followed by process exit therefore
+  appears as one failure episode rather than two incidents. Handshake failures
+  are recorded from process spawn onward, before initialization completes.
 
 The monitor is still intentionally a diagnostic sampler, not a profiler. It
 does not identify individual JavaScript functions or provide kernel-level

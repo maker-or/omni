@@ -4,6 +4,8 @@ import { getDb } from "../db.ts";
 import type {
   MonitorIncident,
   MonitorIncidentKind,
+  MonitorConnectionEpisode,
+  MonitorDiffIngestion,
   MonitorProcessRole,
   MonitorProcessSample,
   MonitorRendererTelemetry,
@@ -80,6 +82,29 @@ export function ensureMonitorTables(): void {
     CREATE INDEX IF NOT EXISTS idx_monitor_renderer_session_ts
       ON monitor_renderer_samples(session_id, timestamp);
 
+    CREATE TABLE IF NOT EXISTS monitor_diff_ingestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      active_thread_id TEXT,
+      ingested_thread_id TEXT NOT NULL,
+      active_thread_streaming INTEGER NOT NULL,
+      is_active_thread INTEGER NOT NULL,
+      visibility_state TEXT NOT NULL,
+      focused INTEGER NOT NULL,
+      thread_count INTEGER NOT NULL,
+      tool_call_count INTEGER NOT NULL,
+      file_count INTEGER NOT NULL,
+      duration_ms REAL NOT NULL,
+      serialized_utf16_bytes INTEGER NOT NULL,
+      extracted_file_count INTEGER NOT NULL,
+      changed_file_count INTEGER NOT NULL,
+      next_frame_ms REAL NOT NULL,
+      post_paint_ms REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_diff_ingestions_session_ts
+      ON monitor_diff_ingestions(session_id, timestamp);
+
     CREATE TABLE IF NOT EXISTS monitor_incidents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp INTEGER NOT NULL,
@@ -89,6 +114,29 @@ export function ensureMonitorTables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_monitor_incidents_ts
       ON monitor_incidents(timestamp DESC);
+
+    CREATE TABLE IF NOT EXISTS monitor_connection_episodes (
+      connection_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      pid INTEGER,
+      spawned_at INTEGER NOT NULL,
+      initialized_at INTEGER,
+      transport_closed_at INTEGER,
+      process_exited_at INTEGER,
+      ended_at INTEGER,
+      exit_code INTEGER,
+      signal TEXT,
+      intentional INTEGER NOT NULL DEFAULT 0,
+      terminal_cause TEXT,
+      active_thread_id TEXT,
+      running_thread_ids_json TEXT NOT NULL DEFAULT '[]',
+      uptime_ms INTEGER,
+      stderr_tail TEXT NOT NULL DEFAULT '',
+      reconnect_attempt INTEGER NOT NULL DEFAULT 1,
+      previous_connection_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_connection_episodes_ended
+      ON monitor_connection_episodes(ended_at DESC);
   `);
   addColumnIfMissing(db, "monitor_samples", "thread_ids_json", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(
@@ -116,6 +164,115 @@ export function ensureMonitorTables(): void {
   );
   addColumnIfMissing(db, "monitor_renderer_samples", "gc_pause_ms", "REAL NOT NULL DEFAULT 0");
   tablesReady = true;
+}
+
+export function upsertConnectionEpisode(episode: MonitorConnectionEpisode): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_connection_episodes (
+        connection_id, agent_id, pid, spawned_at, initialized_at,
+        transport_closed_at, process_exited_at, ended_at, exit_code, signal,
+        intentional, terminal_cause, active_thread_id, running_thread_ids_json,
+        uptime_ms, stderr_tail, reconnect_attempt, previous_connection_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(connection_id) DO UPDATE SET
+        agent_id = excluded.agent_id,
+        pid = excluded.pid,
+        spawned_at = excluded.spawned_at,
+        initialized_at = excluded.initialized_at,
+        transport_closed_at = excluded.transport_closed_at,
+        process_exited_at = excluded.process_exited_at,
+        ended_at = excluded.ended_at,
+        exit_code = excluded.exit_code,
+        signal = excluded.signal,
+        intentional = excluded.intentional,
+        terminal_cause = excluded.terminal_cause,
+        active_thread_id = excluded.active_thread_id,
+        running_thread_ids_json = excluded.running_thread_ids_json,
+        uptime_ms = excluded.uptime_ms,
+        stderr_tail = excluded.stderr_tail,
+        reconnect_attempt = excluded.reconnect_attempt,
+        previous_connection_id = excluded.previous_connection_id`,
+    )
+    .run(
+      episode.connectionId,
+      episode.agentId,
+      episode.pid,
+      episode.spawnedAt,
+      episode.initializedAt,
+      episode.transportClosedAt,
+      episode.processExitedAt,
+      episode.endedAt,
+      episode.exitCode,
+      episode.signal,
+      episode.intentional ? 1 : 0,
+      episode.terminalCause,
+      episode.activeThreadId,
+      JSON.stringify(episode.runningThreadIds),
+      episode.uptimeMs,
+      episode.stderrTail,
+      episode.reconnectAttempt,
+      episode.previousConnectionId,
+    );
+}
+
+export function getConnectionEpisodes(
+  limit = 500,
+  connectionId?: string,
+): MonitorConnectionEpisode[] {
+  ensureMonitorTables();
+  const rows = getDb()
+    .prepare(
+      `SELECT connection_id AS connectionId, agent_id AS agentId, pid,
+              spawned_at AS spawnedAt, initialized_at AS initializedAt,
+              transport_closed_at AS transportClosedAt,
+              process_exited_at AS processExitedAt, ended_at AS endedAt,
+              exit_code AS exitCode, signal, intentional,
+              terminal_cause AS terminalCause, active_thread_id AS activeThreadId,
+              running_thread_ids_json AS runningThreadIdsJson, uptime_ms AS uptimeMs,
+              stderr_tail AS stderrTail, reconnect_attempt AS reconnectAttempt,
+              previous_connection_id AS previousConnectionId
+       FROM monitor_connection_episodes
+       WHERE (? IS NULL OR connection_id = ?)
+       ORDER BY spawned_at DESC
+       LIMIT ?`,
+    )
+    .all(connectionId ?? null, connectionId ?? null, limit) as Array<Record<string, unknown>>;
+  return rows.map((row) => {
+    let runningThreadIds: string[] = [];
+    try {
+      const parsed = JSON.parse(String(row.runningThreadIdsJson ?? "[]"));
+      if (Array.isArray(parsed))
+        runningThreadIds = parsed.filter((id): id is string => typeof id === "string");
+    } catch {
+      // Preserve a readable empty value for rows written by an older build.
+    }
+    return {
+      connectionId: String(row.connectionId),
+      agentId: String(row.agentId),
+      pid: row.pid == null ? null : Number(row.pid),
+      spawnedAt: Number(row.spawnedAt),
+      initializedAt: row.initializedAt == null ? null : Number(row.initializedAt),
+      transportClosedAt: row.transportClosedAt == null ? null : Number(row.transportClosedAt),
+      processExitedAt: row.processExitedAt == null ? null : Number(row.processExitedAt),
+      endedAt: row.endedAt == null ? null : Number(row.endedAt),
+      exitCode: row.exitCode == null ? null : Number(row.exitCode),
+      signal: row.signal == null ? null : String(row.signal),
+      intentional: Number(row.intentional) === 1,
+      terminalCause:
+        row.terminalCause == null
+          ? null
+          : (String(row.terminalCause) as MonitorConnectionEpisode["terminalCause"]),
+      activeThreadId: row.activeThreadId == null ? null : String(row.activeThreadId),
+      runningThreadIds,
+      uptimeMs: row.uptimeMs == null ? null : Number(row.uptimeMs),
+      stderrTail: String(row.stderrTail ?? ""),
+      reconnectAttempt: Number(row.reconnectAttempt ?? 1),
+      previousConnectionId:
+        row.previousConnectionId == null ? null : String(row.previousConnectionId),
+    };
+  });
 }
 
 function addColumnIfMissing(
@@ -227,6 +384,79 @@ export function insertRendererTelemetry(
       telemetry.gcPauseCount,
       telemetry.gcPauseMs,
     );
+}
+
+export function insertDiffIngestion(sessionId: string, ingestion: MonitorDiffIngestion): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_diff_ingestions (
+        session_id, timestamp, active_thread_id, ingested_thread_id,
+        active_thread_streaming, is_active_thread, visibility_state, focused,
+        thread_count, tool_call_count, file_count, duration_ms,
+        serialized_utf16_bytes, extracted_file_count, changed_file_count,
+        next_frame_ms, post_paint_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      sessionId,
+      ingestion.timestamp,
+      ingestion.activeThreadId,
+      ingestion.ingestedThreadId,
+      ingestion.activeThreadStreaming ? 1 : 0,
+      ingestion.isActiveThread ? 1 : 0,
+      ingestion.visibilityState,
+      ingestion.focused ? 1 : 0,
+      ingestion.threadCount,
+      ingestion.toolCallCount,
+      ingestion.fileCount,
+      ingestion.durationMs,
+      ingestion.serializedUtf16Bytes,
+      ingestion.extractedFileCount,
+      ingestion.changedFileCount,
+      ingestion.nextFrameMs,
+      ingestion.postPaintMs,
+    );
+}
+
+export function getDiffIngestions(sessionId: string, maxRows = 50_000): MonitorDiffIngestion[] {
+  ensureMonitorTables();
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, active_thread_id AS activeThreadId,
+              ingested_thread_id AS ingestedThreadId,
+              active_thread_streaming AS activeThreadStreaming,
+              is_active_thread AS isActiveThread, visibility_state AS visibilityState,
+              focused, thread_count AS threadCount, tool_call_count AS toolCallCount,
+              file_count AS fileCount, duration_ms AS durationMs,
+              serialized_utf16_bytes AS serializedUtf16Bytes,
+              extracted_file_count AS extractedFileCount,
+              changed_file_count AS changedFileCount, next_frame_ms AS nextFrameMs,
+              post_paint_ms AS postPaintMs
+       FROM monitor_diff_ingestions
+       WHERE session_id = ?
+       ORDER BY timestamp ASC
+       LIMIT ?`,
+    )
+    .all(sessionId, maxRows) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    timestamp: Number(row.timestamp),
+    activeThreadId: (row.activeThreadId as string | null) ?? null,
+    ingestedThreadId: String(row.ingestedThreadId),
+    activeThreadStreaming: Number(row.activeThreadStreaming) === 1,
+    isActiveThread: Number(row.isActiveThread) === 1,
+    visibilityState: String(row.visibilityState),
+    focused: Number(row.focused) === 1,
+    threadCount: Number(row.threadCount),
+    toolCallCount: Number(row.toolCallCount),
+    fileCount: Number(row.fileCount),
+    durationMs: Number(row.durationMs),
+    serializedUtf16Bytes: Number(row.serializedUtf16Bytes),
+    extractedFileCount: Number(row.extractedFileCount),
+    changedFileCount: Number(row.changedFileCount),
+    nextFrameMs: Number(row.nextFrameMs),
+    postPaintMs: Number(row.postPaintMs),
+  }));
 }
 
 export function getRendererTelemetry(

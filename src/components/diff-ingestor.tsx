@@ -50,6 +50,15 @@ export function DiffIngestor() {
           toolCallCount: Object.keys(typedToolCalls).length,
           fileCount: metrics.fileCount,
         });
+        reportDiffIngestionAfterPaint({
+          activeThreadId,
+          ingestedThreadId: threadId,
+          activeThreadStreaming: useAgentStore.getState().runningThreadIds.includes(activeThreadId),
+          isActiveThread: threadId === activeThreadId,
+          threadCount: Object.keys(threadToolCalls).filter((id) => id !== "__none__").length,
+          toolCallCount: Object.keys(typedToolCalls).length,
+          ...metrics,
+        });
       }
     }
     seenToolCalls.current = nextSeen;
@@ -57,4 +66,39 @@ export function DiffIngestor() {
   }, [activeThreadId, threadToolCalls, ingestToolCalls]);
 
   return null;
+}
+
+function reportDiffIngestionAfterPaint(
+  input: Parameters<typeof recordDiffIngestion>[0] & {
+    activeThreadId: string;
+    ingestedThreadId: string;
+    activeThreadStreaming: boolean;
+    isActiveThread: boolean;
+  },
+): void {
+  const ingestionEndedAt = globalThis.performance?.now?.() ?? Date.now();
+  requestAnimationFrame(() => {
+    const nextFrameMs = (globalThis.performance?.now?.() ?? Date.now()) - ingestionEndedAt;
+    requestAnimationFrame(() => {
+      const postPaintMs = (globalThis.performance?.now?.() ?? Date.now()) - ingestionEndedAt;
+      window.omni.monitor.reportDiffIngestion({
+        timestamp: Date.now(),
+        activeThreadId: input.activeThreadId,
+        ingestedThreadId: input.ingestedThreadId,
+        activeThreadStreaming: input.activeThreadStreaming,
+        isActiveThread: input.isActiveThread,
+        visibilityState: document.visibilityState,
+        focused: document.hasFocus(),
+        threadCount: input.threadCount,
+        toolCallCount: input.toolCallCount,
+        fileCount: input.fileCount,
+        durationMs: input.durationMs,
+        serializedUtf16Bytes: input.serializedUtf16Bytes,
+        extractedFileCount: input.extractedFileCount,
+        changedFileCount: input.changedFileCount,
+        nextFrameMs,
+        postPaintMs,
+      });
+    });
+  });
 }

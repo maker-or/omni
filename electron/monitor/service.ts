@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import type {
   MonitorAggregate,
+  MonitorConnectionEpisode,
+  MonitorDiffIngestion,
   MonitorLiveSnapshot,
   MonitorProcessDescriptor,
   MonitorProcessSample,
@@ -19,6 +21,7 @@ import {
   finishMonitorSession,
   getMonitorSession,
   insertIncident,
+  insertDiffIngestion,
   insertMonitorSession,
   insertRendererTelemetry,
   insertSampleBatch,
@@ -26,6 +29,9 @@ import {
   listMonitorSessions,
   getSessionTicks,
   getRendererTelemetry,
+  getDiffIngestions,
+  getConnectionEpisodes,
+  upsertConnectionEpisode,
   pruneOldSamples,
   updateIncident,
 } from "./db.ts";
@@ -38,6 +44,7 @@ const SLOW_SWITCH_MS = 3000;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface MonitorConnectionLossEvent {
+  connectionId: string;
   agentId: string;
   pid: number | null;
   cause?: "transport_closed" | "process_exit";
@@ -46,6 +53,21 @@ export interface MonitorConnectionLossEvent {
   activeThreadId: string | null;
   runningThreadIds: string[];
   uptimeMs: number;
+  intentional?: boolean;
+  stderrTail?: string;
+}
+
+export interface MonitorConnectionStartedEvent {
+  connectionId: string;
+  agentId: string;
+  pid: number | null;
+  spawnedAt: number;
+  previousConnectionId: string | null;
+}
+
+export interface MonitorConnectionReadyEvent {
+  connectionId: string;
+  initializedAt: number;
 }
 
 export interface MonitorServiceOptions {
@@ -70,6 +92,9 @@ export class MonitorService {
   private recordingSessionId: string | null = null;
   private recordingStartedAt: number | null = null;
   private readonly connectionStartedAt = new Map<string, number>();
+  private readonly connectionEpisodes = new Map<string, MonitorConnectionEpisode>();
+  private readonly connectionIncidentIds = new Map<string, number>();
+  private readonly reconnectAttempts = new Map<string, number>();
 
   constructor(options: MonitorServiceOptions) {
     this.getInventory = options.getInventory;
@@ -119,6 +144,10 @@ export class MonitorService {
     return listIncidents(limit);
   }
 
+  getConnectionEpisodes(limit = 200): MonitorConnectionEpisode[] {
+    return getConnectionEpisodes(limit);
+  }
+
   getSessions(limit = 50): MonitorSession[] {
     return listMonitorSessions(limit);
   }
@@ -134,6 +163,8 @@ export class MonitorService {
       session,
       ticks,
       rendererTelemetry: getRendererTelemetry(sessionId),
+      diffIngestions: getDiffIngestions(sessionId),
+      connectionEpisodes: getConnectionEpisodes(500),
       incidents,
       summary: summarizeSession(ticks, session, incidents.length),
     };
@@ -173,22 +204,110 @@ export class MonitorService {
     return finishedSession;
   }
 
-  noteConnectionStarted(agentId: string): void {
-    this.connectionStartedAt.set(agentId, Date.now());
+  noteConnectionStarted(event: MonitorConnectionStartedEvent): void {
+    const reconnectAttempt = (this.reconnectAttempts.get(event.agentId) ?? 0) + 1;
+    this.reconnectAttempts.set(event.agentId, reconnectAttempt);
+    this.connectionStartedAt.set(event.connectionId, event.spawnedAt);
+    const episode: MonitorConnectionEpisode = {
+      connectionId: event.connectionId,
+      agentId: event.agentId,
+      pid: event.pid,
+      spawnedAt: event.spawnedAt,
+      initializedAt: null,
+      transportClosedAt: null,
+      processExitedAt: null,
+      endedAt: null,
+      exitCode: null,
+      signal: null,
+      intentional: false,
+      terminalCause: null,
+      activeThreadId: null,
+      runningThreadIds: [],
+      uptimeMs: null,
+      stderrTail: "",
+      reconnectAttempt,
+      previousConnectionId: event.previousConnectionId,
+    };
+    this.connectionEpisodes.set(event.connectionId, episode);
+    upsertConnectionEpisode(episode);
+  }
+
+  noteConnectionReady(event: MonitorConnectionReadyEvent): void {
+    const episode = this.connectionEpisodes.get(event.connectionId);
+    if (!episode) return;
+    episode.initializedAt = event.initializedAt;
+    upsertConnectionEpisode(episode);
   }
 
   noteConnectionLost(event: MonitorConnectionLossEvent): void {
+    const episode =
+      this.connectionEpisodes.get(event.connectionId) ??
+      ({
+        connectionId: event.connectionId,
+        agentId: event.agentId,
+        pid: event.pid,
+        spawnedAt: Date.now() - event.uptimeMs,
+        initializedAt: null,
+        transportClosedAt: null,
+        processExitedAt: null,
+        endedAt: null,
+        exitCode: null,
+        signal: null,
+        intentional: false,
+        terminalCause: null,
+        activeThreadId: null,
+        runningThreadIds: [],
+        uptimeMs: null,
+        stderrTail: "",
+        reconnectAttempt: this.reconnectAttempts.get(event.agentId) ?? 1,
+        previousConnectionId: null,
+      } satisfies MonitorConnectionEpisode);
+    const now = Date.now();
+    if (event.cause === "transport_closed") episode.transportClosedAt ??= now;
+    if (event.cause === "process_exit") {
+      episode.processExitedAt ??= now;
+      episode.exitCode = event.exitCode;
+      episode.signal = event.signal;
+    }
+    episode.endedAt = now;
+    episode.intentional ||= event.intentional === true;
+    episode.activeThreadId = event.activeThreadId;
+    episode.runningThreadIds = event.runningThreadIds;
+    episode.uptimeMs = event.uptimeMs;
+    if (event.stderrTail) episode.stderrTail = event.stderrTail;
+    episode.terminalCause =
+      episode.processExitedAt && episode.transportClosedAt
+        ? "transport_then_process_exit"
+        : (event.cause ?? "transport_closed");
+    this.connectionEpisodes.set(event.connectionId, episode);
+    upsertConnectionEpisode(episode);
+    // Expected app shutdowns belong in the lifecycle table, but are not
+    // failures and should not inflate the incident stream.
+    if (episode.intentional) {
+      this.connectionStartedAt.delete(event.connectionId);
+      return;
+    }
     const preDropTicks = this.ring.slice(-30);
-    const incident = insertIncident(
-      "connection_loss",
-      `ACP connection lost (${event.agentId}${event.cause ? ` · ${event.cause}` : ""})`,
-      {
-        ...event,
-        preDropTicks,
-        sessionId: this.recordingSessionId,
-      },
-    );
-    this.connectionStartedAt.delete(event.agentId);
+    const payload = {
+      ...episode,
+      preDropTicks,
+      sessionId: this.recordingSessionId,
+    };
+    const existingIncidentId = this.connectionIncidentIds.get(event.connectionId);
+    const incident = existingIncidentId
+      ? updateIncident(
+          existingIncidentId,
+          payload,
+          `ACP connection lost (${event.agentId} · ${episode.terminalCause})`,
+        )
+      : insertIncident(
+          "connection_loss",
+          `ACP connection lost (${event.agentId} · ${episode.terminalCause})`,
+          payload,
+        );
+    if (!incident) return;
+    if (!existingIncidentId) this.connectionIncidentIds.set(event.connectionId, incident.id);
+    this.connectionStartedAt.delete(event.connectionId);
     this.onBroadcast("monitor:incident", incident);
     this.broadcastLive();
   }
@@ -238,6 +357,13 @@ export class MonitorService {
     this.rendererRing.push(telemetry);
     while (this.rendererRing.length > RENDERER_RING_CAPACITY) this.rendererRing.shift();
     if (this.recordingSessionId) insertRendererTelemetry(this.recordingSessionId, telemetry);
+  }
+
+  reportDiffIngestion(ingestion: MonitorDiffIngestion): void {
+    // High-frequency traces are useful only when they can be correlated with
+    // a deliberate recording. Avoid continuously growing the local database.
+    if (!this.recordingSessionId) return;
+    insertDiffIngestion(this.recordingSessionId, ingestion);
   }
 
   reportTabMismatch(report: MonitorTabMismatchReport): void {

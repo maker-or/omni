@@ -22,7 +22,9 @@ import type {
   LauncherUpdateState,
 } from "../../contracts/launcher-updates.ts";
 import type {
+  MonitorConnectionEpisode,
   MonitorIncident,
+  MonitorDiffIngestion,
   MonitorLiveSnapshot,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
@@ -214,6 +216,9 @@ declare global {
           stack?: string;
         }) => Promise<void>;
       };
+      startup: {
+        reportRendererMilestone: (label: string, rendererElapsedMs: number) => void;
+      };
       theme: {
         getCurrent: () => Promise<string>;
         changed: (theme: string) => void;
@@ -223,11 +228,14 @@ declare global {
         isEnabled: () => Promise<boolean>;
         getLive: () => Promise<MonitorLiveSnapshot>;
         getIncidents: () => Promise<MonitorIncident[]>;
+        getConnectionEpisodes: () => Promise<MonitorConnectionEpisode[]>;
         getSessions: () => Promise<MonitorSession[]>;
         getRecordedSession: (sessionId: string) => Promise<{
           session: MonitorSession | null;
           ticks: MonitorSampleTick[];
           rendererTelemetry: MonitorRendererTelemetry[];
+          diffIngestions: MonitorDiffIngestion[];
+          connectionEpisodes: MonitorConnectionEpisode[];
           incidents: MonitorIncident[];
           summary: MonitorSessionSummary;
         }>;
@@ -235,6 +243,7 @@ declare global {
         stopRecording: () => Promise<MonitorSession | null>;
         reportRendererFreeze: (report: MonitorRendererFreezeReport) => Promise<void>;
         reportRendererTelemetry: (telemetry: MonitorRendererTelemetry) => Promise<void>;
+        reportDiffIngestion: (ingestion: MonitorDiffIngestion) => void;
         reportTabMismatch: (report: MonitorTabMismatchReport) => Promise<void>;
         openWindow: () => Promise<void>;
         onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;

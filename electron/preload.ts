@@ -21,6 +21,8 @@ import type {
   LauncherUpdateState,
 } from "../contracts/launcher-updates.ts";
 import type {
+  MonitorConnectionEpisode,
+  MonitorDiffIngestion,
   MonitorIncident,
   MonitorLiveSnapshot,
   MonitorRendererFreezeReport,
@@ -313,6 +315,10 @@ const api = {
     captureException: (input: { name: string; message: string; stack?: string }): Promise<void> =>
       ipcRenderer.invoke("analytics:captureException", input),
   },
+  startup: {
+    reportRendererMilestone: (label: string, rendererElapsedMs: number): void =>
+      ipcRenderer.send("startup:renderer-milestone", { label, rendererElapsedMs }),
+  },
   theme: {
     getCurrent: (): Promise<string> => ipcRenderer.invoke("theme:getCurrent"),
     changed: (theme: string): void => ipcRenderer.send("theme:changed", theme),
@@ -328,13 +334,18 @@ const api = {
     isEnabled: (): Promise<boolean> => ipcRenderer.invoke("monitor:isEnabled"),
     getLive: (): Promise<MonitorLiveSnapshot> => ipcRenderer.invoke("monitor:getLive"),
     getIncidents: (): Promise<MonitorIncident[]> => ipcRenderer.invoke("monitor:getIncidents"),
+    getConnectionEpisodes: (): Promise<MonitorConnectionEpisode[]> =>
+      ipcRenderer.invoke("monitor:getConnectionEpisodes"),
     getSessions: (): Promise<MonitorSession[]> => ipcRenderer.invoke("monitor:getSessions"),
     getRecordedSession: (
       sessionId: string,
     ): Promise<{
       session: MonitorSession | null;
       ticks: MonitorSampleTick[];
+      rendererTelemetry: MonitorRendererTelemetry[];
+      diffIngestions: MonitorDiffIngestion[];
       incidents: MonitorIncident[];
+      connectionEpisodes: MonitorConnectionEpisode[];
       summary: MonitorSessionSummary;
     }> => ipcRenderer.invoke("monitor:getRecordedSession", sessionId),
     startRecording: (label?: string): Promise<MonitorSession> =>
@@ -345,6 +356,8 @@ const api = {
       ipcRenderer.invoke("monitor:reportRendererFreeze", report),
     reportRendererTelemetry: (telemetry: MonitorRendererTelemetry): Promise<void> =>
       ipcRenderer.invoke("monitor:reportRendererTelemetry", telemetry),
+    reportDiffIngestion: (ingestion: MonitorDiffIngestion): void =>
+      ipcRenderer.send("monitor:reportDiffIngestion", ingestion),
     reportTabMismatch: (report: MonitorTabMismatchReport): Promise<void> =>
       ipcRenderer.invoke("monitor:reportTabMismatch", report),
     openWindow: (): Promise<void> => ipcRenderer.invoke("monitor:openWindow"),

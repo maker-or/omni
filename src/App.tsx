@@ -10,7 +10,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/toast";
 import { AgentView } from "@/components/agent-view";
 import { GlobalTabBar } from "@/components/global-tab-bar";
-import { TerminalSession } from "@/components/terminal-session";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { useDiffStore } from "@/store/diff-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
@@ -18,12 +17,23 @@ import { cn } from "@/lib/utils";
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
-import { LauncherUpdateBanner, LauncherUpdateDialog } from "@/components/launcher-update";
-import { ProjectFileTree } from "@/components/project-file-tree";
+import { reportStartupMilestone } from "@/lib/startup-timing";
 import { GitBranch, GitDiffIcon, TreeViewIcon } from "@phosphor-icons/react";
 
 const DiffView = lazy(() =>
   import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
+);
+const TerminalSession = lazy(() =>
+  import("@/components/terminal-session").then((m) => ({ default: m.TerminalSession })),
+);
+const ProjectFileTree = lazy(() =>
+  import("@/components/project-file-tree").then((m) => ({ default: m.ProjectFileTree })),
+);
+const LauncherUpdateBanner = lazy(() =>
+  import("@/components/launcher-update").then((m) => ({ default: m.LauncherUpdateBanner })),
+);
+const LauncherUpdateDialog = lazy(() =>
+  import("@/components/launcher-update").then((m) => ({ default: m.LauncherUpdateDialog })),
 );
 import type { Worktree } from "../contracts/worktrees.ts";
 import {
@@ -436,7 +446,9 @@ export default function App() {
   }, [hasHydratedSelections, activeProject, selectedWorktreePath]);
 
   useEffect(() => {
-    void loadActiveProject();
+    void loadActiveProject().finally(() => {
+      reportStartupMilestone("project-context-ready");
+    });
   }, [loadActiveProject]);
 
   useEffect(() => {
@@ -463,7 +475,9 @@ export default function App() {
     <div className="relative h-screen w-screen flex flex-col bg-surface-1 text-foreground">
       {/* Headless: keeps the diff store fed from the active agent thread. */}
       <DiffIngestor />
-      <LauncherUpdateDialog />
+      <Suspense fallback={null}>
+        <LauncherUpdateDialog />
+      </Suspense>
 
       {/* Title Bar / Header */}
       <header
@@ -788,7 +802,9 @@ export default function App() {
         </div>
       </header>
 
-      <LauncherUpdateBanner />
+      <Suspense fallback={null}>
+        <LauncherUpdateBanner />
+      </Suspense>
       {projectError && (
         <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-[12px] text-red-500">
           {projectError}
@@ -828,10 +844,12 @@ export default function App() {
             >
               <section className="flex h-full w-full flex-col bg-surface-1">
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  <ProjectFileTree
-                    projectName={chromeProject.name}
-                    reloadKey={`${chromeProject.id}:${selectedWorktreePath ?? chromeProject.path ?? ""}`}
-                  />
+                  <Suspense fallback={null}>
+                    <ProjectFileTree
+                      projectName={chromeProject.name}
+                      reloadKey={`${chromeProject.id}:${selectedWorktreePath ?? chromeProject.path ?? ""}`}
+                    />
+                  </Suspense>
                 </div>
               </section>
             </Panel>
@@ -899,7 +917,9 @@ export default function App() {
               data-pipper-id={`terminal-panel-${session.id}`}
             >
               <div className="min-h-0 flex-1 overflow-hidden">
-                <TerminalSession sessionId={session.id} cwd={session.cwd} isActive={isActive} />
+                <Suspense fallback={null}>
+                  <TerminalSession sessionId={session.id} cwd={session.cwd} isActive={isActive} />
+                </Suspense>
               </div>
             </section>
           );

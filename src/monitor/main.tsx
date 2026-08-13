@@ -4,6 +4,7 @@ import "../index.css";
 import { ThemeProvider } from "@/lib/theme";
 import type {
   MonitorIncident,
+  MonitorConnectionEpisode,
   MonitorLiveSnapshot,
   MonitorProcessSample,
   MonitorSampleTick,
@@ -77,6 +78,7 @@ function MonitorApp() {
   const [tab, setTab] = useState<MonitorTab>("live");
   const [live, setLive] = useState<MonitorLiveSnapshot | null>(null);
   const [incidents, setIncidents] = useState<MonitorIncident[]>([]);
+  const [connectionEpisodes, setConnectionEpisodes] = useState<MonitorConnectionEpisode[]>([]);
   const [sessions, setSessions] = useState<MonitorSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionTicks, setSessionTicks] = useState<MonitorSampleTick[]>([]);
@@ -94,6 +96,7 @@ function MonitorApp() {
     if (!enabled) return;
     void window.omni.monitor.getLive().then(setLive);
     void window.omni.monitor.getIncidents().then(setIncidents);
+    void window.omni.monitor.getConnectionEpisodes().then(setConnectionEpisodes);
     void window.omni.monitor.getSessions().then(setSessions);
 
     const offLive = window.omni.monitor.onLive(setLive);
@@ -110,6 +113,9 @@ function MonitorApp() {
     });
     const offIncident = window.omni.monitor.onIncident((incident) => {
       setIncidents((current) => [incident, ...current].slice(0, 200));
+      if (incident.kind === "connection_loss") {
+        void window.omni.monitor.getConnectionEpisodes().then(setConnectionEpisodes);
+      }
     });
     return () => {
       offLive();
@@ -382,6 +388,39 @@ function MonitorApp() {
 
         {tab === "incidents" && (
           <div className="space-y-2">
+            <div className="rounded-lg border border-border p-3">
+              <div className="mb-2 text-sm font-medium">ACP connection episodes</div>
+              <div className="space-y-1 text-xs">
+                {connectionEpisodes.slice(0, 20).map((episode) => (
+                  <div
+                    key={episode.connectionId}
+                    className="flex flex-wrap gap-x-2 gap-y-1 border-t border-border/70 py-2 first:border-0"
+                  >
+                    <span className="font-medium">{episode.agentId}</span>
+                    <span className="text-muted-foreground">
+                      attempt {episode.reconnectAttempt}
+                    </span>
+                    <span
+                      className={episode.intentional ? "text-muted-foreground" : "text-destructive"}
+                    >
+                      {episode.intentional ? "intentional" : (episode.terminalCause ?? "active")}
+                    </span>
+                    {episode.exitCode != null && <span>exit {episode.exitCode}</span>}
+                    {episode.signal && <span>signal {episode.signal}</span>}
+                    {episode.initializedAt && episode.endedAt && (
+                      <span className="text-muted-foreground">
+                        ready→end {formatDuration(episode.endedAt - episode.initializedAt)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {connectionEpisodes.length === 0 && (
+                  <div className="text-muted-foreground">
+                    No ACP lifecycle episodes recorded yet.
+                  </div>
+                )}
+              </div>
+            </div>
             {incidents.map((incident) => (
               <details key={incident.id} className="rounded-lg border border-border p-3">
                 <summary className="cursor-pointer text-sm font-medium">

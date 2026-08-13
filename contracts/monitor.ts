@@ -60,6 +60,33 @@ export interface MonitorIncident {
   payload: Record<string, unknown>;
 }
 
+export type MonitorConnectionTerminalCause =
+  | "transport_closed"
+  | "process_exit"
+  | "transport_then_process_exit";
+
+/** One ACP process/transport lifecycle, deduplicated across close + exit events. */
+export interface MonitorConnectionEpisode {
+  connectionId: string;
+  agentId: string;
+  pid: number | null;
+  spawnedAt: number;
+  initializedAt: number | null;
+  transportClosedAt: number | null;
+  processExitedAt: number | null;
+  endedAt: number | null;
+  exitCode: number | null;
+  signal: string | null;
+  intentional: boolean;
+  terminalCause: MonitorConnectionTerminalCause | null;
+  activeThreadId: string | null;
+  runningThreadIds: string[];
+  uptimeMs: number | null;
+  stderrTail: string;
+  reconnectAttempt: number;
+  previousConnectionId: string | null;
+}
+
 export interface MonitorSession {
   id: string;
   label: string;
@@ -147,6 +174,30 @@ export interface MonitorRendererTelemetry {
   longTaskMs: number;
   gcPauseCount: number;
   gcPauseMs: number;
+}
+
+/**
+ * One synchronous diff-store ingestion, followed through to the next paint
+ * opportunity. Unlike the five-second renderer telemetry counters, these
+ * rows make an individual ingestion directly comparable to a freeze episode.
+ */
+export interface MonitorDiffIngestion {
+  timestamp: number;
+  activeThreadId: string | null;
+  ingestedThreadId: string;
+  activeThreadStreaming: boolean;
+  isActiveThread: boolean;
+  visibilityState: string;
+  focused: boolean;
+  threadCount: number;
+  toolCallCount: number;
+  fileCount: number;
+  durationMs: number;
+  serializedUtf16Bytes: number;
+  extractedFileCount: number;
+  changedFileCount: number;
+  nextFrameMs: number;
+  postPaintMs: number;
 }
 
 export interface MonitorTabMismatchReport {
