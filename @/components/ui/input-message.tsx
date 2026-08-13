@@ -676,7 +676,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         const mention = fileMention ?? getFileMentionState(value, cursor);
         if (!mention) return;
         const suffix = value.slice(cursor).startsWith(" ") ? "" : " ";
-        const nextValue = `${value.slice(0, mention.start)}@${file}${suffix}${value.slice(cursor)}`;
+        const fileLabel = file.replace(/^@+/, "");
+        const nextValue = `${value.slice(0, mention.start)}@${fileLabel}${suffix}${value.slice(cursor)}`;
         onValueChange(nextValue);
         setFileMention(null);
         requestAnimationFrame(() => {
@@ -1187,7 +1188,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                       key={file}
                       ref={index === activeFileMentionIndex ? activeFileMentionRef : undefined}
                       index={index}
-                      label={`@${file}`}
+                      label={file}
                       onMouseDown={(event) => event.preventDefault()}
                       onMouseEnter={() => setActiveFileMentionIndex(index)}
                       onSelect={() => insertFileMention(file)}

@@ -160,7 +160,12 @@ async function listProjectFiles(projectPath: string): Promise<string[]> {
         maxBuffer: 1024 * 1024 * 4,
       },
     );
-    return Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
+    const paths = Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
+    // An empty Git result can still mean this is an uninitialized repository
+    // or a folder whose files are not visible to Git. Use the filesystem
+    // fallback in that case instead of returning an empty mention catalog.
+    if (paths.length > 0) return paths;
+    throw new Error("Git returned no project files");
   } catch {
     const results: string[] = [];
     const walk = (dir: string, prefix = "") => {
@@ -1056,6 +1061,7 @@ function registerIpc(): void {
         const cwd = worktreePath && fs.existsSync(worktreePath) ? worktreePath : project?.path;
         return cwd && fs.existsSync(cwd) ? listProjectFiles(cwd) : [];
       }
+      if (worktreePath && fs.existsSync(worktreePath)) return listProjectFiles(worktreePath);
       // Follow the active worktree's cwd, not the project root, so file paths
       // reflect the selected workspace. Falls back to the project root.
       const cwd = requireAgentManager().getActiveCwd();

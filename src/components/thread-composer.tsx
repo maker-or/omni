@@ -305,7 +305,8 @@ export function ThreadComposer({
       // Files insert as plain `@path` text (agent-readable), not control chips.
       if (mentionKind === "file") {
         const insertAt = mention?.atIndex ?? nextText.length;
-        const insertion = `@${item.label} `;
+        const fileLabel = item.label.replace(/^@+/, "");
+        const insertion = `@${fileLabel} `;
         nextText = `${nextText.slice(0, insertAt)}${insertion}${nextText.slice(insertAt)}`;
         const nextContent = setFreeText(currentContent, nextText);
         contentRef.current = nextContent;
@@ -410,7 +411,7 @@ export function ThreadComposer({
   const inlineEditor = (
     <div
       ref={inlineEditorRef}
-      className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1 overflow-hidden px-2 py-2 text-[14px] text-foreground outline-none"
+      className="flex h-11 min-h-11 max-h-11 min-w-0 flex-1 flex-wrap items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] text-foreground outline-none"
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"

@@ -1640,21 +1640,20 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     ],
   );
   useEffect(() => {
-    const canList = Boolean(fileProjectId);
+    const canList = Boolean(fileProjectId || fileWorktreePath);
     if (!canList || !window.omni?.projects?.listFiles) {
       setProjectFileItems([]);
       return;
     }
     let cancelled = false;
     void window.omni.projects
-      .listFiles(fileProjectId ?? undefined, fileWorktreePath)
+      .listFiles(fileWorktreePath ? undefined : (fileProjectId ?? undefined), fileWorktreePath)
       .then((paths) => {
         if (cancelled) return;
         setProjectFileItems(
           paths.map((path) => ({
             id: path,
             label: path,
-            description: path.includes("/") ? path.split("/").slice(0, -1).join("/") : undefined,
           })),
         );
       })
@@ -2273,11 +2272,21 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           sessionCost={snapshot.stats.cost?.amount}
                           rateLimit={snapshot.usage?.rateLimit}
                         />
-                        {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
-                          <span className="tabular-nums opacity-70">
-                            (${snapshot.stats.cost.amount.toFixed(4)})
-                          </span>
-                        )}
+                        <div className="ml-auto flex min-w-0 items-center gap-2">
+                          {snapshot.model?.name && (
+                            <span
+                              className="min-w-0 max-w-[220px] truncate text-[12px] text-muted-foreground"
+                              title={snapshot.model.name}
+                            >
+                              {snapshot.model.name}
+                            </span>
+                          )}
+                          {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
+                            <span className="shrink-0 tabular-nums opacity-70">
+                              (${snapshot.stats.cost.amount.toFixed(4)})
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

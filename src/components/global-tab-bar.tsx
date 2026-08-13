@@ -367,10 +367,13 @@ export function GlobalTabBar() {
 
   return (
     <Tabs value={selectedTabValue} onValueChange={handleTabChange}>
-      <div className="flex min-w-0 items-center gap-1" data-pipper-id="global-tab-bar">
+      <div
+        className="flex w-full max-w-[1120px] min-w-0 items-center gap-1"
+        data-pipper-id="global-tab-bar"
+      >
         <TabsList
           data-pipper-id="global-tabs"
-          className="min-w-0 p-1 gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          className="min-w-0 flex-1 gap-1 overflow-x-auto p-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
           {visibleOpenThreads.map((thread, idx) => {
             const project = projectsList.find((item) => item.id === thread.project_id);

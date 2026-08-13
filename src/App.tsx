@@ -18,7 +18,7 @@ import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
-import { GitBranch, GitDiffIcon, TreeViewIcon } from "@phosphor-icons/react";
+import { GitBranch, GitDiffIcon } from "@phosphor-icons/react";
 
 const DiffView = lazy(() =>
   import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
@@ -760,27 +760,6 @@ export default function App() {
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Theme and Flyout Controls"
         >
-          <button
-            type="button"
-            onClick={() => setIsFileTreeOpen((open) => !open)}
-            aria-label={isFileTreeOpen ? "Hide project files" : "Show project files"}
-            aria-expanded={isFileTreeOpen}
-            title={
-              chromeProject
-                ? `${isFileTreeOpen ? "Hide project files" : "Show project files"} (⌘/Ctrl+B)`
-                : "Pick a project to browse files"
-            }
-            disabled={!chromeProject}
-            className={cn(
-              "inline-flex size-8 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
-              isFileTreeOpen
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-            data-pipper-id="header-file-tree-toggle"
-          >
-            <TreeViewIcon weight="duotone" className="size-4" />
-          </button>
           {!isDraftMode && diffFileCount > 0 && (
             <button
               type="button"
