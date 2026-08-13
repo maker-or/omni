@@ -58,6 +58,12 @@ developer monitor window:
   diff-ingestion counters. These samples are persisted separately from
   incident payloads so incident history does not duplicate a large time-series
   window.
+- Renderer samples also include bounded DOM attribution for selected
+  `data-pipper-id` boundaries. Each boundary records its current subtree node
+  count, interval delta, added/removed element counts, and mutation count. The
+  live monitor shows current attribution and recorded sessions show boundary
+  peaks, allowing DOM growth to be narrowed to a panel or child surface
+  without instrumenting every element.
 - Diff ingestion reports serialized payload volume, extraction/change counts,
   and elapsed time. The instrumentation also avoids serializing each tool call
   twice while calculating its version fingerprint.

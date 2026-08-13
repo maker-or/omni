@@ -150,6 +150,21 @@ export interface MonitorRendererFreezeReport {
 
 export type MonitorFreezeSource = "longtask" | "raf_gap" | "timer_drift";
 
+/**
+ * DOM growth attribution for one monitored `data-pipper-id` boundary.
+ *
+ * Counts are sampled every renderer telemetry interval. Mutation counters are
+ * reset after each sample and therefore describe the preceding interval.
+ */
+export interface MonitorDomAttribution {
+  id: string;
+  nodeCount: number;
+  nodeDelta: number;
+  addedNodeCount: number;
+  removedNodeCount: number;
+  mutationCount: number;
+}
+
 export interface MonitorRendererTelemetry {
   timestamp: number;
   monotonicMs: number;
@@ -162,6 +177,7 @@ export interface MonitorRendererTelemetry {
   jsHeapTotalBytes: number | null;
   jsHeapLimitBytes: number | null;
   domNodeCount: number | null;
+  domAttributions: MonitorDomAttribution[];
   diffThreadCount: number;
   diffToolCallCount: number;
   diffFileCount: number;

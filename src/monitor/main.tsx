@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/lib/theme";
 import type {
   MonitorIncident,
   MonitorConnectionEpisode,
+  MonitorDomAttribution,
   MonitorLiveSnapshot,
   MonitorProcessSample,
   MonitorSampleTick,
@@ -72,6 +73,34 @@ function historyForProcess(
     .filter((sample): sample is MonitorProcessSample => sample != null)
     .map(pick)
     .slice(-24);
+}
+
+function peakDomAttributions(
+  telemetry: MonitorRendererTelemetry[],
+): Array<MonitorDomAttribution & { peakNodeCount: number; peakNodeDelta: number }> {
+  const peaks = new Map<
+    string,
+    MonitorDomAttribution & { peakNodeCount: number; peakNodeDelta: number }
+  >();
+  for (const sample of telemetry) {
+    for (const attribution of sample.domAttributions) {
+      const current = peaks.get(attribution.id);
+      if (!current) {
+        peaks.set(attribution.id, {
+          ...attribution,
+          peakNodeCount: attribution.nodeCount,
+          peakNodeDelta: attribution.nodeDelta,
+        });
+        continue;
+      }
+      current.peakNodeCount = Math.max(current.peakNodeCount, attribution.nodeCount);
+      current.peakNodeDelta = Math.max(current.peakNodeDelta, attribution.nodeDelta);
+      current.addedNodeCount += attribution.addedNodeCount;
+      current.removedNodeCount += attribution.removedNodeCount;
+      current.mutationCount += attribution.mutationCount;
+    }
+  }
+  return [...peaks.values()].sort((a, b) => b.peakNodeCount - a.peakNodeCount);
 }
 
 function MonitorApp() {
@@ -314,6 +343,27 @@ function MonitorApp() {
                 {live?.rendererTelemetry
                   ? `${live.rendererTelemetry.visibilityState} · ${live.rendererTelemetry.focused ? "focused" : "unfocused"} · ${live.rendererTelemetry.diffSerializedUtf16Bytes.toLocaleString()} serialized UTF-16 bytes / 5s`
                   : "Waiting for renderer telemetry…"}
+              </div>
+              <div className="mt-3 border-t border-border/70 pt-2">
+                <div className="text-[11px] font-medium text-muted-foreground">
+                  DOM attribution · current sample
+                </div>
+                <div className="mt-1 grid gap-1 text-[11px] sm:grid-cols-2 lg:grid-cols-4">
+                  {(live?.rendererTelemetry?.domAttributions ?? []).slice(0, 8).map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate" title={entry.id}>
+                        {entry.id}
+                      </span>
+                      <span className="shrink-0 font-medium">
+                        {entry.nodeCount.toLocaleString()} ({entry.nodeDelta >= 0 ? "+" : ""}
+                        {entry.nodeDelta.toLocaleString()})
+                      </span>
+                    </div>
+                  ))}
+                  {(live?.rendererTelemetry?.domAttributions.length ?? 0) === 0 && (
+                    <span className="text-muted-foreground">No marked DOM boundaries found.</span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -558,6 +608,43 @@ function MonitorApp() {
                             .toFixed(1)}
                           ms
                         </span>
+                      </div>
+                      <div className="mt-3 border-t border-border/70 pt-2">
+                        <div className="text-[11px] font-medium text-muted-foreground">
+                          DOM attribution · session peaks
+                        </div>
+                        <div className="mt-1 overflow-x-auto">
+                          <table className="w-full text-left text-[11px]">
+                            <thead className="text-muted-foreground">
+                              <tr>
+                                <th className="py-1 pr-3 font-medium">Boundary</th>
+                                <th className="py-1 pr-3 font-medium">Peak nodes</th>
+                                <th className="py-1 pr-3 font-medium">Added</th>
+                                <th className="py-1 pr-3 font-medium">Removed</th>
+                                <th className="py-1 font-medium">Mutations</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {peakDomAttributions(sessionRendererTelemetry)
+                                .slice(0, 12)
+                                .map((entry) => (
+                                  <tr key={entry.id} className="border-t border-border/50">
+                                    <td className="py-1 pr-3 font-medium">{entry.id}</td>
+                                    <td className="py-1 pr-3">
+                                      {entry.peakNodeCount.toLocaleString()}
+                                    </td>
+                                    <td className="py-1 pr-3">
+                                      {entry.addedNodeCount.toLocaleString()}
+                                    </td>
+                                    <td className="py-1 pr-3">
+                                      {entry.removedNodeCount.toLocaleString()}
+                                    </td>
+                                    <td className="py-1">{entry.mutationCount.toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
                   )}

@@ -281,7 +281,13 @@ function AssistantTraceDeck({
   }, [activeMessages]);
 
   return (
-    <ThinkingSteps open={open} onOpenChange={setOpen} className={className} {...props}>
+    <ThinkingSteps
+      open={open}
+      onOpenChange={setOpen}
+      className={className}
+      {...props}
+      data-pipper-id="assistant-trace-deck"
+    >
       <ThinkingStepsHeader>
         <ThinkingIndicator isStreaming={isStreaming} className="p-0 bg-transparent" />
       </ThinkingStepsHeader>
@@ -294,6 +300,7 @@ function AssistantTraceDeck({
             return (
               <ThinkingStep
                 key={`thinking-${index}`}
+                data-pipper-id="assistant-thinking-step"
                 index={index}
                 icon="brain"
                 label="Thinking"
@@ -430,6 +437,7 @@ function AssistantTraceDeck({
             return (
               <ThinkingStep
                 key={`tool-${toolCallId || index}`}
+                data-pipper-id="assistant-tool-step"
                 index={index}
                 icon={iconName}
                 label={actionCopy.label || stepLabel}

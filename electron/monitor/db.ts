@@ -5,6 +5,7 @@ import type {
   MonitorIncident,
   MonitorIncidentKind,
   MonitorConnectionEpisode,
+  MonitorDomAttribution,
   MonitorDiffIngestion,
   MonitorProcessRole,
   MonitorProcessSample,
@@ -70,6 +71,7 @@ export function ensureMonitorTables(): void {
       js_heap_total_bytes INTEGER,
       js_heap_limit_bytes INTEGER,
       dom_node_count INTEGER,
+      dom_attribution_json TEXT NOT NULL DEFAULT '[]',
       diff_thread_count INTEGER NOT NULL,
       diff_tool_call_count INTEGER NOT NULL,
       diff_file_count INTEGER NOT NULL,
@@ -210,6 +212,12 @@ export function ensureMonitorTables(): void {
     "INTEGER NOT NULL DEFAULT 0",
   );
   addColumnIfMissing(db, "monitor_renderer_samples", "gc_pause_ms", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing(
+    db,
+    "monitor_renderer_samples",
+    "dom_attribution_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
   tablesReady = true;
 }
 
@@ -399,11 +407,12 @@ export function insertRendererTelemetry(
       `INSERT INTO monitor_renderer_samples (
         session_id, timestamp, monotonic_ms, observer_id, visibility_state, focused,
         active_thread_id, running_thread_count, js_heap_used_bytes, js_heap_total_bytes,
-        js_heap_limit_bytes, dom_node_count, diff_thread_count, diff_tool_call_count,
+        js_heap_limit_bytes, dom_node_count, dom_attribution_json, diff_thread_count,
+        diff_tool_call_count,
         diff_file_count, diff_ingestion_count, diff_ingestion_ms,
         diff_serialized_utf16_bytes, diff_extracted_file_count, diff_changed_file_count,
         long_task_count, long_task_ms, gc_pause_count, gc_pause_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       sessionId,
@@ -418,6 +427,7 @@ export function insertRendererTelemetry(
       telemetry.jsHeapTotalBytes,
       telemetry.jsHeapLimitBytes,
       telemetry.domNodeCount,
+      JSON.stringify(telemetry.domAttributions),
       telemetry.diffThreadCount,
       telemetry.diffToolCallCount,
       telemetry.diffFileCount,
@@ -517,7 +527,8 @@ export function getRendererTelemetry(
               visibility_state AS visibilityState, focused, active_thread_id AS activeThreadId,
               running_thread_count AS runningThreadCount, js_heap_used_bytes AS jsHeapUsedBytes,
               js_heap_total_bytes AS jsHeapTotalBytes, js_heap_limit_bytes AS jsHeapLimitBytes,
-              dom_node_count AS domNodeCount, diff_thread_count AS diffThreadCount,
+              dom_node_count AS domNodeCount, dom_attribution_json AS domAttributionJson,
+              diff_thread_count AS diffThreadCount,
               diff_tool_call_count AS diffToolCallCount, diff_file_count AS diffFileCount,
               diff_ingestion_count AS diffIngestionCount, diff_ingestion_ms AS diffIngestionMs,
               diff_serialized_utf16_bytes AS diffSerializedUtf16Bytes,
@@ -543,6 +554,7 @@ export function getRendererTelemetry(
     jsHeapTotalBytes: nullableNumber(row.jsHeapTotalBytes),
     jsHeapLimitBytes: nullableNumber(row.jsHeapLimitBytes),
     domNodeCount: nullableNumber(row.domNodeCount),
+    domAttributions: parseDomAttributions(row.domAttributionJson),
     diffThreadCount: Number(row.diffThreadCount),
     diffToolCallCount: Number(row.diffToolCallCount),
     diffFileCount: Number(row.diffFileCount),
@@ -560,6 +572,28 @@ export function getRendererTelemetry(
 
 function nullableNumber(value: unknown): number | null {
   return value == null ? null : Number(value);
+}
+
+function parseDomAttributions(value: unknown): MonitorDomAttribution[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is MonitorDomAttribution => {
+      if (!entry || typeof entry !== "object") return false;
+      const candidate = entry as Record<string, unknown>;
+      return (
+        typeof candidate.id === "string" &&
+        typeof candidate.nodeCount === "number" &&
+        typeof candidate.nodeDelta === "number" &&
+        typeof candidate.addedNodeCount === "number" &&
+        typeof candidate.removedNodeCount === "number" &&
+        typeof candidate.mutationCount === "number"
+      );
+    });
+  } catch {
+    return [];
+  }
 }
 
 function dbRunBatch(stmt: StatementSync, tick: MonitorSampleTick, sessionId: string | null): void {

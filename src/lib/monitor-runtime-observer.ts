@@ -1,11 +1,30 @@
 import type {
   MonitorFreezeSource,
+  MonitorDomAttribution,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
 } from "../../contracts/monitor.ts";
 
 const RUNTIME_SAMPLE_INTERVAL_MS = 5000;
 const FREEZE_EPISODE_QUIET_MS = 1500;
+const DOM_ATTRIBUTION_SELECTOR = "[data-pipper-id]";
+const MAX_DOM_ATTRIBUTIONS = 24;
+
+// Keep this list intentionally small. The observer runs in the renderer and
+// should identify the important ownership boundaries without turning every
+// decorative element into telemetry.
+const DOM_ATTRIBUTION_IDS = new Set([
+  "agent-panel",
+  "reading-column",
+  "messages-list",
+  "assistant-message",
+  "user-message",
+  "assistant-trace-deck",
+  "assistant-thinking-step",
+  "assistant-tool-step",
+  "assistant-markdown",
+  "agent-terminal-output",
+]);
 
 export interface RendererMonitorContext {
   observerId: string;
@@ -31,6 +50,12 @@ interface RuntimePauseCounters {
 let diffCounters: DiffCounters = emptyDiffCounters();
 let diffGauges = { diffThreadCount: 0, diffToolCallCount: 0, diffFileCount: 0 };
 let pauseCounters: RuntimePauseCounters = emptyPauseCounters();
+
+interface DomMutationCounters {
+  addedNodeCount: number;
+  removedNodeCount: number;
+  mutationCount: number;
+}
 
 function emptyDiffCounters(): DiffCounters {
   return {
@@ -91,6 +116,63 @@ function finiteOrNull(value: number | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function normalizeDomAttributionId(value: string): string | null {
+  if (DOM_ATTRIBUTION_IDS.has(value)) return value;
+  if (value.startsWith("agent-terminal-")) return "agent-terminal-output";
+  return null;
+}
+
+function countElementNodes(node: Node): number {
+  if (node.nodeType !== 1) return 0;
+  return 1 + (node as Element).getElementsByTagName("*").length;
+}
+
+function findAttributionId(node: Node): string | null {
+  let element: Element | null = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  while (element) {
+    const rawId = element.getAttribute("data-pipper-id");
+    const id = rawId ? normalizeDomAttributionId(rawId) : null;
+    if (id) return id;
+    element = element.parentElement;
+  }
+  return null;
+}
+
+function collectDomAttributions(
+  previousNodeCounts: Map<string, number>,
+  mutations: Map<string, DomMutationCounters>,
+): MonitorDomAttribution[] {
+  const nodeCounts = new Map<string, number>();
+  for (const element of document.querySelectorAll(DOM_ATTRIBUTION_SELECTOR)) {
+    const rawId = element.getAttribute("data-pipper-id");
+    const id = rawId ? normalizeDomAttributionId(rawId) : null;
+    if (!id) continue;
+    nodeCounts.set(id, (nodeCounts.get(id) ?? 0) + countElementNodes(element));
+  }
+
+  const ids = new Set([...previousNodeCounts.keys(), ...nodeCounts.keys(), ...mutations.keys()]);
+  const attributions = [...ids].map((id) => {
+    const nodeCount = nodeCounts.get(id) ?? 0;
+    const mutation = mutations.get(id);
+    return {
+      id,
+      nodeCount,
+      nodeDelta: nodeCount - (previousNodeCounts.get(id) ?? 0),
+      addedNodeCount: mutation?.addedNodeCount ?? 0,
+      removedNodeCount: mutation?.removedNodeCount ?? 0,
+      mutationCount: mutation?.mutationCount ?? 0,
+    } satisfies MonitorDomAttribution;
+  });
+
+  previousNodeCounts.clear();
+  for (const [id, count] of nodeCounts) previousNodeCounts.set(id, count);
+  mutations.clear();
+
+  return attributions
+    .sort((a, b) => b.nodeCount - a.nodeCount || b.nodeDelta - a.nodeDelta)
+    .slice(0, MAX_DOM_ATTRIBUTIONS);
+}
+
 export function recordDiffIngestion(input: {
   threadCount: number;
   toolCallCount: number;
@@ -117,6 +199,30 @@ export function startMonitorRuntimeObserver(
   onTelemetry: (telemetry: MonitorRendererTelemetry) => void,
 ): () => void {
   const startedAt = now();
+  const previousDomNodeCounts = new Map<string, number>();
+  const domMutations = new Map<string, DomMutationCounters>();
+  const domObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      const id = findAttributionId(record.target);
+      if (!id) continue;
+      const current = domMutations.get(id) ?? {
+        addedNodeCount: 0,
+        removedNodeCount: 0,
+        mutationCount: 0,
+      };
+      current.addedNodeCount += [...record.addedNodes].reduce(
+        (sum, node) => sum + countElementNodes(node),
+        0,
+      );
+      current.removedNodeCount += [...record.removedNodes].reduce(
+        (sum, node) => sum + countElementNodes(node),
+        0,
+      );
+      current.mutationCount += 1;
+      domMutations.set(id, current);
+    }
+  });
+  domObserver.observe(document.documentElement, { childList: true, subtree: true });
   let pauseObserver: PerformanceObserver | undefined;
   try {
     pauseObserver = new PerformanceObserver((list) => {
@@ -158,6 +264,7 @@ export function startMonitorRuntimeObserver(
       activeThreadId: context.getActiveThreadId(),
       runningThreadCount: context.getRunningThreadIds().length,
       domNodeCount: document.getElementsByTagName("*").length,
+      domAttributions: collectDomAttributions(previousDomNodeCounts, domMutations),
       ...diffGauges,
       ...counters,
       ...pauses,
@@ -169,6 +276,7 @@ export function startMonitorRuntimeObserver(
   return () => {
     window.clearInterval(interval);
     pauseObserver?.disconnect();
+    domObserver.disconnect();
   };
 }
 

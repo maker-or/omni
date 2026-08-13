@@ -496,7 +496,10 @@ function MessageBody({
         )}
 
         {textBodyCombined.trim() && (
-          <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
+          <div
+            data-pipper-id="assistant-markdown"
+            className="prose prose-sm max-w-none prose-neutral dark:prose-invert"
+          >
             <MarkdownRenderer isStreaming={isStreaming}>{textBodyCombined}</MarkdownRenderer>
           </div>
         )}
@@ -1895,6 +1898,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                         >
                           <ChatMessage
                             from={from}
+                            pipperId={from === "assistant" ? "assistant-message" : "user-message"}
                             time={timeStr}
                             actions={actions}
                             images={groupedImages}
