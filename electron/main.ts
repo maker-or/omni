@@ -52,6 +52,7 @@ import {
   openThreadTab,
   readOpenTabsState,
   setActiveThreadTab,
+  setTabEventObserver,
 } from "./open-tabs";
 import { checkGit, installGit, prependStandardPaths } from "./dependency-installer";
 import {
@@ -824,6 +825,13 @@ function initializeMonitorService(): void {
         stderrTail: event.stderrTail,
       });
     },
+    onSwitchRecord: (record) => {
+      monitorService?.reportSwitch(record);
+    },
+  });
+
+  setTabEventObserver((event) => {
+    monitorService?.reportTabEvent(event);
   });
 }
 
@@ -1641,6 +1649,13 @@ function registerIpc(): void {
   ipcMain.handle("monitor:reportTabMismatch", (_event, report) => {
     monitorService?.reportTabMismatch(report);
   });
+  ipcMain.handle("monitor:reportTabClickTiming", (_event, timing) => {
+    monitorService?.reportTabClickTiming(timing);
+  });
+  ipcMain.handle("monitor:getSwitches", () => monitorService?.getSwitchRecords() ?? []);
+  ipcMain.handle("monitor:getTabEvents", () => monitorService?.getTabEvents() ?? []);
+  ipcMain.handle("monitor:getTabClickTimings", () => monitorService?.getTabClickTimings() ?? []);
+  ipcMain.handle("monitor:getSwitchTimeline", () => monitorService?.getSwitchTimeline() ?? null);
   ipcMain.handle("monitor:openWindow", () => {
     createMonitorWindow();
   });

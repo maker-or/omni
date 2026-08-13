@@ -13,6 +13,9 @@ import type {
   MonitorSampleTick,
   MonitorSession,
   MonitorSessionSummary,
+  MonitorSwitchRecord,
+  MonitorTabClickTiming,
+  MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../../contracts/monitor.ts";
 import { samplePid } from "./platform-sampler.ts";
@@ -25,8 +28,14 @@ import {
   insertMonitorSession,
   insertRendererTelemetry,
   insertSampleBatch,
+  insertSwitchRecord,
+  insertTabEvent,
+  insertTabClickTiming,
   listIncidents,
   listMonitorSessions,
+  listSwitchRecords,
+  listTabEvents,
+  listTabClickTimings,
   getSessionTicks,
   getRendererTelemetry,
   getDiffIngestions,
@@ -407,6 +416,105 @@ export class MonitorService {
       this.onBroadcast("monitor:incident", incident);
       this.broadcastLive();
     }
+  }
+
+  /**
+   * Durable, unconditional record of a thread activation. Unlike
+   * `noteSwitchCompleted` (incident-only, gated on slowness), every switch is
+   * persisted so warm (cache_hit) switches are observable and can be lined up
+   * against the tab-set mutations that preceded them.
+   */
+  reportSwitch(record: MonitorSwitchRecord): void {
+    insertSwitchRecord(record);
+    this.broadcastLive();
+  }
+
+  /** Durable record of an open-tab-set mutation (open / close / activate). */
+  reportTabEvent(event: MonitorTabEvent): void {
+    insertTabEvent(event);
+    this.broadcastLive();
+  }
+
+  /** Durable renderer-side click-to-paint timing for a tab activation. */
+  reportTabClickTiming(timing: MonitorTabClickTiming): void {
+    insertTabClickTiming(timing);
+    this.broadcastLive();
+  }
+
+  getSwitchRecords(limit = 500): MonitorSwitchRecord[] {
+    return listSwitchRecords(limit);
+  }
+
+  getTabEvents(limit = 500): MonitorTabEvent[] {
+    return listTabEvents(limit);
+  }
+
+  getTabClickTimings(limit = 500): MonitorTabClickTiming[] {
+    return listTabClickTimings(limit);
+  }
+
+  /**
+   * Correlated view for diagnosing tab-switch latency. Lifts the three durable
+   * streams (tab-set mutations, switch records, renderer click timings) into a
+   * single time-ordered timeline, then annotates each switch with the
+   * nearest-prior open-tab count so a regression can be tied to "4 -> 5 tabs".
+   */
+  getSwitchTimeline(limit = 500) {
+    const tabEvents = listTabEvents(limit).sort((a, b) => a.timestamp - b.timestamp);
+    const switches = listSwitchRecords(limit).sort((a, b) => a.timestamp - b.timestamp);
+    const clickTimings = listTabClickTimings(limit).sort((a, b) => a.timestamp - b.timestamp);
+
+    type Row =
+      | { kind: "tab_event"; timestamp: number; event: (typeof tabEvents)[number] }
+      | { kind: "switch"; timestamp: number; record: (typeof switches)[number] }
+      | { kind: "click"; timestamp: number; timing: (typeof clickTimings)[number] };
+    const rows: Row[] = [
+      ...tabEvents.map((event) => ({
+        kind: "tab_event" as const,
+        timestamp: event.timestamp,
+        event,
+      })),
+      ...switches.map((record) => ({
+        kind: "switch" as const,
+        timestamp: record.timestamp,
+        record,
+      })),
+      ...clickTimings.map((timing) => ({
+        kind: "click" as const,
+        timestamp: timing.timestamp,
+        timing,
+      })),
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
+    let openTabCount = 0;
+    const annotated = [];
+    for (const row of rows) {
+      if (row.kind === "tab_event") openTabCount = row.event.openTabCount;
+      annotated.push({ ...row, openTabCount });
+    }
+
+    return {
+      rows: annotated,
+      switches,
+      tabEvents,
+      clickTimings,
+      summary: {
+        totalSwitches: switches.length,
+        cacheHits: switches.filter((s) => s.phase === "cache_hit").length,
+        sessionLoads: switches.filter((s) => s.phase === "session_load").length,
+        sessionResumes: switches.filter((s) => s.phase === "session_resume").length,
+        sessionNews: switches.filter((s) => s.phase === "session_new").length,
+        failures: switches.filter((s) => !s.success).length,
+        slowSwitches: switches.filter((s) => s.durationMs >= SLOW_SWITCH_MS).length,
+        // A switch immediately after a tab-count change is the exact window the
+        // "adding a tab invalidates warm sessions" hypothesis predicts.
+        switchesAfterTabChange: switches.filter((s) =>
+          tabEvents.some(
+            (e) => Math.abs(e.timestamp - s.timestamp) < 2000 && e.timestamp <= s.timestamp,
+          ),
+        ).length,
+      },
+    };
   }
 
   private async tick(): Promise<void> {

@@ -352,17 +352,49 @@ export function GlobalTabBar() {
         : selectedThreadId;
 
   const handleTabChange = (value: string) => {
+    const clickStartedAt = performance.now();
     if (value.startsWith(TERMINAL_TAB_PREFIX)) {
       handleSelectTerminal(value.slice(TERMINAL_TAB_PREFIX.length));
       return;
     }
-    void handleSelectThread(value).catch((err) => {
-      toast({
-        icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Thread switch failed",
-        description: err instanceof Error ? err.message : "The thread could not be opened.",
+    void handleSelectThread(value)
+      .then(() => {
+        const clickToSwitchResolvedMs = performance.now() - clickStartedAt;
+        // Double rAF approximates the next committed paint of the newly
+        // highlighted tab. If the renderer main thread is starved (100% CPU),
+        // this number stays large even when the main-process switch was a fast
+        // cache hit — which is exactly the symptom we're trying to isolate.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const clickToHighlightPaintMs = performance.now() - clickStartedAt;
+            void window.omni.monitor?.reportTabClickTiming({
+              timestamp: Date.now(),
+              threadId: value,
+              clickToHighlightPaintMs,
+              clickToSwitchResolvedMs,
+              switchDurationMs: null,
+              phase: null,
+              success: true,
+            });
+          });
+        });
+      })
+      .catch((err) => {
+        void window.omni.monitor?.reportTabClickTiming({
+          timestamp: Date.now(),
+          threadId: value,
+          clickToHighlightPaintMs: performance.now() - clickStartedAt,
+          clickToSwitchResolvedMs: performance.now() - clickStartedAt,
+          switchDurationMs: null,
+          phase: null,
+          success: false,
+        });
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Thread switch failed",
+          description: err instanceof Error ? err.message : "The thread could not be opened.",
+        });
       });
-    });
   };
 
   return (

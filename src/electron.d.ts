@@ -31,6 +31,9 @@ import type {
   MonitorSampleTick,
   MonitorSession,
   MonitorSessionSummary,
+  MonitorSwitchRecord,
+  MonitorTabClickTiming,
+  MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../../contracts/monitor.ts";
 
@@ -245,6 +248,10 @@ declare global {
         reportRendererTelemetry: (telemetry: MonitorRendererTelemetry) => Promise<void>;
         reportDiffIngestion: (ingestion: MonitorDiffIngestion) => void;
         reportTabMismatch: (report: MonitorTabMismatchReport) => Promise<void>;
+        reportTabClickTiming: (timing: MonitorTabClickTiming) => Promise<void>;
+        getSwitches: () => Promise<MonitorSwitchRecord[]>;
+        getTabEvents: () => Promise<MonitorTabEvent[]>;
+        getTabClickTimings: () => Promise<MonitorTabClickTiming[]>;
         openWindow: () => Promise<void>;
         onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;
         onTick: (callback: (tick: MonitorSampleTick) => void) => () => void;

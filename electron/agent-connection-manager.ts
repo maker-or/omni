@@ -21,7 +21,7 @@ import type {
   AcpSessionState,
 } from "../contracts/acp.ts";
 import type { OpenTabsState, Thread } from "../contracts/threads.ts";
-import { recordThreadSwitch } from "./open-tabs.ts";
+import { readOpenTabsState, recordThreadSwitch } from "./open-tabs.ts";
 import { getProject } from "./projects.ts";
 import { getSelectedAgentIds } from "./db.ts";
 import { setActiveProjectId } from "./session.ts";
@@ -60,7 +60,11 @@ import {
   type AcpSessionSlice,
 } from "../src/lib/acp-session-reducer.ts";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
-import type { MonitorProcessDescriptor } from "../contracts/monitor.ts";
+import type {
+  MonitorProcessDescriptor,
+  MonitorSwitchPhase,
+  MonitorSwitchRecord,
+} from "../contracts/monitor.ts";
 
 export interface AgentMonitorObserver {
   onConnectionSpawned: (input: {
@@ -93,6 +97,8 @@ export interface AgentMonitorObserver {
     intentional: boolean;
     stderrTail: string;
   }) => void;
+  /** Fired once per thread activation with the resolved cache phase. */
+  onSwitchRecord?: (record: MonitorSwitchRecord) => void;
 }
 
 const ACP_SWITCH_PHASE_TIMEOUT_MS = 10_000;
@@ -1709,16 +1715,62 @@ export class AgentConnectionManager {
     // switchThread reconciles the persisted workspace to the activated
     // thread's cwd, so header/tabs/terminals agree after restart and after
     // project switches.
-    await this.switchThreadInternal(thread.id);
+    await this.switchThreadInternal(thread.id, "restore");
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
 
   async switchThread(threadId: string): Promise<OpenTabsState> {
-    return this.enqueueThreadActivation(() => this.switchThreadInternal(threadId));
+    return this.enqueueThreadActivation(() => this.switchThreadInternal(threadId, "tab"));
   }
 
-  private async switchThreadInternal(threadId: string): Promise<OpenTabsState> {
+  private async switchThreadInternal(
+    threadId: string,
+    source: MonitorSwitchRecord["source"] = "tab",
+  ): Promise<OpenTabsState> {
+    const startedAt = Date.now();
+    const previousThreadId = this.activeThreadId;
+    let phase: MonitorSwitchPhase = this.sessions.has(threadId) ? "cache_hit" : "session_load";
+    let openTabCount = 0;
+    const record = (success: boolean, error?: string) => {
+      this.monitorObserver?.onSwitchRecord?.({
+        timestamp: Date.now(),
+        threadId,
+        agentId: this.connection?.agentId ?? null,
+        projectId: this.activeProjectId,
+        source,
+        phase,
+        durationMs: Date.now() - startedAt,
+        success,
+        error,
+        openTabCount,
+        previousThreadId,
+      });
+    };
+    try {
+      const state = await this.switchThreadCore(threadId, (nextPhase) => {
+        phase = nextPhase;
+      });
+      // The returned tabs state reflects the open-tab set after this
+      // activation; capture it so records are comparable to tab events.
+      openTabCount = state.openThreadIds.length;
+      record(true);
+      return state;
+    } catch (err) {
+      try {
+        openTabCount = (await readOpenTabsState()).openThreadIds.length;
+      } catch {
+        // best effort
+      }
+      record(false, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  private async switchThreadCore(
+    threadId: string,
+    onPhase: (phase: MonitorSwitchPhase) => void,
+  ): Promise<OpenTabsState> {
     const thread = getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     const project = getProject(thread.project_id);
@@ -1751,6 +1803,7 @@ export class AgentConnectionManager {
 
     // Close previous session optionally — skip for rapid switches; load new
     if (!this.sessions.has(threadId)) {
+      onPhase("session_load");
       // Register the runtime BEFORE awaiting session/load: agents stream the
       // conversation replay as session/update notifications while the load
       // request is still in flight, and handleSessionUpdate can only route
@@ -1790,11 +1843,13 @@ export class AgentConnectionManager {
           runtime.slice = createEmptySessionSlice();
           try {
             const resumed = await this.sessionResume(live, thread.agent_session_id, cwd);
+            onPhase("session_resume");
             sessionId = resumed.sessionId;
             configOptions = resumed.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
           } catch {
             const created = await this.sessionNew(live, cwd);
+            onPhase("session_new");
             sessionId = created.sessionId;
             configOptions = created.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
@@ -1993,7 +2048,7 @@ export class AgentConnectionManager {
         remaining[0] ??
         null;
       if (replacement) {
-        await this.switchThreadInternal(replacement.id);
+        await this.switchThreadInternal(replacement.id, "delete");
       } else {
         await updateLaunchSelection({ projectId: thread.project_id, threadId: null });
         this.pushState(null);

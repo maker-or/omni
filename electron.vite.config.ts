@@ -41,6 +41,9 @@ export default defineConfig({
   },
   renderer: {
     root: ".",
+    worker: {
+      format: "es",
+    },
     resolve: {
       alias: [
         {

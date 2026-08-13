@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, type CSSProperties } from "react";
-import { CodeView } from "@pierre/diffs/react";
+import { CodeView, WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { parseDiffFromFile, type CodeViewDiffItem } from "@pierre/diffs";
 import type { DiffFileEntry } from "@/store/diff-store";
 import { RowsIcon, ColumnsIcon } from "@phosphor-icons/react";
@@ -7,6 +7,7 @@ import { useDiffStore } from "@/store/diff-store";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/lib/theme";
 import { Elevated } from "@/lib/elevated";
+import { workerFactory } from "@/lib/diff-worker";
 
 // Matches the Shiki theme pair used elsewhere for code (see shiki-code-block.tsx)
 // so diff syntax highlighting stays visually consistent with the rest of the app.
@@ -61,9 +62,20 @@ export const DiffView = memo(function DiffView() {
         const item: CodeViewDiffItem = {
           id: file.path,
           type: "diff" as const,
+          // CodeView does targeted updates keyed off this version; it must
+          // change whenever the item's content changes.
+          version: file.updatedAt,
           fileDiff: parseDiffFromFile(
-            { name: file.path, contents: file.oldText },
-            { name: file.path, contents: file.newText },
+            {
+              name: file.path,
+              contents: file.oldText,
+              cacheKey: `${file.path}:${file.updatedAt}`,
+            },
+            {
+              name: file.path,
+              contents: file.newText,
+              cacheKey: `${file.path}:${file.updatedAt}`,
+            },
           ),
         };
         nextCache.set(file.path, { entry: file, item });
@@ -72,6 +84,19 @@ export const DiffView = memo(function DiffView() {
     itemCacheRef.current = nextCache;
     return result;
   }, [order, files]);
+
+  // Keep non-primitive props stable across renders (per the docs): the options
+  // object is recreated only when its inputs change, not on every render.
+  const options = useMemo(
+    () => ({
+      diffStyle: layout,
+      theme: DIFF_THEMES,
+      themeType: resolvedTheme,
+      unsafeCSS: DIFF_UNSAFE_CSS,
+      stickyHeaders: true,
+    }),
+    [layout, resolvedTheme],
+  );
 
   if (order.length === 0) {
     return (
@@ -122,17 +147,14 @@ export const DiffView = memo(function DiffView() {
             renders (via `className`), so that same element — not a wrapping
             ancestor — must own the bounded height + overflow-y. */}
         <div className="min-h-0 flex-1">
-          <CodeView
-            items={items}
-            options={{
-              diffStyle: layout,
-              theme: DIFF_THEMES,
-              themeType: resolvedTheme,
-              unsafeCSS: DIFF_UNSAFE_CSS,
-              stickyHeaders: true,
+          <WorkerPoolContextProvider
+            poolOptions={{ workerFactory }}
+            highlighterOptions={{
+              theme: { dark: "github-dark", light: "github-light" },
             }}
-            className="h-full w-full overflow-y-auto"
-          />
+          >
+            <CodeView items={items} options={options} className="h-full w-full overflow-y-auto" />
+          </WorkerPoolContextProvider>
         </div>
       </div>
     </Elevated>

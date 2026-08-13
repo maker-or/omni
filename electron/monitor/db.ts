@@ -11,6 +11,10 @@ import type {
   MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
+  MonitorSwitchRecord,
+  MonitorSwitchPhase,
+  MonitorTabClickTiming,
+  MonitorTabEvent,
 } from "../../contracts/monitor.ts";
 
 let tablesReady = false;
@@ -137,6 +141,49 @@ export function ensureMonitorTables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_monitor_connection_episodes_ended
       ON monitor_connection_episodes(ended_at DESC);
+
+    CREATE TABLE IF NOT EXISTS monitor_switches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      thread_id TEXT NOT NULL,
+      agent_id TEXT,
+      project_id TEXT,
+      source TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      duration_ms REAL NOT NULL,
+      success INTEGER NOT NULL,
+      error TEXT,
+      open_tab_count INTEGER NOT NULL,
+      previous_thread_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_switches_ts
+      ON monitor_switches(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_monitor_switches_thread
+      ON monitor_switches(thread_id, timestamp);
+
+    CREATE TABLE IF NOT EXISTS monitor_tab_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      open_tab_count INTEGER NOT NULL,
+      active_thread_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_tab_events_ts
+      ON monitor_tab_events(timestamp);
+
+    CREATE TABLE IF NOT EXISTS monitor_tab_click_timings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      thread_id TEXT NOT NULL,
+      click_to_highlight_paint_ms REAL NOT NULL,
+      click_to_switch_resolved_ms REAL NOT NULL,
+      switch_duration_ms REAL,
+      phase TEXT,
+      success INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_click_timings_ts
+      ON monitor_tab_click_timings(timestamp);
   `);
   addColumnIfMissing(db, "monitor_samples", "thread_ids_json", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(
@@ -745,6 +792,161 @@ function parseJsonArray(value: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+export function insertSwitchRecord(record: MonitorSwitchRecord): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_switches (
+        timestamp, thread_id, agent_id, project_id, source, phase,
+        duration_ms, success, error, open_tab_count, previous_thread_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      record.timestamp,
+      record.threadId,
+      record.agentId,
+      record.projectId,
+      record.source,
+      record.phase,
+      record.durationMs,
+      record.success ? 1 : 0,
+      record.error ?? null,
+      record.openTabCount,
+      record.previousThreadId,
+    );
+}
+
+export function insertTabEvent(event: MonitorTabEvent): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_tab_events (
+        timestamp, action, thread_id, open_tab_count, active_thread_id
+      ) VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(event.timestamp, event.action, event.threadId, event.openTabCount, event.activeThreadId);
+}
+
+export function insertTabClickTiming(timing: MonitorTabClickTiming): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_tab_click_timings (
+        timestamp, thread_id, click_to_highlight_paint_ms, click_to_switch_resolved_ms,
+        switch_duration_ms, phase, success
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      timing.timestamp,
+      timing.threadId,
+      timing.clickToHighlightPaintMs,
+      timing.clickToSwitchResolvedMs,
+      timing.switchDurationMs,
+      timing.phase,
+      timing.success ? 1 : 0,
+    );
+}
+
+export function listSwitchRecords(limit = 500): MonitorSwitchRecord[] {
+  ensureMonitorTables();
+  interface SwitchRow {
+    timestamp: number;
+    threadId: string;
+    agentId: string | null;
+    projectId: string | null;
+    source: string;
+    phase: MonitorSwitchPhase;
+    durationMs: number;
+    success: number;
+    error: string | null;
+    openTabCount: number;
+    previousThreadId: string | null;
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, thread_id AS threadId, agent_id AS agentId, project_id AS projectId,
+              source, phase, duration_ms AS durationMs, success, error,
+              open_tab_count AS openTabCount, previous_thread_id AS previousThreadId
+       FROM monitor_switches
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(limit) as unknown as SwitchRow[];
+  return rows.map((row) => ({
+    timestamp: row.timestamp,
+    threadId: row.threadId,
+    agentId: row.agentId,
+    projectId: row.projectId,
+    source: row.source as MonitorSwitchRecord["source"],
+    phase: row.phase,
+    durationMs: row.durationMs,
+    success: row.success === 1,
+    error: row.error ?? undefined,
+    openTabCount: row.openTabCount,
+    previousThreadId: row.previousThreadId,
+  }));
+}
+
+export function listTabEvents(limit = 500): MonitorTabEvent[] {
+  ensureMonitorTables();
+  interface TabEventRow {
+    timestamp: number;
+    action: string;
+    threadId: string;
+    openTabCount: number;
+    activeThreadId: string | null;
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, action, thread_id AS threadId, open_tab_count AS openTabCount,
+              active_thread_id AS activeThreadId
+       FROM monitor_tab_events
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(limit) as unknown as TabEventRow[];
+  return rows.map((row) => ({
+    timestamp: row.timestamp,
+    action: row.action as MonitorTabEvent["action"],
+    threadId: row.threadId,
+    openTabCount: row.openTabCount,
+    activeThreadId: row.activeThreadId,
+  }));
+}
+
+export function listTabClickTimings(limit = 500): MonitorTabClickTiming[] {
+  ensureMonitorTables();
+  interface ClickTimingRow {
+    timestamp: number;
+    threadId: string;
+    clickToHighlightPaintMs: number;
+    clickToSwitchResolvedMs: number;
+    switchDurationMs: number | null;
+    phase: string | null;
+    success: number;
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, thread_id AS threadId,
+              click_to_highlight_paint_ms AS clickToHighlightPaintMs,
+              click_to_switch_resolved_ms AS clickToSwitchResolvedMs,
+              switch_duration_ms AS switchDurationMs, phase, success
+       FROM monitor_tab_click_timings
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(limit) as unknown as ClickTimingRow[];
+  return rows.map((row) => ({
+    timestamp: row.timestamp,
+    threadId: row.threadId,
+    clickToHighlightPaintMs: row.clickToHighlightPaintMs,
+    clickToSwitchResolvedMs: row.clickToSwitchResolvedMs,
+    switchDurationMs: row.switchDurationMs,
+    phase: row.phase as MonitorSwitchPhase | null,
+    success: row.success === 1,
+  }));
 }
 
 export function pruneOldSamples(retentionMs: number): void {

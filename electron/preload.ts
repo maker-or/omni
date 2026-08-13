@@ -30,6 +30,9 @@ import type {
   MonitorSampleTick,
   MonitorSession,
   MonitorSessionSummary,
+  MonitorSwitchRecord,
+  MonitorTabClickTiming,
+  MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../contracts/monitor.ts";
 
@@ -360,6 +363,14 @@ const api = {
       ipcRenderer.send("monitor:reportDiffIngestion", ingestion),
     reportTabMismatch: (report: MonitorTabMismatchReport): Promise<void> =>
       ipcRenderer.invoke("monitor:reportTabMismatch", report),
+    reportTabClickTiming: (timing: MonitorTabClickTiming): Promise<void> =>
+      ipcRenderer.invoke("monitor:reportTabClickTiming", timing),
+    getSwitches: (): Promise<MonitorSwitchRecord[]> => ipcRenderer.invoke("monitor:getSwitches"),
+    getTabEvents: (): Promise<MonitorTabEvent[]> => ipcRenderer.invoke("monitor:getTabEvents"),
+    getTabClickTimings: (): Promise<MonitorTabClickTiming[]> =>
+      ipcRenderer.invoke("monitor:getTabClickTimings"),
+    getSwitchTimeline: (): Promise<ReturnType<MonitorService["getSwitchTimeline"]>> =>
+      ipcRenderer.invoke("monitor:getSwitchTimeline"),
     openWindow: (): Promise<void> => ipcRenderer.invoke("monitor:openWindow"),
     onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, snapshot: MonitorLiveSnapshot) =>

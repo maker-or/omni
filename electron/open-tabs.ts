@@ -1,8 +1,34 @@
 import type { BrowserWindow } from "electron";
 import type { OpenTabsState } from "../contracts/threads.ts";
+import type { MonitorTabEvent } from "../contracts/monitor.ts";
 import { enqueueLaunchStateMutation, readLaunchState, writeLaunchState } from "./launch-state.ts";
 
 const MAX_HISTORY = 100;
+
+let tabEventObserver: ((event: MonitorTabEvent) => void) | null = null;
+
+/**
+ * Register a sink for every open-tab-set mutation. The monitor service uses
+ * this to durably record open / close / activate transitions so a switch can
+ * be correlated with the exact tab-count change that preceded it.
+ */
+export function setTabEventObserver(observer: ((event: MonitorTabEvent) => void) | null): void {
+  tabEventObserver = observer;
+}
+
+function notifyTabEvent(
+  action: MonitorTabEvent["action"],
+  threadId: string,
+  state: OpenTabsState,
+): void {
+  tabEventObserver?.({
+    timestamp: Date.now(),
+    action,
+    threadId,
+    openTabCount: state.openThreadIds.length,
+    activeThreadId: state.activeThreadId,
+  });
+}
 
 function compactIds(ids: string[]): string[] {
   return Array.from(new Set(ids.filter((id) => typeof id === "string" && id.length > 0)));
@@ -97,11 +123,13 @@ const enqueueMutation = enqueueLaunchStateMutation;
 export async function openThreadTab(threadId: string): Promise<OpenTabsState> {
   return enqueueMutation(async () => {
     const current = await readOpenTabsState();
-    return writeOpenTabsState({
+    const next = await writeOpenTabsState({
       ...current,
       openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
       activeThreadId: threadId,
     });
+    notifyTabEvent("open", threadId, next);
+    return next;
   });
 }
 
@@ -129,11 +157,13 @@ export async function closeThreadTab(
         current.threadSwitchHistory,
       );
     }
-    return writeOpenTabsState({
+    const next = await writeOpenTabsState({
       ...current,
       openThreadIds,
       activeThreadId,
     });
+    notifyTabEvent("close", threadId, next);
+    return next;
   });
 }
 
@@ -141,20 +171,24 @@ export async function setActiveThreadTab(threadId: string | null): Promise<OpenT
   return enqueueMutation(async () => {
     const current = await readOpenTabsState();
     if (!threadId) {
-      return writeOpenTabsState({ ...current, activeThreadId: null });
+      const next = await writeOpenTabsState({ ...current, activeThreadId: null });
+      notifyTabEvent("activate", current.activeThreadId ?? "", next);
+      return next;
     }
-    return writeOpenTabsState({
+    const next = await writeOpenTabsState({
       ...current,
       openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
       activeThreadId: threadId,
     });
+    notifyTabEvent("activate", threadId, next);
+    return next;
   });
 }
 
 export async function recordThreadSwitch(threadId: string): Promise<OpenTabsState> {
   return enqueueMutation(async () => {
     const current = await readOpenTabsState();
-    return writeOpenTabsState({
+    const next = await writeOpenTabsState({
       openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
       activeThreadId: threadId,
       threadSwitchHistory: [
@@ -162,5 +196,7 @@ export async function recordThreadSwitch(threadId: string): Promise<OpenTabsStat
         ...current.threadSwitchHistory.filter((id) => id !== threadId),
       ],
     });
+    notifyTabEvent("activate", threadId, next);
+    return next;
   });
 }
