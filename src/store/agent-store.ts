@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AcpBridgeEvent,
   AcpChatMessage,
+  AcpEntry,
   AcpPermissionRequest,
   AcpPromptInput,
   AcpReplacePromptInput,
@@ -165,6 +166,43 @@ let latestRefreshId = 0;
 // phases (load, resume, new). Keep the renderer pending until that budget has
 // elapsed so a late session-state cannot surprise the user after a false error.
 const THREAD_SWITCH_TIMEOUT_MS = 60_000;
+
+/**
+ * The runtime's authoritative session snapshots currently contain user text
+ * but not the image blocks that were attached to the prompt. Preserve those
+ * renderer-only image parts when a snapshot replaces an optimistic slice.
+ */
+function preserveOptimisticUserImages(
+  previousEntries: AcpEntry[],
+  nextEntries: AcpEntry[],
+): AcpEntry[] {
+  const imagesByText = new Map<string, Array<{ data: string; mimeType: string }>>();
+  for (const entry of previousEntries) {
+    if (entry.type !== "user_text" || !entry.images?.length) continue;
+    const queued = imagesByText.get(entry.text) ?? [];
+    queued.push(...entry.images);
+    imagesByText.set(entry.text, queued);
+  }
+
+  if (imagesByText.size === 0) return nextEntries;
+
+  return nextEntries.map((entry) => {
+    if (entry.type !== "user_text" || entry.images?.length) return entry;
+    const queued = imagesByText.get(entry.text);
+    if (!queued?.length) return entry;
+    imagesByText.set(entry.text, []);
+    return { ...entry, images: queued };
+  });
+}
+
+function preserveOptimisticState(
+  previousState: AcpSessionState | null,
+  nextState: AcpSessionState,
+): AcpSessionState {
+  if (!previousState?.entries.length) return nextState;
+  const entries = preserveOptimisticUserImages(previousState.entries, nextState.entries);
+  return entries === nextState.entries ? nextState : { ...nextState, entries };
+}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -482,21 +520,22 @@ function applyBridgeEvent(
       // no longer clobber this: the main process only emits session-state
       // for its active thread (see AgentConnectionManager.pushState); their
       // streaming flags arrive via "running-threads" instead.
+      const nextState = preserveOptimisticState(state.state, payload.state);
       return {
-        state: payload.state,
-        threadToolCalls: payload.state.threadId
-          ? { ...state.threadToolCalls, [payload.state.threadId]: payload.state.toolCalls }
+        state: nextState,
+        threadToolCalls: nextState.threadId
+          ? { ...state.threadToolCalls, [nextState.threadId]: nextState.toolCalls }
           : state.threadToolCalls,
         slice: createEmptySessionSlice({
-          entries: payload.state.entries,
-          toolCalls: payload.state.toolCalls,
-          plan: payload.state.plan,
-          usage: payload.state.usage,
-          configOptions: payload.state.configOptions,
-          commands: payload.state.commands,
-          currentModeId: payload.state.currentModeId,
-          isStreaming: payload.state.isStreaming,
-          title: payload.state.title,
+          entries: nextState.entries,
+          toolCalls: nextState.toolCalls,
+          plan: nextState.plan,
+          usage: nextState.usage,
+          configOptions: nextState.configOptions,
+          commands: nextState.commands,
+          currentModeId: nextState.currentModeId,
+          isStreaming: nextState.isStreaming,
+          title: nextState.title,
         }),
         error: null,
         pendingThreadTarget: null,
@@ -715,7 +754,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         rawCleanup();
         unsubscribeBridge = null;
       };
-      const state = await window.omni.agent.getState();
+      const state = preserveOptimisticState(get().state, await window.omni.agent.getState());
       set(
         withSnapshot({
           state,
@@ -756,7 +795,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   refresh: async () => {
     const refreshId = ++latestRefreshId;
     try {
-      const state = await window.omni.agent.getState();
+      const state = preserveOptimisticState(get().state, await window.omni.agent.getState());
       set(() => {
         if (refreshId !== latestRefreshId) return {};
         pendingThreadTarget = null;
@@ -854,9 +893,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   sendPrompt: async (input) => {
     // Optimistic local user message
-    if (input.message) {
+    if (input.message || input.images?.length) {
       set((s) => {
-        const nextSlice = appendLocalUserMessage(s.slice, input.message!);
+        const nextSlice = appendLocalUserMessage(
+          s.slice,
+          input.message ?? "",
+          undefined,
+          input.images,
+        );
         const base = s.state ?? emptyState();
         return withSnapshot({
           slice: nextSlice,
@@ -908,7 +952,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         // IPC promise resolves. Avoid a second renderer→main→renderer trip.
         // Keep fallback for older ACP bridges that do not emit that snapshot.
         if (get().state?.threadId !== threadId) {
-          const state = await window.omni.agent.getState();
+          const state = preserveOptimisticState(get().state, await window.omni.agent.getState());
           set(() => {
             if (switchId !== latestThreadSwitchId || state.threadId !== threadId) return {};
             pendingThreadTarget = null;

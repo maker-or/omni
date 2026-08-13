@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { parseDiffFromFile } from "@pierre/diffs";
 import type { AcpToolCallState } from "../../contracts/acp.ts";
 
 export interface DiffFileEntry {
@@ -8,11 +9,26 @@ export interface DiffFileEntry {
   updatedAt: number;
 }
 
+export interface DiffSummaryFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface DiffTurnSummary {
+  /** First ACP tool-call id from the turn; not a new ACP turn id. */
+  key: string;
+  files: DiffSummaryFile[];
+  additions: number;
+  deletions: number;
+}
+
 export interface DiffThreadState {
   files: Record<string, DiffFileEntry>;
   order: string[];
   activePath: string | null;
   unseenCount: number;
+  summaries: Record<string, DiffTurnSummary>;
   /** Content fingerprints only; retaining full tool-call payloads duplicated the agent store. */
   lastSeenToolCallVersions: Record<string, string>;
 }
@@ -34,6 +50,7 @@ interface DiffState {
   activePath: string | null;
   isOpen: boolean;
   unseenCount: number;
+  summaries: Record<string, DiffTurnSummary>;
   /** Durable-in-memory diff state for every thread seen by the renderer. */
   threads: Record<string, DiffThreadState>;
   ingestToolCalls: (
@@ -41,6 +58,12 @@ interface DiffState {
     toolCalls: Record<string, AcpToolCallState>,
     isActive?: boolean,
   ) => DiffIngestionMetrics | null;
+  recordTurnSummary: (
+    threadId: string | null,
+    key: string,
+    toolCalls: Record<string, AcpToolCallState>,
+  ) => DiffTurnSummary | null;
+  activateThread: (threadId: string | null) => void;
   setActivePath: (path: string) => void;
   open: () => void;
   close: () => void;
@@ -53,6 +76,7 @@ const emptyThreadState = (): DiffThreadState => ({
   order: [],
   activePath: null,
   unseenCount: 0,
+  summaries: {},
   lastSeenToolCallVersions: {},
 });
 
@@ -92,6 +116,55 @@ function extractDiffs(
   for (const key of ["content", "diff", "changes", "fileEdit", "file_edit", "output"]) {
     if (key in block) extractDiffs(block[key], output);
   }
+}
+
+/**
+ * Build the compact card data from final tool-call contents. This is called
+ * once when a turn settles, never for every streaming update.
+ */
+export function summarizeToolCalls(
+  key: string,
+  toolCalls: Record<string, AcpToolCallState>,
+): DiffTurnSummary | null {
+  const files = new Map<string, { oldText: string; newText: string }>();
+  for (const toolCall of Object.values(toolCalls)) {
+    const diffs: Array<{ path: string; oldText: string; newText: string }> = [];
+    extractDiffs(toolCall.content, diffs);
+    for (const diff of diffs) {
+      const previous = files.get(diff.path);
+      files.set(diff.path, {
+        oldText: previous?.oldText ?? diff.oldText,
+        newText: diff.newText,
+      });
+    }
+  }
+
+  const summaryFiles: DiffSummaryFile[] = [];
+  for (const [path, file] of files) {
+    if (file.oldText === file.newText) continue;
+    try {
+      const parsed = parseDiffFromFile(
+        { name: path, contents: file.oldText },
+        { name: path, contents: file.newText },
+      );
+      summaryFiles.push({
+        path,
+        additions: parsed.hunks.reduce((total, hunk) => total + hunk.additionLines, 0),
+        deletions: parsed.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0),
+      });
+    } catch {
+      // A malformed or identical provider payload should not prevent the
+      // completed assistant message from rendering.
+    }
+  }
+
+  if (summaryFiles.length === 0) return null;
+  return {
+    key,
+    files: summaryFiles,
+    additions: summaryFiles.reduce((total, file) => total + file.additions, 0),
+    deletions: summaryFiles.reduce((total, file) => total + file.deletions, 0),
+  };
 }
 
 function ingestThread(
@@ -157,6 +230,7 @@ function ingestThread(
       order,
       activePath,
       unseenCount: previous.unseenCount + added,
+      summaries: previous.summaries,
       lastSeenToolCallVersions: nextVersions,
     },
     added,
@@ -200,6 +274,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   activePath: null,
   isOpen: false,
   unseenCount: 0,
+  summaries: {},
   threads: {},
 
   ingestToolCalls: (threadId, toolCalls, isActive = true) => {
@@ -214,6 +289,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
             order: state.order,
             activePath: state.activePath,
             unseenCount: 0,
+            summaries: state.summaries,
             lastSeenToolCallVersions: {},
           }
         : emptyThreadState());
@@ -225,6 +301,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
         order: state.order,
         activePath: state.activePath,
         unseenCount: 0,
+        summaries: state.summaries,
         lastSeenToolCallVersions: {},
       };
     }
@@ -252,7 +329,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       files: result.next.files,
       order: result.next.order,
       activePath: result.next.activePath,
-      isOpen: result.added > 0 ? true : state.isOpen,
+      summaries: result.next.summaries,
+      isOpen: state.isOpen,
       unseenCount: state.unseenCount + result.added,
     });
     return {
@@ -263,6 +341,55 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       durationMs: (globalThis.performance?.now?.() ?? Date.now()) - startedAt,
       fileCount: result.next.order.length,
     };
+  },
+
+  recordTurnSummary: (threadId, key, toolCalls) => {
+    if (!threadId || !key) return null;
+    const state = get();
+    const summary = summarizeToolCalls(key, toolCalls);
+    if (!summary) return null;
+    const previous =
+      state.threads[threadId] ??
+      (state.threadId === threadId
+        ? {
+            files: state.files,
+            order: state.order,
+            activePath: state.activePath,
+            unseenCount: state.unseenCount,
+            summaries: state.summaries,
+            lastSeenToolCallVersions: {},
+          }
+        : emptyThreadState());
+    const summaries = { ...previous.summaries, [key]: summary };
+    const nextThread = { ...previous, summaries };
+    const threads = { ...state.threads, [threadId]: nextThread };
+    if (state.threadId === threadId || state.threadId == null) {
+      set({
+        threadId,
+        threads,
+        files: previous.files,
+        order: previous.order,
+        activePath: previous.activePath,
+        summaries,
+      });
+    } else {
+      set({ threads });
+    }
+    return summary;
+  },
+
+  activateThread: (threadId) => {
+    if (!threadId) return;
+    const state = get();
+    const thread = state.threads[threadId] ?? emptyThreadState();
+    set({
+      threadId,
+      files: thread.files,
+      order: thread.order,
+      activePath: thread.activePath,
+      summaries: thread.summaries,
+      unseenCount: thread.unseenCount,
+    });
   },
 
   setActivePath: (path) => set({ activePath: path }),
@@ -276,6 +403,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       activePath: null,
       isOpen: false,
       unseenCount: 0,
+      summaries: {},
       threads: {},
     }),
   markSeen: () => set({ unseenCount: 0 }),

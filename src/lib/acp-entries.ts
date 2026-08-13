@@ -183,7 +183,10 @@ export function projectChatMessages(
           role: "user",
           text: entry.text,
           thought: "",
-          content: entry.text ? [{ type: "text", text: entry.text }] : [],
+          content: [
+            ...(entry.text ? [{ type: "text" as const, text: entry.text }] : []),
+            ...(entry.images ?? []).map((image) => ({ type: "image" as const, ...image })),
+          ],
           toolCallIds: [],
           streaming: false,
         };

@@ -10,6 +10,8 @@ import { FileThumbnail } from "@/components/ui/file-thumbnail";
 interface ChatMessageProps extends Omit<HTMLMotionProps<"div">, "children"> {
   from: "user" | "assistant";
   files?: File[];
+  images?: Array<{ id: string; data: string; mimeType: string; name?: string }>;
+  onImageClick?: (image: { id: string; data: string; mimeType: string; name?: string }) => void;
   thumbnailSize?: number;
   time?: ReactNode;
   actions?: ReactNode;
@@ -20,7 +22,19 @@ interface ChatMessageProps extends Omit<HTMLMotionProps<"div">, "children"> {
 
 const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
   (
-    { from, files, thumbnailSize = 64, time, actions, children, className, pipperId, ...props },
+    {
+      from,
+      files,
+      images,
+      onImageClick,
+      thumbnailSize = 64,
+      time,
+      actions,
+      children,
+      className,
+      pipperId,
+      ...props
+    },
     ref,
   ) => {
     const shape = useShape();
@@ -52,6 +66,25 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
                   file={file}
                   size={thumbnailSize}
                 />
+              ))}
+            </div>
+          )}
+          {images && images.length > 0 && (
+            <div className={cn("flex flex-wrap gap-2", isUser ? "justify-end" : "justify-start")}>
+              {images.map((image) => (
+                <button
+                  key={image.id}
+                  type="button"
+                  className="block overflow-hidden rounded-md border border-border outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  onClick={() => onImageClick?.(image)}
+                  aria-label={`Open ${image.name ?? "attached image"}`}
+                >
+                  <img
+                    src={`data:${image.mimeType};base64,${image.data}`}
+                    alt={image.name ?? "Attached image"}
+                    className="size-24 object-cover"
+                  />
+                </button>
               ))}
             </div>
           )}

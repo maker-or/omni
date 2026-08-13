@@ -377,11 +377,22 @@ export function appendLocalUserMessage(
   state: AcpSessionSlice,
   text: string,
   id?: string,
+  images?: Array<{ data: string; mimeType: string }>,
 ): AcpSessionSlice {
   const entryId = id ?? `local-user-${Date.now()}`;
+  const imageParts = images?.map(({ data, mimeType }) => ({ data, mimeType }));
   return trimSessionSlice({
     ...state,
-    entries: [...state.entries, { type: "user_text", id: entryId, messageId: null, text }],
+    entries: [
+      ...state.entries,
+      {
+        type: "user_text",
+        id: entryId,
+        messageId: null,
+        text,
+        ...(imageParts?.length ? { images: imageParts } : {}),
+      },
+    ],
     isStreaming: true,
     // New turn: do not inherit prior-turn plan while waiting for a fresh one.
     plan: null,

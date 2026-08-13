@@ -30,7 +30,7 @@ describe("diff-store", () => {
     });
   });
 
-  test("ingests a diff tool call and auto-opens", () => {
+  test("ingests a diff tool call without opening the panel", () => {
     useDiffStore.setState({
       threadId: null,
       files: {},
@@ -47,7 +47,7 @@ describe("diff-store", () => {
     const state = useDiffStore.getState();
     expect(state.order).toEqual(["/repo/a.ts"]);
     expect(state.files["/repo/a.ts"]).toMatchObject({ oldText: "old", newText: "new" });
-    expect(state.isOpen).toBe(true);
+    expect(state.isOpen).toBe(false);
     expect(state.activePath).toBe("/repo/a.ts");
     expect(metrics).toMatchObject({
       toolCallCount: 1,
@@ -76,7 +76,7 @@ describe("diff-store", () => {
     expect(useDiffStore.getState().isOpen).toBe(false);
   });
 
-  test("a new file diff in the same thread reopens the tab", () => {
+  test("a new file diff in the same thread does not reopen the tab", () => {
     useDiffStore.setState({
       threadId: "thread-1",
       files: { "/repo/a.ts": { path: "/repo/a.ts", oldText: "old", newText: "new", updatedAt: 0 } },
@@ -93,7 +93,7 @@ describe("diff-store", () => {
 
     const state = useDiffStore.getState();
     expect(state.order).toEqual(["/repo/a.ts", "/repo/b.ts"]);
-    expect(state.isOpen).toBe(true);
+    expect(state.isOpen).toBe(false);
     expect(state.activePath).toBe("/repo/b.ts");
   });
 
@@ -179,6 +179,24 @@ describe("diff-store", () => {
       oldText: "a",
       newText: "b",
     });
+  });
+
+  test("summarizes final ACP diff blocks once per assistant message", () => {
+    const summary = useDiffStore.getState().recordTurnSummary("thread-1", "assistant-1", {
+      "tc-a": editToolCall("/repo/a.ts", "const a = 1;\n", "const a = 2;\nconst b = 3;\n"),
+      "tc-b": editToolCall("/repo/b.ts", "old\n", "new\n"),
+    });
+
+    expect(summary).toMatchObject({
+      key: "assistant-1",
+      additions: 3,
+      deletions: 2,
+      files: [
+        { path: "/repo/a.ts", additions: 2, deletions: 1 },
+        { path: "/repo/b.ts", additions: 1, deletions: 1 },
+      ],
+    });
+    expect(useDiffStore.getState().summaries["assistant-1"]).toEqual(summary);
   });
 
   test("ingests background thread diffs without changing the active view", () => {

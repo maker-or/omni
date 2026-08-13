@@ -9,6 +9,7 @@ import {
   MAX_SESSION_TOOL_CALLS,
   resetEntryIdCounter,
 } from "./acp-session-reducer";
+import { projectChatMessages } from "./acp-entries";
 
 describe("acp-session-reducer", () => {
   beforeEach(() => {
@@ -386,6 +387,20 @@ describe("acp-session-reducer", () => {
     expect(blocks[0]).toMatchObject({ type: "text", text: "look at this" });
     expect(blocks[1]).toMatchObject({ type: "image", mimeType: "image/png" });
     expect(blocks[2]).toMatchObject({ type: "resource" });
+  });
+
+  test("keeps optimistic user images in the projected chat message", () => {
+    const image = { data: "aGk=", mimeType: "image/png" };
+    const state = appendLocalUserMessage(createEmptySessionSlice(), "Look at this", "u-image", [
+      image,
+    ]);
+
+    const [message] = projectChatMessages(state.entries, state.toolCalls, true);
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Look at this" },
+      { type: "image", ...image },
+    ]);
   });
 
   test("user_message_chunk during session load", () => {

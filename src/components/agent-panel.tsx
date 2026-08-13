@@ -23,6 +23,7 @@ import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { useModelCatalogStore } from "@/store/model-catalog-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { useDiffStore, type DiffTurnSummary } from "@/store/diff-store";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import type { ComposerContent } from "../../contracts/composer.ts";
 import {
@@ -75,6 +76,7 @@ import { CONTINUE_COMMAND, matchAgentCommands, mergeAgentCommands } from "@/lib/
 import { isSubagentTrigger, SUBAGENT_COMMAND } from "@/lib/subagent-orchestration";
 import { SubagentComposer, type SubagentComposerSubmit } from "@/components/subagent-composer";
 import { SubagentActivity } from "@/components/subagent-activity";
+import { DiffSummaryCard } from "@/components/diff-summary-card";
 /** Max agents shown in (and selectable from) the `/continue` picker. */
 const MAX_CONTINUE_AGENTS = 8;
 const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -437,12 +439,14 @@ function MessageBody({
   messages,
   isStreaming = false,
   activeMessages = [],
+  diffSummary,
   traceDeckOpen,
   onTraceDeckOpenChange,
 }: {
   messages: MessageLike[];
   isStreaming?: boolean;
   activeMessages?: MessageLike[];
+  diffSummary?: DiffTurnSummary;
   traceDeckOpen?: boolean;
   onTraceDeckOpenChange?: (open: boolean) => void;
 }) {
@@ -496,6 +500,8 @@ function MessageBody({
             <MarkdownRenderer isStreaming={isStreaming}>{textBodyCombined}</MarkdownRenderer>
           </div>
         )}
+
+        {!isStreaming && diffSummary && <DiffSummaryCard summary={diffSummary} />}
       </div>
     );
   }
@@ -604,6 +610,24 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
+
+  useEffect(() => {
+    if (!showThinkingSlider) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.closest(
+          '[data-pipper-id="reasoning-slider-toggle"], [data-pipper-id="reasoning-slider"]',
+        )
+      ) {
+        return;
+      }
+      setShowThinkingSlider(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [showThinkingSlider]);
 
   // Remotion (and other static previews) can supply a deterministic composer
   // value without adding a separate visual clone of this component.
@@ -924,6 +948,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const inlineRequest =
     uiRequestQueue.find((r) => activeSessionId != null && r.sessionId === activeSessionId) ?? null;
   const activeMessages = snapshot?.messages ?? [];
+  const diffSummaries = useDiffStore((state) => state.summaries);
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
   const slashMatches = useMemo(() => {
@@ -1258,6 +1283,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                     allowImage: canAttachImage(),
                   }),
                 ] as ContentBlock[],
+                // Keep the optimistic user bubble in sync with the prompt
+                // even though the transcript is sent as a prebuilt prompt.
+                images: newImages.length ? newImages : undefined,
                 streamingBehavior: isStreaming ? streamingBehavior : undefined,
               })
             : sendPrompt({
@@ -1773,6 +1801,16 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                       const { key, role, messages, originalIndex, isStreaming } = entry;
                       const from = role;
                       const msgId = key;
+                      const firstToolCallId =
+                        from === "assistant"
+                          ? (messages
+                              .flatMap((message) =>
+                                "toolCallIds" in message && Array.isArray(message.toolCallIds)
+                                  ? message.toolCallIds
+                                  : [],
+                              )
+                              .at(0) ?? undefined)
+                          : undefined;
                       const bodyText = messages
                         .map((m) => stringifyMessageContent(m))
                         .filter(Boolean)
@@ -1855,12 +1893,21 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             transform: `translateY(${virtualRow.start}px)`,
                           }}
                         >
-                          <ChatMessage from={from} time={timeStr} actions={actions}>
+                          <ChatMessage
+                            from={from}
+                            time={timeStr}
+                            actions={actions}
+                            images={groupedImages}
+                            onImageClick={setPreviewImage}
+                          >
                             {hasContent ? (
                               <MessageBody
                                 messages={messages}
                                 isStreaming={isStreaming}
                                 activeMessages={activeMessages}
+                                diffSummary={
+                                  firstToolCallId ? diffSummaries[firstToolCallId] : undefined
+                                }
                                 traceDeckOpen={traceDeckOpenByKey[msgId] ?? isStreaming}
                                 onTraceDeckOpenChange={(open) =>
                                   setTraceDeckOpenByKey((current) => ({
@@ -1870,24 +1917,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                 }
                               />
                             ) : undefined}
-                            {groupedImages.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {groupedImages.map((image) => (
-                                  <button
-                                    key={image.id}
-                                    type="button"
-                                    onClick={() => setPreviewImage(image)}
-                                  >
-                                    <img
-                                      src={`data:${image.mimeType};base64,${image.data}`}
-                                      alt="Message attachment"
-                                      className="size-24 rounded-md object-cover border border-border"
-                                      onLoad={() => conversationVirtualizer.measure()}
-                                    />
-                                  </button>
-                                ))}
-                              </div>
-                            )}
                           </ChatMessage>
                         </div>
                       );
@@ -2085,47 +2114,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                     />
                   ) : (
                     <>
-                      <AnimatePresence>
-                        {showThinkingSlider && thoughtLevelValues.length > 0 && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.15 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="pb-2">
-                              <SliderComfortable
-                                value={currentThoughtIndex}
-                                onChange={(index) => {
-                                  const val = thoughtLevelValues[index];
-                                  if (val && thoughtLevelConfigId) {
-                                    setConfigOption(thoughtLevelConfigId, val.value).catch(
-                                      (err) => {
-                                        toast({
-                                          icon: <WarningIcon className="size-5 text-red-500" />,
-                                          title: "Reasoning level failed",
-                                          description:
-                                            err instanceof Error
-                                              ? err.message
-                                              : "The reasoning level was not changed.",
-                                        });
-                                      },
-                                    );
-                                  }
-                                }}
-                                min={0}
-                                max={thoughtLevelValues.length - 1}
-                                step={1}
-                                variant="pips"
-                                label="Reasoning"
-                                formatValue={(v) => thoughtLevelValues[v]?.name ?? String(v)}
-                                disabled={runtimeControlsDisabled}
-                              />
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                       {pendingContinuation ? (
                         <div
                           className="relative z-10 mb-1.5 flex flex-wrap items-center gap-1.5"
@@ -2235,6 +2223,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                 variant="ghost"
                                 size="sm"
                                 disabled={runtimeControlsDisabled}
+                                data-pipper-id="reasoning-slider-toggle"
                                 onClick={() => setShowThinkingSlider((v) => !v)}
                               >
                                 {thoughtLevelValues[currentThoughtIndex]?.name ??
@@ -2245,6 +2234,48 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           </div>
                         }
                       />
+                      <AnimatePresence>
+                        {showThinkingSlider && thoughtLevelValues.length > 0 && (
+                          <motion.div
+                            data-pipper-id="reasoning-slider"
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="pt-1">
+                              <SliderComfortable
+                                value={currentThoughtIndex}
+                                onChange={(index) => {
+                                  const val = thoughtLevelValues[index];
+                                  if (val && thoughtLevelConfigId) {
+                                    setConfigOption(thoughtLevelConfigId, val.value).catch(
+                                      (err) => {
+                                        toast({
+                                          icon: <WarningIcon className="size-5 text-red-500" />,
+                                          title: "Reasoning level failed",
+                                          description:
+                                            err instanceof Error
+                                              ? err.message
+                                              : "The reasoning level was not changed.",
+                                        });
+                                      },
+                                    );
+                                  }
+                                }}
+                                min={0}
+                                max={thoughtLevelValues.length - 1}
+                                step={1}
+                                variant="pips"
+                                label="Reasoning"
+                                formatValue={(v) => thoughtLevelValues[v]?.name ?? String(v)}
+                                disabled={runtimeControlsDisabled}
+                              />
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </>
                   )}
                 </div>

@@ -139,7 +139,14 @@ export interface AcpToolCallState {
  * touches only that record, never the entry list.
  */
 export type AcpEntry =
-  | { type: "user_text"; id: string; messageId: string | null; text: string }
+  | {
+      type: "user_text";
+      id: string;
+      messageId: string | null;
+      text: string;
+      /** Images attached to an optimistic local user message. */
+      images?: Array<{ data: string; mimeType: string }>;
+    }
   | { type: "agent_text"; id: string; messageId: string | null; text: string }
   | { type: "agent_thought"; id: string; messageId: string | null; text: string }
   | { type: "tool_call"; id: string; toolCallId: string };
@@ -148,6 +155,7 @@ export type AcpEntry =
 export type AcpMessagePart =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
+  | { type: "image"; data: string; mimeType: string }
   | {
       type: "toolCall";
       id: string;

@@ -111,6 +111,20 @@ export function ThreadComposer({
   const contentRef = useRef(content);
   contentRef.current = content;
 
+  const setInlineTextRef = useCallback(
+    (node: HTMLSpanElement | null) => {
+      inlineTextRef.current = node;
+      // ThreadComposer uses a contentEditable span instead of InputMessage's
+      // native textarea. Keep the legacy focus ref useful for callers that
+      // focus the composer after opening a draft or editing a message.
+      if (externalTextareaRef) {
+        (externalTextareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current =
+          node as unknown as HTMLTextAreaElement | null;
+      }
+    },
+    [externalTextareaRef],
+  );
+
   const filesAvailable = projectFiles.length > 0 || mode === "live" || mode === "draft";
   const availability = useMemo(
     () => ({
@@ -219,6 +233,16 @@ export function ThreadComposer({
     selection?.removeAllRanges();
     selection?.addRange(range);
   }, []);
+
+  const focusInlineEditor = useCallback(() => {
+    const editor = inlineTextRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (!selection || !editor.contains(selection.anchorNode)) {
+      placeInlineCaret(editor.textContent?.length ?? 0);
+    }
+  }, [placeInlineCaret]);
 
   const inlineCursorOffset = useCallback(() => {
     const selection = window.getSelection();
@@ -408,14 +432,24 @@ export function ThreadComposer({
     if (editor && editor.textContent !== freeText) editor.textContent = freeText;
   }, [freeText]);
 
+  // Keep chips and the editable text in one inline formatting context.
+  // A flex row makes the text span its own permanent column, so wrapped
+  // lines stay indented after the last chip instead of using the full
+  // composer width.
   const inlineEditor = (
     <div
       ref={inlineEditorRef}
-      className="flex h-11 min-h-11 max-h-11 min-w-0 flex-1 flex-wrap items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] text-foreground outline-none"
+      className="block h-11 min-h-11 max-h-11 min-w-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
       aria-label={mode === "draft" ? "New thread composer" : "Message composer"}
+      onMouseDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("button") || target.closest('[contenteditable="true"]')) return;
+        event.preventDefault();
+        focusInlineEditor();
+      }}
       onInput={(event) => {
         const text =
           event.currentTarget.querySelector<HTMLElement>("[data-inline-text]")?.textContent ?? "";
@@ -463,7 +497,7 @@ export function ThreadComposer({
             contentEditable={false}
             title={`@${entity.label}`}
             className={cn(
-              "inline-flex min-w-0 max-w-[min(100%,28rem)] shrink items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-medium",
+              "mr-1 inline-flex min-w-0 max-w-[min(100%,28rem)] shrink items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 align-middle text-[12px] font-medium",
               mentionChipClass(entity.kind),
             )}
           >
@@ -479,10 +513,12 @@ export function ThreadComposer({
           </span>
         ))}
       <span
-        ref={inlineTextRef}
+        ref={setInlineTextRef}
         data-inline-text
         contentEditable={!disabled}
-        className="min-w-0 flex-1 whitespace-pre-wrap outline-none empty:before:inline-block empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        tabIndex={0}
+        className="cursor-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none empty:before:inline-block empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        style={{ caretColor: "currentColor" }}
         data-placeholder={resolvedPlaceholder}
       />
     </div>

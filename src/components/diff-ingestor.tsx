@@ -1,71 +1,188 @@
 import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/store/agent-store";
 import { useDiffStore } from "@/store/diff-store";
-import type { AcpToolCallState } from "../../contracts/acp.ts";
 import { recordDiffIngestion } from "@/lib/monitor-runtime-observer";
 
 /**
- * Headless: streams the active agent thread's ACP tool-call diffs into the
- * diff store. Isolated into its own component (rendered once, high in the
- * tree) so the `toolCalls` subscription — which changes on every streaming
- * update — re-renders only this null node, not the whole app shell. Lives
- * above the view router so diffs keep flowing even while a terminal tab is
- * focused.
+ * Headless diff coordinator. Diff payloads are intentionally ignored while a
+ * turn is streaming. We summarize newly-created tool calls once after the
+ * turn settles, and only materialize the full latest diff when the user has
+ * explicitly opened the diff panel.
  */
 export function DiffIngestor() {
   const activeThreadId = useAgentStore((state) => state.state?.threadId ?? null);
+  const isStreaming = useAgentStore((state) => state.state?.isStreaming ?? false);
+  const activeEntries = useAgentStore((state) => state.slice.entries);
+  const activeToolCalls = useAgentStore((state) => state.slice.toolCalls);
+  const runningThreadIds = useAgentStore((state) => state.runningThreadIds);
   const threadToolCalls = useAgentStore((state) => state.threadToolCalls);
   const ingestToolCalls = useDiffStore((state) => state.ingestToolCalls);
+  const recordTurnSummary = useDiffStore((state) => state.recordTurnSummary);
+  const activateThread = useDiffStore((state) => state.activateThread);
+  const isOpen = useDiffStore((state) => state.isOpen);
   const clear = useDiffStore((state) => state.clear);
-  const seenToolCalls = useRef<Record<string, Record<string, AcpToolCallState>>>({});
+  const baselineToolCallIds = useRef<Record<string, Set<string>>>({});
+  const hydratedThreadIds = useRef<Set<string>>(new Set());
   const previousActiveThreadId = useRef<string | null>(null);
+  const previousRunningThreadIds = useRef<Set<string>>(new Set());
+  const wasStreaming = useRef(false);
+  const previousOpen = useRef(false);
 
   useEffect(() => {
     if (!activeThreadId) {
-      seenToolCalls.current = {};
+      baselineToolCallIds.current = {};
+      hydratedThreadIds.current = new Set();
       previousActiveThreadId.current = null;
+      previousRunningThreadIds.current = new Set();
+      wasStreaming.current = false;
       clear();
     }
   }, [activeThreadId, clear]);
 
   useEffect(() => {
     if (!activeThreadId) return;
+    // The active slice is updated by the authoritative session-state/stop
+    // path. The background watermark can lag behind that event by one bridge
+    // tick, which previously caused us to summarize the previous turn.
+    const typedToolCalls = activeToolCalls;
     const activeChanged = previousActiveThreadId.current !== activeThreadId;
-    const nextSeen: Record<string, Record<string, AcpToolCallState>> = {};
-    for (const [threadId, toolCalls] of Object.entries(threadToolCalls)) {
-      if (threadId === "__none__") continue;
-      const typedToolCalls = toolCalls as Record<string, AcpToolCallState>;
-      nextSeen[threadId] = typedToolCalls;
-      if (
-        seenToolCalls.current[threadId] === typedToolCalls &&
-        !(activeChanged && threadId === activeThreadId)
-      ) {
-        continue;
+    const running = new Set(runningThreadIds);
+
+    if (activeChanged) {
+      activateThread(activeThreadId);
+      baselineToolCallIds.current[activeThreadId] = new Set(Object.keys(typedToolCalls));
+      previousActiveThreadId.current = activeThreadId;
+      wasStreaming.current = isStreaming;
+
+      if (!isStreaming && !hydratedThreadIds.current.has(activeThreadId)) {
+        for (const run of assistantToolCallRuns(activeEntries, typedToolCalls)) {
+          recordTurnSummary(activeThreadId, run.key, run.toolCalls);
+        }
+        hydratedThreadIds.current.add(activeThreadId);
       }
-      const metrics = ingestToolCalls(threadId, typedToolCalls, threadId === activeThreadId);
+    }
+
+    for (const threadId of running) {
+      if (baselineToolCallIds.current[threadId]) continue;
+      baselineToolCallIds.current[threadId] = new Set(Object.keys(threadToolCalls[threadId] ?? {}));
+    }
+
+    const completedThreadIds = [...previousRunningThreadIds.current].filter(
+      (threadId) => !running.has(threadId),
+    );
+    for (const threadId of completedThreadIds) {
+      const calls = threadToolCalls[threadId] ?? {};
+      const baseline = baselineToolCallIds.current[threadId] ?? new Set<string>();
+      const turnToolCalls = Object.fromEntries(
+        Object.entries(calls).filter(([id]) => !baseline.has(id)),
+      );
+      const firstToolCallId = Object.keys(turnToolCalls)[0];
+      if (firstToolCallId) {
+        recordTurnSummary(threadId, firstToolCallId, turnToolCalls);
+      }
+      delete baselineToolCallIds.current[threadId];
+    }
+    previousRunningThreadIds.current = running;
+
+    if (isStreaming && !wasStreaming.current) {
+      wasStreaming.current = true;
+    }
+
+    const justSettled = wasStreaming.current && !isStreaming;
+    if (justSettled) {
+      const currentTurnToolCalls = toolCallsAfterLastUserMessage(activeEntries, typedToolCalls);
+      if (Object.keys(currentTurnToolCalls).length > 0) {
+        recordTurnSummary(
+          activeThreadId,
+          Object.keys(currentTurnToolCalls)[0]!,
+          currentTurnToolCalls,
+        );
+      }
+      wasStreaming.current = false;
+    }
+
+    // Full diff extraction is an explicit-view operation. A settled turn can
+    // refresh an already-open panel once, but never on intermediate chunks.
+    const shouldLoadLatest = isOpen && (!previousOpen.current || activeChanged || justSettled);
+    if (shouldLoadLatest && !isStreaming) {
+      const metrics = ingestToolCalls(activeThreadId, typedToolCalls, true);
       if (metrics) {
-        recordDiffIngestion({
-          ...metrics,
-          threadCount: Object.keys(threadToolCalls).filter((id) => id !== "__none__").length,
-          toolCallCount: Object.keys(typedToolCalls).length,
-          fileCount: metrics.fileCount,
-        });
+        const threadCount = Object.keys(threadToolCalls).filter((id) => id !== "__none__").length;
+        recordDiffIngestion({ ...metrics, threadCount, toolCallCount: metrics.toolCallCount });
         reportDiffIngestionAfterPaint({
           activeThreadId,
-          ingestedThreadId: threadId,
-          activeThreadStreaming: useAgentStore.getState().runningThreadIds.includes(activeThreadId),
-          isActiveThread: threadId === activeThreadId,
-          threadCount: Object.keys(threadToolCalls).filter((id) => id !== "__none__").length,
-          toolCallCount: Object.keys(typedToolCalls).length,
+          ingestedThreadId: activeThreadId,
+          activeThreadStreaming: false,
+          isActiveThread: true,
+          threadCount,
+          toolCallCount: metrics.toolCallCount,
           ...metrics,
         });
       }
     }
-    seenToolCalls.current = nextSeen;
-    previousActiveThreadId.current = activeThreadId;
-  }, [activeThreadId, threadToolCalls, ingestToolCalls]);
+    previousOpen.current = isOpen;
+  }, [
+    activeThreadId,
+    activeEntries,
+    activeToolCalls,
+    ingestToolCalls,
+    isOpen,
+    isStreaming,
+    recordTurnSummary,
+    activateThread,
+    runningThreadIds,
+    threadToolCalls,
+  ]);
 
   return null;
+}
+
+function toolCallsAfterLastUserMessage(
+  entries: ReturnType<typeof useAgentStore.getState>["slice"]["entries"],
+  toolCalls: ReturnType<typeof useAgentStore.getState>["slice"]["toolCalls"],
+): Record<string, (typeof toolCalls)[string]> {
+  let lastUserIndex = -1;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.type === "user_text") {
+      lastUserIndex = index;
+      break;
+    }
+  }
+  const ids = entries
+    .slice(lastUserIndex + 1)
+    .filter(
+      (entry): entry is Extract<(typeof entries)[number], { type: "tool_call" }> =>
+        entry.type === "tool_call",
+    )
+    .map((entry) => entry.toolCallId);
+  return Object.fromEntries(ids.map((id) => [id, toolCalls[id]]).filter(([, call]) => call));
+}
+
+function assistantToolCallRuns(
+  entries: ReturnType<typeof useAgentStore.getState>["slice"]["entries"],
+  toolCalls: ReturnType<typeof useAgentStore.getState>["slice"]["toolCalls"],
+): Array<{ key: string; toolCalls: Record<string, (typeof toolCalls)[string]> }> {
+  const runs: Array<{ key: string; toolCalls: Record<string, (typeof toolCalls)[string]> }> = [];
+  let ids: string[] = [];
+
+  const flush = () => {
+    const calls = Object.fromEntries(
+      ids.map((id) => [id, toolCalls[id]]).filter(([, call]) => call),
+    ) as Record<string, (typeof toolCalls)[string]>;
+    const key = Object.keys(calls)[0];
+    if (key) runs.push({ key, toolCalls: calls });
+    ids = [];
+  };
+
+  for (const entry of entries) {
+    if (entry.type === "user_text") {
+      flush();
+    } else if (entry.type === "tool_call") {
+      ids.push(entry.toolCallId);
+    }
+  }
+  flush();
+  return runs;
 }
 
 function reportDiffIngestionAfterPaint(
