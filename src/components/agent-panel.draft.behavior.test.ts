@@ -107,4 +107,33 @@ describe("draft thread creation behavior", () => {
     expect(createThread).toHaveBeenCalledWith("p1", "hi", null, "claude", "/repo", "sonnet");
     expect(createThread).toHaveBeenCalledTimes(1);
   });
+
+  test("empty workspace with auto-draft provides project -> model -> file mention cascade", async () => {
+    const {
+      resolveDefaultMentionKind,
+      buildContent: bc,
+      blankContent: blank,
+    } = await import("@/lib/composer-tokens");
+
+    // When all tabs close and auto-draft initializes without a project:
+    useWorkspaceViewStore.getState().beginDraft();
+    expect(useWorkspaceViewStore.getState().draft).not.toBeNull();
+    expect(resolveDefaultMentionKind({ mode: "draft", content: blank() })).toBe("project");
+
+    // When auto-draft initializes with an active project:
+    useWorkspaceViewStore.getState().beginDraft({ projectId: "p1" });
+    const contentWithProject = bc([{ kind: "project", id: "p1", label: "Omni" }], "");
+    // First @ targets model:
+    expect(resolveDefaultMentionKind({ mode: "draft", content: contentWithProject })).toBe("model");
+
+    // After picking model, next @ targets file:
+    const contentWithModel = bc(
+      [
+        { kind: "project", id: "p1", label: "Omni" },
+        { kind: "model", id: "sonnet", label: "Sonnet" },
+      ],
+      "",
+    );
+    expect(resolveDefaultMentionKind({ mode: "draft", content: contentWithModel })).toBe("file");
+  });
 });

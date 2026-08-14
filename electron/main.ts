@@ -828,6 +828,12 @@ function initializeMonitorService(): void {
     onSwitchRecord: (record) => {
       monitorService?.reportSwitch(record);
     },
+    onAcpUpdate: (update) => {
+      monitorService?.reportAcpUpdate(update);
+    },
+    onBridgeEvent: (event) => {
+      monitorService?.reportBridgeEvent(event);
+    },
   });
 
   setTabEventObserver((event) => {
@@ -1628,6 +1634,8 @@ function registerIpc(): void {
         ticks: [],
         rendererTelemetry: [],
         diffIngestions: [],
+        acpUpdates: [],
+        bridgeEvents: [],
         connectionEpisodes: [],
         incidents: [],
       },

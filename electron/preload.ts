@@ -22,6 +22,8 @@ import type {
 } from "../contracts/launcher-updates.ts";
 import type {
   MonitorConnectionEpisode,
+  MonitorAcpUpdate,
+  MonitorBridgeEvent,
   MonitorDiffIngestion,
   MonitorIncident,
   MonitorLiveSnapshot,
@@ -35,6 +37,7 @@ import type {
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../contracts/monitor.ts";
+import type { MonitorService } from "./monitor/service.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -347,6 +350,8 @@ const api = {
       ticks: MonitorSampleTick[];
       rendererTelemetry: MonitorRendererTelemetry[];
       diffIngestions: MonitorDiffIngestion[];
+      acpUpdates: MonitorAcpUpdate[];
+      bridgeEvents: MonitorBridgeEvent[];
       incidents: MonitorIncident[];
       connectionEpisodes: MonitorConnectionEpisode[];
       summary: MonitorSessionSummary;

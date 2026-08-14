@@ -30,6 +30,7 @@ import React from "react";
 import { queryClient } from "../lib/query-client";
 import { OPEN_TABS_QUERY_KEY } from "../lib/thread-queries";
 import { useThreadStore } from "./thread-store";
+import { recordRendererEvent } from "../lib/monitor-runtime-observer";
 
 /**
  * An agent naming a session ("title" bridge event) is the source of truth
@@ -724,6 +725,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
       // Single writer for ACP terminal-output (no second onEvent subscription).
       const rawCleanup = window.omni.agent.onEvent((payload: AcpBridgeEvent) => {
+        const eventStartedAt = performance.now();
+        const serializedPayload = JSON.stringify(payload);
+        const payloadBytes = new TextEncoder().encode(serializedPayload).byteLength;
+        const activeThreadId = get().state?.threadId ?? null;
+        const eventThreadId =
+          "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;
+        let ignored = false;
         if (payload.type === "terminal-output") {
           useAgentTerminalStore
             .getState()
@@ -747,7 +755,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         }
         set((s) => {
           const patch = applyBridgeEvent(s, payload) as Partial<AgentState>;
+          ignored = Object.keys(patch).length === 0;
           return withSnapshot(patch) as Partial<AgentState>;
+        });
+        recordRendererEvent({
+          eventType: payload.type,
+          bytes: payloadBytes,
+          isActive: eventThreadId === null || eventThreadId === activeThreadId,
+          applyMs: performance.now() - eventStartedAt,
+          ignored,
         });
       });
       unsubscribeBridge = () => {

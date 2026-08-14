@@ -18,7 +18,7 @@ import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
-import { GitBranch, GitDiffIcon } from "@phosphor-icons/react";
+import { Bell, FolderPlus, GitBranch, GitDiffIcon, Plus } from "@phosphor-icons/react";
 
 const DiffView = lazy(() =>
   import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
@@ -216,29 +216,46 @@ export default function App() {
 
   const closeBranchDropdown = () => setIsBranchDropdownOpen(false);
 
+  // Prefer draft-bound project for chrome when drafting; otherwise ambient.
+  const chromeProject = useMemo(() => {
+    if (isDraftMode) {
+      if (!draft?.projectId) return null;
+      return (
+        projectsList.find((p) => p.id === draft.projectId) ??
+        (activeProject?.id === draft.projectId ? activeProject : null)
+      );
+    }
+    return activeProject;
+  }, [isDraftMode, draft?.projectId, projectsList, activeProject]);
+
+  const currentProject = chromeProject ?? activeProject;
+
   const handleToggleWorkspaceDropdown = () => {
-    if (!activeProject) return;
-    if (!isWorkspaceDropdownOpen) void loadWorktrees(activeProject.id);
+    if (!currentProject) return;
+    if (!isWorkspaceDropdownOpen) void loadWorktrees(currentProject.id);
     setIsWorkspaceDropdownOpen((open) => !open);
     closeBranchDropdown();
     setIsDropdownOpen(false);
   };
 
   const handleToggleBranchDropdown = () => {
-    if (!activeProject) return;
-    if (!isBranchDropdownOpen) void loadBranches(activeProject.id);
+    if (!currentProject) return;
+    if (!isBranchDropdownOpen) void loadBranches(currentProject.id);
     setIsBranchDropdownOpen((open) => !open);
     closeWorkspaceDropdown();
     setIsDropdownOpen(false);
   };
 
   const handleCreateWorkspace = async () => {
-    if (!activeProject || !workspaceName.trim() || isCreatingWorktree) return;
-    const worktree = await createWorktree(activeProject.id, workspaceName.trim());
+    if (!currentProject || !workspaceName.trim() || isCreatingWorktree) return;
+    const worktree = await createWorktree(currentProject.id, workspaceName.trim());
     if (!worktree) return;
+    if (draft && draft.projectId === currentProject.id) {
+      useWorkspaceViewStore.getState().setDraftProject(currentProject.id, worktree.path);
+    }
     // Terminals follow via the workspace-bucket effect below once the
     // selection map updates.
-    const thread = await switchWorktree(activeProject.id, worktree.path);
+    const thread = await switchWorktree(currentProject.id, worktree.path);
     if (!thread) return;
     setWorkspaceName("");
     setIsWorkspaceFormOpen(false);
@@ -250,15 +267,18 @@ export default function App() {
   };
 
   const handleSwitchWorktree = async (path: string) => {
-    if (!activeProject || isSwitchingWorktree) return;
-    const thread = await switchWorktree(activeProject.id, path);
+    if (!currentProject || isSwitchingWorktree) return;
+    if (draft && draft.projectId === currentProject.id) {
+      useWorkspaceViewStore.getState().setDraftProject(currentProject.id, path);
+    }
+    const thread = await switchWorktree(currentProject.id, path);
     if (!thread) return;
     closeWorkspaceDropdown();
   };
 
   const handleSwitchBranch = async (branch: string) => {
-    if (!activeProject || !selectedWorktreePath || isSwitchingBranch) return;
-    const worktree = await switchBranch(activeProject.id, selectedWorktreePath, branch);
+    if (!currentProject || !selectedWorktreePath || isSwitchingBranch) return;
+    const worktree = await switchBranch(currentProject.id, selectedWorktreePath, branch);
     if (!worktree) return;
     closeBranchDropdown();
   };
@@ -299,18 +319,18 @@ export default function App() {
   }, [isDropdownOpen, isWorkspaceDropdownOpen, isBranchDropdownOpen]);
 
   const checkedIndex = useMemo(() => {
-    const idx = projectsList.findIndex((p) => p.id === activeProject?.id);
+    const idx = projectsList.findIndex((p) => p.id === currentProject?.id);
     return idx !== -1 ? idx : undefined;
-  }, [activeProject?.id, projectsList]);
+  }, [currentProject?.id, projectsList]);
   // Stable identity when there's nothing to show, so effects keyed on this
   // don't re-fire on every render while another project's list is loaded.
-  const visibleWorktrees = worktreeProjectId === activeProject?.id ? worktrees : EMPTY_WORKTREES;
-  const visibleBranches = branchProjectId === activeProject?.id ? branches : [];
-  const storedWorktreePath = activeProject
-    ? selectedWorktreePathByProject[activeProject.id]
+  const visibleWorktrees = worktreeProjectId === currentProject?.id ? worktrees : EMPTY_WORKTREES;
+  const visibleBranches = branchProjectId === currentProject?.id ? branches : [];
+  const storedWorktreePath = currentProject
+    ? selectedWorktreePathByProject[currentProject.id]
     : undefined;
   // Anchor to git's canonical entries: the stored selection, else the project
-  // root (`isProjectRoot`). Defaulting to `activeProject.path` would miss when
+  // root (`isProjectRoot`). Defaulting to `currentProject.path` would miss when
   // the project path has a symlinked ancestor (git reports realpaths).
   const selectedWorktree =
     visibleWorktrees.find((worktree) => worktree.path === storedWorktreePath) ??
@@ -318,28 +338,17 @@ export default function App() {
     visibleWorktrees[0] ??
     null;
   const selectedWorktreePath =
-    selectedWorktree?.path ?? storedWorktreePath ?? activeProject?.path ?? null;
+    selectedWorktree?.path ?? storedWorktreePath ?? currentProject?.path ?? null;
   // Derive a real name from the path we already know, so the label is meaningful
   // even before the worktree list loads (or if it fails): the project root reads
   // as "main"; a linked worktree reads as its folder name. Never literal "Workspace".
   const derivedWorkspaceName = (() => {
-    if (!selectedWorktreePath || !activeProject) return "main";
-    if (selectedWorktreePath === activeProject.path) return "main";
+    if (!selectedWorktreePath || !currentProject) return "main";
+    if (selectedWorktreePath === currentProject.path) return "main";
     return selectedWorktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "main";
   })();
   const workspaceNameLabel = selectedWorktree?.workspaceName ?? derivedWorkspaceName;
   const branchLabel = selectedWorktree?.branch ?? (isLoadingWorktrees ? "Loading…" : "main");
-  // Prefer draft-bound project for chrome when drafting; otherwise ambient.
-  const chromeProject = useMemo(() => {
-    if (isDraftMode) {
-      if (!draft?.projectId) return null;
-      return (
-        projectsList.find((p) => p.id === draft.projectId) ??
-        (activeProject?.id === draft.projectId ? activeProject : null)
-      );
-    }
-    return activeProject;
-  }, [isDraftMode, draft?.projectId, projectsList, activeProject]);
 
   // File tree follows chrome project (draft chip or ambient). Unbound draft → off.
   const showFileTreePanel = isFileTreeOpen && chromeProject !== null;
@@ -452,8 +461,8 @@ export default function App() {
   }, [loadActiveProject]);
 
   useEffect(() => {
-    if (activeProject) void loadWorktrees(activeProject.id);
-  }, [activeProject?.id, loadWorktrees]);
+    if (currentProject) void loadWorktrees(currentProject.id);
+  }, [currentProject?.id, loadWorktrees]);
 
   useEffect(() => {
     if (!window.omni?.projects?.onActiveChanged) return;
@@ -600,7 +609,7 @@ export default function App() {
             </div>
           )}
 
-          {isWorkspaceDropdownOpen && activeProject && (
+          {isWorkspaceDropdownOpen && currentProject && (
             <div
               ref={workspaceDropdownRef}
               className="absolute left-7 top-full z-[200] mt-1 w-80 overflow-hidden rounded-xl border border-border bg-surface-1 p-1.5 shadow-surface-5"
@@ -684,7 +693,7 @@ export default function App() {
             </div>
           )}
 
-          {isBranchDropdownOpen && activeProject && selectedWorktree && (
+          {isBranchDropdownOpen && currentProject && selectedWorktree && (
             <div
               ref={branchDropdownRef}
               className="absolute left-7 top-full z-[200] mt-1 w-80 overflow-hidden rounded-xl border border-border bg-surface-1 p-1.5 shadow-surface-5"

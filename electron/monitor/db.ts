@@ -1,10 +1,11 @@
-import type { StatementSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import os from "node:os";
-import { getDb } from "../db.ts";
 import type {
   MonitorIncident,
   MonitorIncidentKind,
   MonitorConnectionEpisode,
+  MonitorAcpUpdate,
+  MonitorBridgeEvent,
   MonitorDomAttribution,
   MonitorDiffIngestion,
   MonitorProcessRole,
@@ -19,6 +20,23 @@ import type {
 } from "../../contracts/monitor.ts";
 
 let tablesReady = false;
+let monitorDb: DatabaseSync | null = null;
+
+/**
+ * The monitor can be hosted by either the Electron main process or a worker.
+ * Keep the monitor schema and queries independent from Electron's app-bound
+ * database accessor so the worker can open its own SQLite connection.
+ */
+export function initializeMonitorDb(db: DatabaseSync): void {
+  if (monitorDb === db) return;
+  monitorDb = db;
+  tablesReady = false;
+}
+
+function getDb(): DatabaseSync {
+  if (!monitorDb) throw new Error("Monitor database has not been initialized.");
+  return monitorDb;
+}
 
 export function ensureMonitorTables(): void {
   if (tablesReady) return;
@@ -52,7 +70,11 @@ export function ensureMonitorTables(): void {
       idle_threads INTEGER NOT NULL,
       runnable_threads INTEGER NOT NULL DEFAULT 0,
       blocked_threads INTEGER NOT NULL DEFAULT 0,
-      sleeping_threads INTEGER NOT NULL DEFAULT 0
+      sleeping_threads INTEGER NOT NULL DEFAULT 0,
+      heap_used_bytes INTEGER,
+      heap_total_bytes INTEGER,
+      external_bytes INTEGER,
+      array_buffers_bytes INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_monitor_samples_session_ts
       ON monitor_samples(session_id, timestamp);
@@ -83,10 +105,51 @@ export function ensureMonitorTables(): void {
       long_task_count INTEGER NOT NULL,
       long_task_ms REAL NOT NULL,
       gc_pause_count INTEGER NOT NULL,
-      gc_pause_ms REAL NOT NULL
+      gc_pause_ms REAL NOT NULL,
+      renderer_event_stats_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_monitor_renderer_session_ts
       ON monitor_renderer_samples(session_id, timestamp);
+
+    CREATE TABLE IF NOT EXISTS monitor_acp_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      agent_id TEXT,
+      connection_id TEXT,
+      session_key TEXT NOT NULL,
+      thread_id TEXT,
+      thread_role TEXT NOT NULL DEFAULT 'unknown',
+      turn_id TEXT,
+      update_type TEXT NOT NULL,
+      update_bytes INTEGER NOT NULL,
+      handler_duration_ms REAL NOT NULL,
+      is_streaming INTEGER NOT NULL,
+      entry_count INTEGER NOT NULL,
+      tool_call_count INTEGER NOT NULL,
+      text_bytes INTEGER NOT NULL,
+      thought_bytes INTEGER NOT NULL,
+      tool_payload_bytes INTEGER NOT NULL,
+      largest_tool_payload_bytes INTEGER NOT NULL,
+      session_snapshot_bytes INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_acp_session_ts
+      ON monitor_acp_updates(session_id, timestamp);
+
+    CREATE TABLE IF NOT EXISTS monitor_bridge_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      serialization_ms REAL NOT NULL,
+      delivery_ms REAL NOT NULL DEFAULT 0,
+      thread_id TEXT,
+      thread_role TEXT NOT NULL DEFAULT 'unknown',
+      delivery_mode TEXT NOT NULL DEFAULT 'direct'
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_bridge_session_ts
+      ON monitor_bridge_events(session_id, timestamp);
 
     CREATE TABLE IF NOT EXISTS monitor_diff_ingestions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,10 +257,29 @@ export function ensureMonitorTables(): void {
     "streaming_thread_ids_json",
     "TEXT NOT NULL DEFAULT '[]'",
   );
+  addColumnIfMissing(
+    db,
+    "monitor_renderer_samples",
+    "renderer_event_stats_json",
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
+  addColumnIfMissing(db, "monitor_acp_updates", "thread_role", "TEXT NOT NULL DEFAULT 'unknown'");
+  addColumnIfMissing(db, "monitor_bridge_events", "delivery_ms", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "monitor_bridge_events", "thread_role", "TEXT NOT NULL DEFAULT 'unknown'");
+  addColumnIfMissing(
+    db,
+    "monitor_bridge_events",
+    "delivery_mode",
+    "TEXT NOT NULL DEFAULT 'direct'",
+  );
   addColumnIfMissing(db, "monitor_samples", "cpu_percent_of_system", "REAL NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "monitor_samples", "runnable_threads", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "monitor_samples", "blocked_threads", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "monitor_samples", "sleeping_threads", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "monitor_samples", "heap_used_bytes", "INTEGER");
+  addColumnIfMissing(db, "monitor_samples", "heap_total_bytes", "INTEGER");
+  addColumnIfMissing(db, "monitor_samples", "external_bytes", "INTEGER");
+  addColumnIfMissing(db, "monitor_samples", "array_buffers_bytes", "INTEGER");
   addColumnIfMissing(
     db,
     "monitor_renderer_samples",
@@ -391,8 +473,8 @@ export function insertSampleBatch(sessionId: string | null, tick: MonitorSampleT
       session_id, timestamp, pid, role, label, agent_id, thread_id, thread_ids_json,
       streaming_thread_ids_json, session_key, is_streaming, cpu_percent, cpu_percent_of_system,
       memory_bytes, thread_count, busy_threads, idle_threads, runnable_threads, blocked_threads,
-      sleeping_threads
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sleeping_threads, heap_used_bytes, heap_total_bytes, external_bytes, array_buffers_bytes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   dbRunBatch(stmt, tick, sessionId);
 }
@@ -411,8 +493,8 @@ export function insertRendererTelemetry(
         diff_tool_call_count,
         diff_file_count, diff_ingestion_count, diff_ingestion_ms,
         diff_serialized_utf16_bytes, diff_extracted_file_count, diff_changed_file_count,
-        long_task_count, long_task_ms, gc_pause_count, gc_pause_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        long_task_count, long_task_ms, gc_pause_count, gc_pause_ms, renderer_event_stats_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       sessionId,
@@ -440,7 +522,127 @@ export function insertRendererTelemetry(
       telemetry.longTaskMs,
       telemetry.gcPauseCount,
       telemetry.gcPauseMs,
+      JSON.stringify(telemetry.rendererEvents),
     );
+}
+
+export function insertAcpUpdate(sessionId: string, update: MonitorAcpUpdate): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_acp_updates (
+        session_id, timestamp, agent_id, connection_id, session_key, thread_id, thread_role, turn_id,
+        update_type, update_bytes, handler_duration_ms, is_streaming, entry_count,
+        tool_call_count, text_bytes, thought_bytes, tool_payload_bytes,
+        largest_tool_payload_bytes, session_snapshot_bytes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      sessionId,
+      update.timestamp,
+      update.agentId,
+      update.connectionId,
+      update.sessionId,
+      update.threadId,
+      update.threadRole,
+      update.turnId,
+      update.updateType,
+      update.updateBytes,
+      update.handlerDurationMs,
+      update.isStreaming ? 1 : 0,
+      update.entryCount,
+      update.toolCallCount,
+      update.textBytes,
+      update.thoughtBytes,
+      update.toolPayloadBytes,
+      update.largestToolPayloadBytes,
+      update.sessionSnapshotBytes,
+    );
+}
+
+export function insertBridgeEvent(sessionId: string, event: MonitorBridgeEvent): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_bridge_events (
+        session_id, timestamp, event_type, bytes, serialization_ms, delivery_ms,
+        thread_id, thread_role, delivery_mode
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      sessionId,
+      event.timestamp,
+      event.eventType,
+      event.bytes,
+      event.serializationMs,
+      event.deliveryMs,
+      event.threadId,
+      event.threadRole,
+      event.deliveryMode,
+    );
+}
+
+export function getAcpUpdates(sessionId: string, maxRows = 50_000): MonitorAcpUpdate[] {
+  ensureMonitorTables();
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, agent_id AS agentId, connection_id AS connectionId,
+              session_key AS sessionId, thread_id AS threadId, thread_role AS threadRole,
+              turn_id AS turnId,
+              update_type AS updateType, update_bytes AS updateBytes,
+              handler_duration_ms AS handlerDurationMs, is_streaming AS isStreaming,
+              entry_count AS entryCount, tool_call_count AS toolCallCount,
+              text_bytes AS textBytes, thought_bytes AS thoughtBytes,
+              tool_payload_bytes AS toolPayloadBytes,
+              largest_tool_payload_bytes AS largestToolPayloadBytes,
+              session_snapshot_bytes AS sessionSnapshotBytes
+       FROM monitor_acp_updates WHERE session_id = ?
+       ORDER BY timestamp ASC LIMIT ?`,
+    )
+    .all(sessionId, maxRows) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    timestamp: Number(row.timestamp),
+    agentId: (row.agentId as string | null) ?? null,
+    connectionId: (row.connectionId as string | null) ?? null,
+    sessionId: String(row.sessionId),
+    threadId: (row.threadId as string | null) ?? null,
+    threadRole: (row.threadRole as MonitorAcpUpdate["threadRole"]) ?? "unknown",
+    turnId: (row.turnId as string | null) ?? null,
+    updateType: String(row.updateType),
+    updateBytes: Number(row.updateBytes),
+    handlerDurationMs: Number(row.handlerDurationMs),
+    isStreaming: Number(row.isStreaming) === 1,
+    entryCount: Number(row.entryCount),
+    toolCallCount: Number(row.toolCallCount),
+    textBytes: Number(row.textBytes),
+    thoughtBytes: Number(row.thoughtBytes),
+    toolPayloadBytes: Number(row.toolPayloadBytes),
+    largestToolPayloadBytes: Number(row.largestToolPayloadBytes),
+    sessionSnapshotBytes: Number(row.sessionSnapshotBytes),
+  }));
+}
+
+export function getBridgeEvents(sessionId: string, maxRows = 50_000): MonitorBridgeEvent[] {
+  ensureMonitorTables();
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, event_type AS eventType, bytes, serialization_ms AS serializationMs,
+              delivery_ms AS deliveryMs, thread_id AS threadId, thread_role AS threadRole,
+              delivery_mode AS deliveryMode
+       FROM monitor_bridge_events WHERE session_id = ?
+       ORDER BY timestamp ASC LIMIT ?`,
+    )
+    .all(sessionId, maxRows) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    timestamp: Number(row.timestamp),
+    eventType: String(row.eventType),
+    bytes: Number(row.bytes),
+    serializationMs: Number(row.serializationMs),
+    deliveryMs: Number(row.deliveryMs),
+    threadId: (row.threadId as string | null) ?? null,
+    threadRole: (row.threadRole as MonitorBridgeEvent["threadRole"]) ?? "unknown",
+    deliveryMode: (row.deliveryMode as MonitorBridgeEvent["deliveryMode"]) ?? "direct",
+  }));
 }
 
 export function insertDiffIngestion(sessionId: string, ingestion: MonitorDiffIngestion): void {
@@ -535,7 +737,8 @@ export function getRendererTelemetry(
               diff_extracted_file_count AS diffExtractedFileCount,
               diff_changed_file_count AS diffChangedFileCount,
               long_task_count AS longTaskCount, long_task_ms AS longTaskMs,
-              gc_pause_count AS gcPauseCount, gc_pause_ms AS gcPauseMs
+              gc_pause_count AS gcPauseCount, gc_pause_ms AS gcPauseMs,
+              renderer_event_stats_json AS rendererEventStatsJson
        FROM monitor_renderer_samples
        WHERE session_id = ?
        ORDER BY timestamp ASC
@@ -567,6 +770,7 @@ export function getRendererTelemetry(
     longTaskMs: Number(row.longTaskMs),
     gcPauseCount: Number(row.gcPauseCount),
     gcPauseMs: Number(row.gcPauseMs),
+    rendererEvents: parseRendererEventStats(row.rendererEventStatsJson),
   }));
 }
 
@@ -596,6 +800,43 @@ function parseDomAttributions(value: unknown): MonitorDomAttribution[] {
   }
 }
 
+function parseRendererEventStats(value: unknown): MonitorRendererTelemetry["rendererEvents"] {
+  const empty: MonitorRendererTelemetry["rendererEvents"] = {
+    receivedCount: 0,
+    receivedBytes: 0,
+    activeCount: 0,
+    backgroundCount: 0,
+    applyMs: 0,
+    maxApplyMs: 0,
+    ignoredCount: 0,
+    bufferedCount: 0,
+    coalescedCount: 0,
+    droppedCount: 0,
+    tabClickCount: 0,
+    scrollCount: 0,
+    paintCount: 0,
+    eventToPaintMs: 0,
+    maxEventToPaintMs: 0,
+    maxEventsPerSecond: 0,
+    ipcBurstCount: 0,
+    maxBurstSize: 0,
+    longTaskDuringBurstMs: 0,
+    missedFrameDuringBurstCount: 0,
+  };
+  if (typeof value !== "string") return empty;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(empty).map((key) => [
+        key,
+        Number(parsed[key] ?? empty[key as keyof typeof empty]),
+      ]),
+    ) as unknown as MonitorRendererTelemetry["rendererEvents"];
+  } catch {
+    return empty;
+  }
+}
+
 function dbRunBatch(stmt: StatementSync, tick: MonitorSampleTick, sessionId: string | null): void {
   const db = getDb();
   db.exec("BEGIN IMMEDIATE;");
@@ -622,6 +863,10 @@ function dbRunBatch(stmt: StatementSync, tick: MonitorSampleTick, sessionId: str
         sample.runnableThreads,
         sample.blockedThreads,
         sample.sleepingThreads,
+        sample.heapUsedBytes,
+        sample.heapTotalBytes,
+        sample.externalBytes,
+        sample.arrayBuffersBytes,
       );
     }
     db.exec("COMMIT;");
@@ -747,6 +992,10 @@ export function getSessionTicks(sessionId: string, maxTicks = 12_000): MonitorSa
     runnableThreads: number;
     blockedThreads: number;
     sleepingThreads: number;
+    heapUsedBytes: number | null;
+    heapTotalBytes: number | null;
+    externalBytes: number | null;
+    arrayBuffersBytes: number | null;
   }
   const rows = getDb()
     .prepare(
@@ -758,7 +1007,9 @@ export function getSessionTicks(sessionId: string, maxTicks = 12_000): MonitorSa
               memory_bytes AS memoryBytes, thread_count AS threadCount,
               busy_threads AS busyThreads, idle_threads AS idleThreads,
               runnable_threads AS runnableThreads, blocked_threads AS blockedThreads,
-              sleeping_threads AS sleepingThreads
+              sleeping_threads AS sleepingThreads,
+              heap_used_bytes AS heapUsedBytes, heap_total_bytes AS heapTotalBytes,
+              external_bytes AS externalBytes, array_buffers_bytes AS arrayBuffersBytes
        FROM monitor_samples
        WHERE session_id = ?
          AND timestamp IN (
@@ -807,6 +1058,10 @@ export function getSessionTicks(sessionId: string, maxTicks = 12_000): MonitorSa
       runnableThreads: row.runnableThreads ?? row.busyThreads,
       blockedThreads: row.blockedThreads ?? 0,
       sleepingThreads: row.sleepingThreads ?? row.idleThreads,
+      heapUsedBytes: row.heapUsedBytes ?? null,
+      heapTotalBytes: row.heapTotalBytes ?? null,
+      externalBytes: row.externalBytes ?? null,
+      arrayBuffersBytes: row.arrayBuffersBytes ?? null,
     };
     const bucket = ticks.get(row.timestamp) ?? [];
     bucket.push(sample);

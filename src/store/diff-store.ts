@@ -28,6 +28,7 @@ export interface DiffThreadState {
   order: string[];
   activePath: string | null;
   unseenCount: number;
+  isOpen: boolean;
   summaries: Record<string, DiffTurnSummary>;
   /** Content fingerprints only; retaining full tool-call payloads duplicated the agent store. */
   lastSeenToolCallVersions: Record<string, string>;
@@ -76,6 +77,7 @@ const emptyThreadState = (): DiffThreadState => ({
   order: [],
   activePath: null,
   unseenCount: 0,
+  isOpen: false,
   summaries: {},
   lastSeenToolCallVersions: {},
 });
@@ -230,6 +232,7 @@ function ingestThread(
       order,
       activePath,
       unseenCount: previous.unseenCount + added,
+      isOpen: previous.isOpen,
       summaries: previous.summaries,
       lastSeenToolCallVersions: nextVersions,
     },
@@ -289,6 +292,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
             order: state.order,
             activePath: state.activePath,
             unseenCount: 0,
+            isOpen: state.isOpen,
             summaries: state.summaries,
             lastSeenToolCallVersions: {},
           }
@@ -301,6 +305,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
         order: state.order,
         activePath: state.activePath,
         unseenCount: 0,
+        isOpen: state.isOpen,
         summaries: state.summaries,
         lastSeenToolCallVersions: {},
       };
@@ -330,7 +335,9 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       order: result.next.order,
       activePath: result.next.activePath,
       summaries: result.next.summaries,
-      isOpen: state.isOpen,
+      // Ingesting a different thread switches the active projection, which
+      // always closes the panel; only same-thread ingestion preserves it.
+      isOpen: threadId === state.threadId ? state.isOpen : false,
       unseenCount: state.unseenCount + result.added,
     });
     return {
@@ -356,6 +363,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
             order: state.order,
             activePath: state.activePath,
             unseenCount: state.unseenCount,
+            isOpen: state.isOpen,
             summaries: state.summaries,
             lastSeenToolCallVersions: {},
           }
@@ -382,6 +390,10 @@ export const useDiffStore = create<DiffState>((set, get) => ({
     if (!threadId) return;
     const state = get();
     const thread = state.threads[threadId] ?? emptyThreadState();
+    // The diff panel is a transient, per-thread view: switching threads always
+    // closes it (even if the target thread was opened before), so stale diffs
+    // never render over a newly-active conversation and no cross-thread work
+    // happens for a panel nobody is looking at.
     set({
       threadId,
       files: thread.files,
@@ -389,12 +401,43 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       activePath: thread.activePath,
       summaries: thread.summaries,
       unseenCount: thread.unseenCount,
+      isOpen: false,
+      threads: { ...state.threads, [threadId]: { ...thread, isOpen: false } },
     });
   },
 
   setActivePath: (path) => set({ activePath: path }),
-  open: () => set({ isOpen: true, unseenCount: 0 }),
-  close: () => set({ isOpen: false }),
+  open: () => {
+    const state = get();
+    const { threadId } = state;
+    if (!threadId) {
+      set({ isOpen: true, unseenCount: 0 });
+      return;
+    }
+    const thread = state.threads[threadId];
+    set({
+      isOpen: true,
+      unseenCount: 0,
+      threads: thread
+        ? { ...state.threads, [threadId]: { ...thread, isOpen: true } }
+        : state.threads,
+    });
+  },
+  close: () => {
+    const state = get();
+    const { threadId } = state;
+    if (!threadId) {
+      set({ isOpen: false });
+      return;
+    }
+    const thread = state.threads[threadId];
+    set({
+      isOpen: false,
+      threads: thread
+        ? { ...state.threads, [threadId]: { ...thread, isOpen: false } }
+        : state.threads,
+    });
+  },
   clear: () =>
     set({
       threadId: null,

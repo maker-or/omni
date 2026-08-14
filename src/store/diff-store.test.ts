@@ -151,6 +151,51 @@ describe("diff-store", () => {
     expect(useDiffStore.getState().files["/repo/a.ts"]).toBeDefined();
   });
 
+  test("opening the panel is scoped to the active thread and closes on switch", () => {
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "new"),
+    });
+    useDiffStore.getState().open();
+    expect(useDiffStore.getState().isOpen).toBe(true);
+    expect(useDiffStore.getState().threads["thread-1"]?.isOpen).toBe(true);
+
+    // Ingesting another thread switches the projection and closes the panel.
+    useDiffStore.getState().ingestToolCalls("thread-3", {
+      "tc-c": editToolCall("/repo/c.ts", "x", "y"),
+    });
+    expect(useDiffStore.getState().isOpen).toBe(false);
+
+    // Open thread-3's diffs, then come back to thread-1: still closed, even
+    // though thread-1 was opened before leaving it.
+    useDiffStore.getState().open();
+    expect(useDiffStore.getState().isOpen).toBe(true);
+    expect(useDiffStore.getState().threads["thread-3"]?.isOpen).toBe(true);
+
+    useDiffStore.getState().activateThread("thread-1");
+    expect(useDiffStore.getState().isOpen).toBe(false);
+    expect(useDiffStore.getState().threads["thread-1"]?.isOpen).toBe(false);
+  });
+
+  test("close only affects the active thread", () => {
+    useDiffStore.getState().ingestToolCalls("thread-1", {
+      "tc-a": editToolCall("/repo/a.ts", "old", "new"),
+    });
+    useDiffStore.getState().open();
+    useDiffStore.getState().ingestToolCalls("thread-3", {
+      "tc-c": editToolCall("/repo/c.ts", "x", "y"),
+    });
+    expect(useDiffStore.getState().isOpen).toBe(false);
+
+    useDiffStore.getState().open();
+    useDiffStore.getState().close();
+    expect(useDiffStore.getState().isOpen).toBe(false);
+    expect(useDiffStore.getState().threads["thread-3"]?.isOpen).toBe(false);
+
+    // thread-1's stored open flag is untouched by closing thread-3; activation
+    // will reset it anyway.
+    expect(useDiffStore.getState().threads["thread-1"]?.isOpen).toBe(true);
+  });
+
   test("accepts nested file-edit shapes", () => {
     useDiffStore.setState({
       threadId: null,

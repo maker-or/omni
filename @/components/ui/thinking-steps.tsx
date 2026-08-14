@@ -29,7 +29,7 @@ interface ThinkingStepsProps extends HTMLAttributes<HTMLDivElement> {
 const ThinkingSteps = forwardRef<HTMLDivElement, ThinkingStepsProps>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   (
-    { defaultOpen = true, open, onOpenChange, children, className, defaultValue: _, ...props },
+    { defaultOpen = false, open, onOpenChange, children, className, defaultValue: _, ...props },
     ref,
   ) => {
     const controlled = open !== undefined;

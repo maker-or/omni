@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Block commits that fail formatter or linter checks.
+# Block commits that fail formatter, linter, or test checks.
 # Activated via package.json "prepare": git config core.hooksPath .githooks
 
 set -e
@@ -9,3 +9,6 @@ bun run fmt:check
 
 echo "pre-commit: lint"
 bun run lint
+
+echo "pre-commit: test"
+bun run test

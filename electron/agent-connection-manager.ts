@@ -61,6 +61,8 @@ import {
 } from "../src/lib/acp-session-reducer.ts";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
 import type {
+  MonitorAcpUpdate,
+  MonitorBridgeEvent,
   MonitorProcessDescriptor,
   MonitorSwitchPhase,
   MonitorSwitchRecord,
@@ -99,6 +101,8 @@ export interface AgentMonitorObserver {
   }) => void;
   /** Fired once per thread activation with the resolved cache phase. */
   onSwitchRecord?: (record: MonitorSwitchRecord) => void;
+  onAcpUpdate?: (update: MonitorAcpUpdate) => void;
+  onBridgeEvent?: (event: MonitorBridgeEvent) => void;
 }
 
 const ACP_SWITCH_PHASE_TIMEOUT_MS = 10_000;
@@ -257,6 +261,59 @@ interface ThreadSessionRuntime {
    * clamped to non-streaming in `handleSessionUpdate`.
    */
   promptInFlight: boolean;
+  activeTurnId: string | null;
+  monitorUpdateCount: number;
+}
+
+function jsonBytes(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+  } catch {
+    return 0;
+  }
+}
+
+function retentionMetrics(
+  slice: AcpSessionSlice,
+): Pick<
+  MonitorAcpUpdate,
+  | "entryCount"
+  | "toolCallCount"
+  | "textBytes"
+  | "thoughtBytes"
+  | "toolPayloadBytes"
+  | "largestToolPayloadBytes"
+  | "sessionSnapshotBytes"
+> {
+  let textBytes = 0;
+  let thoughtBytes = 0;
+  for (const entry of slice.entries) {
+    if (entry.type === "user_text" || entry.type === "agent_text") {
+      textBytes += Buffer.byteLength(entry.text, "utf8");
+    } else if (entry.type === "agent_thought") {
+      thoughtBytes += Buffer.byteLength(entry.text, "utf8");
+    }
+  }
+  let toolPayloadBytes = 0;
+  let largestToolPayloadBytes = 0;
+  for (const toolCall of Object.values(slice.toolCalls)) {
+    const bytes = jsonBytes({
+      content: toolCall.content,
+      rawInput: toolCall.rawInput,
+      rawOutput: toolCall.rawOutput,
+    });
+    toolPayloadBytes += bytes;
+    largestToolPayloadBytes = Math.max(largestToolPayloadBytes, bytes);
+  }
+  return {
+    entryCount: slice.entries.length,
+    toolCallCount: Object.keys(slice.toolCalls).length,
+    textBytes,
+    thoughtBytes,
+    toolPayloadBytes,
+    largestToolPayloadBytes,
+    sessionSnapshotBytes: textBytes + thoughtBytes + toolPayloadBytes,
+  };
 }
 
 interface PendingPermission {
@@ -395,6 +452,7 @@ export class AgentConnectionManager {
   private readonly threadActivationGenerations = new Map<string, number>();
 
   private currentEditorText = "";
+  private turnSequence = 0;
 
   constructor(options: {
     sendToRenderer: SendToRenderer | EventSendToRenderer;
@@ -575,7 +633,31 @@ export class AgentConnectionManager {
   }
 
   private emit(payload: AcpBridgeEvent): void {
-    this.sendToRenderer("agent:event", payload);
+    const startedAt = performance.now();
+    const bytes = jsonBytes(payload);
+    const serializationMs = performance.now() - startedAt;
+    const threadId =
+      "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;
+    const threadRole = threadId
+      ? threadId === this.activeThreadId
+        ? "active"
+        : "background"
+      : "unknown";
+    const deliveryStartedAt = performance.now();
+    try {
+      this.sendToRenderer("agent:event", payload);
+    } finally {
+      this.monitorObserver?.onBridgeEvent?.({
+        timestamp: Date.now(),
+        eventType: payload.type,
+        bytes,
+        serializationMs,
+        deliveryMs: performance.now() - deliveryStartedAt,
+        threadId,
+        threadRole,
+        deliveryMode: "direct",
+      });
+    }
   }
 
   getState(): AcpSessionState {
@@ -1116,6 +1198,7 @@ export class AgentConnectionManager {
   }
 
   private async handleSessionUpdate(sessionId: string, update: SessionUpdate): Promise<void> {
+    const startedAt = performance.now();
     // Headless subagent sessions accumulate into their run's slice; their
     // streaming must not leak into thread timelines or the renderer.
     if (this.subagents.handleSessionUpdate(sessionId, update)) return;
@@ -1140,6 +1223,34 @@ export class AgentConnectionManager {
     this.trackToolCallTiming(sessionId, runtime, update);
 
     runtime.slice = applySessionUpdate(runtime.slice, update);
+    runtime.monitorUpdateCount += 1;
+    const sampledRetention =
+      runtime.monitorUpdateCount % 10 === 0 || update.sessionUpdate.startsWith("tool_");
+    const retained = sampledRetention
+      ? retentionMetrics(runtime.slice)
+      : {
+          entryCount: runtime.slice.entries.length,
+          toolCallCount: Object.keys(runtime.slice.toolCalls).length,
+          textBytes: 0,
+          thoughtBytes: 0,
+          toolPayloadBytes: 0,
+          largestToolPayloadBytes: 0,
+          sessionSnapshotBytes: 0,
+        };
+    this.monitorObserver?.onAcpUpdate?.({
+      timestamp: Date.now(),
+      agentId: runtime.agentId,
+      connectionId: this.connectionForAgent(runtime.agentId)?.connectionId ?? null,
+      sessionId,
+      threadId: runtime.threadId,
+      threadRole: runtime.threadId === this.activeThreadId ? "active" : "background",
+      turnId: runtime.activeTurnId,
+      updateType: update.sessionUpdate,
+      updateBytes: jsonBytes(update),
+      handlerDurationMs: performance.now() - startedAt,
+      isStreaming: runtime.slice.isStreaming,
+      ...retained,
+    });
     // `applySessionUpdate` sets isStreaming=true for every agent chunk/tool_call,
     // but only `applyTurnStop` (on the prompt request resolving) clears it. An
     // update that lands outside an active turn — a late flush after the response,
@@ -1362,6 +1473,7 @@ export class AgentConnectionManager {
 
     runtime.promptInFlight = true;
     const turnStartedAt = Date.now();
+    runtime.activeTurnId = `${runtime.threadId}:${turnStartedAt}:${++this.turnSequence}`;
     const toolCallsBefore = Object.keys(runtime.slice.toolCalls).length;
     const agentProps = this.agentProps(runtime.agentId);
     this.captureAnalytics?.("prompt_submitted", {
@@ -1413,6 +1525,7 @@ export class AgentConnectionManager {
       })
       .finally(() => {
         runtime.promptInFlight = false;
+        runtime.activeTurnId = null;
         this.clearToolCallTiming(runtime.agentSessionId);
         this.pushState(runtime.threadId);
         if (this.sessions.get(runtime.threadId) === runtime) {
@@ -1931,6 +2044,8 @@ export class AgentConnectionManager {
         slice: createEmptySessionSlice(),
         editorText: "",
         promptInFlight: false,
+        activeTurnId: null,
+        monitorUpdateCount: 0,
       };
       this.sessions.set(threadId, runtime);
       this.loadingSessionThreads.add(threadId);
@@ -2068,6 +2183,8 @@ export class AgentConnectionManager {
       slice: createEmptySessionSlice({ configOptions: created.configOptions }),
       editorText: "",
       promptInFlight: false,
+      activeTurnId: null,
+      monitorUpdateCount: 0,
     });
 
     const projectChanged = this.activeProjectId !== projectId;
@@ -2297,6 +2414,7 @@ export class AgentConnectionManager {
     if (!runtime || !live) throw new Error("No session for thread");
 
     runtime.promptInFlight = true;
+    runtime.activeTurnId = `${runtime.threadId}:${Date.now()}:${++this.turnSequence}`;
     runtime.slice = appendLocalUserMessage(runtime.slice, input.message);
     runtime.slice = { ...runtime.slice, isStreaming: true };
     this.pushState(threadId);
@@ -2318,10 +2436,12 @@ export class AgentConnectionManager {
         },
       );
       runtime.promptInFlight = false;
+      runtime.activeTurnId = null;
       runtime.slice = applyTurnStop(runtime.slice);
       this.pushState(threadId);
     } catch {
       runtime.promptInFlight = false;
+      runtime.activeTurnId = null;
       // Fallback: regular prompt
       await this.sendPromptInternal(
         {

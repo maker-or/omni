@@ -25,13 +25,18 @@ import {
   switchWorktreeBranch,
 } from "./worktree-manager.ts";
 
-const GIT_ENV = {
-  ...process.env,
+// Git hooks export GIT_DIR/GIT_INDEX_FILE and related variables for the
+// repository being committed. These tests create foreign temporary repositories,
+// so forwarding that state makes their git commands target the parent repo.
+const GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+);
+Object.assign(GIT_ENV, {
   GIT_AUTHOR_NAME: "Test",
   GIT_AUTHOR_EMAIL: "test@example.com",
   GIT_COMMITTER_NAME: "Test",
   GIT_COMMITTER_EMAIL: "test@example.com",
-};
+});
 
 let root: string;
 let projectPath: string;

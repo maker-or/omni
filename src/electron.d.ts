@@ -23,6 +23,8 @@ import type {
 } from "../../contracts/launcher-updates.ts";
 import type {
   MonitorConnectionEpisode,
+  MonitorAcpUpdate,
+  MonitorBridgeEvent,
   MonitorIncident,
   MonitorDiffIngestion,
   MonitorLiveSnapshot,
@@ -238,6 +240,8 @@ declare global {
           ticks: MonitorSampleTick[];
           rendererTelemetry: MonitorRendererTelemetry[];
           diffIngestions: MonitorDiffIngestion[];
+          acpUpdates: MonitorAcpUpdate[];
+          bridgeEvents: MonitorBridgeEvent[];
           connectionEpisodes: MonitorConnectionEpisode[];
           incidents: MonitorIncident[];
           summary: MonitorSessionSummary;

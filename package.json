@@ -22,9 +22,9 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "doctor": "npx react-doctor@latest",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "node scripts/run-vitest.mjs run",
+    "test:watch": "node scripts/run-vitest.mjs",
+    "test:coverage": "node scripts/run-vitest.mjs run --coverage"
   },
   "dependencies": {
     "@agentclientprotocol/codex-acp": "1.1.2",

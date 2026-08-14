@@ -213,21 +213,17 @@ function AssistantTraceDeck({
   isStreaming,
   activeMessages,
   open: controlledOpen,
-  defaultOpen,
+  defaultOpen = false,
   onOpenChange,
   className,
   ...props
 }: AssistantTraceDeckProps) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? isStreaming);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const open = controlledOpen ?? uncontrolledOpen;
   const setOpen = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onOpenChange?.(nextOpen);
   };
-
-  useEffect(() => {
-    if (isStreaming && controlledOpen === undefined) setUncontrolledOpen(true);
-  }, [controlledOpen, isStreaming]);
 
   const getToolIcon = (toolName: string): IconName => {
     const name = toolName.toLowerCase();
@@ -280,6 +276,26 @@ function AssistantTraceDeck({
     return map;
   }, [activeMessages]);
 
+  const headerLabel = useMemo(() => {
+    if (!isStreaming) return undefined;
+    const activePart = traceParts[traceParts.length - 1];
+    if (!activePart || activePart.type !== "toolCall") return undefined;
+
+    const toolName = activePart.name || "";
+    const args = activePart.arguments ?? activePart.args ?? {};
+    const resultMsg = toolResultByCallId.get(activePart.id);
+    const resultText = resultMsg
+      ? stringifyMessageContent(resultMsg)
+      : activePart.rawOutput != null
+        ? typeof activePart.rawOutput === "string"
+          ? activePart.rawOutput
+          : JSON.stringify(activePart.rawOutput)
+        : "";
+    const isError = Boolean(resultMsg?.isError) || activePart.status === "failed";
+    const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
+    return actionCopy.label || toolName || "Ran an agent action";
+  }, [isStreaming, traceParts, toolResultByCallId]);
+
   return (
     <ThinkingSteps
       open={open}
@@ -289,7 +305,11 @@ function AssistantTraceDeck({
       data-pipper-id="assistant-trace-deck"
     >
       <ThinkingStepsHeader>
-        <ThinkingIndicator isStreaming={isStreaming} className="p-0 bg-transparent" />
+        <ThinkingIndicator
+          isStreaming={isStreaming}
+          label={headerLabel}
+          className="p-0 bg-transparent"
+        />
       </ThinkingStepsHeader>
       <ThinkingStepsContent>
         {traceParts.map((part, index) => {

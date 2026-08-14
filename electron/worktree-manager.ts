@@ -35,6 +35,34 @@ const DEFAULT_INCLUDE_GLOBS = [".env*"];
  */
 const SEED_EXCLUSIONS = new Set(["node_modules", "dist", "out", "build", ".git", ".cache"]);
 
+/**
+ * Git hooks export repository-local state for the repository being committed.
+ * Worktree commands may target a different repository, so those variables must
+ * not leak into child Git processes.
+ */
+function foreignGitEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (
+      key === "GIT_ALTERNATE_OBJECT_DIRECTORIES" ||
+      key === "GIT_COMMON_DIR" ||
+      key === "GIT_DIR" ||
+      key === "GIT_GRAFT_FILE" ||
+      key === "GIT_IMPLICIT_WORK_TREE" ||
+      key === "GIT_INDEX_FILE" ||
+      key === "GIT_OBJECT_DIRECTORY" ||
+      key === "GIT_PREFIX" ||
+      key === "GIT_REPLACE_REF_BASE" ||
+      key === "GIT_SHALLOW_FILE" ||
+      key === "GIT_WORK_TREE" ||
+      key.startsWith("GIT_CONFIG")
+    ) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 export interface CreateWorktreeOptions {
   /** The project's repo root — the `git worktree add` anchor. */
   projectPath: string;
@@ -90,6 +118,7 @@ function git(projectPath: string, args: string[]): string {
     cwd: projectPath,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    env: foreignGitEnv(),
   }).trim();
 }
 
@@ -348,7 +377,7 @@ function runSetupScript(
     cwd: ctx.worktreePath,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...foreignGitEnv(),
       WORKSPACE_PATH: ctx.worktreePath,
       ROOT_PATH: ctx.rootPath,
       WORKSPACE_NAME: ctx.name,
@@ -469,6 +498,7 @@ export function listWorktrees(projectPath: string): Worktree[] {
   const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
     cwd: projectPath,
     encoding: "utf8",
+    env: foreignGitEnv(),
   });
   const projectRoot = pathKey(projectPath);
   // Canonicalize up front so every path this module hands out is in one form.

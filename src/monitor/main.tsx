@@ -5,6 +5,8 @@ import { ThemeProvider } from "@/lib/theme";
 import type {
   MonitorIncident,
   MonitorConnectionEpisode,
+  MonitorAcpUpdate,
+  MonitorBridgeEvent,
   MonitorDomAttribution,
   MonitorLiveSnapshot,
   MonitorProcessSample,
@@ -31,6 +33,22 @@ function formatDuration(durationMs: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
+}
+
+function recentAgentUpdateSummary(updates: MonitorAcpUpdate[], timestamp: number) {
+  const recent = updates.filter((entry) => timestamp - entry.timestamp <= 1000);
+  const byType = new Map<string, { count: number; bytes: number }>();
+  for (const entry of recent) {
+    const current = byType.get(entry.updateType) ?? { count: 0, bytes: 0 };
+    current.count += 1;
+    current.bytes += entry.updateBytes;
+    byType.set(entry.updateType, current);
+  }
+  return {
+    active: recent.filter((entry) => entry.threadRole === "active").length,
+    background: recent.filter((entry) => entry.threadRole === "background").length,
+    byType: [...byType.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 4),
+  };
 }
 
 function Sparkline({ values, max }: { values: number[]; max: number }) {
@@ -114,6 +132,8 @@ function MonitorApp() {
   const [sessionRendererTelemetry, setSessionRendererTelemetry] = useState<
     MonitorRendererTelemetry[]
   >([]);
+  const [sessionAcpUpdates, setSessionAcpUpdates] = useState<MonitorAcpUpdate[]>([]);
+  const [sessionBridgeEvents, setSessionBridgeEvents] = useState<MonitorBridgeEvent[]>([]);
   const [sessionSummary, setSessionSummary] = useState<MonitorSessionSummary | null>(null);
   const [enabled, setEnabled] = useState(false);
 
@@ -156,18 +176,26 @@ function MonitorApp() {
   useEffect(() => {
     if (!selectedSessionId) {
       setSessionTicks([]);
+      setSessionAcpUpdates([]);
+      setSessionBridgeEvents([]);
       setSessionSummary(null);
       return;
     }
     void window.omni.monitor.getRecordedSession(selectedSessionId).then((payload) => {
       setSessionTicks(payload.ticks);
       setSessionRendererTelemetry(payload.rendererTelemetry);
+      setSessionAcpUpdates(payload.acpUpdates);
+      setSessionBridgeEvents(payload.bridgeEvents);
       setSessionSummary(payload.summary);
     });
   }, [selectedSessionId]);
 
   const latestProcesses = useMemo(
     () => (live ? [...latestSamplesByProcess(live.recentTicks).values()] : []),
+    [live],
+  );
+  const liveAgentRate = useMemo(
+    () => (live ? recentAgentUpdateSummary(live.recentAcpUpdates, live.timestamp) : null),
     [live],
   );
 
@@ -338,6 +366,53 @@ function MonitorApp() {
                     {live?.rendererTelemetry?.gcPauseMs.toFixed(1) ?? "0.0"}ms
                   </div>
                 </div>
+                <div>
+                  <div className="text-muted-foreground">Renderer events / 5s</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.rendererEvents.receivedCount ?? 0} · peak{" "}
+                    {live?.rendererTelemetry?.rendererEvents.maxEventsPerSecond ?? 0}/s
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Event apply cost</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.rendererEvents.applyMs.toFixed(1) ?? "0.0"}ms · max{" "}
+                    {live?.rendererTelemetry?.rendererEvents.maxApplyMs.toFixed(1) ?? "0.0"}ms
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">IPC → paint</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.rendererEvents.maxEventToPaintMs.toFixed(1) ?? "0.0"}
+                    ms max
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Burst correlation</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.rendererEvents.ipcBurstCount ?? 0} bursts ·{" "}
+                    {live?.rendererTelemetry?.rendererEvents.missedFrameDuringBurstCount ?? 0} frame
+                    gaps ·{" "}
+                    {live?.rendererTelemetry?.rendererEvents.longTaskDuringBurstMs.toFixed(1) ??
+                      "0.0"}
+                    ms long task
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Interaction event windows</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.rendererEvents.tabClickCount ?? 0} tab ·{" "}
+                    {live?.rendererTelemetry?.rendererEvents.scrollCount ?? 0} scroll
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Buffered / coalesced / dropped</div>
+                  <div className="font-semibold">
+                    {live?.rendererTelemetry?.rendererEvents.bufferedCount ?? 0} /{" "}
+                    {live?.rendererTelemetry?.rendererEvents.coalescedCount ?? 0} /{" "}
+                    {live?.rendererTelemetry?.rendererEvents.droppedCount ?? 0}
+                  </div>
+                </div>
               </div>
               <div className="mt-2 text-[11px] text-muted-foreground">
                 {live?.rendererTelemetry
@@ -364,6 +439,105 @@ function MonitorApp() {
                     <span className="text-muted-foreground">No marked DOM boundaries found.</span>
                   )}
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                ACP and monitor pipeline
+              </div>
+              <div className="grid gap-3 text-xs sm:grid-cols-4">
+                <div>
+                  <div className="text-muted-foreground">ACP updates</div>
+                  <div className="font-semibold">{live?.recentAcpUpdates.length ?? 0} recent</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Latest retained state</div>
+                  <div className="font-semibold">
+                    {formatBytes(live?.recentAcpUpdates.at(-1)?.sessionSnapshotBytes ?? 0)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Latest bridge event</div>
+                  <div className="font-semibold">
+                    {formatBytes(live?.recentBridgeEvents.at(-1)?.bytes ?? 0)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Persistence queue</div>
+                  <div className="font-semibold">
+                    {live?.pipelineTelemetry.queueDepth ?? 0}/
+                    {live?.pipelineTelemetry.queueCapacity ?? 256}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Dropped writes</div>
+                  <div className="font-semibold">{live?.pipelineTelemetry.droppedWrites ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Worker failures</div>
+                  <div className="font-semibold">{live?.pipelineTelemetry.workerFailures ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Write latency</div>
+                  <div className="font-semibold">
+                    {live?.pipelineTelemetry.lastWriteLatencyMs.toFixed(1) ?? "0.0"}ms
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Main heap</div>
+                  <div className="font-semibold">
+                    {formatBytes(
+                      latestProcesses.find((entry) => entry.role === "electron-main")
+                        ?.heapUsedBytes ?? 0,
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Largest tool payload</div>
+                  <div className="font-semibold">
+                    {formatBytes(
+                      Math.max(
+                        0,
+                        ...(live?.recentAcpUpdates ?? []).map(
+                          (entry) => entry.largestToolPayloadBytes,
+                        ),
+                      ),
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Agent events / second</div>
+                  <div className="font-semibold">
+                    {liveAgentRate
+                      ? liveAgentRate.active +
+                        " active · " +
+                        liveAgentRate.background +
+                        " background"
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Bridge serialize / deliver</div>
+                  <div className="font-semibold">
+                    {live?.recentBridgeEvents.at(-1)?.serializationMs.toFixed(2) ?? "0.00"}ms /{" "}
+                    {live?.recentBridgeEvents.at(-1)?.deliveryMs.toFixed(2) ?? "0.00"}ms
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                Agent event types in the last second:{" "}
+                {liveAgentRate?.byType
+                  .map(
+                    ([type, value]) =>
+                      type + " " + value.count + " (" + formatBytes(value.bytes) + ")",
+                  )
+                  .join(" · ") || "none"}
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                {live?.pipelineTelemetry.lastError
+                  ? `Last monitor error: ${live.pipelineTelemetry.lastError}`
+                  : "No monitor worker errors recorded."}
               </div>
             </div>
 
@@ -608,6 +782,45 @@ function MonitorApp() {
                             .toFixed(1)}
                           ms
                         </span>
+                        <span>
+                          Renderer events:{" "}
+                          {sessionRendererTelemetry
+                            .reduce((sum, entry) => sum + entry.rendererEvents.receivedCount, 0)
+                            .toLocaleString()}
+                        </span>
+                        <span>
+                          Event apply:{" "}
+                          {sessionRendererTelemetry
+                            .reduce((sum, entry) => sum + entry.rendererEvents.applyMs, 0)
+                            .toFixed(1)}
+                          ms
+                        </span>
+                        <span>
+                          IPC bursts:{" "}
+                          {sessionRendererTelemetry
+                            .reduce((sum, entry) => sum + entry.rendererEvents.ipcBurstCount, 0)
+                            .toLocaleString()}
+                        </span>
+                        <span>
+                          Burst frame gaps:{" "}
+                          {sessionRendererTelemetry
+                            .reduce(
+                              (sum, entry) =>
+                                sum + entry.rendererEvents.missedFrameDuringBurstCount,
+                              0,
+                            )
+                            .toLocaleString()}
+                        </span>
+                        <span>
+                          Max event → paint:{" "}
+                          {Math.max(
+                            0,
+                            ...sessionRendererTelemetry.map(
+                              (entry) => entry.rendererEvents.maxEventToPaintMs,
+                            ),
+                          ).toFixed(1)}
+                          ms
+                        </span>
                       </div>
                       <div className="mt-3 border-t border-border/70 pt-2">
                         <div className="text-[11px] font-medium text-muted-foreground">
@@ -645,6 +858,56 @@ function MonitorApp() {
                             </tbody>
                           </table>
                         </div>
+                      </div>
+                    </div>
+                  )}
+                  {sessionAcpUpdates.length > 0 && (
+                    <div className="rounded border border-border/70 p-2 text-xs">
+                      <div className="font-medium">ACP retention and bridge pressure</div>
+                      <div className="mt-1 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-4">
+                        <span>Updates: {sessionAcpUpdates.length.toLocaleString()}</span>
+                        <span>
+                          Input:{" "}
+                          {formatBytes(sessionAcpUpdates.reduce((n, e) => n + e.updateBytes, 0))}
+                        </span>
+                        <span>
+                          Peak retained:{" "}
+                          {formatBytes(
+                            Math.max(...sessionAcpUpdates.map((e) => e.sessionSnapshotBytes), 0),
+                          )}
+                        </span>
+                        <span>
+                          Peak tool payload:{" "}
+                          {formatBytes(
+                            Math.max(...sessionAcpUpdates.map((e) => e.largestToolPayloadBytes), 0),
+                          )}
+                        </span>
+                        <span>Bridge events: {sessionBridgeEvents.length.toLocaleString()}</span>
+                        <span>
+                          Bridge bytes:{" "}
+                          {formatBytes(sessionBridgeEvents.reduce((n, e) => n + e.bytes, 0))}
+                        </span>
+                        <span>
+                          Avg handler:{" "}
+                          {(
+                            sessionAcpUpdates.reduce((n, e) => n + e.handlerDurationMs, 0) /
+                            sessionAcpUpdates.length
+                          ).toFixed(2)}
+                          ms
+                        </span>
+                        <span>
+                          Avg bridge serialize / deliver:{" "}
+                          {(
+                            sessionBridgeEvents.reduce((n, e) => n + e.serializationMs, 0) /
+                            Math.max(sessionBridgeEvents.length, 1)
+                          ).toFixed(2)}
+                          ms /{" "}
+                          {(
+                            sessionBridgeEvents.reduce((n, e) => n + e.deliveryMs, 0) /
+                            Math.max(sessionBridgeEvents.length, 1)
+                          ).toFixed(2)}
+                          ms
+                        </span>
                       </div>
                     </div>
                   )}

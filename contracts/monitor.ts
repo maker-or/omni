@@ -38,6 +38,11 @@ export interface MonitorProcessSample {
   runnableThreads: number;
   blockedThreads: number;
   sleepingThreads: number;
+  /** Available for the Electron main process; null for external processes. */
+  heapUsedBytes: number | null;
+  heapTotalBytes: number | null;
+  externalBytes: number | null;
+  arrayBuffersBytes: number | null;
 }
 
 export interface MonitorSampleTick {
@@ -94,6 +99,77 @@ export interface MonitorSession {
   endedAt: number | null;
 }
 
+/** One ACP notification after it has been applied to the session reducer. */
+export interface MonitorAcpUpdate {
+  timestamp: number;
+  agentId: string | null;
+  connectionId: string | null;
+  sessionId: string;
+  threadId: string | null;
+  threadRole: "active" | "background" | "unknown";
+  turnId: string | null;
+  updateType: string;
+  updateBytes: number;
+  handlerDurationMs: number;
+  isStreaming: boolean;
+  entryCount: number;
+  toolCallCount: number;
+  textBytes: number;
+  thoughtBytes: number;
+  toolPayloadBytes: number;
+  largestToolPayloadBytes: number;
+  sessionSnapshotBytes: number;
+}
+
+/** One bridge-to-renderer event accounting sample. */
+export interface MonitorBridgeEvent {
+  timestamp: number;
+  eventType: string;
+  bytes: number;
+  serializationMs: number;
+  deliveryMs: number;
+  threadId: string | null;
+  threadRole: "active" | "background" | "unknown";
+  deliveryMode: "direct" | "buffered" | "coalesced" | "dropped";
+}
+
+export interface MonitorRendererEventStats {
+  receivedCount: number;
+  receivedBytes: number;
+  activeCount: number;
+  backgroundCount: number;
+  applyMs: number;
+  maxApplyMs: number;
+  ignoredCount: number;
+  bufferedCount: number;
+  coalescedCount: number;
+  droppedCount: number;
+  tabClickCount: number;
+  scrollCount: number;
+  paintCount: number;
+  eventToPaintMs: number;
+  maxEventToPaintMs: number;
+  maxEventsPerSecond: number;
+  ipcBurstCount: number;
+  maxBurstSize: number;
+  longTaskDuringBurstMs: number;
+  missedFrameDuringBurstCount: number;
+}
+
+/** Health of the monitor worker and its bounded persistence queue. */
+export interface MonitorPipelineTelemetry {
+  timestamp: number;
+  queueDepth: number;
+  queueCapacity: number;
+  droppedWrites: number;
+  writeFailures: number;
+  workerFailures: number;
+  lastWriteLatencyMs: number;
+  maxWriteLatencyMs: number;
+  lastFlushMs: number;
+  lastError: string | null;
+}
+
 export interface MonitorLiveSnapshot {
   timestamp: number;
   recording: boolean;
@@ -105,6 +181,9 @@ export interface MonitorLiveSnapshot {
   runningThreadIds: string[];
   rendererTelemetry: MonitorRendererTelemetry | null;
   recentRendererTelemetry: MonitorRendererTelemetry[];
+  recentAcpUpdates: MonitorAcpUpdate[];
+  recentBridgeEvents: MonitorBridgeEvent[];
+  pipelineTelemetry: MonitorPipelineTelemetry;
 }
 
 export interface MonitorAggregate {
@@ -190,6 +269,7 @@ export interface MonitorRendererTelemetry {
   longTaskMs: number;
   gcPauseCount: number;
   gcPauseMs: number;
+  rendererEvents: MonitorRendererEventStats;
 }
 
 /**

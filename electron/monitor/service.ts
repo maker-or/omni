@@ -1,8 +1,11 @@
 import { app } from "electron";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
+import { join } from "node:path";
 import type {
   MonitorAggregate,
+  MonitorAcpUpdate,
+  MonitorBridgeEvent,
   MonitorConnectionEpisode,
   MonitorDiffIngestion,
   MonitorLiveSnapshot,
@@ -18,16 +21,13 @@ import type {
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../../contracts/monitor.ts";
-import { samplePid } from "./platform-sampler.ts";
+import { getDb } from "../db.ts";
+import { sampleCurrentProcessMetrics } from "./platform-sampler.ts";
 import {
   ensureMonitorTables,
-  finishMonitorSession,
   getMonitorSession,
   insertIncident,
-  insertDiffIngestion,
-  insertMonitorSession,
-  insertRendererTelemetry,
-  insertSampleBatch,
+  initializeMonitorDb,
   insertSwitchRecord,
   insertTabEvent,
   insertTabClickTiming,
@@ -39,11 +39,13 @@ import {
   getSessionTicks,
   getRendererTelemetry,
   getDiffIngestions,
+  getAcpUpdates,
+  getBridgeEvents,
   getConnectionEpisodes,
   upsertConnectionEpisode,
-  pruneOldSamples,
   updateIncident,
 } from "./db.ts";
+import { MonitorWorkerClient } from "./worker-client.ts";
 
 const SAMPLE_INTERVAL_MS = 1000;
 const RING_CAPACITY = 300;
@@ -89,11 +91,14 @@ export class MonitorService {
   private readonly getInventory: () => MonitorProcessDescriptor[];
   private readonly getRunningThreadIds: () => string[];
   private readonly onBroadcast: (channel: string, payload: unknown) => void;
+  private readonly worker: MonitorWorkerClient;
 
   private timer: NodeJS.Timeout | null = null;
   private sampling = false;
   private readonly ring: MonitorSampleTick[] = [];
   private readonly rendererRing: MonitorRendererTelemetry[] = [];
+  private readonly acpRing: MonitorAcpUpdate[] = [];
+  private readonly bridgeRing: MonitorBridgeEvent[] = [];
   private readonly rendererEpisodes = new Map<
     string,
     { incidentId: number; payload: Record<string, unknown> }
@@ -109,16 +114,22 @@ export class MonitorService {
     this.getInventory = options.getInventory;
     this.getRunningThreadIds = options.getRunningThreadIds;
     this.onBroadcast = options.onBroadcast;
+    initializeMonitorDb(getDb());
     ensureMonitorTables();
+    this.worker = new MonitorWorkerClient(join(app.getPath("userData"), "omni.sqlite"));
   }
 
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      void this.tick();
+      void this.tick().catch((error) => {
+        console.error("[Monitor] Sampling failed:", error);
+      });
     }, SAMPLE_INTERVAL_MS);
     this.timer.unref?.();
-    void this.tick();
+    void this.tick().catch((error) => {
+      console.error("[Monitor] Initial sampling failed:", error);
+    });
   }
 
   stop(): void {
@@ -126,6 +137,9 @@ export class MonitorService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    void this.worker.shutdown().catch((error) => {
+      console.error("[Monitor] Worker shutdown failed:", error);
+    });
   }
 
   isEnabled(): boolean {
@@ -146,6 +160,12 @@ export class MonitorService {
       runningThreadIds: this.getRunningThreadIds(),
       rendererTelemetry: this.rendererRing.at(-1) ?? null,
       recentRendererTelemetry: [...this.rendererRing],
+      recentAcpUpdates: [...this.acpRing],
+      recentBridgeEvents: [...this.bridgeRing],
+      pipelineTelemetry: {
+        timestamp: Date.now(),
+        ...this.worker.health(),
+      },
     };
   }
 
@@ -161,7 +181,8 @@ export class MonitorService {
     return listMonitorSessions(limit);
   }
 
-  getRecordedSession(sessionId: string) {
+  async getRecordedSession(sessionId: string) {
+    await this.worker.flush();
     const ticks = getSessionTicks(sessionId);
     const session = getMonitorSession(sessionId);
     const incidents = listIncidents(500).filter((incident) => {
@@ -173,15 +194,17 @@ export class MonitorService {
       ticks,
       rendererTelemetry: getRendererTelemetry(sessionId),
       diffIngestions: getDiffIngestions(sessionId),
+      acpUpdates: getAcpUpdates(sessionId),
+      bridgeEvents: getBridgeEvents(sessionId),
       connectionEpisodes: getConnectionEpisodes(500),
       incidents,
       summary: summarizeSession(ticks, session, incidents.length),
     };
   }
 
-  startRecording(label?: string): MonitorSession {
+  async startRecording(label?: string): Promise<MonitorSession> {
     if (this.recordingSessionId) {
-      this.stopRecording();
+      await this.stopRecording();
     }
     const session: MonitorSession = {
       id: randomUUID(),
@@ -189,18 +212,18 @@ export class MonitorService {
       startedAt: Date.now(),
       endedAt: null,
     };
-    insertMonitorSession(session);
+    await this.worker.startRecording(session);
     this.recordingSessionId = session.id;
     this.recordingStartedAt = session.startedAt;
     this.broadcastLive();
     return session;
   }
 
-  stopRecording(): MonitorSession | null {
+  async stopRecording(): Promise<MonitorSession | null> {
     if (!this.recordingSessionId) return null;
     const session = listMonitorSessions(200).find((entry) => entry.id === this.recordingSessionId);
     const endedAt = Date.now();
-    finishMonitorSession(this.recordingSessionId, endedAt);
+    await this.worker.stopRecording(this.recordingSessionId, endedAt);
     const finishedSession: MonitorSession = {
       id: this.recordingSessionId,
       label: session?.label ?? "Recording",
@@ -365,14 +388,28 @@ export class MonitorService {
   reportRendererTelemetry(telemetry: MonitorRendererTelemetry): void {
     this.rendererRing.push(telemetry);
     while (this.rendererRing.length > RENDERER_RING_CAPACITY) this.rendererRing.shift();
-    if (this.recordingSessionId) insertRendererTelemetry(this.recordingSessionId, telemetry);
+    if (this.recordingSessionId) {
+      this.worker.writeRendererTelemetry(this.recordingSessionId, telemetry);
+    }
   }
 
   reportDiffIngestion(ingestion: MonitorDiffIngestion): void {
     // High-frequency traces are useful only when they can be correlated with
     // a deliberate recording. Avoid continuously growing the local database.
     if (!this.recordingSessionId) return;
-    insertDiffIngestion(this.recordingSessionId, ingestion);
+    this.worker.writeDiffIngestion(this.recordingSessionId, ingestion);
+  }
+
+  reportAcpUpdate(update: MonitorAcpUpdate): void {
+    this.acpRing.push(update);
+    while (this.acpRing.length > 600) this.acpRing.shift();
+    if (this.recordingSessionId) this.worker.writeAcpUpdate(this.recordingSessionId, update);
+  }
+
+  reportBridgeEvent(event: MonitorBridgeEvent): void {
+    this.bridgeRing.push(event);
+    while (this.bridgeRing.length > 600) this.bridgeRing.shift();
+    if (this.recordingSessionId) this.worker.writeBridgeEvent(this.recordingSessionId, event);
   }
 
   reportTabMismatch(report: MonitorTabMismatchReport): void {
@@ -521,15 +558,18 @@ export class MonitorService {
     if (this.sampling) return;
     this.sampling = true;
     try {
-      const tick = await this.collectTick();
+      const descriptors = this.mergeElectronMetrics(this.getInventory());
+      const tick = await this.worker.sample(
+        descriptors,
+        this.recordingSessionId,
+        process.pid,
+        sampleCurrentProcessMetrics(),
+      );
       this.pushRing(tick);
-      if (this.recordingSessionId) {
-        insertSampleBatch(this.recordingSessionId, tick);
-      }
       this.onBroadcast("monitor:tick", tick);
       this.broadcastLive();
       if (Math.random() < 0.01) {
-        pruneOldSamples(RETENTION_MS);
+        this.worker.prune(RETENTION_MS);
       }
     } finally {
       this.sampling = false;
@@ -545,40 +585,6 @@ export class MonitorService {
 
   private broadcastLive(): void {
     this.onBroadcast("monitor:live", this.getLiveSnapshot());
-  }
-
-  private async collectTick(): Promise<MonitorSampleTick> {
-    const timestamp = Date.now();
-    const descriptors = this.mergeElectronMetrics(this.getInventory());
-    const uniqueByPid = new Map<number, MonitorProcessDescriptor>();
-    for (const descriptor of descriptors) {
-      if (!uniqueByPid.has(descriptor.pid)) {
-        uniqueByPid.set(descriptor.pid, descriptor);
-      }
-    }
-
-    const processes: MonitorProcessSample[] = [];
-    await Promise.all(
-      [...uniqueByPid.entries()].map(async ([pid, descriptor]) => {
-        const metrics = await samplePid(pid);
-        if (!metrics) return;
-        processes.push({
-          pid,
-          role: descriptor.role,
-          label: descriptor.label,
-          agentId: descriptor.agentId,
-          threadId: descriptor.threadId,
-          threadIds: descriptor.threadIds ?? (descriptor.threadId ? [descriptor.threadId] : []),
-          streamingThreadIds: descriptor.streamingThreadIds ?? [],
-          sessionId: descriptor.sessionId,
-          isStreaming: descriptor.isStreaming,
-          ...metrics,
-        });
-      }),
-    );
-
-    processes.sort((a, b) => a.label.localeCompare(b.label));
-    return { timestamp, processes };
   }
 
   private mergeElectronMetrics(

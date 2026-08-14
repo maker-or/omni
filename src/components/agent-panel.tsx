@@ -52,6 +52,7 @@ import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { AgentContinueMenu } from "@/components/agent-continue-menu";
 import { AgentQuestionCard, AgentQuestionDock } from "@/components/agent-question";
 import { cn } from "@/lib/utils";
+import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import { toast } from "@/components/ui/toast";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
 import { useContinuationStore } from "@/store/continuation-store";
@@ -503,7 +504,7 @@ function MessageBody({
             isStreaming={isStreaming}
             activeMessages={activeMessages}
             open={traceDeckOpen}
-            defaultOpen={isStreaming}
+            defaultOpen={false}
             onOpenChange={onTraceDeckOpenChange}
           />
         )}
@@ -657,6 +658,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   // before the agent snapshot catches up.
   const requestedThreadId = useWorkspaceViewStore((state) => state.requestedThreadId);
   const draft = useWorkspaceViewStore((state) => state.draft);
+  const beginDraft = useWorkspaceViewStore((state) => state.beginDraft);
   const endDraft = useWorkspaceViewStore((state) => state.endDraft);
   const setDraftProject = useWorkspaceViewStore((state) => state.setDraftProject);
   const setDraftAgent = useWorkspaceViewStore((state) => state.setDraftAgent);
@@ -678,6 +680,28 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     Array<{ id: string; label: string; description?: string }>
   >([]);
   const draftBootstrappedRef = useRef(false);
+
+  // When in agent view with no active thread, no requested thread, and no draft,
+  // automatically bootstrap into draft mode so the composer is always ready.
+  useEffect(() => {
+    if (isDraftMode || requestedThreadId || snapshot?.threadId) return;
+    const project = activeProject;
+    const worktreePath = project
+      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+      : null;
+    beginDraft({
+      projectId: project?.id ?? null,
+      previousActiveProjectId: project?.id ?? null,
+      worktreePath,
+    });
+  }, [
+    isDraftMode,
+    requestedThreadId,
+    snapshot?.threadId,
+    activeProject,
+    selectedWorktreePathByProject,
+    beginDraft,
+  ]);
 
   // Seed draft composer once when a draft session starts (soft-default project chip).
   useEffect(() => {
@@ -1024,10 +1048,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     };
 
     updatePinnedState();
-    scrollContainer.addEventListener("scroll", updatePinnedState, {
+    const onScroll = () => {
+      beginRendererInteraction("scroll");
+      updatePinnedState();
+    };
+    scrollContainer.addEventListener("scroll", onScroll, {
       passive: true,
     });
-    return () => scrollContainer.removeEventListener("scroll", updatePinnedState);
+    return () => scrollContainer.removeEventListener("scroll", onScroll);
   }, [threadId]);
 
   useEffect(() => {
@@ -1925,7 +1953,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                 diffSummary={
                                   firstToolCallId ? diffSummaries[firstToolCallId] : undefined
                                 }
-                                traceDeckOpen={traceDeckOpenByKey[msgId] ?? isStreaming}
+                                traceDeckOpen={traceDeckOpenByKey[msgId] ?? false}
                                 onTraceDeckOpenChange={(open) =>
                                   setTraceDeckOpenByKey((current) => ({
                                     ...current,

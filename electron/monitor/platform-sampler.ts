@@ -16,6 +16,10 @@ export interface RawProcessMetrics {
   runnableThreads: number;
   blockedThreads: number;
   sleepingThreads: number;
+  heapUsedBytes: number | null;
+  heapTotalBytes: number | null;
+  externalBytes: number | null;
+  arrayBuffersBytes: number | null;
 }
 
 const linuxCpuPrev = new Map<number, { utime: number; stime: number; timestamp: number }>();
@@ -51,7 +55,7 @@ function withSystemCpu(metrics: Omit<RawProcessMetrics, "cpuPercentOfSystem">): 
   };
 }
 
-function sampleCurrentProcess(): RawProcessMetrics {
+export function sampleCurrentProcessMetrics(): RawProcessMetrics {
   const timestamp = Date.now();
   const cpuUsage = process.cpuUsage();
   const previous = currentProcessCpuPrev;
@@ -66,10 +70,11 @@ function sampleCurrentProcess(): RawProcessMetrics {
     system: cpuUsage.system,
     timestamp,
   };
+  const memory = process.memoryUsage();
 
   return withSystemCpu({
     cpuPercent,
-    memoryBytes: process.memoryUsage().rss,
+    memoryBytes: memory.rss,
     // Node does not expose the OS thread count. One is safer than dropping
     // the main process entirely when macOS process inspection is unavailable.
     threadCount: 1,
@@ -78,6 +83,10 @@ function sampleCurrentProcess(): RawProcessMetrics {
     runnableThreads: 0,
     blockedThreads: 0,
     sleepingThreads: 1,
+    heapUsedBytes: memory.heapUsed,
+    heapTotalBytes: memory.heapTotal,
+    externalBytes: memory.external,
+    arrayBuffersBytes: memory.arrayBuffers,
   });
 }
 
@@ -157,6 +166,10 @@ async function sampleLinux(pid: number): Promise<RawProcessMetrics | null> {
       runnableThreads,
       blockedThreads,
       sleepingThreads,
+      heapUsedBytes: null,
+      heapTotalBytes: null,
+      externalBytes: null,
+      arrayBuffersBytes: null,
     });
   } catch {
     linuxCpuPrev.delete(pid);
@@ -175,7 +188,7 @@ async function sampleDarwin(pid: number): Promise<RawProcessMetrics | null> {
       "rss=",
     ]);
     const parts = procOut.trim().split(/\s+/);
-    if (parts.length < 2) return pid === process.pid ? sampleCurrentProcess() : null;
+    if (parts.length < 2) return pid === process.pid ? sampleCurrentProcessMetrics() : null;
     const cpuPercent = parsePositiveFloat(parts[0]);
     const memoryBytes = parsePositiveInt(parts[1]) * 1024;
 
@@ -222,9 +235,13 @@ async function sampleDarwin(pid: number): Promise<RawProcessMetrics | null> {
       runnableThreads,
       blockedThreads,
       sleepingThreads,
+      heapUsedBytes: null,
+      heapTotalBytes: null,
+      externalBytes: null,
+      arrayBuffersBytes: null,
     });
   } catch {
-    return pid === process.pid ? sampleCurrentProcess() : null;
+    return pid === process.pid ? sampleCurrentProcessMetrics() : null;
   }
 }
 
@@ -232,7 +249,7 @@ async function sampleGenericPs(pid: number): Promise<RawProcessMetrics | null> {
   try {
     const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "pcpu=", "-o", "rss="]);
     const parts = stdout.trim().split(/\s+/);
-    if (parts.length < 2) return pid === process.pid ? sampleCurrentProcess() : null;
+    if (parts.length < 2) return pid === process.pid ? sampleCurrentProcessMetrics() : null;
     return withSystemCpu({
       cpuPercent: parsePositiveFloat(parts[0]),
       memoryBytes: parsePositiveInt(parts[1]) * 1024,
@@ -242,9 +259,13 @@ async function sampleGenericPs(pid: number): Promise<RawProcessMetrics | null> {
       runnableThreads: 0,
       blockedThreads: 0,
       sleepingThreads: 1,
+      heapUsedBytes: null,
+      heapTotalBytes: null,
+      externalBytes: null,
+      arrayBuffersBytes: null,
     });
   } catch {
-    return pid === process.pid ? sampleCurrentProcess() : null;
+    return pid === process.pid ? sampleCurrentProcessMetrics() : null;
   }
 }
 
@@ -256,7 +277,7 @@ export async function samplePid(pid: number): Promise<RawProcessMetrics | null> 
     // Windows does not provide `ps`. Use Node's cross-platform process APIs
     // for the current process instead of attempting a shell command that may
     // not exist on the runner.
-    return pid === process.pid ? sampleCurrentProcess() : null;
+    return pid === process.pid ? sampleCurrentProcessMetrics() : null;
   }
   return sampleGenericPs(pid);
 }

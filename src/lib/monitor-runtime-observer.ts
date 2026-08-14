@@ -55,9 +55,53 @@ interface RuntimePauseCounters {
   gcPauseMs: number;
 }
 
+export interface RendererEventRecord {
+  eventType: string;
+  bytes: number;
+  isActive: boolean;
+  applyMs: number;
+  ignored?: boolean;
+  buffered?: boolean;
+  coalesced?: boolean;
+  dropped?: boolean;
+}
+
+function emptyRendererEventStats(): MonitorRendererTelemetry["rendererEvents"] {
+  return {
+    receivedCount: 0,
+    receivedBytes: 0,
+    activeCount: 0,
+    backgroundCount: 0,
+    applyMs: 0,
+    maxApplyMs: 0,
+    ignoredCount: 0,
+    bufferedCount: 0,
+    coalescedCount: 0,
+    droppedCount: 0,
+    tabClickCount: 0,
+    scrollCount: 0,
+    paintCount: 0,
+    eventToPaintMs: 0,
+    maxEventToPaintMs: 0,
+    maxEventsPerSecond: 0,
+    ipcBurstCount: 0,
+    maxBurstSize: 0,
+    longTaskDuringBurstMs: 0,
+    missedFrameDuringBurstCount: 0,
+  };
+}
+
 let diffCounters: DiffCounters = emptyDiffCounters();
 let diffGauges = { diffThreadCount: 0, diffToolCallCount: 0, diffFileCount: 0 };
 let pauseCounters: RuntimePauseCounters = emptyPauseCounters();
+let rendererEventStats = emptyRendererEventStats();
+let eventRateWindowStartedAt = 0;
+let eventRateWindowCount = 0;
+let tabClickActiveUntil = 0;
+let scrollActiveUntil = 0;
+let pendingEventPaint: { startedAt: number; count: number } | null = null;
+let lastRendererEventAt = 0;
+let currentBurstSize = 0;
 
 interface DomMutationCounters {
   addedNodeCount: number;
@@ -206,6 +250,85 @@ export function recordDiffIngestion(input: {
   diffCounters.diffChangedFileCount += Math.max(input.changedFileCount, 0);
 }
 
+export function beginRendererInteraction(kind: "tab-click" | "scroll"): void {
+  const until = now() + (kind === "scroll" ? 250 : 1200);
+  if (kind === "tab-click") tabClickActiveUntil = Math.max(tabClickActiveUntil, until);
+  else scrollActiveUntil = Math.max(scrollActiveUntil, until);
+}
+
+export function recordRendererEvent(input: RendererEventRecord): void {
+  const current = now();
+  if (current - lastRendererEventAt <= 50) currentBurstSize += 1;
+  else {
+    if (currentBurstSize >= 2) {
+      rendererEventStats.ipcBurstCount += 1;
+      rendererEventStats.maxBurstSize = Math.max(rendererEventStats.maxBurstSize, currentBurstSize);
+    }
+    currentBurstSize = 1;
+  }
+  lastRendererEventAt = current;
+  if (eventRateWindowStartedAt === 0 || current - eventRateWindowStartedAt >= 1000) {
+    eventRateWindowStartedAt = current;
+    eventRateWindowCount = 0;
+  }
+  eventRateWindowCount += 1;
+  rendererEventStats.maxEventsPerSecond = Math.max(
+    rendererEventStats.maxEventsPerSecond,
+    eventRateWindowCount,
+  );
+
+  rendererEventStats.receivedCount += 1;
+  rendererEventStats.receivedBytes += Math.max(input.bytes, 0);
+  if (input.isActive) rendererEventStats.activeCount += 1;
+  else rendererEventStats.backgroundCount += 1;
+  rendererEventStats.applyMs += Math.max(input.applyMs, 0);
+  rendererEventStats.maxApplyMs = Math.max(rendererEventStats.maxApplyMs, input.applyMs);
+  if (input.ignored) rendererEventStats.ignoredCount += 1;
+  if (input.buffered) rendererEventStats.bufferedCount += 1;
+  if (input.coalesced) rendererEventStats.coalescedCount += 1;
+  if (input.dropped) rendererEventStats.droppedCount += 1;
+  if (current < tabClickActiveUntil) rendererEventStats.tabClickCount += 1;
+  if (current < scrollActiveUntil) rendererEventStats.scrollCount += 1;
+
+  if (!pendingEventPaint) {
+    pendingEventPaint = { startedAt: current, count: 0 };
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        if (!pendingEventPaint) return;
+        const paintDelayMs = Math.max(0, now() - pendingEventPaint.startedAt);
+        rendererEventStats.paintCount += 1;
+        rendererEventStats.eventToPaintMs += paintDelayMs;
+        rendererEventStats.maxEventToPaintMs = Math.max(
+          rendererEventStats.maxEventToPaintMs,
+          paintDelayMs,
+        );
+        pendingEventPaint = null;
+      });
+    } else {
+      pendingEventPaint = null;
+    }
+  }
+  if (pendingEventPaint) pendingEventPaint.count += 1;
+}
+
+export function recordRendererLongTask(durationMs: number): void {
+  if (currentBurstSize >= 2 && now() - lastRendererEventAt <= 1000) {
+    rendererEventStats.longTaskDuringBurstMs += Math.max(durationMs, 0);
+  }
+}
+
+export function recordRendererFrameGap(blockedMs: number): void {
+  if (currentBurstSize >= 2 && now() - lastRendererEventAt <= 1000) {
+    rendererEventStats.missedFrameDuringBurstCount += 1;
+  }
+  if (blockedMs >= 200 && currentBurstSize >= 2) {
+    rendererEventStats.maxEventToPaintMs = Math.max(
+      rendererEventStats.maxEventToPaintMs,
+      blockedMs,
+    );
+  }
+}
+
 export function startMonitorRuntimeObserver(
   context: RendererMonitorContext,
   onTelemetry: (telemetry: MonitorRendererTelemetry) => void,
@@ -245,6 +368,7 @@ export function startMonitorRuntimeObserver(
         } else if (entry.entryType === "longtask") {
           pauseCounters.longTaskCount += 1;
           pauseCounters.longTaskMs += entry.duration;
+          recordRendererLongTask(entry.duration);
         }
       }
     });
@@ -265,6 +389,14 @@ export function startMonitorRuntimeObserver(
     diffCounters = emptyDiffCounters();
     const pauses = pauseCounters;
     pauseCounters = emptyPauseCounters();
+    if (currentBurstSize >= 2) {
+      rendererEventStats.ipcBurstCount += 1;
+      rendererEventStats.maxBurstSize = Math.max(rendererEventStats.maxBurstSize, currentBurstSize);
+    }
+    currentBurstSize = 0;
+    lastRendererEventAt = 0;
+    const rendererEvents = rendererEventStats;
+    rendererEventStats = emptyRendererEventStats();
     const contextState = rendererContext();
     const heap = heapStats();
     onTelemetry({
@@ -280,6 +412,7 @@ export function startMonitorRuntimeObserver(
       ...diffGauges,
       ...counters,
       ...pauses,
+      rendererEvents,
     });
   };
 
@@ -348,6 +481,7 @@ export function startMonitorFreezeObserver(
 
   const signal = (source: MonitorFreezeSource, blockedMs: number, longTaskMs?: number) => {
     if (blockedMs < 200) return;
+    recordRendererFrameGap(blockedMs);
     const current = now();
     if (!episode || current - episode.lastSignalAt > FREEZE_EPISODE_QUIET_MS) {
       if (episode) finish();

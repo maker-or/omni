@@ -23,6 +23,7 @@ import { useWorktreeStore } from "@/store/worktree-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { selectThread } from "@/lib/thread-actions";
+import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import {
   OPEN_TABS_QUERY_KEY,
   useOpenTabsQuery,
@@ -291,7 +292,20 @@ export function GlobalTabBar() {
         const terminalId = sessions.some((session) => session.id === referencedTerminalId)
           ? referencedTerminalId
           : (sessions[0]?.id ?? null);
-        if (mode === "agent" && terminalId) showTerminal(terminalId);
+        if (mode === "agent" && terminalId) {
+          showTerminal(terminalId);
+        } else {
+          const project = activeProject;
+          const worktreePath = project
+            ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+            : null;
+          beginDraft({
+            projectId: project?.id ?? null,
+            previousActiveProjectId: project?.id ?? null,
+            worktreePath,
+          });
+          showAgent();
+        }
       }
     } catch (err) {
       toast({
@@ -335,8 +349,26 @@ export function GlobalTabBar() {
     const next = closeSession(id);
     if (!wasReferencedTerminal) return;
     if (wasViewTerminal) {
-      if (next) showTerminal(next);
-      else showAgent();
+      if (next) {
+        showTerminal(next);
+      } else {
+        const hasOpenThreads = orderedOpenThreads.length > 0;
+        const targetThreadId = snapshotThreadId ?? activeThreadId ?? orderedOpenThreads[0]?.id;
+        if (hasOpenThreads && targetThreadId) {
+          showAgent();
+        } else {
+          const project = activeProject;
+          const worktreePath = project
+            ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+            : null;
+          beginDraft({
+            projectId: project?.id ?? null,
+            previousActiveProjectId: project?.id ?? null,
+            worktreePath,
+          });
+          showAgent();
+        }
+      }
     } else {
       setViewActiveTerminalId(next);
     }
@@ -353,6 +385,7 @@ export function GlobalTabBar() {
 
   const handleTabChange = (value: string) => {
     const clickStartedAt = performance.now();
+    beginRendererInteraction("tab-click");
     if (value.startsWith(TERMINAL_TAB_PREFIX)) {
       handleSelectTerminal(value.slice(TERMINAL_TAB_PREFIX.length));
       return;
