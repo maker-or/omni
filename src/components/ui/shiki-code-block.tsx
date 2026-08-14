@@ -164,7 +164,10 @@ function ShikiCodeBlockBase({
   }, [cacheKey, code, language, isStreaming]);
 
   return (
-    <div className="group/code my-3 min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-surface-2 shadow-[var(--shadow-1)]">
+    <div
+      data-pipper-id="shiki-code-block"
+      className="group/code my-3 min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-surface-2 shadow-[var(--shadow-1)]"
+    >
       <div className="flex h-8 items-center justify-between border-border/70 border-b px-3">
         <span className="font-mono text-[11px] text-muted-foreground lowercase">{language}</span>
       </div>

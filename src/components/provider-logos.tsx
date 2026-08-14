@@ -22,6 +22,7 @@ export type ProviderLogoKind =
   | "opencode"
   | "kimi-coding"
   | "gemini"
+  | "antigravity"
   | "generic";
 
 /** Map a free-form provider / agent id / icon key to a known logo kind. */
@@ -36,6 +37,7 @@ export function resolveProviderLogoKind(key: string | null | undefined): Provide
   if (value.includes("openrouter")) return "openrouter";
   if (value.includes("opencode")) return "opencode";
   if (value.includes("kimi") || value.includes("moonshot")) return "kimi-coding";
+  if (value.includes("antigravity") || value.includes("agy")) return "antigravity";
   if (value.includes("gemini") || value.includes("google")) return "gemini";
   if (value.includes("openai")) return "openai";
   return "generic";
@@ -291,6 +293,24 @@ function ProviderLogo({
         <path
           fill="currentColor"
           d="M141.201 4.886c2.282-6.17 11.042-6.071 13.184.148l5.985 17.37a184.004 184.004 0 0 0 111.257 113.049l19.304 6.997c6.143 2.227 6.156 10.91.02 13.155l-19.35 7.082a184.001 184.001 0 0 0-109.495 109.385l-7.573 20.629c-2.241 6.105-10.869 6.121-13.133.025l-7.908-21.296a184 184 0 0 0-109.02-108.658l-19.698-7.239c-6.102-2.243-6.118-10.867-.025-13.132l20.083-7.467A183.998 183.998 0 0 0 133.291 26.28l7.91-21.394Z"
+        />
+      </svg>
+    );
+  }
+
+  if (resolved === "antigravity") {
+    return (
+      <svg
+        aria-label={ariaLabel}
+        className={iconClassName}
+        viewBox="0 0 16 15"
+        fill="none"
+        role="img"
+        style={box}
+      >
+        <path
+          d="M14.0777 13.984C14.945 14.6345 16.2458 14.2008 15.0533 13.0084C11.476 9.53949 12.2349 0 7.79033 0C3.34579 0 4.10461 9.53949 0.527295 13.0084C-0.773543 14.3092 0.635692 14.6345 1.50293 13.984C4.86344 11.7076 4.64663 7.69664 7.79033 7.69664C10.934 7.69664 10.7172 11.7076 14.0777 13.984Z"
+          fill="currentColor"
         />
       </svg>
     );

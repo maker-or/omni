@@ -11,13 +11,14 @@ import {
 } from "./registry.ts";
 
 describe("ACP agent registry", () => {
-  test("catalog includes Cursor, Codex, Claude, Gemini, and Copilot adapters", () => {
+  test("catalog includes Cursor, Codex, Claude, Gemini, Copilot, and Antigravity adapters", () => {
     const ids = BUILTIN_ACP_AGENTS.map((a) => a.id);
     expect(ids).toContain("cursor-acp");
     expect(ids).toContain("codex-acp");
     expect(ids).toContain("claude-agent-acp");
     expect(ids).toContain("gemini-acp");
     expect(ids).toContain("copilot-acp");
+    expect(ids).toContain("antigravity-acp");
 
     const cursor = BUILTIN_ACP_AGENTS.find((a) => a.id === "cursor-acp")!;
     expect(cursor.command).toBe("agent");
@@ -43,6 +44,11 @@ describe("ACP agent registry", () => {
     expect(copilot.args).toEqual(["--acp", "--stdio"]);
     expect(copilot.npmPackage).toBe("@github/copilot");
     expect(copilot.docsUrl).toContain("copilot-cli-reference/acp-server");
+
+    const antigravity = BUILTIN_ACP_AGENTS.find((a) => a.id === "antigravity-acp")!;
+    expect(antigravity.npmPackage).toBe("antigravity-acp");
+    expect(antigravity.detectCommands).toEqual(["antigravity-acp", "agy-acp"]);
+    expect(antigravity.docsUrl).toContain("antigravity.google");
   });
 
   test("npx-backed agent resolution is idempotent across repeated re-probes", () => {

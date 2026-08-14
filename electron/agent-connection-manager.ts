@@ -113,9 +113,16 @@ function modelOptionsFromConfig(
   const out: Array<{ modelId: string; name: string; provider?: string }> = [];
   for (const item of option.options as Array<Record<string, unknown>>) {
     if (typeof item.value === "string") {
+      let modelId = item.value;
+      let name = typeof item.name === "string" ? item.name : item.value;
+      if (modelId.includes("\t")) {
+        const parts = modelId.split("\t");
+        modelId = parts[1]?.trim() || parts[0]?.trim() || modelId;
+        name = parts[1]?.trim() || name;
+      }
       out.push({
-        modelId: item.value,
-        name: typeof item.name === "string" ? item.name : item.value,
+        modelId,
+        name,
         provider: typeof item.provider === "string" ? item.provider : undefined,
       });
       continue;
@@ -124,9 +131,16 @@ function modelOptionsFromConfig(
     const provider = typeof item.name === "string" ? item.name : undefined;
     for (const nested of item.options as Array<Record<string, unknown>>) {
       if (typeof nested.value !== "string") continue;
+      let modelId = nested.value;
+      let name = typeof nested.name === "string" ? nested.name : nested.value;
+      if (modelId.includes("\t")) {
+        const parts = modelId.split("\t");
+        modelId = parts[1]?.trim() || parts[0]?.trim() || modelId;
+        name = parts[1]?.trim() || name;
+      }
       out.push({
-        modelId: nested.value,
-        name: typeof nested.name === "string" ? nested.name : nested.value,
+        modelId,
+        name,
         provider: typeof nested.provider === "string" ? nested.provider : provider,
       });
     }
@@ -1465,6 +1479,54 @@ export class AgentConnectionManager {
   }
 
   /**
+   * Normalize and sanitize session config options. Some third-party ACP adapters
+   * (e.g. antigravity-acp) leak raw tab-separated output from CLI discovery (`id\tDisplay Name`).
+   * Clean them so modelId matches what the CLI expects and UI renders clean names.
+   */
+  private sanitizeConfigOptions(
+    rawOptions: SessionConfigOption[] | null | undefined,
+  ): SessionConfigOption[] {
+    return (rawOptions ?? []).map((opt) => {
+      if (opt.id === "model" || opt.category === "model") {
+        let currentValue = opt.currentValue;
+        if (typeof currentValue === "string" && currentValue.includes("\t")) {
+          const parts = currentValue.split("\t");
+          currentValue = parts[1]?.trim() || parts[0]?.trim() || currentValue;
+        }
+        let choices = opt.options;
+        if (Array.isArray(choices)) {
+          choices = choices.map((item) => {
+            if (item && typeof item === "object") {
+              const rec = item as Record<string, unknown>;
+              const rawVal = rec.value;
+              const rawName = rec.name;
+              if (typeof rawVal === "string" && rawVal.includes("\t")) {
+                const parts = rawVal.split("\t");
+                const cleanName = parts[1]?.trim() || parts[0]?.trim() || rawVal;
+                return {
+                  ...rec,
+                  value: cleanName,
+                  name:
+                    typeof rawName === "string" && rawName.includes("\t")
+                      ? cleanName
+                      : (rawName ?? cleanName),
+                };
+              }
+            }
+            return item;
+          });
+        }
+        return {
+          ...opt,
+          currentValue,
+          options: choices,
+        } as SessionConfigOption;
+      }
+      return opt;
+    });
+  }
+
+  /**
    * Some agents (e.g. Grok) advertise their model catalog in the initialize
    * result's `_meta.modelState` rather than as a session config option. When the
    * agent returned no native "model" option, synthesize one from that catalog so
@@ -1474,10 +1536,11 @@ export class AgentConnectionManager {
     live: LiveConnection,
     options: SessionConfigOption[],
   ): SessionConfigOption[] {
+    const sanitized = this.sanitizeConfigOptions(options);
     const ms = live.modelState;
     const models = ms?.availableModels ?? [];
-    if (models.length === 0) return options;
-    if (options.some((o) => o.category === "model" || o.id === "model")) return options;
+    if (models.length === 0) return sanitized;
+    if (sanitized.some((o) => o.category === "model" || o.id === "model")) return sanitized;
     const modelOption = {
       id: "model",
       name: "Model",
@@ -1486,7 +1549,7 @@ export class AgentConnectionManager {
       currentValue: ms?.currentModelId ?? models[0]?.modelId ?? null,
       options: models.map((m) => ({ value: m.modelId, name: m.name })),
     } as unknown as SessionConfigOption;
-    return [modelOption, ...options];
+    return [modelOption, ...sanitized];
   }
 
   /**
@@ -1591,12 +1654,62 @@ export class AgentConnectionManager {
     }
     live.authRequiredMessage = null;
     attached.bind(result.sessionId);
+
+    const configOptions = this.withModelOption(
+      live,
+      (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
+    );
+
+    // If an agent (e.g. antigravity-acp) provided a raw/tab-separated default model,
+    // explicitly sync the clean model back to the adapter session so it doesn't
+    // pass the raw tab-separated string to its CLI subprocess.
+    const modelOpt = configOptions.find((o) => o.category === "model" || o.id === "model");
+    if (modelOpt && typeof modelOpt.currentValue === "string") {
+      const rawOpt = (
+        (result.configOptions as SessionConfigOption[] | null | undefined) ?? []
+      ).find((o) => o.category === "model" || o.id === "model");
+      if (
+        live.agentId.includes("antigravity") ||
+        (typeof rawOpt?.currentValue === "string" && rawOpt.currentValue.includes("\t"))
+      ) {
+        try {
+          await requestWithTimeout(
+            live.agent.request(acp.methods.agent.session.setConfigOption, {
+              sessionId: result.sessionId,
+              configId: modelOpt.id,
+              value: modelOpt.currentValue as never,
+            }),
+            ACP_SWITCH_PHASE_TIMEOUT_MS,
+            "session/set_config_option",
+          );
+        } catch {
+          // best-effort sync
+        }
+      }
+    }
+
+    // For antigravity-acp, also ensure mode is initialized to bypassPermissions
+    // so tool executions never deadlock waiting on headless stdin.
+    const modeOpt = configOptions.find((o) => o.category === "mode" || o.id === "mode");
+    if (modeOpt && live.agentId.includes("antigravity")) {
+      try {
+        await requestWithTimeout(
+          live.agent.request(acp.methods.agent.session.setConfigOption, {
+            sessionId: result.sessionId,
+            configId: modeOpt.id,
+            value: "bypassPermissions" as never,
+          }),
+          ACP_SWITCH_PHASE_TIMEOUT_MS,
+          "session/set_config_option",
+        );
+      } catch {
+        // best-effort sync
+      }
+    }
+
     return {
       sessionId: result.sessionId,
-      configOptions: this.withModelOption(
-        live,
-        (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
-      ),
+      configOptions,
     };
   }
 
@@ -2247,6 +2360,12 @@ export class AgentConnectionManager {
     const runtime = this.sessions.get(threadId);
     const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !owner) return [];
+    let targetValue = value;
+    if (configId === "model" && typeof targetValue === "string" && targetValue.includes("\t")) {
+      const parts = targetValue.split("\t");
+      targetValue = parts[1]?.trim() || parts[0]?.trim() || targetValue;
+    }
+
     // Grok exposes its models via initialize `_meta.modelState` and switches them
     // with a custom `session/set_model` method — it doesn't implement the standard
     // `session/set_config_option`. Route the synthesized "model" option there and
@@ -2257,7 +2376,7 @@ export class AgentConnectionManager {
           "session/set_model" as never,
           {
             sessionId: runtime.agentSessionId,
-            modelId: value,
+            modelId: targetValue,
           } as never,
         ),
         ACP_SWITCH_PHASE_TIMEOUT_MS,
@@ -2265,7 +2384,7 @@ export class AgentConnectionManager {
       );
       const options = runtime.slice.configOptions.map((o) =>
         o.id === "model" || o.category === "model"
-          ? ({ ...o, currentValue: value } as SessionConfigOption)
+          ? ({ ...o, currentValue: targetValue } as SessionConfigOption)
           : o,
       );
       runtime.slice = { ...runtime.slice, configOptions: options };
@@ -2276,14 +2395,15 @@ export class AgentConnectionManager {
       owner.agent.request(acp.methods.agent.session.setConfigOption, {
         sessionId: runtime.agentSessionId,
         configId,
-        value: value as never,
+        value: targetValue as never,
       }),
       ACP_SWITCH_PHASE_TIMEOUT_MS,
       "session/set_config_option",
     );
-    const options =
+    const rawResultOptions =
       (result.configOptions as SessionConfigOption[] | null | undefined) ??
       runtime.slice.configOptions;
+    const options = this.sanitizeConfigOptions(rawResultOptions);
     runtime.slice = { ...runtime.slice, configOptions: options };
     this.pushState(threadId);
     return options;

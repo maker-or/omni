@@ -117,7 +117,7 @@ export const DiffView = memo(function DiffView() {
         } as CSSProperties
       }
     >
-      <div className="flex min-h-0 flex-1 flex-col ">
+      <div data-pipper-id="diff-view" className="flex min-h-0 flex-1 flex-col ">
         <div className="flex h-9 shrink-0 items-center justify-between rounded-2xl px-3">
           <span className="truncate text-[12px] text-muted-foreground">
             {order.length} file{order.length === 1 ? "" : "s"} changed

@@ -18,6 +18,7 @@ export function DiffSummaryCard({ summary }: DiffSummaryCardProps) {
 
   return (
     <section
+      data-pipper-id="diff-summary-card"
       className="mt-3 overflow-hidden rounded-2xl border border-border/70 bg-surface-2/70 text-[12px]"
       aria-label="Changed files"
     >

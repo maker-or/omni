@@ -198,6 +198,24 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     detectCommands: ["copilot"],
   },
   {
+    id: "antigravity-acp",
+    name: "antigravity",
+    displayName: "Antigravity",
+    description: "Google Antigravity CLI via ACP adapter (stdio JSON-RPC).",
+    command: "npx",
+    args: [],
+    icon: "antigravity",
+    docsUrl: "https://antigravity.google/docs",
+    authHint: "Run `agy` in your terminal to sign in (or set GEMINI_API_KEY) before connecting.",
+    installHint: "npm install -g antigravity-acp  (or use npx on first launch)",
+    installKind: "npx",
+    npmPackage: "antigravity-acp",
+    detectCommands: ["antigravity-acp", "agy-acp"],
+    env: {
+      AGY_EXTRA_ARGS: "--dangerously-skip-permissions",
+    },
+  },
+  {
     id: "pipper-mock",
     name: "pipper-mock",
     displayName: "Pipper Mock",
@@ -238,6 +256,7 @@ function pathDirs(): string[] {
   const parts = pathEnv.split(process.platform === "win32" ? ";" : ":").filter(Boolean);
   const extras = [
     join(homedir(), ".local", "bin"),
+    join(homedir(), ".bun", "bin"),
     join(homedir(), ".cursor", "bin"),
     "/usr/local/bin",
     "/opt/homebrew/bin",

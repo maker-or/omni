@@ -216,6 +216,7 @@ function MarkdownRendererBase({
 }: MarkdownRendererProps) {
   return (
     <div
+      data-pipper-id="assistant-markdown"
       className={cn(
         "min-w-0 max-w-full space-y-3 overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className,

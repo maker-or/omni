@@ -104,6 +104,24 @@
       "detectCommands": ["grok"]
     },
     {
+      "id": "antigravity-acp",
+      "name": "antigravity",
+      "displayName": "Antigravity",
+      "description": "Google Antigravity CLI via ACP adapter (stdio JSON-RPC).",
+      "command": "npx",
+      "args": [],
+      "icon": "antigravity",
+      "docsUrl": "https://antigravity.google/docs",
+      "authHint": "Run `agy` in your terminal to sign in (or set GEMINI_API_KEY) before connecting.",
+      "installHint": "npm install -g antigravity-acp  (or use npx on first launch)",
+      "installKind": "npx",
+      "npmPackage": "antigravity-acp",
+      "detectCommands": ["antigravity-acp", "agy-acp"],
+      "env": {
+        "AGY_EXTRA_ARGS": "--dangerously-skip-permissions"
+      }
+    },
+    {
       "id": "pipper-mock",
       "name": "pipper-mock",
       "displayName": "Pipper Mock",

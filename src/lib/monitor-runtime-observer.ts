@@ -23,6 +23,14 @@ const DOM_ATTRIBUTION_IDS = new Set([
   "assistant-thinking-step",
   "assistant-tool-step",
   "assistant-markdown",
+  "shiki-code-block",
+  "code-block",
+  "diff-summary-card",
+  "diff-view",
+  "project-file-tree",
+  "global-tab-bar",
+  "subagent-activity",
+  "agent-selector",
   "agent-terminal-output",
 ]);
 
@@ -119,6 +127,9 @@ function finiteOrNull(value: number | undefined): number | null {
 function normalizeDomAttributionId(value: string): string | null {
   if (DOM_ATTRIBUTION_IDS.has(value)) return value;
   if (value.startsWith("agent-terminal-")) return "agent-terminal-output";
+  if (value.startsWith("terminal-panel-")) return "agent-terminal-output";
+  if (value.startsWith("thread-tab-") || value.startsWith("terminal-tab-")) return "global-tab-bar";
+  if (value.startsWith("agent-option-") || value.startsWith("agent-setup-")) return "agent-selector";
   return null;
 }
 

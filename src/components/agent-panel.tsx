@@ -108,6 +108,8 @@ function getProviderIconKind(provider: string): string {
   if (key.includes("openrouter")) return "openrouter";
   if (key.includes("opencode")) return "opencode";
   if (key.includes("kimi") || key.includes("moonshot")) return "kimi-coding";
+  if (key.includes("antigravity") || key.includes("agy")) return "antigravity";
+  if (key.includes("gemini") || key.includes("google")) return "gemini";
   if (key.includes("openai")) return "openai";
   return "generic";
 }
@@ -268,6 +270,17 @@ export function ProviderMark({ provider, className }: { provider: string; classN
           clipRule="evenodd"
           d="M12.5591 5.63672H10.6034L9.05512 9.16734H6.86621V5.65211H5.11719V14.7485H6.86668V10.9164H9.95156C10.4827 10.9164 10.9678 10.6067 11.1916 10.1253V14.7485H12.9411V10.9164C12.9411 10.0046 12.2286 9.23785 11.3191 9.17141V9.16688H10.3584C10.5899 9.08784 10.8026 8.96196 10.9833 8.79707C11.164 8.63218 11.3087 8.43183 11.4086 8.20852L12.5591 5.63672Z"
           fill="var(--surface-3)"
+        />
+      </svg>
+    );
+  }
+
+  if (kind === "antigravity") {
+    return (
+      <svg aria-label={label} className={iconClassName} viewBox="0 0 16 15" fill="none" role="img">
+        <path
+          d="M14.0777 13.984C14.945 14.6345 16.2458 14.2008 15.0533 13.0084C11.476 9.53949 12.2349 0 7.79033 0C3.34579 0 4.10461 9.53949 0.527295 13.0084C-0.773543 14.3092 0.635692 14.6345 1.50293 13.984C4.86344 11.7076 4.64663 7.69664 7.79033 7.69664C10.934 7.69664 10.7172 11.7076 14.0777 13.984Z"
+          fill="currentColor"
         />
       </svg>
     );
