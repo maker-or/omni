@@ -129,7 +129,8 @@ function normalizeDomAttributionId(value: string): string | null {
   if (value.startsWith("agent-terminal-")) return "agent-terminal-output";
   if (value.startsWith("terminal-panel-")) return "agent-terminal-output";
   if (value.startsWith("thread-tab-") || value.startsWith("terminal-tab-")) return "global-tab-bar";
-  if (value.startsWith("agent-option-") || value.startsWith("agent-setup-")) return "agent-selector";
+  if (value.startsWith("agent-option-") || value.startsWith("agent-setup-"))
+    return "agent-selector";
   return null;
 }
 
