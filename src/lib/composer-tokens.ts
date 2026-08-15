@@ -448,7 +448,7 @@ export function mentionPlaceholderHint(mode: "draft" | "live", content: Composer
   const next = resolveDefaultMentionKind({ mode, content, filesAvailable: true });
   if (mode === "draft") {
     if (next === "project") return "@ a project, then a model, then describe the task…";
-    if (next === "model") return "Optional: @ a model, or describe the task…";
+    if (next === "model") return "@ a model, then describe the task…";
     return "Describe the task — @ for files";
   }
   if (next === "model") return "Type here — @model to switch, or @ for files";

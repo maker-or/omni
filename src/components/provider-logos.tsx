@@ -51,7 +51,7 @@ export function formatProviderLogoLabel(key: string | null | undefined): string 
     .join(" ");
 }
 
-function ProviderLogo({
+export function ProviderLogo({
   kind,
   provider,
   className,

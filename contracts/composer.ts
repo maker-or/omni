@@ -14,6 +14,8 @@ export type ComposerProjectToken = {
   kind: "project";
   id: string;
   label: string;
+  /** Project icon name if known. */
+  icon?: string | null;
 };
 
 export type ComposerAgentToken = {
@@ -28,6 +30,8 @@ export type ComposerModelToken = {
   label: string;
   /** Agent that owns this model, when known (draft hierarchical pick). */
   agentId?: string;
+  /** Provider identifier for logo rendering. */
+  providerId?: string;
 };
 
 export type ComposerEntityToken = ComposerProjectToken | ComposerAgentToken | ComposerModelToken;

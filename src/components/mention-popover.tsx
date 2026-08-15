@@ -18,6 +18,8 @@ export type MentionItem = {
   providerId?: string;
   /** Human-readable provider name shown in the model picker. */
   providerLabel?: string;
+  /** Project icon name if known. */
+  icon?: string | null;
 };
 
 export type MentionProvider = {

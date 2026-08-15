@@ -33,6 +33,10 @@ export function initializeMonitorDb(db: DatabaseSync): void {
   tablesReady = false;
 }
 
+export function isMonitorDbInitialized(): boolean {
+  return monitorDb !== null;
+}
+
 function getDb(): DatabaseSync {
   if (!monitorDb) throw new Error("Monitor database has not been initialized.");
   return monitorDb;

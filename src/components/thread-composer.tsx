@@ -17,6 +17,8 @@ import {
   type MentionItem,
   type MentionProvider,
 } from "@/components/mention-popover";
+import { ProjectIcon } from "@/components/ui/icon-picker";
+import { ProviderLogo } from "@/components/provider-logos";
 import { cn } from "@/lib/utils";
 import type {
   ComposerContent,
@@ -224,14 +226,19 @@ export function ThreadComposer({
     const editor = inlineTextRef.current;
     if (!editor) return;
     editor.focus();
-    const textNode = editor.firstChild ?? editor.appendChild(document.createTextNode(""));
-    const range = document.createRange();
-    const safeOffset = Math.max(0, Math.min(offset, textNode.textContent?.length ?? 0));
-    range.setStart(textNode, safeOffset);
-    range.collapse(true);
     const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    if (!selection) return;
+    const range = document.createRange();
+    const textNode = editor.firstChild;
+    if (textNode && textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
+      const safeOffset = Math.max(0, Math.min(offset, textNode.textContent.length));
+      range.setStart(textNode, safeOffset);
+    } else {
+      range.setStart(editor, 0);
+    }
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
   }, []);
 
   const focusInlineEditor = useCallback(() => {
@@ -345,7 +352,7 @@ export function ThreadComposer({
 
       let entity: ComposerEntityToken;
       if (mentionKind === "project") {
-        entity = { kind: "project", id: item.id, label: item.label };
+        entity = { kind: "project", id: item.id, label: item.label, icon: item.icon };
       } else if (mentionKind === "agent") {
         entity = { kind: "agent", id: item.id, label: item.label };
       } else {
@@ -354,6 +361,7 @@ export function ThreadComposer({
           id: item.id,
           label: item.label,
           agentId: item.agentId,
+          providerId: item.providerId,
         };
       }
       const withEntity = upsertEntity(setFreeText(currentContent, nextText), entity);
@@ -491,33 +499,54 @@ export function ThreadComposer({
     >
       {entities
         .filter((entity) => entity.kind !== "agent")
-        .map((entity) => (
-          <span
-            key={`${entity.kind}:${entity.id}`}
-            contentEditable={false}
-            title={`@${entity.label}`}
-            className={cn(
-              "mr-1 inline-flex min-w-0 max-w-[min(100%,28rem)] shrink items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 align-middle text-[12px] font-medium",
-              mentionChipClass(entity.kind),
-            )}
-          >
-            <span className="min-w-0 truncate">@{entity.label}</span>
-            <button
-              type="button"
-              aria-label={`Remove ${entity.kind} ${entity.label}`}
-              className="inline-flex size-4 items-center justify-center rounded-full opacity-70 hover:opacity-100"
-              onClick={() => removeChip(entity.kind)}
+        .map((entity) => {
+          let iconNode: React.ReactNode = null;
+          if (entity.kind === "project") {
+            const projectItem = projects.find((p) => p.id === entity.id);
+            const iconName = entity.icon ?? projectItem?.icon ?? null;
+            iconNode = <ProjectIcon name={iconName} className="size-3.5 shrink-0" />;
+          } else if (entity.kind === "model") {
+            const modelItem = models.find((m) => m.id === entity.id);
+            const providerKey =
+              entity.providerId ??
+              modelItem?.providerId ??
+              entity.agentId ??
+              modelItem?.agentId ??
+              entity.id;
+            iconNode = (
+              <ProviderLogo provider={providerKey} size={13} className="size-3.5 shrink-0" />
+            );
+          }
+
+          return (
+            <span
+              key={`${entity.kind}:${entity.id}`}
+              contentEditable={false}
+              title={`@${entity.label}`}
+              className={cn(
+                "mr-1.5 inline-flex min-w-0 max-w-[min(100%,28rem)] shrink items-center gap-1.5 rounded-full py-0.5 pl-2 pr-1 align-middle text-[12px] leading-none font-medium",
+                mentionChipClass(entity.kind),
+              )}
             >
-              <XIcon size={11} />
-            </button>
-          </span>
-        ))}
+              {iconNode}
+              <span className="min-w-0 truncate leading-none">@{entity.label}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${entity.kind} ${entity.label}`}
+                className="inline-flex size-4 items-center justify-center rounded-full opacity-70 hover:opacity-100"
+                onClick={() => removeChip(entity.kind)}
+              >
+                <XIcon size={11} />
+              </button>
+            </span>
+          );
+        })}
       <span
         ref={setInlineTextRef}
         data-inline-text
         contentEditable={!disabled}
         tabIndex={0}
-        className="cursor-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none empty:before:inline-block empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        className="inline-block min-w-[2px] cursor-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none align-middle empty:before:inline-block empty:before:align-middle empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:pointer-events-none empty:before:content-[attr(data-placeholder)]"
         style={{ caretColor: "currentColor" }}
         data-placeholder={resolvedPlaceholder}
       />
@@ -527,7 +556,7 @@ export function ThreadComposer({
   return (
     <div className={cn("flex flex-col gap-1.5", className)} data-pipper-id="thread-composer">
       <InputMessage
-        className="relative z-10"
+        className="relative z-10 rounded-full"
         textareaRef={textareaRef}
         value={freeText}
         onValueChange={handleValueChange}
@@ -599,8 +628,11 @@ export function ThreadComposer({
 
 /** Build initial draft content with optional soft-default project chip. */
 export function initialDraftContent(
-  project?: { id: string; name: string } | null,
+  project?: { id: string; name: string; icon?: string | null } | null,
 ): ComposerContent {
   if (!project) return buildContent([], "");
-  return buildContent([{ kind: "project", id: project.id, label: project.name }], "");
+  return buildContent(
+    [{ kind: "project", id: project.id, label: project.name, icon: project.icon }],
+    "",
+  );
 }

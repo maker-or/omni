@@ -182,7 +182,11 @@ export class MonitorService {
   }
 
   async getRecordedSession(sessionId: string) {
-    await this.worker.flush();
+    try {
+      await this.worker.flush();
+    } catch (error) {
+      console.warn("[Monitor] Worker flush failed before reading session:", error);
+    }
     const ticks = getSessionTicks(sessionId);
     const session = getMonitorSession(sessionId);
     const incidents = listIncidents(500).filter((incident) => {
@@ -212,7 +216,11 @@ export class MonitorService {
       startedAt: Date.now(),
       endedAt: null,
     };
-    await this.worker.startRecording(session);
+    try {
+      await this.worker.startRecording(session);
+    } catch (error) {
+      console.error("[Monitor] Failed to start recording on worker:", error);
+    }
     this.recordingSessionId = session.id;
     this.recordingStartedAt = session.startedAt;
     this.broadcastLive();
@@ -223,7 +231,11 @@ export class MonitorService {
     if (!this.recordingSessionId) return null;
     const session = listMonitorSessions(200).find((entry) => entry.id === this.recordingSessionId);
     const endedAt = Date.now();
-    await this.worker.stopRecording(this.recordingSessionId, endedAt);
+    try {
+      await this.worker.stopRecording(this.recordingSessionId, endedAt);
+    } catch (error) {
+      console.error("[Monitor] Failed to stop recording on worker:", error);
+    }
     const finishedSession: MonitorSession = {
       id: this.recordingSessionId,
       label: session?.label ?? "Recording",

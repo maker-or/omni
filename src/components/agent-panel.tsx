@@ -712,14 +712,17 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
     if (draftBootstrappedRef.current) return;
     draftBootstrappedRef.current = true;
+    const projectObj =
+      draft.projectId != null
+        ? (projectsList.find((p) => p.id === draft.projectId) ??
+          (activeProject?.id === draft.projectId ? activeProject : null))
+        : null;
     const softProject =
       draft.projectId != null
         ? {
             id: draft.projectId,
-            name:
-              projectsList.find((p) => p.id === draft.projectId)?.name ??
-              (activeProject?.id === draft.projectId ? activeProject.name : null) ??
-              "Project",
+            name: projectObj?.name ?? "Project",
+            icon: projectObj?.icon ?? null,
           }
         : null;
     const content = initialDraftContent(softProject);
@@ -750,15 +753,17 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const contentProject = extractProjectId(draftContent);
     if ((draft.projectId ?? null) === (contentProject ?? null)) return;
     if (draft.projectId) {
-      const name =
-        projectsList.find((p) => p.id === draft.projectId)?.name ??
-        (activeProject?.id === draft.projectId ? activeProject.name : null) ??
-        "Project";
+      const projectObj =
+        projectsList.find((p) => p.id === draft.projectId) ??
+        (activeProject?.id === draft.projectId ? activeProject : null);
+      const name = projectObj?.name ?? "Project";
+      const icon = projectObj?.icon ?? null;
       setDraftContent((prev) => {
         let next = upsertEntity(prev, {
           kind: "project",
           id: draft.projectId!,
           label: name,
+          icon,
         });
         if (contentProject != null && contentProject !== draft.projectId) {
           next = removeEntityKind(removeEntityKind(next, "agent"), "model");
@@ -1576,6 +1581,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         id: p.id,
         label: p.name,
         description: "path" in p && typeof p.path === "string" ? p.path : undefined,
+        icon: p.icon ?? null,
       })),
     [projectsList],
   );
