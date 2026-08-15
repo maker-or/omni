@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import net from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, posix } from "node:path";
 import { promisify } from "node:util";
 import {
   DEFAULT_SLEEPLESS_PREFERENCES,
@@ -192,7 +192,8 @@ export class SleeplessController {
     this.runHelper =
       options.runHelper ??
       (async (helperPath, command) => {
-        const { stdout } = await execFile(helperPath, [command], { timeout: 10_000 });
+        const timeout = command === "register" ? 120_000 : 10_000;
+        const { stdout } = await execFile(helperPath, [command], { timeout });
         return stdout;
       });
     this.socket.on("close", (socketError?: Error) => {
@@ -508,5 +509,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function resolveSleeplessHelperPath(execPath: string): string {
-  return join(dirname(execPath), "omni-sleeplessctl");
+  // This helper only exists in a macOS app bundle. Using posix explicitly also
+  // keeps Windows CI from interpreting the fixture path with backslashes.
+  return posix.join(posix.dirname(execPath), "omni-sleeplessctl");
 }

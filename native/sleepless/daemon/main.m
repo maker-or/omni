@@ -11,6 +11,7 @@
 
 static const char *kSocketPath = "/var/run/com.maker-or.omni.sleeplessd.sock";
 static NSString *const kRecoveryPath = @"/var/db/com.maker-or.omni.sleeplessd-state.json";
+static NSString *const kInstalledConfig = @"/Library/PrivilegedHelperTools/com.maker-or.omni.sleeplessd.plist";
 static const NSTimeInterval kHeartbeatTimeout = 12.0;
 
 @interface SleeplessLease : NSObject
@@ -264,8 +265,10 @@ static NSInteger Clamp(NSInteger value, NSInteger minimum, NSInteger maximum) {
 static NSString *AppBundleRoot(void) {
     NSString *path = NSProcessInfo.processInfo.arguments.firstObject.stringByResolvingSymlinksInPath;
     NSRange range = [path rangeOfString:@".app/Contents/"];
-    if (range.location == NSNotFound) return nil;
-    return [[path substringToIndex:range.location] stringByAppendingString:@".app"];
+    if (range.location != NSNotFound)
+        return [[path substringToIndex:range.location] stringByAppendingString:@".app"];
+    NSDictionary *config = [NSDictionary dictionaryWithContentsOfFile:kInstalledConfig];
+    return [config[@"appRoot"] isKindOfClass:NSString.class] ? config[@"appRoot"] : nil;
 }
 
 static NSString *TeamIdentifier(SecCodeRef code) {
@@ -277,15 +280,34 @@ static NSString *TeamIdentifier(SecCodeRef code) {
     return copy;
 }
 
+static NSString *ExpectedClientPath(NSString *root) {
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+        [root stringByAppendingPathComponent:@"Contents/Info.plist"]];
+    NSString *executable = [info[@"CFBundleExecutable"] isKindOfClass:NSString.class]
+        ? info[@"CFBundleExecutable"] : nil;
+    if (!executable.length) return nil;
+    return [[root stringByAppendingPathComponent:@"Contents/MacOS"]
+        stringByAppendingPathComponent:executable].stringByResolvingSymlinksInPath;
+}
+
 static BOOL ValidateClient(int fd) {
     pid_t pid = 0;
     socklen_t size = sizeof(pid);
     if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) != 0) return NO;
+
+    uid_t peerUID = 0;
+    gid_t peerGID = 0;
+    if (getpeereid(fd, &peerUID, &peerGID) != 0) return NO;
+    struct stat console = {0};
+    if (stat("/dev/console", &console) != 0 || console.st_uid == 0 || peerUID != console.st_uid)
+        return NO;
+
     char pathBuffer[PROC_PIDPATHINFO_MAXSIZE] = {0};
     if (proc_pidpath(pid, pathBuffer, sizeof(pathBuffer)) <= 0) return NO;
     NSString *peerPath = [NSString stringWithUTF8String:pathBuffer].stringByResolvingSymlinksInPath;
     NSString *root = AppBundleRoot().stringByResolvingSymlinksInPath;
-    if (!root || ![peerPath hasPrefix:[root stringByAppendingString:@"/Contents/MacOS/"]]) return NO;
+    NSString *expectedPath = root ? ExpectedClientPath(root) : nil;
+    if (!expectedPath || ![peerPath isEqualToString:expectedPath]) return NO;
 
     SecCodeRef ownCode = NULL;
     SecCodeRef peerCode = NULL;
@@ -299,7 +321,9 @@ static BOOL ValidateClient(int fd) {
     NSString *peerTeam = valid ? TeamIdentifier(peerCode) : nil;
     if (peerCode) CFRelease(peerCode);
     CFRelease(ownCode);
-    return ownTeam.length > 0 && [ownTeam isEqualToString:peerTeam];
+    if (!valid) return NO;
+    if (ownTeam.length || peerTeam.length) return [ownTeam isEqualToString:peerTeam];
+    return YES;
 }
 
 static int MakeServerSocket(void) {

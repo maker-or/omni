@@ -12,6 +12,9 @@ asarUnpack:
   - "**/node_modules/@openai/codex*/**/*"
 mac:
   artifactName: pipper-${version}-${arch}.${ext}
+  # Keep local and CI artifacts unsigned. The Sleepless daemon authenticates
+  # unsigned builds using the exact bundled executable path and peer user.
+  identity: null
   icon: build/icon.png
   target:
     - target: dmg

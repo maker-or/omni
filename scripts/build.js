@@ -50,7 +50,7 @@ function buildMacSleeplessHelpers() {
   runCommand("xcrun", [
     ...common,
     "-framework",
-    "ServiceManagement",
+    "Security",
     "-framework",
     "Foundation",
     join(source, "control", "main.m"),
