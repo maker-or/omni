@@ -71,10 +71,7 @@ import {
 } from "./telemetry";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
-import {
-  SleeplessController,
-  resolveSleeplessHelperPath,
-} from "./sleepless-controller.ts";
+import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
@@ -1471,9 +1468,7 @@ function registerIpc(): void {
     sleeplessController?.setPreferences(preferences ?? {}),
   );
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
-  ipcMain.handle("sleepless:openSystemSettings", () =>
-    sleeplessController?.openSystemSettings(),
-  );
+  ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
   ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
     requireAgentManager().pasteToEditor(text),
   );
@@ -1819,6 +1814,7 @@ app.whenReady().then(async () => {
     socketPath: process.env.PIPPER_SLEEPLESS_SOCKET_PATH,
     broadcast: (status) => broadcastToWindows("sleepless:statusChanged", status),
   });
+  sleeplessController.setRunningThreadIds(agentManager.getRunningThreadIds());
   void sleeplessController.initialize().catch((error) => {
     console.error("[Sleepless] Initialization failed:", error);
   });

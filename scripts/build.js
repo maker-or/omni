@@ -25,14 +25,25 @@ function buildMacSleeplessHelpers() {
   const source = join(root, "native", "sleepless");
   const output = join(source, "dist");
   mkdirSync(output, { recursive: true });
-  const common = ["--sdk", "macosx", "swiftc", "-O", "-target", "arm64-apple-macos13.0"];
+  const common = [
+    "--sdk",
+    "macosx",
+    "clang",
+    "-O2",
+    "-fobjc-arc",
+    "-arch",
+    "arm64",
+    "-mmacosx-version-min=13.0",
+  ];
   runCommand("xcrun", [
     ...common,
     "-framework",
     "IOKit",
     "-framework",
     "Security",
-    join(source, "daemon", "main.swift"),
+    "-framework",
+    "Foundation",
+    join(source, "daemon", "main.m"),
     "-o",
     join(output, "omni-sleeplessd"),
   ]);
@@ -40,7 +51,9 @@ function buildMacSleeplessHelpers() {
     ...common,
     "-framework",
     "ServiceManagement",
-    join(source, "control", "main.swift"),
+    "-framework",
+    "Foundation",
+    join(source, "control", "main.m"),
     "-o",
     join(output, "omni-sleeplessctl"),
   ]);

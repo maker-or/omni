@@ -131,9 +131,7 @@ export function SleeplessControl() {
               checked={status.preferences.enabled}
               disabled={busy}
               onChange={() =>
-                void update(() =>
-                  window.omni.sleepless.setEnabled(!status.preferences.enabled),
-                )
+                void update(() => window.omni.sleepless.setEnabled(!status.preferences.enabled))
               }
             />
           </div>
@@ -157,7 +155,8 @@ export function SleeplessControl() {
             {status.error && <div className="mt-1 leading-4 opacity-90">{status.error}</div>}
             {status.batteryPercent != null && (
               <div className="mt-1 opacity-80">
-                Battery {Math.round(status.batteryPercent)}% · {status.lidClosed ? "lid closed" : "lid open"}
+                Battery {Math.round(status.batteryPercent)}% ·{" "}
+                {status.lidClosed ? "lid closed" : "lid open"}
               </div>
             )}
           </div>
@@ -167,7 +166,9 @@ export function SleeplessControl() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[12px] font-medium">Power adapter only</div>
-                  <div className="text-[10px] text-muted-foreground">Safer default for bags and travel</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Safer default for bags and travel
+                  </div>
                 </div>
                 <Toggle
                   label="Require power adapter"
@@ -201,7 +202,9 @@ export function SleeplessControl() {
                   className="rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] outline-none disabled:opacity-50"
                 >
                   {[15, 20, 25, 30].map((value) => (
-                    <option key={value} value={value}>{value}%</option>
+                    <option key={value} value={value}>
+                      {value}%
+                    </option>
                   ))}
                 </select>
               </label>
@@ -253,4 +256,3 @@ export function SleeplessControl() {
     </div>
   );
 }
-

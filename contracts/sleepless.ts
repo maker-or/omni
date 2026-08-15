@@ -6,12 +6,7 @@ export type SleeplessServiceStatus =
   | "not-found"
   | "error";
 
-export type SleeplessPhase =
-  | "disabled"
-  | "disarmed"
-  | "connecting"
-  | "armed"
-  | "error";
+export type SleeplessPhase = "disabled" | "disarmed" | "connecting" | "armed" | "error";
 
 export interface SleeplessPreferences {
   enabled: boolean;
@@ -39,4 +34,3 @@ export const DEFAULT_SLEEPLESS_PREFERENCES: SleeplessPreferences = {
   batteryFloor: 20,
   maxDurationMinutes: 240,
 };
-

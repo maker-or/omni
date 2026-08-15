@@ -39,14 +39,16 @@ interface PendingRequest {
 }
 
 class SleeplessSocket extends EventEmitter {
+  private readonly socketPath: string;
   private socket: net.Socket | null = null;
   private connecting: Promise<void> | null = null;
   private buffer = "";
   private sequence = 0;
   private readonly pending = new Map<string, PendingRequest>();
 
-  constructor(private readonly socketPath: string) {
+  constructor(socketPath: string) {
     super();
+    this.socketPath = socketPath;
   }
 
   get connected(): boolean {
@@ -166,6 +168,7 @@ export interface SleeplessControllerOptions {
 }
 
 export class SleeplessController {
+  private readonly options: SleeplessControllerOptions;
   private preferences: SleeplessPreferences = { ...DEFAULT_SLEEPLESS_PREFERENCES };
   private serviceStatus: SleeplessServiceStatus;
   private phase: SleeplessStatus["phase"] = "disabled";
@@ -182,7 +185,8 @@ export class SleeplessController {
   private readonly socket: SleeplessSocket;
   private readonly runHelper: (helperPath: string, command: string) => Promise<string>;
 
-  constructor(private readonly options: SleeplessControllerOptions) {
+  constructor(options: SleeplessControllerOptions) {
+    this.options = options;
     this.serviceStatus = options.platform === "darwin" ? "not-registered" : "unsupported";
     this.socket = new SleeplessSocket(options.socketPath ?? DEFAULT_SOCKET_PATH);
     this.runHelper =
@@ -209,6 +213,12 @@ export class SleeplessController {
   async initialize(): Promise<SleeplessStatus> {
     await this.loadPreferences();
     await this.refreshServiceStatus();
+    if (
+      this.preferences.enabled &&
+      (this.serviceStatus === "not-registered" || this.serviceStatus === "not-found")
+    ) {
+      await this.registerService();
+    }
     await this.queueReconcile();
     return this.getStatus();
   }
@@ -288,14 +298,17 @@ export class SleeplessController {
     }
     try {
       const output = await this.runHelper(this.options.helperPath, "status");
-      const result = JSON.parse(output.trim()) as { status?: SleeplessServiceStatus };
+      const result = JSON.parse(output.trim()) as {
+        status?: SleeplessServiceStatus;
+        error?: string;
+      };
       this.serviceStatus = result.status ?? "error";
-      this.error = null;
+      this.error = result.error ?? this.serviceErrorMessage();
     } catch (error) {
       this.serviceStatus = "error";
       this.error = errorMessage(error);
     }
-    this.phase = this.preferences.enabled ? "disarmed" : "disabled";
+    this.phase = this.idlePhase();
     this.publish();
     return this.getStatus();
   }
@@ -324,10 +337,13 @@ export class SleeplessController {
     }
     try {
       const output = await this.runHelper(this.options.helperPath, "register");
-      const result = JSON.parse(output.trim()) as { status?: SleeplessServiceStatus };
+      const result = JSON.parse(output.trim()) as {
+        status?: SleeplessServiceStatus;
+        error?: string;
+      };
       this.serviceStatus = result.status ?? "error";
-      this.phase = "disarmed";
-      this.error = null;
+      this.phase = this.idlePhase();
+      this.error = result.error ?? this.serviceErrorMessage();
     } catch (error) {
       await this.refreshServiceStatus();
       if (this.serviceStatus !== "requires-approval") {
@@ -354,7 +370,7 @@ export class SleeplessController {
       this.runningTaskCount === 0
     ) {
       await this.disarm(this.runningTaskCount === 0);
-      this.phase = this.preferences.enabled ? "disarmed" : "disabled";
+      this.phase = this.idlePhase();
       this.publish();
       return;
     }
@@ -453,6 +469,24 @@ export class SleeplessController {
   private publish(): void {
     this.options.broadcast(this.getStatus());
   }
+
+  private idlePhase(): SleeplessStatus["phase"] {
+    if (!this.preferences.enabled) return "disabled";
+    return this.serviceStatus === "not-found" ||
+      this.serviceStatus === "error" ||
+      this.serviceStatus === "unsupported"
+      ? "error"
+      : "disarmed";
+  }
+
+  private serviceErrorMessage(): string | null {
+    if (!this.preferences.enabled) return null;
+    if (this.serviceStatus === "not-found") {
+      return "The Sleepless service is not available in this app build.";
+    }
+    if (this.serviceStatus === "error") return "Unable to inspect the Sleepless service.";
+    return null;
+  }
 }
 
 function sanitizePreferences(input: SleeplessPreferences): SleeplessPreferences {
@@ -476,4 +510,3 @@ function errorMessage(error: unknown): string {
 export function resolveSleeplessHelperPath(execPath: string): string {
   return join(dirname(execPath), "omni-sleeplessctl");
 }
-
