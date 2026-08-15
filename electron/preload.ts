@@ -38,6 +38,7 @@ import type {
   MonitorTabMismatchReport,
 } from "../contracts/monitor.ts";
 import type { MonitorService } from "./monitor/service.ts";
+import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -64,6 +65,25 @@ const api = {
   },
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
+  },
+  sleepless: {
+    getStatus: (): Promise<SleeplessStatus | null> => ipcRenderer.invoke("sleepless:getStatus"),
+    setEnabled: (enabled: boolean): Promise<SleeplessStatus | null> =>
+      ipcRenderer.invoke("sleepless:setEnabled", enabled),
+    setPreferences: (
+      preferences: Partial<
+        Pick<SleeplessPreferences, "acOnly" | "batteryFloor" | "maxDurationMinutes">
+      >,
+    ): Promise<SleeplessStatus | null> =>
+      ipcRenderer.invoke("sleepless:setPreferences", preferences),
+    refresh: (): Promise<SleeplessStatus | null> => ipcRenderer.invoke("sleepless:refresh"),
+    openSystemSettings: (): Promise<void> => ipcRenderer.invoke("sleepless:openSystemSettings"),
+    onStatusChanged: (callback: (status: SleeplessStatus) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: SleeplessStatus) =>
+        callback(status);
+      ipcRenderer.on("sleepless:statusChanged", listener);
+      return () => ipcRenderer.removeListener("sleepless:statusChanged", listener);
+    },
   },
   launcherUpdate: {
     check: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:check"),

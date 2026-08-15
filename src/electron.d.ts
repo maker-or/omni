@@ -38,6 +38,7 @@ import type {
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../../contracts/monitor.ts";
+import type { SleeplessPreferences, SleeplessStatus } from "../../contracts/sleepless.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -58,6 +59,18 @@ declare global {
       };
       shell: {
         openExternal: (url: string) => Promise<void>;
+      };
+      sleepless: {
+        getStatus: () => Promise<SleeplessStatus | null>;
+        setEnabled: (enabled: boolean) => Promise<SleeplessStatus | null>;
+        setPreferences: (
+          preferences: Partial<
+            Pick<SleeplessPreferences, "acOnly" | "batteryFloor" | "maxDurationMinutes">
+          >,
+        ) => Promise<SleeplessStatus | null>;
+        refresh: () => Promise<SleeplessStatus | null>;
+        openSystemSettings: () => Promise<void>;
+        onStatusChanged: (callback: (status: SleeplessStatus) => void) => () => void;
       };
       launcherUpdate: {
         check: () => Promise<LauncherUpdateState>;

@@ -19,6 +19,7 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
 import { Bell, FolderPlus, GitBranch, GitDiffIcon, Plus } from "@phosphor-icons/react";
+import { SleeplessControl } from "@/components/sleepless-control";
 
 const DiffView = lazy(() =>
   import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
@@ -786,6 +787,7 @@ export default function App() {
               <GitDiffIcon weight="duotone" className="size-4" />
             </button>
           )}
+          <SleeplessControl />
           <ThemeToggle />
         </div>
       </header>

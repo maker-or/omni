@@ -402,6 +402,7 @@ export class AgentConnectionManager {
   private readonly setAgentContext?: (
     ctx: { agentId?: string | null; agentName?: string | null; modelId?: string | null } | null,
   ) => void;
+  private readonly onRunningThreadsChanged?: (threadIds: string[]) => void;
 
   private connection: LiveConnection | null = null;
   private connecting: Promise<LiveConnection> | null = null;
@@ -459,6 +460,7 @@ export class AgentConnectionManager {
     setWindowTitle: SetWindowTitle;
     broadcastActiveProject?: (projectId: string) => void;
     captureAnalytics?: (name: AnalyticsEventName, properties: AnalyticsProperties) => void;
+    onRunningThreadsChanged?: (threadIds: string[]) => void;
     setAgentContext?: (
       ctx: { agentId?: string | null; agentName?: string | null; modelId?: string | null } | null,
     ) => void;
@@ -471,6 +473,7 @@ export class AgentConnectionManager {
     this.setWindowTitle = options.setWindowTitle;
     this.broadcastActiveProject = options.broadcastActiveProject;
     this.captureAnalytics = options.captureAnalytics;
+    this.onRunningThreadsChanged = options.onRunningThreadsChanged;
     this.setAgentContext = options.setAgentContext;
     this.terminalManager = new TerminalManager({
       onOutput: (terminalId, chunk) => {
@@ -824,6 +827,7 @@ export class AgentConnectionManager {
     const key = running.join(",");
     if (key === this.lastRunningThreadsKey) return;
     this.lastRunningThreadsKey = key;
+    this.onRunningThreadsChanged?.(running);
     this.emit({ type: "running-threads", threadIds: running });
   }
 

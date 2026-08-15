@@ -21,8 +21,19 @@ mac:
       arch:
         - arm64
   category: public.app-category.developer-tools
+  hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+  extraFiles:
+    - from: native/sleepless/dist/omni-sleeplessctl
+      to: MacOS/omni-sleeplessctl
+    - from: native/sleepless/dist/omni-sleeplessd
+      to: Resources/sleepless/omni-sleeplessd
+    - from: native/sleepless/com.maker-or.omni.sleeplessd.plist
+      to: Library/LaunchDaemons/com.maker-or.omni.sleeplessd.plist
+  binaries:
+    - Contents/MacOS/omni-sleeplessctl
+    - Contents/Resources/sleepless/omni-sleeplessd
 
 win:
   artifactName: pipper-${version}-win-${arch}.${ext}

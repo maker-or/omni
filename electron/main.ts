@@ -71,6 +71,10 @@ import {
 } from "./telemetry";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
+import {
+  SleeplessController,
+  resolveSleeplessHelperPath,
+} from "./sleepless-controller.ts";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
@@ -311,6 +315,7 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
 }
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
+let sleeplessController: SleeplessController | null = null;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -1458,6 +1463,17 @@ function registerIpc(): void {
     requireAgentManager().setEditorText(text),
   );
   ipcMain.handle("agent:getEditorText", () => requireAgentManager().getEditorText());
+  ipcMain.handle("sleepless:getStatus", () => sleeplessController?.getStatus() ?? null);
+  ipcMain.handle("sleepless:setEnabled", (_event, enabled: boolean) =>
+    sleeplessController?.setEnabled(Boolean(enabled)),
+  );
+  ipcMain.handle("sleepless:setPreferences", (_event, preferences) =>
+    sleeplessController?.setPreferences(preferences ?? {}),
+  );
+  ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
+  ipcMain.handle("sleepless:openSystemSettings", () =>
+    sleeplessController?.openSystemSettings(),
+  );
   ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
     requireAgentManager().pasteToEditor(text),
   );
@@ -1793,7 +1809,18 @@ app.whenReady().then(async () => {
         properties,
       });
     },
+    onRunningThreadsChanged: (threadIds) => sleeplessController?.setRunningThreadIds(threadIds),
     setAgentContext: setActiveAgentContext,
+  });
+  sleeplessController = new SleeplessController({
+    platform: process.platform,
+    settingsPath: join(app.getPath("userData"), "sleepless.json"),
+    helperPath: resolveSleeplessHelperPath(process.execPath),
+    socketPath: process.env.PIPPER_SLEEPLESS_SOCKET_PATH,
+    broadcast: (status) => broadcastToWindows("sleepless:statusChanged", status),
+  });
+  void sleeplessController.initialize().catch((error) => {
+    console.error("[Sleepless] Initialization failed:", error);
   });
   initializeMonitorService();
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
@@ -1920,6 +1947,11 @@ app.on("will-quit", (event) => {
       await agentManager?.dispose();
     } catch (err) {
       console.error("[Main] Failed to dispose agent manager on quit:", err);
+    }
+    try {
+      await sleeplessController?.dispose();
+    } catch (err) {
+      console.error("[Main] Failed to disarm Sleepless on quit:", err);
     }
     try {
       await shutdownAnalytics();
