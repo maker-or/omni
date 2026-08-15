@@ -4,8 +4,10 @@ import type { SleeplessStatus } from "../../contracts/sleepless.ts";
 import { cn } from "@/lib/utils";
 
 function statusLabel(status: SleeplessStatus): string {
+  if (status.error && status.phase === "error") return "Setup needs attention";
   if (!status.preferences.enabled) return "Off";
   if (status.serviceStatus === "requires-approval") return "Permission required";
+  if (status.serviceStatus === "not-registered") return "Setup required";
   if (status.serviceStatus === "not-found") return "Unavailable in this build";
   if (status.phase === "armed") {
     return status.runningTaskCount === 1

@@ -1811,6 +1811,9 @@ app.whenReady().then(async () => {
     platform: process.platform,
     settingsPath: join(app.getPath("userData"), "sleepless.json"),
     helperPath: resolveSleeplessHelperPath(process.execPath),
+    unavailableReason: isDev
+      ? "Lid-closed execution requires a packaged macOS app. Run bun run dist and open the generated app to configure it."
+      : undefined,
     socketPath: process.env.PIPPER_SLEEPLESS_SOCKET_PATH,
     broadcast: (status) => broadcastToWindows("sleepless:statusChanged", status),
   });

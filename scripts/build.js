@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,6 +57,13 @@ function buildMacSleeplessHelpers() {
     "-o",
     join(output, "omni-sleeplessctl"),
   ]);
+
+  for (const helper of ["omni-sleeplessd", "omni-sleeplessctl"]) {
+    const helperPath = join(output, helper);
+    if (!existsSync(helperPath)) {
+      throw new Error(`Sleepless helper build did not produce ${helperPath}`);
+    }
+  }
 }
 
 buildMacSleeplessHelpers();

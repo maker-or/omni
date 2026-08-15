@@ -162,9 +162,16 @@ export interface SleeplessControllerOptions {
   platform: NodeJS.Platform;
   settingsPath: string;
   helperPath: string;
+  unavailableReason?: string;
   socketPath?: string;
   broadcast: (status: SleeplessStatus) => void;
   runHelper?: (helperPath: string, command: string) => Promise<string>;
+}
+
+export function helperFailureOutput(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const stdout = (error as { stdout?: unknown }).stdout;
+  return typeof stdout === "string" && stdout.trim() ? stdout : null;
 }
 
 export class SleeplessController {
@@ -193,8 +200,14 @@ export class SleeplessController {
       options.runHelper ??
       (async (helperPath, command) => {
         const timeout = command === "register" ? 120_000 : 10_000;
-        const { stdout } = await execFile(helperPath, [command], { timeout });
-        return stdout;
+        try {
+          const { stdout } = await execFile(helperPath, [command], { timeout });
+          return stdout;
+        } catch (error) {
+          const output = helperFailureOutput(error);
+          if (output) return output;
+          throw error;
+        }
       });
     this.socket.on("close", (socketError?: Error) => {
       if (this.disposed) return;
@@ -226,7 +239,7 @@ export class SleeplessController {
 
   getStatus(): SleeplessStatus {
     return {
-      supported: this.options.platform === "darwin",
+      supported: this.options.platform === "darwin" && !this.options.unavailableReason,
       serviceStatus: this.serviceStatus,
       phase: this.phase,
       preferences: { ...this.preferences },
@@ -240,23 +253,44 @@ export class SleeplessController {
   }
 
   async setEnabled(enabled: boolean): Promise<SleeplessStatus> {
-    this.preferences.enabled = enabled;
-    await this.savePreferences();
-    this.error = null;
     if (!enabled) {
+      this.preferences.enabled = false;
+      await this.savePreferences();
+      this.error = null;
       await this.disarm(false);
       this.phase = "disabled";
       this.publish();
       return this.getStatus();
     }
+    this.preferences.enabled = true;
+    this.error = null;
+    if (this.options.unavailableReason) {
+      this.serviceStatus = "unsupported";
+      this.preferences.enabled = false;
+      await this.savePreferences();
+      this.phase = "error";
+      this.error = this.options.unavailableReason;
+      this.publish();
+      return this.getStatus();
+    }
     if (this.options.platform !== "darwin") {
       this.serviceStatus = "unsupported";
+      this.preferences.enabled = false;
+      await this.savePreferences();
       this.phase = "error";
       this.error = "Lid-closed execution is only available on macOS.";
       this.publish();
       return this.getStatus();
     }
-    await this.registerService();
+    const registered = await this.registerService();
+    if (!registered && this.serviceStatus !== "requires-approval") {
+      this.preferences.enabled = false;
+      await this.savePreferences();
+      this.phase = "error";
+      this.publish();
+      return this.getStatus();
+    }
+    await this.savePreferences();
     await this.queueReconcile();
     return this.getStatus();
   }
@@ -283,6 +317,13 @@ export class SleeplessController {
   }
 
   async refreshServiceStatus(): Promise<SleeplessStatus> {
+    if (this.options.unavailableReason) {
+      this.serviceStatus = "unsupported";
+      this.phase = "error";
+      this.error = this.options.unavailableReason;
+      this.publish();
+      return this.getStatus();
+    }
     if (this.options.platform !== "darwin") {
       this.serviceStatus = "unsupported";
       this.publish();
@@ -292,7 +333,7 @@ export class SleeplessController {
       this.serviceStatus = "not-found";
       this.phase = this.preferences.enabled ? "error" : "disabled";
       this.error = this.preferences.enabled
-        ? "The signed Sleepless helper is missing from this app build."
+        ? "The Sleepless helper is missing from this app build."
         : null;
       this.publish();
       return this.getStatus();
@@ -328,13 +369,13 @@ export class SleeplessController {
     this.socket.close();
   }
 
-  private async registerService(): Promise<void> {
+  private async registerService(): Promise<boolean> {
     if (!existsSync(this.options.helperPath)) {
       this.serviceStatus = "not-found";
       this.phase = "error";
-      this.error = "The signed Sleepless helper is missing from this app build.";
+      this.error = "The Sleepless helper is missing from this app build.";
       this.publish();
-      return;
+      return false;
     }
     try {
       const output = await this.runHelper(this.options.helperPath, "register");
@@ -353,6 +394,7 @@ export class SleeplessController {
       }
     }
     this.publish();
+    return this.serviceStatus === "enabled" || this.serviceStatus === "requires-approval";
   }
 
   private queueReconcile(): Promise<void> {

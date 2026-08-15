@@ -8,6 +8,7 @@ import { AddProjectForm } from "./add-project-form";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSelector } from "@/components/agent-selector";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
+import { SleeplessOnboarding } from "@/components/sleepless-onboarding";
 
 interface AuthenticatedStageProps {
   authUser: { name: string | null; email: string | null };
@@ -20,9 +21,10 @@ interface AuthenticatedStageProps {
   handleProjectCreated: (project: Project) => void;
 }
 
-type LaunchStage = "agent" | "list" | "add";
+type LaunchStage = "agent" | "sleepless" | "list" | "add";
 
 const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
+const SLEEPLESS_ONBOARDING_STORAGE_KEY = "pipper.launch.sleeplessConfigured";
 
 export function AuthenticatedStage({
   authUser,
@@ -46,6 +48,9 @@ export function AuthenticatedStage({
       }
       if (stageParam === "agent") {
         return "agent";
+      }
+      if (stageParam === "sleepless") {
+        return "sleepless";
       }
       // First-run / explicit agent re-pick: show registry before projects.
       try {
@@ -74,7 +79,7 @@ export function AuthenticatedStage({
       <div
         className={cn(
           "w-full z-10 rounded-2xl p-8 flex flex-col gap-6",
-          stage === "agent" ? "max-w-3xl" : "max-w-md",
+          stage === "agent" ? "max-w-3xl" : stage === "sleepless" ? "max-w-xl" : "max-w-md",
         )}
       >
         {stage === "agent" ? (
@@ -85,6 +90,10 @@ export function AuthenticatedStage({
               onContinue={() => {
                 try {
                   sessionStorage.setItem(AGENT_PICK_STORAGE_KEY, "1");
+                  if (sessionStorage.getItem(SLEEPLESS_ONBOARDING_STORAGE_KEY) !== "1") {
+                    setStage("sleepless");
+                    return;
+                  }
                 } catch {
                   // ignore
                 }
@@ -92,6 +101,17 @@ export function AuthenticatedStage({
               }}
             />
           </>
+        ) : stage === "sleepless" ? (
+          <SleeplessOnboarding
+            onComplete={() => {
+              try {
+                sessionStorage.setItem(SLEEPLESS_ONBOARDING_STORAGE_KEY, "1");
+              } catch {
+                // ignore
+              }
+              setStage("list");
+            }}
+          />
         ) : stage === "list" ? (
           <>
             <header className="flex flex-col gap-1 pb-2 border-b border-border">

@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
+import {
+  helperFailureOutput,
+  SleeplessController,
+  resolveSleeplessHelperPath,
+} from "./sleepless-controller.ts";
 
 let root = "";
 
@@ -114,10 +118,65 @@ describe("SleeplessController", () => {
 
     expect(status.serviceStatus).toBe("not-found");
     expect(status.phase).toBe("error");
+    expect(status.preferences.enabled).toBe(false);
     expect(status.error).toContain("helper is missing");
     expect(runHelper).not.toHaveBeenCalled();
     await controller.dispose();
   });
+
+  test("does not run the privileged helper when the feature is unavailable in development", async () => {
+    const { helperPath, settingsPath } = paths();
+    const runHelper = vi.fn(async () => JSON.stringify({ status: "enabled" }));
+    const controller = new SleeplessController({
+      platform: "darwin",
+      helperPath,
+      settingsPath,
+      unavailableReason: "Lid-closed execution requires a packaged macOS app.",
+      broadcast: vi.fn(),
+      runHelper,
+    });
+
+    const initial = await controller.initialize();
+    const enabled = await controller.setEnabled(true);
+
+    expect(initial.supported).toBe(false);
+    expect(enabled.serviceStatus).toBe("unsupported");
+    expect(enabled.phase).toBe("error");
+    expect(enabled.preferences.enabled).toBe(false);
+    expect(enabled.error).toContain("packaged macOS app");
+    expect(runHelper).not.toHaveBeenCalled();
+    await controller.dispose();
+  });
+
+  test("surfaces the native installer error when registration exits non-zero", async () => {
+    const { helperPath, settingsPath } = paths();
+    const controller = new SleeplessController({
+      platform: "darwin",
+      helperPath,
+      settingsPath,
+      broadcast: vi.fn(),
+      runHelper: async (_path, command) =>
+        JSON.stringify(
+          command === "register"
+            ? { status: "not-registered", error: "The administrator denied access." }
+            : { status: "not-registered" },
+        ),
+    });
+
+    await controller.initialize();
+    const status = await controller.setEnabled(true);
+
+    expect(status.preferences.enabled).toBe(false);
+    expect(status.phase).toBe("error");
+    expect(status.error).toBe("The administrator denied access.");
+    await controller.dispose();
+  });
+});
+
+test("helperFailureOutput preserves native JSON emitted with a non-zero exit", () => {
+  const output = JSON.stringify({ status: "not-registered", error: "Administrator denied." });
+  expect(helperFailureOutput({ stdout: output })).toBe(output);
+  expect(helperFailureOutput(new Error("Command failed"))).toBeNull();
 });
 
 test("resolveSleeplessHelperPath places the helper beside the app executable", () => {
