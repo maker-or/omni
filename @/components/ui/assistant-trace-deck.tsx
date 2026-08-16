@@ -91,7 +91,10 @@ function compactValue(value: unknown, maxLength = 256): string {
   }
 }
 
-function tailText(value: string, maxLength = MAX_RENDERED_TOOL_OUTPUT_CHARS): {
+function tailText(
+  value: string,
+  maxLength = MAX_RENDERED_TOOL_OUTPUT_CHARS,
+): {
   text: string;
   truncated: boolean;
 } {
@@ -173,11 +176,7 @@ function buildToolResultMap(
   const map = new Map<string, ToolResultMessage & { terminalIds?: string[] }>();
   for (const message of messages) {
     const candidate = message as ToolResultMessage & { terminalIds?: string[] };
-    if (
-      candidate.role === "toolResult" &&
-      candidate.toolCallId &&
-      !map.has(candidate.toolCallId)
-    ) {
+    if (candidate.role === "toolResult" && candidate.toolCallId && !map.has(candidate.toolCallId)) {
       map.set(candidate.toolCallId, candidate);
     }
   }
@@ -394,11 +393,7 @@ function ActiveTraceRow({
       className={cn("flex items-center py-1 select-none", className)}
       {...props}
     >
-      <ThinkingIndicator
-        isStreaming={true}
-        label={label}
-        className="p-0 bg-transparent"
-      />
+      <ThinkingIndicator isStreaming={true} label={label} className="p-0 bg-transparent" />
     </div>
   );
 }
@@ -491,11 +486,7 @@ function PassiveToolStepItem({
     resultText = boundedMessageText(resultMsg, MAX_RENDERED_TOOL_OUTPUT_CHARS);
     isError = Boolean(resultMsg.isError);
 
-    if (
-      toolName.includes("search") ||
-      toolName.includes("web") ||
-      toolName.includes("globe")
-    ) {
+    if (toolName.includes("search") || toolName.includes("web") || toolName.includes("globe")) {
       sources = extractSources(resultText);
     }
 
@@ -564,10 +555,7 @@ function PassiveToolStepItem({
       {imageSrc && <ThinkingStepImage src={imageSrc} caption={imageCaption} />}
 
       {detailsLinesArray.length > 0 && (
-        <ThinkingStepDetails
-          summary={detailsSummary || "Details"}
-          details={detailsLinesArray}
-        />
+        <ThinkingStepDetails summary={detailsSummary || "Details"} details={detailsLinesArray} />
       )}
 
       {terminalIds.map((terminalId) => (
@@ -668,8 +656,7 @@ function PassiveTraceDeck({
   };
 
   const stepCount = traceParts.length;
-  const headerLabel =
-    stepCount > 1 ? `Thought process · ${stepCount} steps` : "Thought process";
+  const headerLabel = stepCount > 1 ? `Thought process · ${stepCount} steps` : "Thought process";
 
   return (
     <ThinkingSteps
@@ -680,18 +667,11 @@ function PassiveTraceDeck({
       data-pipper-id="assistant-trace-deck"
     >
       <ThinkingStepsHeader>
-        <ThinkingIndicator
-          isStreaming={false}
-          label={headerLabel}
-          className="p-0 bg-transparent"
-        />
+        <ThinkingIndicator isStreaming={false} label={headerLabel} className="p-0 bg-transparent" />
       </ThinkingStepsHeader>
       <ThinkingStepsContent>
         {open && (
-          <PassiveTraceContent
-            traceParts={traceParts}
-            toolResultByCallId={toolResultByCallId}
-          />
+          <PassiveTraceContent traceParts={traceParts} toolResultByCallId={toolResultByCallId} />
         )}
       </ThinkingStepsContent>
     </ThinkingSteps>

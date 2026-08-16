@@ -217,7 +217,6 @@ export function ProjectThreadsDropdown() {
                     <MenuItem
                       index={threads.length}
                       label={isLoadingMore ? "Loading..." : "Load More"}
-
                       onSelect={() => void handleLoadMore()}
                     />
                   </>

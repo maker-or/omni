@@ -3,7 +3,9 @@
 ## 1. Overview & Problem Statement
 
 ### Current State
+
 During active agent response streaming, `AssistantTraceDeck` mounts and updates a complete, growing hierarchy of React components:
+
 - `ThinkingSteps` (Radix Accordion wrapper)
 - `ThinkingStepsContent` containing $N$ `ThinkingStep` items
 - Multiple `framer-motion` spring animations (`height: 0 -> auto`, opacity transitions, blur filters)
@@ -54,7 +56,7 @@ This causes severe DOM churn, layout thrashing, and frame drops during high-freq
    - **Zero historical step DOM nodes** are rendered while streaming, eliminating stream churn.
 2. **Passive State (`isStreaming === false`)**:
    - Defaults to **closed** (accordion collapsed).
-   - Shows a clean summary trigger (e.g., *"Thought process"* or *"Thought process · N steps"*).
+   - Shows a clean summary trigger (e.g., _"Thought process"_ or _"Thought process · N steps"_).
    - **Lazy rendering**: The heavy list of step details, terminal logs, diff cards, and markdown blocks are **only mounted when the user clicks to expand**.
    - When opened, it reveals the full rich historical view as currently supported.
 
@@ -63,6 +65,7 @@ This causes severe DOM churn, layout thrashing, and frame drops during high-freq
 ## 2. Component & File Changes
 
 ### A. `src/components/agent-panel.tsx`
+
 1. **Remove Auto-Open Streaming Effect**:
    - Remove or adapt the `streamingTraceKey` effect (lines 1015–1030) that automatically forced `traceDeckOpenByKey` to `true` during streaming.
 2. **Default State**:
@@ -71,6 +74,7 @@ This causes severe DOM churn, layout thrashing, and frame drops during high-freq
    - Pass `isStreaming`, `traceDeckOpen`, and `onTraceDeckOpenChange` cleanly to `AssistantTraceDeck`.
 
 ### B. `@/components/ui/assistant-trace-deck.tsx`
+
 1. **Active vs. Passive Separation**:
    - When `isStreaming === true`:
      - Render `ActiveTraceRow`.
@@ -88,6 +92,7 @@ This causes severe DOM churn, layout thrashing, and frame drops during high-freq
    - Memoize `toolResultByCallId` and step items to prevent recalculations when unrelated state in `AgentPanel` changes.
 
 ### C. `@/components/ui/thinking-steps.tsx`
+
 1. **Lazy Content Rendering**:
    - Ensure `ThinkingStepsContent` does not mount child DOM nodes when the accordion is collapsed.
 2. **Animation Stability**:

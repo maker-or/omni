@@ -312,7 +312,6 @@ function CopyButton({ isCopied, onCopy }: { isCopied: boolean; onCopy: () => voi
   );
 }
 
-
 function getToolSummary(message: MessageLike): string | null {
   const content = (message as unknown as { content?: unknown }).content;
   if (!Array.isArray(content)) return null;
@@ -1008,7 +1007,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       ),
     [activeMessages, streamingMessage],
   );
-
 
   const conversationVirtualizer = useVirtualizer({
     count: allMessages.length,

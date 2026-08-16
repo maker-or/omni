@@ -115,10 +115,7 @@ const MIN_PTY_ROWS = 2;
 const MAX_PTY_COLS = 1000;
 const MAX_PTY_ROWS = 1000;
 
-function normalizePtySize(
-  cols: unknown,
-  rows: unknown,
-): { cols: number; rows: number } | null {
+function normalizePtySize(cols: unknown, rows: unknown): { cols: number; rows: number } | null {
   if (typeof cols !== "number" || typeof rows !== "number") return null;
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return null;
   const numericCols = Math.floor(cols);

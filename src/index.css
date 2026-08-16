@@ -405,7 +405,8 @@
   --term-bg: transparent !important;
   --term-fg: var(--foreground) !important;
   --term-cursor: var(--foreground) !important;
-  --term-font-family: "JetBrains Mono Variable", "JetBrains Mono", Menlo, Monaco, Consolas, monospace !important;
+  --term-font-family:
+    "JetBrains Mono Variable", "JetBrains Mono", Menlo, Monaco, Consolas, monospace !important;
   --term-font-size: 13px !important;
   --term-line-height: 1.35 !important;
 

@@ -37,6 +37,7 @@ Omni contains two distinct terminal architectures tailored for different operati
 ## 2. Deep Dive: Bug Analysis & Root Causes
 
 ### Symptoms Observed:
+
 1. When opening a terminal and running commands, output starts normally at the top.
 2. After switching tabs (e.g., to an Agent thread or Diff view) and returning, terminal rendering is broken.
 3. Content is displaced to the bottom of the viewport with large empty spaces above/below.
@@ -74,6 +75,7 @@ Omni contains two distinct terminal architectures tailored for different operati
 ## 3. Plan & Implementation Details
 
 ### Step 1: Preserve Container Geometry Across Tab Switches
+
 - **Target File**: [`src/App.tsx`](file:///Users/harshithpasupuleti/code/omni/src/App.tsx)
 - **Change**: Replace `display: none` (`hidden`) with layout-preserving visibility styles:
   ```tsx
@@ -91,6 +93,7 @@ Omni contains two distinct terminal architectures tailored for different operati
 - **Rationale**: `visibility: hidden` (`invisible`) keeps the container's box model and pixel dimensions intact so `ResizeObserver` never drops to $0\times0$.
 
 ### Step 2: Add Dimension Bounds in Frontend Terminal Session
+
 - **Target File**: [`src/components/terminal-session.tsx`](file:///Users/harshithpasupuleti/code/omni/src/components/terminal-session.tsx)
 - **Change**: Guard `handleResize` against degenerate sizes ($\text{cols} < 2$ or $\text{rows} < 2$) and set safe initial minimums:
   ```tsx
@@ -108,6 +111,7 @@ Omni contains two distinct terminal architectures tailored for different operati
   ```
 
 ### Step 3: Guard Backend PTY Resize in Electron Main
+
 - **Target File**: [`electron/main.ts`](file:///Users/harshithpasupuleti/code/omni/electron/main.ts)
 - **Change**: Add validation in the `terminal:resize` IPC handler to clamp cols/rows to safe bounds ($\ge 2$ and $\le 1000$):
   ```ts
@@ -124,6 +128,7 @@ Omni contains two distinct terminal architectures tailored for different operati
   ```
 
 ### Step 4: Configure Theme-Aware 16-Color ANSI Palettes & Typography
+
 - **Target File**: [`src/index.css`](file:///Users/harshithpasupuleti/code/omni/src/index.css)
 - **Change**: Define full 16-color ANSI palettes for both light mode (`:root`) and dark mode (`.dark`), along with monospace font variables and line-height constraints for `.wterm`.
 

@@ -350,10 +350,7 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   terminalMountStartedRef.current = true;
 
   return (
-    <div
-      ref={terminalHostRef}
-      className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
-    >
+    <div ref={terminalHostRef} className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <Terminal
         ref={ref}
         core={core}
