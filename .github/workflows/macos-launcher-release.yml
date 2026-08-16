@@ -1,8 +1,5 @@
-name: Release Windows Launcher
+name: Release macOS Launcher
 
-# Automatic Windows installer builds are paused. Mac is the only
-# GitHub-hosted launcher release. Keep workflow_dispatch so a Windows
-# build can be started by hand later without restoring the tag trigger.
 on:
   workflow_dispatch:
     inputs:
@@ -12,28 +9,39 @@ on:
       release_repository:
         description: "Target repo for launcher releases (owner/repo)"
         required: false
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
 concurrency:
-  group: windows-launcher-release-${{ github.ref }}
+  group: macos-launcher-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  release-windows:
-    runs-on: windows-latest
+  release-macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
     env:
       PIPPER_RELEASE_REPOSITORY: ${{ github.event.inputs.release_repository || vars.PIPPER_RELEASE_REPOSITORY || github.repository }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Require Apple Silicon
+        run: |
+          if [[ "$(uname -m)" != "arm64" ]]; then
+            echo "Mac launcher DMG must be built on arm64. Runner arch is $(uname -m)."
+            exit 1
+          fi
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Validate release repository
-        shell: bash
         run: |
           if [[ -z "${PIPPER_RELEASE_REPOSITORY}" ]]; then
             echo "Set the PIPPER_RELEASE_REPOSITORY repository variable (for example maker-or/pipper-code-releases),"
@@ -43,12 +51,15 @@ jobs:
 
       - name: Resolve launcher version
         id: version
-        shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            VERSION="${GITHUB_REF_NAME#win/v}"
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ "$VERSION" == win/* ]]; then
+            echo "Windows tags (win/v*) do not publish the macOS launcher."
+            exit 1
           fi
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [[ "$VERSION" != "$PACKAGE_VERSION" ]]; then
@@ -61,24 +72,20 @@ jobs:
         run: bun install --frozen-lockfile
 
       # fmt / lint / test live in .github/workflows/ci.yml (every PR + main push).
-      # This workflow only builds and publishes the Windows launcher.
+      # This workflow only builds and publishes the macOS DMG.
 
       - name: Build application
-        env:
-          VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL: https://github.com/${{ env.PIPPER_RELEASE_REPOSITORY }}/releases/latest/download/latest-windows.json
         run: bun run build
 
-      # Packaging only. `dist:win` pins `--publish never`, because electron-builder
+      # Packaging only. `dist` pins `--publish never`, because electron-builder
       # otherwise auto-publishes on a tagged CI build and would cut its own
-      # `v${version}` release — a stray one, next to the `win/v*` tag the step
-      # below actually owns. That step uploads the installer and manifest itself.
-      - name: Build Windows installer
+      # `v${version}` release. The publish step below owns that tag.
+      - name: Build macOS DMG
         run: |
-          if (Test-Path release) { Remove-Item -Recurse -Force release }
-          bun run dist:win
+          rm -rf release
+          bun run dist
 
-      - name: Publish Windows launcher release
-        shell: bash
+      - name: Publish macOS launcher release
         env:
           GH_TOKEN: ${{ secrets.PIPPER_RELEASE_TOKEN || github.token }}
-        run: bun run release:launcher:publish:win -- --skip-git-check --version "${{ steps.version.outputs.version }}"
+        run: bun run release:launcher:publish -- --resume --skip-git-check
