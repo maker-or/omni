@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type HTMLAttributes } from "react";
+import { useState, useMemo, type HTMLAttributes } from "react";
 import type { IconName } from "@/lib/icon-context";
 import {
   ThinkingSteps,
@@ -9,12 +9,13 @@ import {
   ThinkingStepSources,
   ThinkingStepSource,
   ThinkingStepImage,
+  type StepStatus,
 } from "@/components/ui/thinking-steps";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
-import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
-import type { StepStatus } from "@/components/ui/thinking-steps";
+import type { MessageLike } from "@/lib/message-utils";
 import { useAgentTerminalStore } from "@/store/agent-terminal-store";
+import { cn } from "@/lib/utils";
 
 function AgentTerminalOutput({ terminalId }: { terminalId: string }) {
   const output = useAgentTerminalStore((s) => s.outputs[terminalId] ?? "");
@@ -66,10 +67,121 @@ type ToolResultMessage = MessageLike & {
   isError?: boolean;
 };
 
+const MAX_RENDERED_TOOL_OUTPUT_CHARS = 120_000;
+const EMPTY_TOOL_RESULT_MAP = new Map<string, ToolResultMessage & { terminalIds?: string[] }>();
+
 function compactText(value: string, maxLength = 96): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength - 1).trim()}…`;
+}
+
+function compactValue(value: unknown, maxLength = 256): string {
+  if (typeof value === "string") return compactText(value, maxLength);
+  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value);
+    const preview = keys.slice(0, 6).join(", ");
+    return keys.length > 6 ? `{${preview}, …}` : `{${preview}}`;
+  }
+  try {
+    return compactText(JSON.stringify(value) ?? String(value), maxLength);
+  } catch {
+    return "[unserializable value]";
+  }
+}
+
+function tailText(value: string, maxLength = MAX_RENDERED_TOOL_OUTPUT_CHARS): {
+  text: string;
+  truncated: boolean;
+} {
+  if (value.length <= maxLength) return { text: value, truncated: false };
+
+  const start = value.length - maxLength;
+  const firstLine = value.indexOf("\n", start);
+  return {
+    text: `[Earlier output truncated]\n${value.slice(firstLine >= 0 ? firstLine + 1 : start)}`,
+    truncated: true,
+  };
+}
+
+function firstNonEmptyLines(value: string, maxLines = 10): string[] {
+  const lines: string[] = [];
+  let start = 0;
+
+  while (start <= value.length && lines.length < maxLines) {
+    const newline = value.indexOf("\n", start);
+    const end = newline >= 0 ? newline : value.length;
+    const line = value.slice(start, end).trim();
+    if (line) lines.push(line);
+    if (newline < 0) break;
+    start = newline + 1;
+  }
+
+  return lines;
+}
+
+function boundedMessageText(message: MessageLike, maxLength: number): string {
+  if ("text" in message && typeof message.text === "string") {
+    return tailText(message.text, maxLength).text;
+  }
+
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return tailText(content, maxLength).text;
+  if (!Array.isArray(content)) return "";
+
+  const chunks: string[] = [];
+  let length = 0;
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const typed = part as { type?: string; text?: string; thinking?: string };
+    const chunk =
+      typed.type === "text" && typeof typed.text === "string"
+        ? typed.text
+        : typed.type === "thinking" && typeof typed.thinking === "string"
+          ? typed.thinking
+          : "";
+    if (!chunk) continue;
+
+    const remaining = maxLength - length;
+    if (remaining <= 0) break;
+    chunks.push(chunk.slice(0, remaining));
+    length += Math.min(chunk.length, remaining);
+    if (chunk.length > remaining) break;
+  }
+
+  return tailText(chunks.join("\n"), maxLength).text;
+}
+
+function findToolResult(
+  messages: MessageLike[],
+  toolCallId?: string,
+): (ToolResultMessage & { terminalIds?: string[] }) | undefined {
+  if (!toolCallId) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index] as ToolResultMessage & { terminalIds?: string[] };
+    if (candidate.role === "toolResult" && candidate.toolCallId === toolCallId) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function buildToolResultMap(
+  messages: MessageLike[],
+): Map<string, ToolResultMessage & { terminalIds?: string[] }> {
+  const map = new Map<string, ToolResultMessage & { terminalIds?: string[] }>();
+  for (const message of messages) {
+    const candidate = message as ToolResultMessage & { terminalIds?: string[] };
+    if (
+      candidate.role === "toolResult" &&
+      candidate.toolCallId &&
+      !map.has(candidate.toolCallId)
+    ) {
+      map.set(candidate.toolCallId, candidate);
+    }
+  }
+  return map;
 }
 
 function getCommandSummary(command: string): {
@@ -157,7 +269,7 @@ function getToolActionCopy(
           description: Object.keys(args).length
             ? compactText(
                 Object.entries(args)
-                  .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+                  .map(([key, value]) => `${key}: ${compactValue(value)}`)
                   .join(", "),
               )
             : "Completed a background step.",
@@ -208,93 +320,356 @@ function getToolActionCopy(
   return { ...copy, resultSummary: "Completed successfully." };
 }
 
-function AssistantTraceDeck({
+function getToolIcon(toolName: string): IconName {
+  const name = toolName.toLowerCase();
+  if (name.includes("search") || name.includes("web") || name.includes("globe")) {
+    return "globe";
+  }
+  if (
+    name.includes("file") ||
+    name.includes("replace") ||
+    name.includes("write") ||
+    name.includes("read") ||
+    name.includes("grep")
+  ) {
+    return "brain";
+  }
+  if (name.includes("check") || name.includes("complete")) {
+    return "check";
+  }
+  return "dot";
+}
+
+function extractSources(text: string): string[] {
+  const domains: string[] = [];
+  const regex = /https?:\/\/([a-zA-Z0-9.-]+)/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    let domain = match[1];
+    if (domain.startsWith("www.")) {
+      domain = domain.slice(4);
+    }
+    if (domains.length < 5 && !domains.includes(domain)) {
+      domains.push(domain);
+    }
+  }
+  return domains;
+}
+
+// ─── Active Streaming Component (Single Compact Row) ──────────────────────────
+
+function ActiveTraceRow({
+  activePart,
+  toolResult,
+  className,
+  ...props
+}: {
+  activePart?: any;
+  toolResult?: ToolResultMessage;
+  className?: string;
+} & HTMLAttributes<HTMLDivElement>) {
+  const label = useMemo(() => {
+    if (!activePart) return undefined;
+    if (activePart.type === "thinking") return "Thinking";
+    if (activePart.type === "toolCall") {
+      const toolName = activePart.name || "";
+      const args = activePart.arguments ?? activePart.args ?? {};
+      const resultText = toolResult
+        ? boundedMessageText(toolResult, 8_000)
+        : activePart.rawOutput != null
+          ? typeof activePart.rawOutput === "string"
+            ? compactText(activePart.rawOutput, 8_000)
+            : compactValue(activePart.rawOutput, 8_000)
+          : "";
+      const isError = Boolean(toolResult?.isError) || activePart.status === "failed";
+      const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
+      return actionCopy.label || toolName || "Ran an agent action";
+    }
+    return undefined;
+  }, [activePart, toolResult]);
+
+  return (
+    <div
+      data-pipper-id="assistant-trace-deck-active"
+      className={cn("flex items-center py-1 select-none", className)}
+      {...props}
+    >
+      <ThinkingIndicator
+        isStreaming={true}
+        label={label}
+        className="p-0 bg-transparent"
+      />
+    </div>
+  );
+}
+
+// ─── Lazy Step Components for Passive Accordion ─────────────────────────────
+
+function PassiveThinkingStepItem({
+  part,
+  index,
+  isLast,
+}: {
+  part: { thinking?: string };
+  index: number;
+  isLast: boolean;
+}) {
+  return (
+    <ThinkingStep
+      data-pipper-id="assistant-thinking-step"
+      index={index}
+      icon="brain"
+      label="Thinking"
+      status="complete"
+      isLast={isLast}
+    >
+      {part.thinking && (
+        <MarkdownRenderer
+          isStreaming={false}
+          className="text-[13px] text-muted-foreground [&_p]:leading-snug [&_strong]:text-foreground"
+        >
+          {part.thinking}
+        </MarkdownRenderer>
+      )}
+    </ThinkingStep>
+  );
+}
+
+function PassiveToolStepItem({
+  part,
+  index,
+  isLast,
+  resultMsg,
+}: {
+  part: any;
+  index: number;
+  isLast: boolean;
+  resultMsg?: ToolResultMessage & { terminalIds?: string[] };
+}) {
+  const toolCallId = part.id;
+  const toolName = part.name || "";
+  const args = part.arguments ?? part.args ?? {};
+  const partStatus = part.status as string | undefined;
+
+  const terminalIds = useMemo(
+    () =>
+      [...extractTerminalIdsFromPart(part), ...(resultMsg?.terminalIds ?? [])].filter(
+        (id, i, all) => all.indexOf(id) === i,
+      ),
+    [part, resultMsg],
+  );
+
+  const completedViaPart =
+    partStatus === "completed" || partStatus === "failed" || partStatus === "cancelled";
+  const hasResult = Boolean(resultMsg) || completedViaPart;
+  const missingResult = !hasResult;
+  const resultIsError = Boolean(resultMsg?.isError) || partStatus === "failed";
+  const status: StepStatus = missingResult || resultIsError ? "error" : "complete";
+
+  const stepLabel = toolName;
+  let stepDescription = "";
+  if (toolName === "bash") {
+    stepDescription = args.command || "";
+  } else {
+    const keys = Object.keys(args);
+    if (keys.length > 0) {
+      stepDescription = keys.map((k) => `${k}: ${compactValue(args[k])}`).join(", ");
+    }
+  }
+
+  const iconName = getToolIcon(toolName);
+
+  let sources: string[] = [];
+  let imageSrc = "";
+  let imageCaption = "";
+  let detailsSummary = "";
+  let detailsLinesArray: string[] = [];
+  let resultText = "";
+  let isError = false;
+
+  if (resultMsg) {
+    resultText = boundedMessageText(resultMsg, MAX_RENDERED_TOOL_OUTPUT_CHARS);
+    isError = Boolean(resultMsg.isError);
+
+    if (
+      toolName.includes("search") ||
+      toolName.includes("web") ||
+      toolName.includes("globe")
+    ) {
+      sources = extractSources(resultText);
+    }
+
+    if (
+      toolName.includes("screenshot") ||
+      toolName.includes("image") ||
+      toolName.includes("layout")
+    ) {
+      const imageMatch = resultText.match(/data:image\/[a-zA-Z]+;base64,[^\s]+/);
+      if (imageMatch) {
+        imageSrc = imageMatch[0];
+        imageCaption = "Screenshot output";
+      } else {
+        const pathMatch = resultText.match(/(?:[a-zA-Z]:)?[\w/.-]+\.(?:png|jpg|jpeg|gif)/);
+        if (pathMatch) {
+          imageSrc = pathMatch[0];
+          imageCaption = "Preview Image";
+        }
+      }
+    }
+
+    if (
+      toolName.includes("file") ||
+      toolName.includes("replace") ||
+      toolName.includes("write") ||
+      toolName.includes("read") ||
+      toolName.includes("grep")
+    ) {
+      detailsSummary = `${toolName} execution details`;
+      detailsLinesArray = firstNonEmptyLines(resultText);
+    }
+  } else if (completedViaPart && part.rawOutput != null) {
+    resultText =
+      typeof part.rawOutput === "string"
+        ? compactText(part.rawOutput, MAX_RENDERED_TOOL_OUTPUT_CHARS)
+        : compactValue(part.rawOutput, MAX_RENDERED_TOOL_OUTPUT_CHARS);
+  }
+
+  const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
+  const actionDescription = [
+    actionCopy.description,
+    missingResult ? "No tool result was returned." : actionCopy.resultSummary,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <ThinkingStep
+      key={`tool-${toolCallId || index}`}
+      data-pipper-id="assistant-tool-step"
+      index={index}
+      icon={iconName}
+      label={actionCopy.label || stepLabel}
+      description={actionDescription || stepDescription}
+      status={status}
+      isLast={isLast}
+    >
+      {sources.length > 0 && (
+        <ThinkingStepSources>
+          {sources.map((src, sIdx) => (
+            <ThinkingStepSource key={sIdx}>{src}</ThinkingStepSource>
+          ))}
+        </ThinkingStepSources>
+      )}
+
+      {imageSrc && <ThinkingStepImage src={imageSrc} caption={imageCaption} />}
+
+      {detailsLinesArray.length > 0 && (
+        <ThinkingStepDetails
+          summary={detailsSummary || "Details"}
+          details={detailsLinesArray}
+        />
+      )}
+
+      {terminalIds.map((terminalId) => (
+        <AgentTerminalOutput key={terminalId} terminalId={terminalId} />
+      ))}
+
+      {resultMsg && toolName === "bash" && terminalIds.length === 0 && (
+        <div className="mt-1.5 rounded bg-black/95 p-2 font-mono text-[11px] text-zinc-100 max-h-48 overflow-y-auto whitespace-pre-wrap">
+          {tailText(resultText).text}
+        </div>
+      )}
+
+      {resultMsg?.isError && (
+        <div className="mt-1.5 text-amber-700 dark:text-amber-300 text-[12px] font-medium leading-snug">
+          Error: {resultText}
+        </div>
+      )}
+
+      {missingResult && (
+        <div className="mt-1.5 text-amber-700 dark:text-amber-300 text-[12px] font-medium leading-snug">
+          Missing tool result.
+        </div>
+      )}
+    </ThinkingStep>
+  );
+}
+
+function PassiveTraceContent({
   traceParts,
-  isStreaming,
+  toolResultByCallId,
+}: {
+  traceParts: any[];
+  toolResultByCallId: Map<string, ToolResultMessage & { terminalIds?: string[] }>;
+}) {
+  return (
+    <>
+      {traceParts.map((part, index) => {
+        const isLast = index === traceParts.length - 1;
+
+        if (part.type === "thinking") {
+          return (
+            <PassiveThinkingStepItem
+              key={`thinking-${index}`}
+              part={part}
+              index={index}
+              isLast={isLast}
+            />
+          );
+        }
+
+        if (part.type === "toolCall") {
+          const toolCallId = part.id;
+          const resultMsg = toolResultByCallId.get(toolCallId);
+          return (
+            <PassiveToolStepItem
+              key={`tool-${toolCallId || index}`}
+              part={part}
+              index={index}
+              isLast={isLast}
+              resultMsg={resultMsg}
+            />
+          );
+        }
+
+        return null;
+      })}
+    </>
+  );
+}
+
+// ─── Passive Settled Deck (Lazy Collapsible Accordion) ─────────────────────────
+
+function PassiveTraceDeck({
+  traceParts,
   activeMessages,
   open: controlledOpen,
   defaultOpen = false,
   onOpenChange,
   className,
   ...props
-}: AssistantTraceDeckProps) {
+}: {
+  traceParts: any[];
+  activeMessages: MessageLike[];
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  className?: string;
+} & HTMLAttributes<HTMLDivElement>) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const open = controlledOpen ?? uncontrolledOpen;
+  const toolResultByCallId = useMemo(
+    () => (open ? buildToolResultMap(activeMessages) : EMPTY_TOOL_RESULT_MAP),
+    [activeMessages, open],
+  );
   const setOpen = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onOpenChange?.(nextOpen);
   };
 
-  const getToolIcon = (toolName: string): IconName => {
-    const name = toolName.toLowerCase();
-    if (name.includes("search") || name.includes("web") || name.includes("globe")) {
-      return "globe";
-    }
-    if (
-      name.includes("file") ||
-      name.includes("replace") ||
-      name.includes("write") ||
-      name.includes("read") ||
-      name.includes("grep")
-    ) {
-      return "brain";
-    }
-    if (name.includes("check") || name.includes("complete")) {
-      return "check";
-    }
-    return "dot";
-  };
-
-  const extractSources = (text: string): string[] => {
-    const domains: string[] = [];
-    const regex = /https?:\/\/([a-zA-Z0-9.-]+)/g;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      let domain = match[1];
-      if (domain.startsWith("www.")) {
-        domain = domain.slice(4);
-      }
-      if (domains.length < 5 && !domains.includes(domain)) {
-        domains.push(domain);
-      }
-    }
-    return domains;
-  };
-
-  const toolResultByCallId = useMemo(() => {
-    const map = new Map<string, ToolResultMessage & { terminalIds?: string[] }>();
-    for (const m of activeMessages) {
-      const candidate = m as ToolResultMessage & { terminalIds?: string[] };
-      if (
-        candidate.role === "toolResult" &&
-        candidate.toolCallId &&
-        !map.has(candidate.toolCallId)
-      ) {
-        map.set(candidate.toolCallId, candidate); // keep first match, matching Array.find's behavior
-      }
-    }
-    return map;
-  }, [activeMessages]);
-
-  const headerLabel = useMemo(() => {
-    if (!isStreaming) return undefined;
-    const activePart = traceParts[traceParts.length - 1];
-    if (!activePart || activePart.type !== "toolCall") return undefined;
-
-    const toolName = activePart.name || "";
-    const args = activePart.arguments ?? activePart.args ?? {};
-    const resultMsg = toolResultByCallId.get(activePart.id);
-    const resultText = resultMsg
-      ? stringifyMessageContent(resultMsg)
-      : activePart.rawOutput != null
-        ? typeof activePart.rawOutput === "string"
-          ? activePart.rawOutput
-          : JSON.stringify(activePart.rawOutput)
-        : "";
-    const isError = Boolean(resultMsg?.isError) || activePart.status === "failed";
-    const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
-    return actionCopy.label || toolName || "Ran an agent action";
-  }, [isStreaming, traceParts, toolResultByCallId]);
+  const stepCount = traceParts.length;
+  const headerLabel =
+    stepCount > 1 ? `Thought process · ${stepCount} steps` : "Thought process";
 
   return (
     <ThinkingSteps
@@ -306,213 +681,62 @@ function AssistantTraceDeck({
     >
       <ThinkingStepsHeader>
         <ThinkingIndicator
-          isStreaming={isStreaming}
+          isStreaming={false}
           label={headerLabel}
           className="p-0 bg-transparent"
         />
       </ThinkingStepsHeader>
       <ThinkingStepsContent>
-        {traceParts.map((part, index) => {
-          const isLast = index === traceParts.length - 1;
-
-          if (part.type === "thinking") {
-            const isPartStreaming = isStreaming && isLast;
-            return (
-              <ThinkingStep
-                key={`thinking-${index}`}
-                data-pipper-id="assistant-thinking-step"
-                index={index}
-                icon="brain"
-                label="Thinking"
-                status={isPartStreaming ? "active" : "complete"}
-                isLast={isLast}
-              >
-                {part.thinking && (
-                  // Agents send condensed thinking as markdown (bold section
-                  // headers separated by "<!-- -->" comments); render it as
-                  // markdown so the comment is swallowed instead of shown
-                  // literally and headers actually render bold.
-                  <MarkdownRenderer
-                    isStreaming={isPartStreaming}
-                    className="text-[13px] text-muted-foreground [&_p]:leading-snug [&_strong]:text-foreground"
-                  >
-                    {part.thinking}
-                  </MarkdownRenderer>
-                )}
-                {isPartStreaming && <ThinkingIndicator className="mt-1" />}
-              </ThinkingStep>
-            );
-          }
-
-          if (part.type === "toolCall") {
-            const toolCallId = part.id;
-            const toolName = part.name || "";
-            const args = part.arguments ?? part.args ?? {};
-            const partStatus = part.status as string | undefined;
-            const resultMsg = toolResultByCallId.get(toolCallId);
-            const terminalIds = [
-              ...extractTerminalIdsFromPart(part),
-              ...(resultMsg?.terminalIds ?? []),
-            ].filter((id, i, all) => all.indexOf(id) === i);
-
-            const completedViaPart =
-              partStatus === "completed" || partStatus === "failed" || partStatus === "cancelled";
-            const hasResult = Boolean(resultMsg) || completedViaPart;
-            const isPartStreaming =
-              (isStreaming && isLast && !hasResult) ||
-              partStatus === "pending" ||
-              partStatus === "in_progress";
-            const missingResult = !isStreaming && !hasResult;
-            const resultIsError = Boolean(resultMsg?.isError) || partStatus === "failed";
-
-            let status: StepStatus = "complete";
-            if (isPartStreaming) {
-              status = "active";
-            } else if (missingResult || resultIsError) {
-              status = "error";
-            }
-
-            const stepLabel = toolName;
-            let stepDescription = "";
-            if (toolName === "bash") {
-              stepDescription = args.command || "";
-            } else {
-              const keys = Object.keys(args);
-              if (keys.length > 0) {
-                stepDescription = keys.map((k) => `${k}: ${JSON.stringify(args[k])}`).join(", ");
-              }
-            }
-
-            const iconName = getToolIcon(toolName);
-
-            let sources: string[] = [];
-            let imageSrc = "";
-            let imageCaption = "";
-            let detailsSummary = "";
-            let detailsLinesArray: string[] = [];
-            let resultText = "";
-            let isError = false;
-
-            if (resultMsg) {
-              resultText = stringifyMessageContent(resultMsg);
-              isError = Boolean(resultMsg.isError);
-
-              if (
-                toolName.includes("search") ||
-                toolName.includes("web") ||
-                toolName.includes("globe")
-              ) {
-                sources = extractSources(resultText);
-              }
-
-              if (
-                toolName.includes("screenshot") ||
-                toolName.includes("image") ||
-                toolName.includes("layout")
-              ) {
-                const imageMatch = resultText.match(/data:image\/[a-zA-Z]+;base64,[^\s]+/);
-                if (imageMatch) {
-                  imageSrc = imageMatch[0];
-                  imageCaption = "Screenshot output";
-                } else {
-                  const pathMatch = resultText.match(
-                    /(?:[a-zA-Z]:)?[\w/.-]+\.(?:png|jpg|jpeg|gif)/,
-                  );
-                  if (pathMatch) {
-                    imageSrc = pathMatch[0];
-                    imageCaption = "Preview Image";
-                  }
-                }
-              }
-
-              if (
-                toolName.includes("file") ||
-                toolName.includes("replace") ||
-                toolName.includes("write") ||
-                toolName.includes("read") ||
-                toolName.includes("grep")
-              ) {
-                detailsSummary = `${toolName} execution details`;
-                detailsLinesArray = resultText
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .filter(Boolean)
-                  .slice(0, 10);
-              }
-            } else if (completedViaPart && part.rawOutput != null) {
-              resultText =
-                typeof part.rawOutput === "string"
-                  ? part.rawOutput
-                  : JSON.stringify(part.rawOutput);
-            }
-
-            const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
-            const actionDescription = [
-              actionCopy.description,
-              missingResult ? "No tool result was returned." : actionCopy.resultSummary,
-            ]
-              .filter(Boolean)
-              .join(" ");
-
-            return (
-              <ThinkingStep
-                key={`tool-${toolCallId || index}`}
-                data-pipper-id="assistant-tool-step"
-                index={index}
-                icon={iconName}
-                label={actionCopy.label || stepLabel}
-                description={actionDescription || stepDescription}
-                status={status}
-                isLast={isLast}
-              >
-                {sources.length > 0 && (
-                  <ThinkingStepSources>
-                    {sources.map((src, sIdx) => (
-                      <ThinkingStepSource key={sIdx}>{src}</ThinkingStepSource>
-                    ))}
-                  </ThinkingStepSources>
-                )}
-
-                {imageSrc && <ThinkingStepImage src={imageSrc} caption={imageCaption} />}
-
-                {detailsLinesArray.length > 0 && (
-                  <ThinkingStepDetails
-                    summary={detailsSummary || "Details"}
-                    details={detailsLinesArray}
-                  />
-                )}
-
-                {terminalIds.map((terminalId) => (
-                  <AgentTerminalOutput key={terminalId} terminalId={terminalId} />
-                ))}
-
-                {resultMsg && toolName === "bash" && terminalIds.length === 0 && (
-                  <div className="mt-1.5 rounded bg-black/95 p-2 font-mono text-[11px] text-zinc-100 max-h-48 overflow-y-auto whitespace-pre-wrap">
-                    {resultText}
-                  </div>
-                )}
-
-                {resultMsg?.isError && (
-                  <div className="mt-1.5 text-amber-700 dark:text-amber-300 text-[12px] font-medium leading-snug">
-                    Error: {resultText}
-                  </div>
-                )}
-
-                {missingResult && (
-                  <div className="mt-1.5 text-amber-700 dark:text-amber-300 text-[12px] font-medium leading-snug">
-                    Missing tool result.
-                  </div>
-                )}
-
-                {isPartStreaming && <ThinkingIndicator className="mt-1" />}
-              </ThinkingStep>
-            );
-          }
-
-          return null;
-        })}
+        {open && (
+          <PassiveTraceContent
+            traceParts={traceParts}
+            toolResultByCallId={toolResultByCallId}
+          />
+        )}
       </ThinkingStepsContent>
     </ThinkingSteps>
+  );
+}
+
+// ─── Root AssistantTraceDeck ───────────────────────────────────────────────────
+
+function AssistantTraceDeck({
+  traceParts,
+  isStreaming,
+  activeMessages,
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  className,
+  ...props
+}: AssistantTraceDeckProps) {
+  if (!traceParts || traceParts.length === 0) return null;
+
+  if (isStreaming) {
+    const activePart = traceParts[traceParts.length - 1];
+    const toolResult =
+      activePart?.type === "toolCall" ? findToolResult(activeMessages, activePart.id) : undefined;
+
+    return (
+      <ActiveTraceRow
+        activePart={activePart}
+        toolResult={toolResult}
+        className={className}
+        {...props}
+      />
+    );
+  }
+
+  return (
+    <PassiveTraceDeck
+      traceParts={traceParts}
+      activeMessages={activeMessages}
+      open={open}
+      defaultOpen={defaultOpen}
+      onOpenChange={onOpenChange}
+      className={className}
+      {...props}
+    />
   );
 }
 

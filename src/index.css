@@ -405,6 +405,47 @@
   --term-bg: transparent !important;
   --term-fg: var(--foreground) !important;
   --term-cursor: var(--foreground) !important;
+  --term-font-family: "JetBrains Mono Variable", "JetBrains Mono", Menlo, Monaco, Consolas, monospace !important;
+  --term-font-size: 13px !important;
+  --term-line-height: 1.35 !important;
+
+  /* Theme-aware ANSI 16 colors (light mode default) */
+  --term-color-0: #24292f !important;
+  --term-color-1: #cf222e !important;
+  --term-color-2: #116329 !important;
+  --term-color-3: #9a6700 !important;
+  --term-color-4: #0969da !important;
+  --term-color-5: #8250df !important;
+  --term-color-6: #1b7c83 !important;
+  --term-color-7: #6e7781 !important;
+  --term-color-8: #57606a !important;
+  --term-color-9: #a40e26 !important;
+  --term-color-10: #1a7f37 !important;
+  --term-color-11: #633c01 !important;
+  --term-color-12: #218bff !important;
+  --term-color-13: #a475f9 !important;
+  --term-color-14: #3192aa !important;
+  --term-color-15: #09090b !important;
+}
+
+.dark .wterm {
+  /* Dark mode ANSI 16 colors */
+  --term-color-0: #18181b !important;
+  --term-color-1: #f87171 !important;
+  --term-color-2: #4ade80 !important;
+  --term-color-3: #facc15 !important;
+  --term-color-4: #60a5fa !important;
+  --term-color-5: #c084fc !important;
+  --term-color-6: #38bdf8 !important;
+  --term-color-7: #e4e4e7 !important;
+  --term-color-8: #71717a !important;
+  --term-color-9: #ef4444 !important;
+  --term-color-10: #22c55e !important;
+  --term-color-11: #eab308 !important;
+  --term-color-12: #3b82f6 !important;
+  --term-color-13: #a855f7 !important;
+  --term-color-14: #06b6d4 !important;
+  --term-color-15: #ffffff !important;
 }
 
 /* =============================================================================

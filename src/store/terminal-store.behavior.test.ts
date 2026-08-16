@@ -6,6 +6,7 @@ function resetStore() {
     sessions: [],
     workspaceKey: null,
     stashByWorkspace: {},
+    historyControlRemainders: {},
     nextSessionNumber: 1,
     tabsRevision: 0,
     listenerInitialized: false,
@@ -229,6 +230,17 @@ describe("terminal store session behavior", () => {
       .appendHistory("term-1", "\u001b[31mred\u001b[0m\r\n\u001b]0;title\u0007plain");
 
     expect(useTerminalStore.getState().sessions[0]?.history).toBe("red\r\nplain");
+  });
+
+  test("recovery history strips control sequences split across output chunks", () => {
+    useTerminalStore.setState({
+      sessions: [{ id: "term-1", title: "Terminal 1", history: "" }],
+    });
+
+    useTerminalStore.getState().appendHistory("term-1", "before\u001b[");
+    useTerminalStore.getState().appendHistory("term-1", "31mred\u001b[0mafter");
+
+    expect(useTerminalStore.getState().sessions[0]?.history).toBe("beforeredafter");
   });
 
   test("orphan output is a referential no-op", () => {

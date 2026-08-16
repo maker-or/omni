@@ -20,36 +20,60 @@ interface StashedTerminalSession {
 const MAX_HISTORY_CHARS = 200_000;
 const MAX_STASHED_WORKSPACES = 10;
 
+interface PlainHistoryResult {
+  text: string;
+  remainder: string;
+}
+
 /**
  * Scrollback is recovery data, not a serialized VT state. Remove terminal
  * control sequences before retaining it so restoring a killed workspace can
  * never start replay in the middle of an ANSI/OSC sequence.
  */
 export function toPlainTerminalHistory(value: string): string {
+  return stripTerminalControls(value).text;
+}
+
+function stripTerminalControls(value: string): PlainHistoryResult {
   let result = "";
 
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     if (code === 0x1b) {
+      const sequenceStart = index;
       const sequenceType = value[index + 1];
+      if (sequenceType === undefined) {
+        return { text: result, remainder: value.slice(index) };
+      }
       index += 1;
 
       if (sequenceType === "[") {
+        let complete = false;
         while (index + 1 < value.length) {
           const nextCode = value.charCodeAt(index + 1);
           index += 1;
-          if (nextCode >= 0x40 && nextCode <= 0x7e) break;
-        }
-      } else if (sequenceType === "]" || sequenceType === "P") {
-        while (index + 1 < value.length) {
-          const nextCode = value.charCodeAt(index + 1);
-          index += 1;
-          if (nextCode === 0x07) break;
-          if (nextCode === 0x1b && value[index + 1] === "\\") {
-            index += 1;
+          if (nextCode >= 0x40 && nextCode <= 0x7e) {
+            complete = true;
             break;
           }
         }
+        if (!complete) return { text: result, remainder: value.slice(sequenceStart) };
+      } else if (sequenceType === "]" || sequenceType === "P") {
+        let complete = false;
+        while (index + 1 < value.length) {
+          const nextCode = value.charCodeAt(index + 1);
+          index += 1;
+          if (nextCode === 0x07) {
+            complete = true;
+            break;
+          }
+          if (nextCode === 0x1b && value[index + 1] === "\\") {
+            index += 1;
+            complete = true;
+            break;
+          }
+        }
+        if (!complete) return { text: result, remainder: value.slice(sequenceStart) };
       } else {
         const sequenceTypeCode = sequenceType?.charCodeAt(0) ?? 0;
         if (sequenceTypeCode < 0x30 || sequenceTypeCode > 0x7e) {
@@ -70,7 +94,7 @@ export function toPlainTerminalHistory(value: string): string {
     result += value[index];
   }
 
-  return result;
+  return { text: result, remainder: "" };
 }
 
 export function appendBoundedTerminalHistory(history: string, data: string): string {
@@ -89,6 +113,7 @@ export function makeWorkspaceKey(projectId: string, workspacePath: string): stri
 
 interface TerminalState {
   sessions: TerminalSession[];
+  historyControlRemainders: Record<string, string>;
   /** Which (project, workspace) bucket the visible sessions belong to. */
   workspaceKey: string | null;
   /** Sessions of workspaces the user navigated away from, restorable on return. */
@@ -117,6 +142,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   sessions: [],
   workspaceKey: null,
   stashByWorkspace: {},
+  historyControlRemainders: {},
   nextSessionNumber: 1,
   tabsRevision: 0,
   listenerInitialized: false,
@@ -151,9 +177,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
 
     const filteredSessions = sessions.filter((s) => s.id !== id);
+    const historyControlRemainders = { ...get().historyControlRemainders };
+    delete historyControlRemainders[id];
 
     set({
       sessions: filteredSessions,
+      historyControlRemainders,
       tabsRevision: tabsRevision + 1,
     });
     return filteredSessions[0]?.id ?? null;
@@ -168,6 +197,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
     set({
       sessions: [],
+      historyControlRemainders: {},
       tabsRevision: get().tabsRevision + 1,
     });
   },
@@ -225,11 +255,20 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       if (index < 0) return {};
       const sessions = [...state.sessions];
       const session = sessions[index];
+      const { text, remainder } = stripTerminalControls(
+        `${state.historyControlRemainders[id] ?? ""}${data}`,
+      );
       sessions[index] = {
         ...session,
-        history: appendBoundedTerminalHistory(session.history, data),
+        history: appendBoundedTerminalHistory(session.history, text),
       };
-      return { sessions };
+      return {
+        sessions,
+        historyControlRemainders: {
+          ...state.historyControlRemainders,
+          [id]: remainder,
+        },
+      };
     });
   },
 
@@ -279,7 +318,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
           exitSignal: payload.signal,
           history: appendBoundedTerminalHistory(session.history, completion),
         };
-        return { sessions, tabsRevision: state.tabsRevision + 1 };
+        const historyControlRemainders = { ...state.historyControlRemainders };
+        delete historyControlRemainders[payload.sessionId];
+        return {
+          sessions,
+          historyControlRemainders,
+          tabsRevision: state.tabsRevision + 1,
+        };
       });
     });
     set({ listenerInitialized: true });

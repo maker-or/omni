@@ -11,16 +11,48 @@ interface TerminalSessionProps {
 }
 
 const RECOVERY_CHUNK_SIZE = 8_192;
+const GHOSTTY_SCROLLBACK_LIMIT_BYTES = 1024 * 1024;
+const MIN_TERMINAL_COLS = 2;
+const MIN_TERMINAL_ROWS = 2;
+const MAX_TERMINAL_COLS = 1000;
+const MAX_TERMINAL_ROWS = 1000;
+
+function normalizeTerminalSize(cols: number, rows: number): { cols: number; rows: number } | null {
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) return null;
+  return {
+    cols: Math.max(MIN_TERMINAL_COLS, Math.min(Math.floor(cols), MAX_TERMINAL_COLS)),
+    rows: Math.max(MIN_TERMINAL_ROWS, Math.min(Math.floor(rows), MAX_TERMINAL_ROWS)),
+  };
+}
+
+function measureCellSize(element: HTMLElement): { charWidth: number; rowHeight: number } | null {
+  const row = document.createElement("div");
+  row.className = "term-row";
+  row.style.position = "absolute";
+  row.style.visibility = "hidden";
+  const probe = document.createElement("span");
+  probe.textContent = "W";
+  row.appendChild(probe);
+  element.appendChild(row);
+  const charWidth = probe.getBoundingClientRect().width;
+  const rowHeight = row.getBoundingClientRect().height;
+  row.remove();
+  if (charWidth <= 0 || rowHeight <= 0) return null;
+  return { charWidth, rowHeight };
+}
 
 async function loadGhosttyCore(): Promise<GhosttyCore> {
   try {
     const wasmPath = new URL("ghostty-vt.wasm", window.location.href).href;
-    return await GhosttyCore.load({ wasmPath });
+    return await GhosttyCore.load({
+      wasmPath,
+      scrollbackLimit: GHOSTTY_SCROLLBACK_LIMIT_BYTES,
+    });
   } catch (primaryError) {
     // Package-relative loading is useful in preview/test packaging where the
     // public asset URL is not rooted beside the HTML entry point.
     try {
-      return await GhosttyCore.load();
+      return await GhosttyCore.load({ scrollbackLimit: GHOSTTY_SCROLLBACK_LIMIT_BYTES });
     } catch {
       throw primaryError;
     }
@@ -36,7 +68,7 @@ export function TerminalSession({ sessionId, cwd, isActive }: TerminalSessionPro
   }, [isActive]);
 
   return (
-    <div className="h-full w-full overflow-hidden">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden">
       {hasBeenActive && (
         <TerminalInner
           key={retryKey}
@@ -67,6 +99,7 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   const ptyReadyRef = useRef(false);
   const queuedInputRef = useRef("");
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const terminalHostRef = useRef<HTMLDivElement>(null);
   const recoveryCompleteRef = useRef(false);
   const queuedLiveDataRef = useRef("");
   const exitDisplayedRef = useRef(false);
@@ -110,36 +143,54 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
-      pendingSizeRef.current = { cols, rows };
+      const safeSize = normalizeTerminalSize(cols, rows);
+      if (!safeSize) return;
+      pendingSizeRef.current = safeSize;
       if (!ptyReadyRef.current) return;
-      void window.omni.terminal.resize(sessionId, cols, rows).catch((err) => {
+      void window.omni.terminal.resize(sessionId, safeSize.cols, safeSize.rows).catch((err) => {
         console.error(`[Terminal Session] Failed to resize PTY ${sessionId}:`, err);
       });
     },
     [sessionId],
   );
 
-  // WTerm's ResizeObserver runs after its initial 80x24 setup. Give it two
-  // frames to measure the visible container, then use that grid for PTY spawn.
+  // WTerm's documented onResize callback runs after WTerm has already resized
+  // its core. Keep autoResize off and own the measurement here so zero-sized
+  // layout observations never reach Ghostty.
   useEffect(() => {
-    if (!readyTerminal) return;
-    let secondFrameId = 0;
-    const firstFrameId = window.requestAnimationFrame(() => {
-      secondFrameId = window.requestAnimationFrame(() => {
-        const measured = pendingSizeRef.current ?? {
-          cols: readyTerminal.cols,
-          rows: readyTerminal.rows,
-        };
-        setInitialSize({
-          cols: Math.max(1, measured.cols),
-          rows: Math.max(1, measured.rows),
-        });
-        setIsReady(true);
-      });
+    const host = terminalHostRef.current;
+    if (!readyTerminal || !host) return;
+
+    let active = true;
+    const measure = (width: number, height: number) => {
+      if (!active || width <= 0 || height <= 0) return;
+      const cell = measureCellSize(readyTerminal.element);
+      if (!cell) return;
+      const safeSize = normalizeTerminalSize(width / cell.charWidth, height / cell.rowHeight);
+      if (!safeSize) return;
+
+      pendingSizeRef.current = safeSize;
+      setInitialSize(safeSize);
+      setIsReady(true);
+      if (readyTerminal.cols !== safeSize.cols || readyTerminal.rows !== safeSize.rows) {
+        readyTerminal.resize(safeSize.cols, safeSize.rows);
+      }
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) measure(entry.contentRect.width, entry.contentRect.height);
     });
+    observer.observe(host);
+    const frameId = window.requestAnimationFrame(() => {
+      const rect = host.getBoundingClientRect();
+      measure(rect.width, rect.height);
+    });
+
     return () => {
-      window.cancelAnimationFrame(firstFrameId);
-      window.cancelAnimationFrame(secondFrameId);
+      active = false;
+      observer.disconnect();
+      window.cancelAnimationFrame(frameId);
     };
   }, [readyTerminal]);
 
@@ -269,6 +320,11 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     return () => window.cancelAnimationFrame(frameId);
   }, [isActive, isReady, ref]);
 
+  useEffect(() => {
+    if (isActive) return;
+    ref.current?.instance?.element.querySelector("textarea")?.blur();
+  }, [isActive, ref]);
+
   if (error) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-4 font-mono text-sm text-red-500">
@@ -294,14 +350,25 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   terminalMountStartedRef.current = true;
 
   return (
-    <Terminal
-      ref={ref}
-      core={core}
-      autoResize
-      onData={handleData}
-      onResize={handleResize}
-      onReady={handleReady}
-      className="h-full w-full outline-none"
-    />
+    <div
+      ref={terminalHostRef}
+      className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+    >
+      <Terminal
+        ref={ref}
+        core={core}
+        autoResize={false}
+        onData={handleData}
+        onResize={handleResize}
+        onReady={handleReady}
+        onError={(err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setError(message);
+          markError(sessionId);
+        }}
+        style={{ height: "auto", width: "100%" }}
+        className="min-h-0 min-w-0 flex-1 outline-none"
+      />
+    </div>
   );
 }

@@ -101,7 +101,7 @@ ThinkingStepsContent.displayName = "ThinkingStepsContent";
 
 type StepStatus = "complete" | "active" | "pending" | "error";
 
-interface ThinkingStepProps {
+interface ThinkingStepProps extends HTMLAttributes<HTMLDivElement> {
   icon?: IconName;
   showIcon?: boolean;
   label: string;
@@ -125,6 +125,7 @@ function ThinkingStep({
   isLast = false,
   children,
   className,
+  ...props
 }: ThinkingStepProps) {
   const shape = useShape();
 
@@ -140,6 +141,7 @@ function ThinkingStep({
       initial={{ height: 0 }}
       animate={{ height: "auto" }}
       transition={{ ...springs.moderate, delay }}
+      {...props}
     >
       {/* Inner: fades content in after space starts opening */}
       <motion.div

@@ -110,6 +110,26 @@ interface RendererPtySession {
 const ptyProcesses = new Map<string, RendererPtySession>();
 const execFileAsync = promisify(execFile);
 
+const MIN_PTY_COLS = 2;
+const MIN_PTY_ROWS = 2;
+const MAX_PTY_COLS = 1000;
+const MAX_PTY_ROWS = 1000;
+
+function normalizePtySize(
+  cols: unknown,
+  rows: unknown,
+): { cols: number; rows: number } | null {
+  if (typeof cols !== "number" || typeof rows !== "number") return null;
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) return null;
+  const numericCols = Math.floor(cols);
+  const numericRows = Math.floor(rows);
+  if (numericCols <= 0 || numericRows <= 0) return null;
+  return {
+    cols: Math.max(MIN_PTY_COLS, Math.min(numericCols, MAX_PTY_COLS)),
+    rows: Math.max(MIN_PTY_ROWS, Math.min(numericRows, MAX_PTY_ROWS)),
+  };
+}
+
 function disposePtySession(session: RendererPtySession): void {
   session.dataDisposable.dispose();
   session.exitDisposable.dispose();
@@ -1517,10 +1537,10 @@ function registerIpc(): void {
         spawnCwd = os.homedir();
       }
 
-      const cols =
-        Number.isInteger(requestedCols) && requestedCols! > 0 ? Math.min(requestedCols!, 1000) : 80;
-      const rows =
-        Number.isInteger(requestedRows) && requestedRows! > 0 ? Math.min(requestedRows!, 1000) : 24;
+      const { cols, rows } = normalizePtySize(requestedCols, requestedRows) ?? {
+        cols: 80,
+        rows: 24,
+      };
 
       let ptyProcess: pty.IPty;
       try {
@@ -1584,8 +1604,11 @@ function registerIpc(): void {
     (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
       const session = ptyProcesses.get(sessionId);
       if (!session) throw new Error(`Terminal session ${sessionId} is not running.`);
+      const safeSize = normalizePtySize(cols, rows);
+      if (!safeSize) return;
+      const { cols: safeCols, rows: safeRows } = safeSize;
       try {
-        session.process.resize(cols, rows);
+        session.process.resize(safeCols, safeRows);
       } catch (error) {
         console.error(`Error resizing PTY ${sessionId}:`, error);
         throw error;

@@ -20,6 +20,7 @@ import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
 import { Bell, FolderPlus, GitBranch, GitDiffIcon, Plus } from "@phosphor-icons/react";
 import { SleeplessControl } from "@/components/sleepless-control";
+import { ProjectThreadsDropdown } from "@/components/project-threads-dropdown";
 
 const DiffView = lazy(() =>
   import("@/components/diff-view").then((m) => ({ default: m.DiffView })),
@@ -787,6 +788,7 @@ export default function App() {
               <GitDiffIcon weight="duotone" className="size-4" />
             </button>
           )}
+          <ProjectThreadsDropdown />
           <SleeplessControl />
           <ThemeToggle />
         </div>
@@ -900,13 +902,16 @@ export default function App() {
             <section
               key={session.id}
               className={cn(
-                "absolute inset-0 z-30 flex-col bg-surface-1 p-2",
-                isActive ? "flex" : "hidden",
+                "absolute inset-0 z-30 flex flex-col overflow-hidden bg-surface-1 p-2",
+                isActive
+                  ? "pointer-events-auto visible opacity-100"
+                  : "pointer-events-none invisible opacity-0 -z-10",
               )}
               aria-hidden={!isActive}
+              inert={!isActive}
               data-pipper-id={`terminal-panel-${session.id}`}
             >
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="flex min-h-0 flex-1 overflow-hidden">
                 <Suspense fallback={null}>
                   <TerminalSession sessionId={session.id} cwd={session.cwd} isActive={isActive} />
                 </Suspense>

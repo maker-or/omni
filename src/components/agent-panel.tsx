@@ -312,15 +312,6 @@ function CopyButton({ isCopied, onCopy }: { isCopied: boolean; onCopy: () => voi
   );
 }
 
-function hasTraceParts(messages: MessageLike[]): boolean {
-  return messages.some((message) => {
-    const content = (message as unknown as { content?: unknown }).content;
-    return (
-      Array.isArray(content) &&
-      content.some((part) => part && (part.type === "thinking" || part.type === "toolCall"))
-    );
-  });
-}
 
 function getToolSummary(message: MessageLike): string | null {
   const content = (message as unknown as { content?: unknown }).content;
@@ -465,8 +456,11 @@ function MessageBody({
   onTraceDeckOpenChange?: (open: boolean) => void;
 }) {
   const role = messages[0]?.role;
+  const assistantContent = useMemo(() => {
+    if (role !== "assistant") {
+      return { allTraceParts: [] as any[], textBodyCombined: "" };
+    }
 
-  if (role === "assistant") {
     const allTraceParts: any[] = [];
     const allTextParts: string[] = [];
 
@@ -474,9 +468,7 @@ function MessageBody({
       const content = (msg as unknown as { content?: unknown }).content;
       if (typeof content === "string") {
         const body = stringifyMessageContent(msg);
-        if (body.trim()) {
-          allTextParts.push(body);
-        }
+        if (body.trim()) allTextParts.push(body);
       } else if (Array.isArray(content)) {
         const textParts = content.filter((part) => part && part.type === "text");
         const traceParts = content.filter(
@@ -488,13 +480,18 @@ function MessageBody({
           .map((part) => part.text)
           .filter(Boolean)
           .join("\n");
-        if (textBody.trim()) {
-          allTextParts.push(textBody);
-        }
+        if (textBody.trim()) allTextParts.push(textBody);
       }
     }
 
-    const textBodyCombined = allTextParts.join("\n\n");
+    return {
+      allTraceParts,
+      textBodyCombined: allTextParts.join("\n\n"),
+    };
+  }, [messages, role]);
+
+  if (role === "assistant") {
+    const { allTraceParts, textBodyCombined } = assistantContent;
 
     return (
       <div className="space-y-3">
@@ -1012,22 +1009,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     [activeMessages, streamingMessage],
   );
 
-  const streamingTraceKey = useMemo(
-    () =>
-      allMessages.find(
-        (entry) => entry.role === "assistant" && entry.isStreaming && hasTraceParts(entry.messages),
-      )?.key ?? null,
-    [allMessages],
-  );
-
-  useEffect(() => {
-    if (!streamingTraceKey) return;
-    setTraceDeckOpenByKey((current) =>
-      current[streamingTraceKey] === undefined
-        ? { ...current, [streamingTraceKey]: true }
-        : current,
-    );
-  }, [streamingTraceKey]);
 
   const conversationVirtualizer = useVirtualizer({
     count: allMessages.length,

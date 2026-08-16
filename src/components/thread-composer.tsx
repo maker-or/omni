@@ -556,7 +556,7 @@ export function ThreadComposer({
   return (
     <div className={cn("flex flex-col gap-1.5", className)} data-pipper-id="thread-composer">
       <InputMessage
-        className="relative z-10 rounded-full"
+        className="relative z-10"
         textareaRef={textareaRef}
         value={freeText}
         onValueChange={handleValueChange}
