@@ -7,6 +7,7 @@ import type {
   AcpPromptInput,
   AcpReplacePromptInput,
   AcpSessionState,
+  AcpToolCallState,
   AgentCapabilities,
   AgentProbeResult,
   AvailableCommand,
@@ -28,17 +29,25 @@ import type {
   MonitorIncident,
   MonitorDiffIngestion,
   MonitorLiveSnapshot,
+  MonitorRecordedSession,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
-  MonitorSessionSummary,
   MonitorSwitchRecord,
   MonitorTabClickTiming,
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../../contracts/monitor.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../../contracts/sleepless.ts";
+import type {
+  ThreadBenchmarkMode,
+  ThreadBenchmarkPrepared,
+  ThreadBenchmarkRendererReady,
+  ThreadBenchmarkReport,
+  ThreadBenchmarkRun,
+  ThreadBenchmarkStatus,
+} from "../../contracts/benchmark.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -153,6 +162,8 @@ declare global {
         setActive: (threadId: string | null) => Promise<OpenTabsState>;
         getActive: () => Promise<string | null>;
         onChanged: (callback: (state: OpenTabsState) => void) => () => void;
+        onSelectByIndex: (callback: (index: number) => void) => () => void;
+        onNewTab: (callback: () => void) => () => void;
       };
       agent: {
         getState: () => Promise<AcpSessionState>;
@@ -165,6 +176,7 @@ declare global {
           cost?: { amount: number; currency: string };
         } | null>;
         getRunningThreads: () => Promise<string[]>;
+        getToolCalls: (threadId: string) => Promise<Record<string, AcpToolCallState>>;
         sendPrompt: (input: AcpPromptInput) => Promise<void>;
         replacePrompt: (input: AcpReplacePromptInput) => Promise<void>;
         abort: () => Promise<void>;
@@ -248,17 +260,7 @@ declare global {
         getIncidents: () => Promise<MonitorIncident[]>;
         getConnectionEpisodes: () => Promise<MonitorConnectionEpisode[]>;
         getSessions: () => Promise<MonitorSession[]>;
-        getRecordedSession: (sessionId: string) => Promise<{
-          session: MonitorSession | null;
-          ticks: MonitorSampleTick[];
-          rendererTelemetry: MonitorRendererTelemetry[];
-          diffIngestions: MonitorDiffIngestion[];
-          acpUpdates: MonitorAcpUpdate[];
-          bridgeEvents: MonitorBridgeEvent[];
-          connectionEpisodes: MonitorConnectionEpisode[];
-          incidents: MonitorIncident[];
-          summary: MonitorSessionSummary;
-        }>;
+        getRecordedSession: (sessionId: string) => Promise<MonitorRecordedSession>;
         startRecording: (label?: string) => Promise<MonitorSession>;
         stopRecording: () => Promise<MonitorSession | null>;
         reportRendererFreeze: (report: MonitorRendererFreezeReport) => Promise<void>;
@@ -273,6 +275,16 @@ declare global {
         onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;
         onTick: (callback: (tick: MonitorSampleTick) => void) => () => void;
         onIncident: (callback: (incident: MonitorIncident) => void) => () => void;
+      };
+      benchmark: {
+        enabled: boolean;
+        switchTimeoutMs: number;
+        status: () => Promise<ThreadBenchmarkStatus>;
+        prepare: () => Promise<ThreadBenchmarkPrepared>;
+        start: (mode: ThreadBenchmarkMode) => Promise<ThreadBenchmarkRun>;
+        finish: () => Promise<ThreadBenchmarkReport>;
+        cleanup: () => Promise<void>;
+        reportRendererReady: (input: ThreadBenchmarkRendererReady) => void;
       };
     };
   }

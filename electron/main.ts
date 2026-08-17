@@ -44,6 +44,8 @@ import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
 import { MonitorService } from "./monitor/service.ts";
+import { isMonitorEnabled } from "./monitor/enabled.ts";
+import { emptyMonitorRecordedSession } from "./monitor/timeline.ts";
 import { buildMonitorInventory } from "./monitor/inventory.ts";
 import { probeAgentById } from "./agents/handshake-probe.ts";
 import {
@@ -72,6 +74,11 @@ import {
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
+import { ThreadBenchmarkController } from "./thread-benchmark.ts";
+import type {
+  ThreadBenchmarkMode,
+  ThreadBenchmarkRendererReady,
+} from "../contracts/benchmark.ts";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
@@ -253,11 +260,14 @@ async function listProjectFileTree(projectPath: string): Promise<ProjectFileTree
 }
 let currentTheme: "light" | "dark" | "system" = "system";
 
-const isDev = !app.isPackaged;
+const benchmarkEnabled = process.env.PIPPER_BENCHMARK_MODE === "1";
+const isDev = !app.isPackaged && !benchmarkEnabled;
 
 initializeTelemetry();
 
-if (isDev && !process.env.PIPPER_LIBRARY_PATH) {
+if (benchmarkEnabled && process.env.PIPPER_DEV_USER_DATA_PATH) {
+  app.setPath("userData", process.env.PIPPER_DEV_USER_DATA_PATH);
+} else if (isDev && !process.env.PIPPER_LIBRARY_PATH) {
   const devUserDataPath =
     process.env.PIPPER_DEV_USER_DATA_PATH ?? join(app.getPath("appData"), "pipper-dev");
   app.setPath("userData", devUserDataPath);
@@ -302,7 +312,9 @@ function normalizeTheme(theme: string): "light" | "dark" | "system" {
 let mainWindow: BrowserWindow | null = null;
 let launchWindow: BrowserWindow | null = null;
 let monitorWindow: BrowserWindow | null = null;
+let settingsWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let threadBenchmarkController: ThreadBenchmarkController | null = null;
 let pendingStartupAgentProjectId: string | null = null;
 let startupAgentActivationStarted = false;
 let startupAgentActivationFallback: ReturnType<typeof setTimeout> | null = null;
@@ -483,20 +495,35 @@ function makeWorkspacePeerPredicate(threadId: string): ((id: string) => boolean)
   };
 }
 
-function resolveRendererUrl(page: "main" | "launch" | "monitor", stage?: string): string {
+function resolveRendererUrl(
+  page: "main" | "launch" | "monitor" | "settings",
+  stage?: string,
+): string {
   const base = process.env["ELECTRON_RENDERER_URL"];
   if (!base) return "";
   let url =
-    page === "launch" ? `${base}/launch.html` : page === "monitor" ? `${base}/monitor.html` : base;
+    page === "launch"
+      ? `${base}/launch.html`
+      : page === "monitor"
+        ? `${base}/monitor.html`
+        : page === "settings"
+          ? `${base}/settings.html`
+          : base;
   if (stage) {
     url += `?stage=${stage}`;
   }
   return url;
 }
 
-function resolveRendererFile(page: "main" | "launch" | "monitor"): string {
+function resolveRendererFile(page: "main" | "launch" | "monitor" | "settings"): string {
   const fileName =
-    page === "launch" ? "launch.html" : page === "monitor" ? "monitor.html" : "index.html";
+    page === "launch"
+      ? "launch.html"
+      : page === "monitor"
+        ? "monitor.html"
+        : page === "settings"
+          ? "settings.html"
+          : "index.html";
   return join(mainDir, "../renderer", fileName);
 }
 
@@ -598,6 +625,25 @@ function requireAuthenticatedUserForLaunch() {
   return user;
 }
 
+async function prepareBenchmarkLaunchState(): Promise<string | null> {
+  if (!benchmarkEnabled) return null;
+  const projectPath = process.env.PIPPER_BENCHMARK_PROJECT_PATH ?? process.cwd();
+  upsertAuthUser({
+    provider: "benchmark",
+    providerUserId: "benchmark-local-user",
+    email: "benchmark@localhost",
+    name: "Thread Benchmark",
+    avatarUrl: null,
+  });
+  const project =
+    listProjects().find((candidate) => candidate.path === projectPath) ??
+    createProject({ name: "Thread Benchmark", path: projectPath, icon: "gauge" });
+  setSelectedAgentIds(["pipper-mock"]);
+  await markLaunchComplete(project.id);
+  setActiveProjectId(project.id);
+  return project.id;
+}
+
 async function ensureAuthCallbackServer(): Promise<number> {
   if (authCallbackPort) return authCallbackPort;
   if (pendingAuthCallback) {
@@ -666,7 +712,7 @@ function getAuthCallbackUrl(): string {
 
 function loadInto(
   win: BrowserWindow,
-  page: "main" | "launch" | "monitor",
+  page: "main" | "launch" | "monitor" | "settings",
   stage?: string,
 ): Promise<void> {
   logStartupMilestone("loadInto:start", `page=${page}${stage ? ` stage=${stage}` : ""}`);
@@ -750,6 +796,64 @@ async function createMainWindow(): Promise<void> {
   void loadInto(mainWindow, "main");
 }
 
+function createSettingsWindow(): void {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+
+  const macWindowChrome =
+    process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 14, y: 18 },
+        }
+      : {};
+
+  settingsWindow = new BrowserWindow({
+    width: 720,
+    height: 560,
+    minWidth: 620,
+    minHeight: 480,
+    title: "Settings",
+    show: false,
+    resizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    icon: getIconPath(),
+    backgroundColor: "#fafafa",
+    ...macWindowChrome,
+    webPreferences: {
+      preload: join(mainDir, "../preload/index.js"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  settingsWindow.on("ready-to-show", () => {
+    settingsWindow?.show();
+    settingsWindow?.focus();
+  });
+
+  settingsWindow.on("closed", () => {
+    settingsWindow = null;
+  });
+
+  settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url);
+    } else {
+      console.warn(`[Settings] Blocked external URL request: ${url}`);
+    }
+    return { action: "deny" };
+  });
+
+  void loadInto(settingsWindow, "settings");
+}
+
 function createMonitorWindow(): void {
   if (monitorWindow && !monitorWindow.isDestroyed()) {
     monitorWindow.show();
@@ -793,6 +897,10 @@ function broadcastToMonitor(channel: string, payload: unknown): void {
 
 function initializeMonitorService(): void {
   if (monitorService) return;
+  if (!isMonitorEnabled()) {
+    console.log("[Monitor] Disabled (PIPPER_MONITOR=0).");
+    return;
+  }
 
   monitorService = new MonitorService({
     getInventory: () =>
@@ -916,15 +1024,71 @@ function broadcastToWindows(channel: string, ...args: any[]) {
   if (monitorWindow && !monitorWindow.isDestroyed()) {
     monitorWindow.webContents.send(channel, ...args);
   }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send(channel, ...args);
+  }
+}
+
+function sendMainWindowTabEvent(channel: "tabs:selectByIndex" | "tabs:newTab", ...args: unknown[]) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(channel, ...args);
+  if (!mainWindow.isFocused()) mainWindow.focus();
 }
 
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? ([{ role: "appMenu" }] as Electron.MenuItemConstructorOptions[]) : []),
+    ...(isMac
+      ? ([
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              {
+                label: "Settings…",
+                accelerator: "Command+,",
+                click: () => createSettingsWindow(),
+              },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ] as Electron.MenuItemConstructorOptions[])
+      : []),
     {
       label: "File",
-      submenu: [isMac ? { role: "close" } : { role: "quit" }],
+      submenu: isMac
+        ? [
+            {
+              label: "New Tab",
+              accelerator: "CommandOrControl+T",
+              click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            { type: "separator" },
+            { role: "close" },
+          ]
+        : [
+            {
+              label: "New Tab",
+              accelerator: "CommandOrControl+T",
+              click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            { type: "separator" },
+            {
+              label: "Settings…",
+              accelerator: "CommandOrControl+,",
+              click: () => createSettingsWindow(),
+            },
+            { type: "separator" },
+            { role: "quit" },
+          ],
     },
     {
       label: "Edit",
@@ -970,6 +1134,15 @@ function buildAppMenu(): void {
         ...(isMac
           ? ([{ type: "separator" }, { role: "front" }] as Electron.MenuItemConstructorOptions[])
           : ([{ role: "close" }] as Electron.MenuItemConstructorOptions[])),
+        { type: "separator" },
+        ...Array.from({ length: 9 }, (_, index) => {
+          const tabNumber = index + 1;
+          return {
+            label: `Tab ${tabNumber}`,
+            accelerator: `CommandOrControl+${tabNumber}`,
+            click: () => sendMainWindowTabEvent("tabs:selectByIndex", index),
+          } satisfies Electron.MenuItemConstructorOptions;
+        }),
       ],
     },
     {
@@ -1388,6 +1561,9 @@ function registerIpc(): void {
   ipcMain.handle("agent:getCapabilities", () => requireAgentManager().getCapabilities());
   ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
   ipcMain.handle("agent:getRunningThreads", () => requireAgentManager().getRunningThreadIds());
+  ipcMain.handle("agent:getToolCalls", (_event, threadId: string) =>
+    requireAgentManager().getToolCalls(threadId),
+  );
   ipcMain.handle("agent:sendPrompt", (_event, input) => {
     try {
       return requireAgentManager().sendPrompt(input);
@@ -1649,7 +1825,7 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("monitor:isEnabled", () => true);
+  ipcMain.handle("monitor:isEnabled", () => isMonitorEnabled());
   ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
   ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
   ipcMain.handle(
@@ -1660,16 +1836,7 @@ function registerIpc(): void {
   ipcMain.handle(
     "monitor:getRecordedSession",
     (_event, sessionId: string) =>
-      monitorService?.getRecordedSession(sessionId) ?? {
-        session: null,
-        ticks: [],
-        rendererTelemetry: [],
-        diffIngestions: [],
-        acpUpdates: [],
-        bridgeEvents: [],
-        connectionEpisodes: [],
-        incidents: [],
-      },
+      monitorService?.getRecordedSession(sessionId) ?? emptyMonitorRecordedSession(),
   );
   ipcMain.handle("monitor:startRecording", (_event, label?: string) => {
     if (!monitorService) throw new Error("Monitor service is not initialized.");
@@ -1694,6 +1861,33 @@ function registerIpc(): void {
   ipcMain.handle("monitor:getSwitches", () => monitorService?.getSwitchRecords() ?? []);
   ipcMain.handle("monitor:getTabEvents", () => monitorService?.getTabEvents() ?? []);
   ipcMain.handle("monitor:getTabClickTimings", () => monitorService?.getTabClickTimings() ?? []);
+
+  ipcMain.handle("benchmark:status", () =>
+    threadBenchmarkController?.status() ?? {
+      enabled: false,
+      prepared: null,
+      run: null,
+      rendererReady: null,
+    },
+  );
+  ipcMain.handle("benchmark:prepare", () => {
+    if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
+    return threadBenchmarkController.prepare();
+  });
+  ipcMain.handle("benchmark:start", (_event, mode: ThreadBenchmarkMode) => {
+    if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
+    return threadBenchmarkController.start(mode);
+  });
+  ipcMain.handle("benchmark:finish", () => {
+    if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
+    return threadBenchmarkController.finish();
+  });
+  ipcMain.handle("benchmark:cleanup", () => threadBenchmarkController?.cleanup());
+  ipcMain.on(
+    "benchmark:rendererReady",
+    (_event, input: ThreadBenchmarkRendererReady) =>
+      threadBenchmarkController?.reportRendererReady(input),
+  );
   ipcMain.handle("monitor:getSwitchTimeline", () => monitorService?.getSwitchTimeline() ?? null);
   ipcMain.handle("monitor:openWindow", () => {
     createMonitorWindow();
@@ -1803,6 +1997,7 @@ app.whenReady().then(async () => {
   logStartupMilestone("database:init:start");
   getDb();
   logStartupMilestone("database:init:complete");
+  await prepareBenchmarkLaunchState();
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {
     identifyAnalyticsUser({
@@ -1842,6 +2037,15 @@ app.whenReady().then(async () => {
     console.error("[Sleepless] Initialization failed:", error);
   });
   initializeMonitorService();
+  threadBenchmarkController = new ThreadBenchmarkController({
+    enabled: benchmarkEnabled,
+    fixturePath: process.env.PIPPER_BENCHMARK_FIXTURE ?? null,
+    outputDir: process.env.PIPPER_BENCHMARK_OUTPUT_DIR ?? null,
+    projectId: () => getActiveProjectId(),
+    agentManager: () => requireAgentManager(),
+    monitorService: () => monitorService,
+    broadcastTabs: (tabs) => broadcastOpenTabsChanged(mainWindow, tabs),
+  });
   const launcherManifestUrl = resolveLauncherUpdateManifestUrl({
     platform: process.platform,
     macManifestUrl:

@@ -408,3 +408,31 @@ export interface MonitorSwitchTimeline {
   clickTimings: MonitorTabClickTiming[];
   summary: MonitorSwitchTimelineSummary;
 }
+
+/** Inclusive wall-clock window used to attach unscoped monitor rows to a recording. */
+export interface MonitorTimeRange {
+  from: number;
+  to: number;
+}
+
+/**
+ * Everything the durable monitor can reconstruct for one recording session.
+ * Process ticks / renderer / ACP / bridge / diff rows are keyed by session id.
+ * Switches, tab events, click timings, and connection episodes are attached by
+ * overlapping the recording window.
+ */
+export interface MonitorRecordedSession {
+  session: MonitorSession | null;
+  ticks: MonitorSampleTick[];
+  rendererTelemetry: MonitorRendererTelemetry[];
+  diffIngestions: MonitorDiffIngestion[];
+  acpUpdates: MonitorAcpUpdate[];
+  bridgeEvents: MonitorBridgeEvent[];
+  connectionEpisodes: MonitorConnectionEpisode[];
+  incidents: MonitorIncident[];
+  switches: MonitorSwitchRecord[];
+  tabEvents: MonitorTabEvent[];
+  clickTimings: MonitorTabClickTiming[];
+  switchTimeline: MonitorSwitchTimeline;
+  summary: MonitorSessionSummary;
+}

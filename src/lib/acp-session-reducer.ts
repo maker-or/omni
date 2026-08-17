@@ -7,6 +7,8 @@
  * chunks accumulate into the tail entry; tool calls append entries and are
  * updated in place via the record, so settled entries keep referential
  * identity while a turn streams (memoized views skip re-rendering them).
+ * Tool records in the slice are lean (title/status/preview). Full content
+ * and rawOutput are parked by the connection manager / renderer payload map.
  */
 
 import type {
@@ -21,6 +23,7 @@ import type {
   AcpToolCallState,
   AcpUsageState,
 } from "../../contracts/acp.ts";
+import { leanToolCallsEqual, toLeanToolCall } from "./tool-call-payload";
 
 export interface AcpSessionSlice {
   entries: AcpEntry[];
@@ -145,20 +148,14 @@ function mergeToolCall(
     locations: update.locations ?? existing?.locations,
     rawInput: update.rawInput !== undefined ? update.rawInput : existing?.rawInput,
     rawOutput: update.rawOutput !== undefined ? update.rawOutput : existing?.rawOutput,
+    outputPreview: existing?.outputPreview,
+    hasPayload: existing?.hasPayload,
+    hasDiff: existing?.hasDiff,
+    terminalIds: existing?.terminalIds,
   };
-  if (
-    existing &&
-    merged.title === existing.title &&
-    merged.kind === existing.kind &&
-    merged.status === existing.status &&
-    merged.content === existing.content &&
-    merged.locations === existing.locations &&
-    merged.rawInput === existing.rawInput &&
-    merged.rawOutput === existing.rawOutput
-  ) {
-    return existing;
-  }
-  return merged;
+  const lean = toLeanToolCall(merged);
+  if (existing && leanToolCallsEqual(existing, lean)) return existing;
+  return lean;
 }
 
 /** Append a tool_call entry unless this toolCallId already has one. */
@@ -174,7 +171,7 @@ export function applySessionUpdate(state: AcpSessionSlice, update: SessionUpdate
   return trimSessionSlice(applySessionUpdateUnbounded(state, update));
 }
 
-function applySessionUpdateUnbounded(
+export function applySessionUpdateUnbounded(
   state: AcpSessionSlice,
   update: SessionUpdate,
 ): AcpSessionSlice {
@@ -355,6 +352,175 @@ function applySessionUpdateUnbounded(
     }
     default:
       return { ...state, titleChanged: false };
+  }
+}
+
+function appendTextEntryInPlace(
+  entries: AcpEntry[],
+  type: TextEntryType,
+  update: SessionUpdate,
+): void {
+  const messageId = (update as { messageId?: string | null }).messageId ?? null;
+  const chunk = contentText((update as { content?: { type?: string; text?: string } }).content);
+  const last = entries[entries.length - 1];
+  const continuesLast =
+    last?.type === type &&
+    (type === "user_text"
+      ? messageId != null && last.messageId === messageId
+      : messageId == null || last.messageId == null || last.messageId === messageId);
+  if (continuesLast) {
+    if (!chunk) return;
+    const tail = last as Extract<AcpEntry, { type: TextEntryType }>;
+    tail.text += chunk;
+    tail.messageId = tail.messageId ?? messageId;
+    return;
+  }
+  if (!chunk) return;
+  entries.push({ type, id: nextEntryId(), messageId, text: chunk });
+}
+
+/**
+ * Mutating apply for session/load. The renderer never sees intermediate
+ * replay slices, so we avoid copying the growing entries/tool tables.
+ */
+export function applySessionUpdateInPlace(state: AcpSessionSlice, update: SessionUpdate): void {
+  switch (update.sessionUpdate) {
+    case "agent_message_chunk": {
+      appendTextEntryInPlace(state.entries, "agent_text", update);
+      state.isStreaming = true;
+      state.titleChanged = false;
+      return;
+    }
+    case "agent_thought_chunk": {
+      appendTextEntryInPlace(state.entries, "agent_thought", update);
+      state.isStreaming = true;
+      state.titleChanged = false;
+      return;
+    }
+    case "user_message_chunk": {
+      const last = state.entries[state.entries.length - 1];
+      if (last?.type === "user_text" && last.id.startsWith("local-user-")) {
+        state.titleChanged = false;
+        return;
+      }
+      appendTextEntryInPlace(state.entries, "user_text", update);
+      state.titleChanged = false;
+      return;
+    }
+    case "tool_call": {
+      const toolCallId = update.toolCallId;
+      if (!state.toolCalls[toolCallId]) {
+        state.entries.push({ type: "tool_call", id: nextEntryId(), toolCallId });
+      }
+      state.toolCalls[toolCallId] = mergeToolCall(state.toolCalls[toolCallId], {
+        toolCallId,
+        title: update.title,
+        kind: update.kind,
+        status: update.status,
+        content: update.content,
+        locations: update.locations as AcpToolCallState["locations"],
+        rawInput: update.rawInput,
+        rawOutput: update.rawOutput,
+      });
+      state.isStreaming = true;
+      state.titleChanged = false;
+      return;
+    }
+    case "tool_call_update": {
+      const toolCallId = update.toolCallId;
+      const existing = state.toolCalls[toolCallId];
+      if (!existing) {
+        state.entries.push({ type: "tool_call", id: nextEntryId(), toolCallId });
+      }
+      state.toolCalls[toolCallId] = mergeToolCall(existing, {
+        toolCallId,
+        title: update.title ?? existing?.title,
+        kind: update.kind ?? existing?.kind,
+        status: update.status ?? existing?.status,
+        content: update.content ?? existing?.content,
+        locations: (update.locations as AcpToolCallState["locations"]) ?? existing?.locations,
+        rawInput: update.rawInput !== undefined ? update.rawInput : existing?.rawInput,
+        rawOutput: update.rawOutput !== undefined ? update.rawOutput : existing?.rawOutput,
+      });
+      state.titleChanged = false;
+      return;
+    }
+    case "plan": {
+      state.plan = update.entries ?? [];
+      state.titleChanged = false;
+      return;
+    }
+    case "plan_update": {
+      state.plan = (update as { entries?: PlanEntry[] }).entries ?? state.plan;
+      state.titleChanged = false;
+      return;
+    }
+    case "plan_removed": {
+      state.plan = null;
+      state.titleChanged = false;
+      return;
+    }
+    case "usage_update": {
+      const used =
+        typeof (update as { used?: number }).used === "number"
+          ? (update as { used: number }).used
+          : (state.usage?.used ?? 0);
+      const size =
+        typeof (update as { size?: number }).size === "number"
+          ? (update as { size: number }).size
+          : (state.usage?.size ?? 0);
+      const cost = (update as { cost?: AcpUsageState["cost"] }).cost;
+      const rateLimitMeta = (update as { _meta?: Record<string, unknown> })._meta?.[
+        "_claude/rateLimit"
+      ] as Partial<AcpRateLimitInfo> | undefined;
+      const rawUtilization = rateLimitMeta?.utilization;
+      const utilization =
+        typeof rawUtilization === "number" && !Number.isNaN(rawUtilization)
+          ? rawUtilization * 100
+          : undefined;
+      const rateLimit: AcpUsageState["rateLimit"] = rateLimitMeta
+        ? {
+            status: rateLimitMeta.status ?? "allowed",
+            rateLimitType: rateLimitMeta.rateLimitType,
+            utilization,
+            resetsAt: rateLimitMeta.resetsAt,
+          }
+        : (state.usage?.rateLimit ?? null);
+      state.usage = {
+        used: (update as { used?: number }).used ?? used,
+        size,
+        cost: cost ?? state.usage?.cost,
+        rateLimit,
+      };
+      state.titleChanged = false;
+      return;
+    }
+    case "config_option_update": {
+      state.configOptions = update.configOptions ?? [];
+      state.titleChanged = false;
+      return;
+    }
+    case "available_commands_update": {
+      state.commands = update.availableCommands ?? [];
+      state.titleChanged = false;
+      return;
+    }
+    case "current_mode_update": {
+      state.currentModeId = update.currentModeId ?? null;
+      state.titleChanged = false;
+      return;
+    }
+    case "session_info_update": {
+      const title =
+        typeof (update as { title?: string | null }).title === "string"
+          ? (update as { title: string }).title
+          : null;
+      state.title = title;
+      state.titleChanged = title != null;
+      return;
+    }
+    default:
+      state.titleChanged = false;
   }
 }
 

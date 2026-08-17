@@ -365,6 +365,11 @@ interface TabItemProps extends ComponentPropsWithoutRef<typeof TabsPrimitive.Tab
   onEditCancel?: () => void;
   /** Keeps the label to a fixed width and reveals overflow while hovered. */
   scrollLabelOnHover?: boolean;
+  /**
+   * Icon-only tab. The label stays on `aria-label` / `title` so the tab is
+   * still named for hover and assistive tech.
+   */
+  iconOnly?: boolean;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
@@ -382,6 +387,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
       onEditCommit,
       onEditCancel,
       scrollLabelOnHover = false,
+      iconOnly = false,
       _index = 0,
       className,
       ...props
@@ -458,11 +464,14 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
         }}
         value={value}
         data-proximity-index={_index}
+        aria-label={iconOnly ? label : undefined}
+        title={iconOnly ? label : undefined}
         className={cn(
           // Named group (`group/tab`) so hover styles inside respond to THIS
           // tab only — a bare `group` would also match any `.group` ancestor
           // elsewhere in the layout, animating every label at once.
-          "relative z-10 flex shrink-0 items-center gap-2 px-3 py-1.5 cursor-pointer bg-transparent border-none outline-none group/tab",
+          "relative z-10 flex shrink-0 items-center cursor-pointer bg-transparent border-none outline-none group/tab",
+          iconOnly ? "gap-0 px-2 py-1.5" : "gap-2 px-3 py-1.5",
           className,
         )}
         {...props}
@@ -477,7 +486,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
             )}
           />
         )}
-        {editing ? (
+        {iconOnly && !editing ? null : editing ? (
           <input
             ref={editInputRef}
             value={editValue}

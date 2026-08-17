@@ -57,10 +57,14 @@ describe("orchestration prompt", () => {
   test("auto mode tells the orchestrator to fan out via spawn_subagent around the goal", () => {
     const draft = emptyOrchestrationDraft();
     draft.goal = "Migrate the settings page to the new design system";
-    const prompt = composeOrchestrationPrompt(draft, AGENTS);
+    const prompt = composeOrchestrationPrompt(draft, AGENTS, 4);
 
     expect(prompt).toContain("spawn_subagent");
     expect(prompt).toContain("Migrate the settings page to the new design system");
+    // The user's parallel pick is a hard cap on how many auto-mode spawns.
+    expect(prompt).toMatch(/at most 4/);
+    expect(prompt).toMatch(/up to 4/);
+    expect(prompt).toMatch(/Do not spawn more than 4/);
     // The orchestrator decides the split — no fabricated assignments.
     expect(prompt).not.toContain("<assignments>");
     // Subagents share no context: the prompt must say tasks are self-contained.

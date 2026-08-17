@@ -31,6 +31,11 @@ import { queryClient } from "../lib/query-client";
 import { OPEN_TABS_QUERY_KEY } from "../lib/thread-queries";
 import { useThreadStore } from "./thread-store";
 import { recordRendererEvent } from "../lib/monitor-runtime-observer";
+import {
+  forgetThreadToolPayloads,
+  rememberToolPayloadFromUpdate,
+  syncToolPayloadIds,
+} from "./tool-payload-store";
 
 /**
  * An agent naming a session ("title" bridge event) is the source of truth
@@ -166,7 +171,9 @@ let latestRefreshId = 0;
 // Main activation can spend up to 10s on initialize plus three 10s session
 // phases (load, resume, new). Keep the renderer pending until that budget has
 // elapsed so a late session-state cannot surprise the user after a false error.
-const THREAD_SWITCH_TIMEOUT_MS = 60_000;
+const THREAD_SWITCH_TIMEOUT_MS = window.omni.benchmark.enabled
+  ? window.omni.benchmark.switchTimeoutMs
+  : 60_000;
 
 /**
  * The runtime's authoritative session snapshots currently contain user text
@@ -483,6 +490,7 @@ function applyBridgeEvent(
   }
 
   if (payload.type === "thread-closed") {
+    forgetThreadToolPayloads(payload.threadId);
     const threadToolCalls = { ...state.threadToolCalls };
     delete threadToolCalls[payload.threadId];
     return { threadToolCalls };
@@ -522,6 +530,9 @@ function applyBridgeEvent(
       // for its active thread (see AgentConnectionManager.pushState); their
       // streaming flags arrive via "running-threads" instead.
       const nextState = preserveOptimisticState(state.state, payload.state);
+      if (nextState.threadId) {
+        syncToolPayloadIds(nextState.threadId, Object.keys(nextState.toolCalls));
+      }
       return {
         state: nextState,
         threadToolCalls: nextState.threadId
@@ -552,7 +563,9 @@ function applyBridgeEvent(
       if (payload.threadId !== displayedThreadId) {
         return {};
       }
+      rememberToolPayloadFromUpdate(payload.threadId, payload.update);
       const nextSlice = applySessionUpdate(state.slice, payload.update);
+      syncToolPayloadIds(payload.threadId, Object.keys(nextSlice.toolCalls));
       const base = state.state ?? emptyState();
       return {
         slice: nextSlice,

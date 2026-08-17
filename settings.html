@@ -1,13 +1,12 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script src="https://unpkg.com/react-scan/dist/auto.global.js" crossorigin="anonymous"></script>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pipper Code (Alpha)</title>
+    <title>Settings · Pipper Code</title>
     <script>
-      // Apply theme before render to avoid flash. Mirrors logic in src/lib/theme.tsx.
+      // Match the main window before React mounts so the settings window never
+      // flashes into the wrong appearance while it is opening.
       (function () {
         try {
           var stored = localStorage.getItem("pipper:theme");
@@ -24,6 +23,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/settings.tsx"></script>
   </body>
 </html>

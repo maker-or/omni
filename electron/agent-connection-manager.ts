@@ -19,6 +19,7 @@ import type {
   AcpPromptInput,
   AcpReplacePromptInput,
   AcpSessionState,
+  AcpToolCallState,
 } from "../contracts/acp.ts";
 import type { OpenTabsState, Thread } from "../contracts/threads.ts";
 import { readOpenTabsState, recordThreadSwitch } from "./open-tabs.ts";
@@ -53,12 +54,24 @@ import { SubagentManager } from "./subagents/subagent-manager.ts";
 import { TerminalManager } from "./terminal-manager.ts";
 import {
   applySessionUpdate,
+  applySessionUpdateInPlace,
   applyTurnStop,
   appendLocalUserMessage,
   assemblePromptBlocks,
   createEmptySessionSlice,
   type AcpSessionSlice,
 } from "../src/lib/acp-session-reducer.ts";
+import {
+  SessionRetentionTracker,
+  captureRetentionTail,
+  estimateJsonBytes,
+} from "../src/lib/session-retention.ts";
+import {
+  hydrateToolCalls,
+  mergeToolCallPayload,
+  payloadFromSessionUpdate,
+  type ToolCallPayload,
+} from "../src/lib/tool-call-payload.ts";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
 import type {
   MonitorAcpUpdate,
@@ -105,7 +118,11 @@ export interface AgentMonitorObserver {
   onBridgeEvent?: (event: MonitorBridgeEvent) => void;
 }
 
-const ACP_SWITCH_PHASE_TIMEOUT_MS = 10_000;
+const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
+const ACP_SWITCH_PHASE_TIMEOUT_MS =
+  Number.isFinite(configuredSwitchTimeout) && configuredSwitchTimeout >= 1_000
+    ? configuredSwitchTimeout
+    : 10_000;
 const ACP_PROMPT_TIMEOUT_MS = 10 * 60_000;
 
 function modelOptionsFromConfig(
@@ -263,57 +280,13 @@ interface ThreadSessionRuntime {
   promptInFlight: boolean;
   activeTurnId: string | null;
   monitorUpdateCount: number;
+  /** Full tool bodies parked off the lean session slice. */
+  toolPayloads: Map<string, ToolCallPayload>;
+  retention: SessionRetentionTracker;
 }
 
 function jsonBytes(value: unknown): number {
-  try {
-    return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
-  } catch {
-    return 0;
-  }
-}
-
-function retentionMetrics(
-  slice: AcpSessionSlice,
-): Pick<
-  MonitorAcpUpdate,
-  | "entryCount"
-  | "toolCallCount"
-  | "textBytes"
-  | "thoughtBytes"
-  | "toolPayloadBytes"
-  | "largestToolPayloadBytes"
-  | "sessionSnapshotBytes"
-> {
-  let textBytes = 0;
-  let thoughtBytes = 0;
-  for (const entry of slice.entries) {
-    if (entry.type === "user_text" || entry.type === "agent_text") {
-      textBytes += Buffer.byteLength(entry.text, "utf8");
-    } else if (entry.type === "agent_thought") {
-      thoughtBytes += Buffer.byteLength(entry.text, "utf8");
-    }
-  }
-  let toolPayloadBytes = 0;
-  let largestToolPayloadBytes = 0;
-  for (const toolCall of Object.values(slice.toolCalls)) {
-    const bytes = jsonBytes({
-      content: toolCall.content,
-      rawInput: toolCall.rawInput,
-      rawOutput: toolCall.rawOutput,
-    });
-    toolPayloadBytes += bytes;
-    largestToolPayloadBytes = Math.max(largestToolPayloadBytes, bytes);
-  }
-  return {
-    entryCount: slice.entries.length,
-    toolCallCount: Object.keys(slice.toolCalls).length,
-    textBytes,
-    thoughtBytes,
-    toolPayloadBytes,
-    largestToolPayloadBytes,
-    sessionSnapshotBytes: textBytes + thoughtBytes + toolPayloadBytes,
-  };
+  return estimateJsonBytes(value);
 }
 
 interface PendingPermission {
@@ -617,6 +590,41 @@ export class AgentConnectionManager {
     return result;
   }
 
+  getToolCalls(threadId: string): Record<string, AcpToolCallState> {
+    const runtime = this.sessions.get(threadId);
+    if (!runtime) return {};
+    return hydrateToolCalls(runtime.slice.toolCalls, this.payloadsFor(runtime));
+  }
+
+  private payloadsFor(runtime: ThreadSessionRuntime): Map<string, ToolCallPayload> {
+    if (!runtime.toolPayloads) runtime.toolPayloads = new Map();
+    return runtime.toolPayloads;
+  }
+
+  private retentionFor(runtime: ThreadSessionRuntime): SessionRetentionTracker {
+    if (!runtime.retention) runtime.retention = new SessionRetentionTracker();
+    return runtime.retention;
+  }
+
+  private syncToolPayloads(runtime: ThreadSessionRuntime, update: SessionUpdate): void {
+    const payloads = this.payloadsFor(runtime);
+    const extracted = payloadFromSessionUpdate(update);
+    if (extracted) {
+      payloads.set(
+        extracted.toolCallId,
+        mergeToolCallPayload(payloads.get(extracted.toolCallId), extracted.payload),
+      );
+    }
+    this.evictOrphanToolPayloads(runtime);
+  }
+
+  private evictOrphanToolPayloads(runtime: ThreadSessionRuntime): void {
+    const payloads = this.payloadsFor(runtime);
+    for (const id of payloads.keys()) {
+      if (!runtime.slice.toolCalls[id]) payloads.delete(id);
+    }
+  }
+
   getPreferredAgentId(): string {
     return this.preferredAgentId;
   }
@@ -636,6 +644,10 @@ export class AgentConnectionManager {
   }
 
   private emit(payload: AcpBridgeEvent): void {
+    if (!this.monitorObserver?.onBridgeEvent) {
+      this.sendToRenderer("agent:event", payload);
+      return;
+    }
     const startedAt = performance.now();
     const bytes = jsonBytes(payload);
     const serializationMs = performance.now() - startedAt;
@@ -650,7 +662,7 @@ export class AgentConnectionManager {
     try {
       this.sendToRenderer("agent:event", payload);
     } finally {
-      this.monitorObserver?.onBridgeEvent?.({
+      this.monitorObserver.onBridgeEvent({
         timestamp: Date.now(),
         eventType: payload.type,
         bytes,
@@ -674,6 +686,10 @@ export class AgentConnectionManager {
       };
     }
     return this.buildSessionState(threadId);
+  }
+
+  isThreadLoading(threadId: string): boolean {
+    return this.loadingSessionThreads.has(threadId);
   }
 
   /**
@@ -756,14 +772,10 @@ export class AgentConnectionManager {
       this.emitRunningThreads();
       return;
     }
-    const runtime = id ? this.sessions.get(id) : null;
-    if (runtime) {
-      this.emit({
-        type: "thread-tool-calls",
-        threadId: runtime.threadId,
-        toolCalls: runtime.slice.toolCalls,
-      });
-    }
+    // Activation publishes one session-state. That snapshot already includes
+    // toolCalls and the renderer copies them into threadToolCalls. Live
+    // background watermarks still go through handleSessionUpdate's
+    // thread-tool-calls event.
     if (!id) {
       this.emit({ type: "session-state", state: this.getState() });
     } else {
@@ -1226,22 +1238,50 @@ export class AgentConnectionManager {
 
     this.trackToolCallTiming(sessionId, runtime, update);
 
-    runtime.slice = applySessionUpdate(runtime.slice, update);
+    const loading = this.loadingSessionThreads.has(runtime.threadId);
+    const monitorAcp = this.monitorObserver?.onAcpUpdate != null;
+    if (!monitorAcp) {
+      if (loading) applySessionUpdateInPlace(runtime.slice, update);
+      else runtime.slice = applySessionUpdate(runtime.slice, update);
+      this.syncToolPayloads(runtime, update);
+    } else {
     runtime.monitorUpdateCount += 1;
     const sampledRetention =
       runtime.monitorUpdateCount % 10 === 0 || update.sessionUpdate.startsWith("tool_");
-    const retained = sampledRetention
-      ? retentionMetrics(runtime.slice)
-      : {
-          entryCount: runtime.slice.entries.length,
-          toolCallCount: Object.keys(runtime.slice.toolCalls).length,
-          textBytes: 0,
-          thoughtBytes: 0,
-          toolPayloadBytes: 0,
-          largestToolPayloadBytes: 0,
-          sessionSnapshotBytes: 0,
-        };
-    this.monitorObserver?.onAcpUpdate?.({
+    const tracker = this.retentionFor(runtime);
+    let retained;
+    if (loading) {
+      const before = sampledRetention ? captureRetentionTail(runtime.slice) : null;
+      applySessionUpdateInPlace(runtime.slice, update);
+      this.syncToolPayloads(runtime, update);
+      retained = before
+        ? tracker.observeAfterMutation(before, runtime.slice, update)
+        : {
+            entryCount: runtime.slice.entries.length,
+            toolCallCount: tracker.snapshot(runtime.slice).toolCallCount,
+            textBytes: 0,
+            thoughtBytes: 0,
+            toolPayloadBytes: 0,
+            largestToolPayloadBytes: 0,
+            sessionSnapshotBytes: 0,
+          };
+    } else {
+      const previousSlice = runtime.slice;
+      runtime.slice = applySessionUpdate(runtime.slice, update);
+      this.syncToolPayloads(runtime, update);
+      retained = sampledRetention
+        ? tracker.observe(previousSlice, runtime.slice, update)
+        : {
+            entryCount: runtime.slice.entries.length,
+            toolCallCount: Object.keys(runtime.slice.toolCalls).length,
+            textBytes: 0,
+            thoughtBytes: 0,
+            toolPayloadBytes: 0,
+            largestToolPayloadBytes: 0,
+            sessionSnapshotBytes: 0,
+          };
+    }
+    this.monitorObserver.onAcpUpdate({
       timestamp: Date.now(),
       agentId: runtime.agentId,
       connectionId: this.connectionForAgent(runtime.agentId)?.connectionId ?? null,
@@ -1255,6 +1295,8 @@ export class AgentConnectionManager {
       isStreaming: runtime.slice.isStreaming,
       ...retained,
     });
+    }
+    if (loading) return;
     // `applySessionUpdate` sets isStreaming=true for every agent chunk/tool_call,
     // but only `applyTurnStop` (on the prompt request resolving) clears it. An
     // update that lands outside an active turn — a late flush after the response,
@@ -1271,12 +1313,6 @@ export class AgentConnectionManager {
     }
     // A background thread's streaming can flip via updates without a pushState; keep tabs in sync.
     this.emitRunningThreads();
-
-    // A session/load replay is not a live turn. Publishing each replay chunk
-    // here exposes a partially hydrated target session to the renderer before
-    // its thread identity has become authoritative. The activation publishes
-    // the complete runtime once loading finishes.
-    if (this.loadingSessionThreads.has(runtime.threadId)) return;
 
     if (runtime.slice.titleChanged && runtime.slice.title && this.sessions.has(runtime.threadId)) {
       updateThreadTitle(runtime.threadId, runtime.slice.title);
@@ -2050,6 +2086,8 @@ export class AgentConnectionManager {
         promptInFlight: false,
         activeTurnId: null,
         monitorUpdateCount: 0,
+        toolPayloads: new Map(),
+        retention: new SessionRetentionTracker(),
       };
       this.sessions.set(threadId, runtime);
       this.loadingSessionThreads.add(threadId);
@@ -2073,6 +2111,8 @@ export class AgentConnectionManager {
           // partial replay before erroring; drop it so the fallback path
           // doesn't append onto half a timeline.
           runtime.slice = createEmptySessionSlice();
+          this.retentionFor(runtime).reset();
+          this.payloadsFor(runtime).clear();
           try {
             const resumed = await this.sessionResume(live, thread.agent_session_id, cwd);
             onPhase("session_resume");
@@ -2095,6 +2135,13 @@ export class AgentConnectionManager {
         if (configOptions.length > 0 || runtime.slice.configOptions.length === 0) {
           runtime.slice = { ...runtime.slice, configOptions };
         }
+        // A session/load replay describes settled history, not a live turn.
+        // Individual chunks set isStreaming while they are reduced; clear it
+        // once the load request has delivered the complete replay. Trim was
+        // deferred during replay so the cap still applies exactly once here.
+        runtime.slice = applyTurnStop(runtime.slice);
+        this.evictOrphanToolPayloads(runtime);
+        this.retentionFor(runtime).recompute(runtime.slice);
       } catch (err) {
         // No session could be established — remove the placeholder so a
         // retry doesn't silently reuse a dead runtime.
@@ -2189,6 +2236,8 @@ export class AgentConnectionManager {
       promptInFlight: false,
       activeTurnId: null,
       monitorUpdateCount: 0,
+      toolPayloads: new Map(),
+      retention: new SessionRetentionTracker(),
     });
 
     const projectChanged = this.activeProjectId !== projectId;

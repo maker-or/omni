@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AcpBridgeEvent, AcpSessionState } from "../../contracts/acp.ts";
+import { resetToolPayloadStore } from "./tool-payload-store";
 
 function sessionState(
   threadId: string | null,
@@ -43,6 +44,7 @@ async function loadStore() {
 }
 
 afterEach(() => {
+  resetToolPayloadStore();
   delete (globalThis as { window?: unknown }).window;
   vi.resetModules();
 });
@@ -304,6 +306,43 @@ describe("agent store ACP bridge behavior", () => {
     expect(store.getState().threadToolCalls).toEqual({
       "thread-a": { t1: { toolCallId: "t1", title: "Edit", status: "completed" } },
     });
+  });
+
+  test("session-state alone fills threadToolCalls for the active thread", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    const agentApi = {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
+        bridgeHandler = handler;
+        return vi.fn();
+      }),
+      getState: vi.fn(async () => sessionState(null)),
+      getCapabilities: vi.fn(async () => null),
+      switchThread: vi.fn(),
+      respondToPermission: vi.fn(),
+      sendPrompt: vi.fn(),
+      replacePrompt: vi.fn(),
+      abort: vi.fn(),
+      createThread: vi.fn(),
+      setConfigOption: vi.fn(),
+      setEditorText: vi.fn(),
+      pasteToEditor: vi.fn(),
+      reportEditorText: vi.fn(),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    await store.getState().connect();
+
+    bridgeHandler?.({
+      type: "session-state",
+      state: sessionState("thread-b", {
+        toolCalls: { t2: { toolCallId: "t2", title: "Read", status: "completed", hasPayload: true } },
+      }),
+    });
+
+    expect(store.getState().state?.threadId).toBe("thread-b");
+    expect(store.getState().threadToolCalls["thread-b"]?.t2?.title).toBe("Read");
+    expect(store.getState().slice.toolCalls.t2?.content).toBeUndefined();
   });
 
   test("tracks which threads are running across open tabs", async () => {

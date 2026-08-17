@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  ArrowDownIcon,
   CheckIcon as ModelCheckIcon,
   ChatCircleTextIcon,
   WarningIcon,
@@ -80,6 +81,8 @@ import { SubagentActivity } from "@/components/subagent-activity";
 import { DiffSummaryCard } from "@/components/diff-summary-card";
 /** Max agents shown in (and selectable from) the `/continue` picker. */
 const MAX_CONTINUE_AGENTS = 8;
+const SCROLL_LIVE_EDGE_PX = 24;
+const SCROLL_ANCHOR_TOP_PX = 72;
 const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
   month: "short",
@@ -89,6 +92,12 @@ const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
 });
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+type ConversationScrollMode = "reading" | "anchoring" | "following";
+type PendingScrollAction = {
+  kind: "restore" | "new-turn";
+  threadId: string | null;
+};
 
 export function formatProviderName(provider: string): string {
   return provider
@@ -617,7 +626,16 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [traceDeckOpenByKey, setTraceDeckOpenByKey] = useState<Record<string, boolean>>({});
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const scrollRafRef = useRef<number | null>(null);
-  const autoScrollPinnedRef = useRef(true);
+  const anchorRafRef = useRef<number | null>(null);
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollClearRef = useRef<number | null>(null);
+  const conversationScrollModeRef = useRef<ConversationScrollMode>("reading");
+  const pendingScrollActionRef = useRef<PendingScrollAction | null>(null);
+  const awaitingAssistantAfterUserRef = useRef<number | null>(null);
+  const [conversationScrollMode, setConversationScrollMode] =
+    useState<ConversationScrollMode>("reading");
+  const [hasUnreadConversationContent, setHasUnreadConversationContent] = useState(false);
+  const [isAtConversationLiveEdge, setIsAtConversationLiveEdge] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -1014,67 +1032,241 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     estimateSize: (index) => (allMessages[index]?.role === "user" ? 96 : 180),
     getItemKey: (index) => allMessages[index]?.key ?? index,
     overscan: 6,
+    // When the reader is away from the live edge, compensate for measured
+    // height changes above the viewport so images/markdown do not steal their
+    // place. While following, the bottom-follow loop owns the position.
+    shouldAdjustScrollPositionOnItemSizeChange: () =>
+      conversationScrollModeRef.current !== "following",
   });
+
+  useEffect(() => {
+    if (
+      !window.omni.benchmark.enabled ||
+      !threadId ||
+      isSwitchingThread ||
+      allMessages.length === 0
+    ) {
+      return;
+    }
+
+    let paintFrame = 0;
+    let settledFrame = 0;
+    paintFrame = requestAnimationFrame(() => {
+      settledFrame = requestAnimationFrame(() => {
+        const visibleRows =
+          messagesScrollRef.current?.querySelectorAll(
+            '[data-pipper-id="messages-list"] [data-index]',
+          ).length ?? 0;
+        if (visibleRows === 0) return;
+        window.omni.benchmark.reportRendererReady({
+          threadId,
+          totalRows: allMessages.length,
+          visibleRows,
+          renderedAt: Date.now(),
+        });
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(paintFrame);
+      cancelAnimationFrame(settledFrame);
+    };
+  }, [allMessages.length, isSwitchingThread, threadId]);
 
   const latestConversationScrollKey = useMemo(
     () => buildConversationScrollKey(threadId, allMessages, isStreaming),
     [allMessages, isStreaming, threadId],
   );
 
+  const cancelConversationScrollAnimation = () => {
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+  };
+
+  const cancelConversationAnchor = () => {
+    if (anchorRafRef.current !== null) {
+      cancelAnimationFrame(anchorRafRef.current);
+      anchorRafRef.current = null;
+    }
+  };
+
+  const updateConversationScrollMode = (mode: ConversationScrollMode) => {
+    conversationScrollModeRef.current = mode;
+    setConversationScrollMode((current) => (current === mode ? current : mode));
+  };
+
+  const markProgrammaticScroll = () => {
+    programmaticScrollRef.current = true;
+    if (programmaticScrollClearRef.current !== null) {
+      window.clearTimeout(programmaticScrollClearRef.current);
+    }
+    programmaticScrollClearRef.current = window.setTimeout(() => {
+      programmaticScrollRef.current = false;
+      programmaticScrollClearRef.current = null;
+    }, 120);
+  };
+
+  const stopConversationFollowing = () => {
+    programmaticScrollRef.current = false;
+    pendingScrollActionRef.current = null;
+    awaitingAssistantAfterUserRef.current = null;
+    cancelConversationScrollAnimation();
+    cancelConversationAnchor();
+    updateConversationScrollMode("reading");
+    setHasUnreadConversationContent(true);
+  };
+
   useEffect(() => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
 
-    const updatePinnedState = () => {
-      const distanceFromBottom =
-        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
-      autoScrollPinnedRef.current = distanceFromBottom <= 120;
+    const getDistanceFromBottom = () =>
+      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+
+    const updateScrollModeFromPosition = () => {
+      const distanceFromBottom = getDistanceFromBottom();
+      const atLiveEdge = distanceFromBottom <= SCROLL_LIVE_EDGE_PX;
+      setIsAtConversationLiveEdge(atLiveEdge);
+      if (atLiveEdge) {
+        updateConversationScrollMode("following");
+        setHasUnreadConversationContent(false);
+      } else {
+        updateConversationScrollMode("reading");
+        setHasUnreadConversationContent(true);
+      }
     };
 
-    updatePinnedState();
     const onScroll = () => {
       beginRendererInteraction("scroll");
-      updatePinnedState();
+      if (programmaticScrollRef.current) {
+        programmaticScrollRef.current = false;
+        return;
+      }
+      updateScrollModeFromPosition();
     };
+
+    const stopOnReaderIntent = () => {
+      stopConversationFollowing();
+    };
+
+    // A reader can express intent without changing scrollTop: selecting text,
+    // dragging a link, using keyboard navigation, opening browser find, or
+    // touching the transcript should all stop the live-follow loop.
+    const intentEvents: Array<keyof HTMLElementEventMap> = [
+      "wheel",
+      "touchstart",
+      "pointerdown",
+      "selectstart",
+    ];
+    for (const eventName of intentEvents) {
+      scrollContainer.addEventListener(eventName, stopOnReaderIntent, { passive: true });
+    }
+    document.addEventListener("keydown", stopOnReaderIntent, true);
+
+    const distanceFromBottom = getDistanceFromBottom();
+    if (distanceFromBottom <= SCROLL_LIVE_EDGE_PX) {
+      // This is only a position observation. Thread restoration deliberately
+      // keeps the mode in `reading` until the reader explicitly returns to the
+      // live edge or presses Jump to latest.
+      if (conversationScrollModeRef.current === "following") {
+        setHasUnreadConversationContent(false);
+      }
+    }
+
     scrollContainer.addEventListener("scroll", onScroll, {
       passive: true,
     });
-    return () => scrollContainer.removeEventListener("scroll", onScroll);
-  }, [threadId]);
-
-  useEffect(() => {
-    autoScrollPinnedRef.current = true;
-  }, [threadId]);
-
-  useEffect(() => {
     return () => {
-      if (scrollRafRef.current !== null) {
-        cancelAnimationFrame(scrollRafRef.current);
-        scrollRafRef.current = null;
+      scrollContainer.removeEventListener("scroll", onScroll);
+      for (const eventName of intentEvents) {
+        scrollContainer.removeEventListener(eventName, stopOnReaderIntent);
       }
+      document.removeEventListener("keydown", stopOnReaderIntent, true);
     };
   }, [threadId]);
 
   useEffect(() => {
-    const scrollContainer = messagesScrollRef.current;
-    if (!scrollContainer) return;
+    if (!threadId) return;
 
-    const distanceFromBottom =
-      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
-    const shouldScroll =
-      autoScrollPinnedRef.current || distanceFromBottom <= 120 || allMessages.length === 0;
-    if (!shouldScroll) return;
+    const pending = pendingScrollActionRef.current;
+    if (!pending || (pending.threadId !== null && pending.threadId !== threadId)) {
+      pendingScrollActionRef.current = { kind: "restore", threadId };
+    }
+    cancelConversationScrollAnimation();
+    cancelConversationAnchor();
+    awaitingAssistantAfterUserRef.current = null;
+    updateConversationScrollMode("reading");
+    setHasUnreadConversationContent(false);
+    setIsAtConversationLiveEdge(false);
+  }, [threadId]);
+
+  useEffect(() => {
+    const pending = pendingScrollActionRef.current;
+    if (!pending || !threadId || (pending.threadId !== null && pending.threadId !== threadId)) {
+      return;
+    }
+
+    const targetIndex =
+      pending.kind === "new-turn"
+        ? allMessages.findLastIndex((entry) => entry.role === "user")
+        : allMessages.findLastIndex((entry) => entry.role === "user") >= 0
+          ? allMessages.findLastIndex((entry) => entry.role === "user")
+          : allMessages.length - 1;
+    if (targetIndex < 0) return;
+
+    pendingScrollActionRef.current = null;
+    awaitingAssistantAfterUserRef.current = pending.kind === "new-turn" ? targetIndex : null;
+    cancelConversationAnchor();
+    markProgrammaticScroll();
+    conversationVirtualizer.scrollToIndex(targetIndex, { align: "start", behavior: "auto" });
+    anchorRafRef.current = requestAnimationFrame(() => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) {
+        anchorRafRef.current = null;
+        return;
+      }
+
+      const target = scrollContainer.querySelector<HTMLElement>(`[data-index="${targetIndex}"]`);
+      if (target) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const targetTop =
+          scrollContainer.scrollTop + targetRect.top - containerRect.top - SCROLL_ANCHOR_TOP_PX;
+        markProgrammaticScroll();
+        scrollContainer.scrollTop = Math.max(0, targetTop);
+      }
+
+      updateConversationScrollMode(pending.kind === "new-turn" ? "anchoring" : "reading");
+      setHasUnreadConversationContent(false);
+      setIsAtConversationLiveEdge(false);
+      anchorRafRef.current = null;
+    });
+  }, [allMessages, conversationVirtualizer, threadId]);
+
+  useEffect(() => {
+    const scrollContainer = messagesScrollRef.current;
+    const awaitingAssistantIndex = awaitingAssistantAfterUserRef.current;
+    const hasAnswerStarted =
+      awaitingAssistantIndex !== null &&
+      allMessages.slice(awaitingAssistantIndex + 1).some((entry) => entry.role === "assistant");
+    if (conversationScrollMode === "anchoring") {
+      if (!hasAnswerStarted) return;
+      awaitingAssistantAfterUserRef.current = null;
+      updateConversationScrollMode("following");
+      return;
+    }
+    if (!scrollContainer || conversationScrollMode !== "following") return;
 
     if (!isStreaming) {
-      if (scrollRafRef.current !== null) {
-        cancelAnimationFrame(scrollRafRef.current);
-        scrollRafRef.current = null;
-      }
+      cancelConversationScrollAnimation();
       scrollRafRef.current = requestAnimationFrame(() => {
         const el = messagesScrollRef.current;
-        if (el) {
+        if (el && conversationScrollModeRef.current === "following") {
+          markProgrammaticScroll();
           el.scrollTop = el.scrollHeight;
-          autoScrollPinnedRef.current = true;
+          setHasUnreadConversationContent(false);
         }
         scrollRafRef.current = null;
       });
@@ -1083,9 +1275,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
     if (scrollRafRef.current !== null) return;
 
-    function tick() {
+    const tick = () => {
       const el = messagesScrollRef.current;
-      if (!el || !autoScrollPinnedRef.current) {
+      if (!el || conversationScrollModeRef.current !== "following") {
         scrollRafRef.current = null;
         return;
       }
@@ -1093,17 +1285,71 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       const dest = el.scrollHeight - el.clientHeight;
       const delta = dest - el.scrollTop;
       if (Math.abs(delta) <= 0.5) {
+        markProgrammaticScroll();
         el.scrollTop = dest;
+        setHasUnreadConversationContent(false);
         scrollRafRef.current = null;
         return;
       }
 
+      markProgrammaticScroll();
       el.scrollTop += delta * 0.2;
       scrollRafRef.current = requestAnimationFrame(tick);
-    }
+    };
 
     scrollRafRef.current = requestAnimationFrame(tick);
-  }, [latestConversationScrollKey, isStreaming, allMessages.length]);
+  }, [
+    conversationScrollMode,
+    latestConversationScrollKey,
+    isStreaming,
+    allMessages,
+    allMessages.length,
+  ]);
+
+  useEffect(() => {
+    const refreshLiveEdge = requestAnimationFrame(() => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) return;
+      const distanceFromBottom =
+        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+      setIsAtConversationLiveEdge(distanceFromBottom <= SCROLL_LIVE_EDGE_PX);
+    });
+    return () => cancelAnimationFrame(refreshLiveEdge);
+  }, [latestConversationScrollKey, allMessages.length, threadId]);
+
+  useEffect(() => {
+    return () => {
+      cancelConversationScrollAnimation();
+      cancelConversationAnchor();
+      if (programmaticScrollClearRef.current !== null) {
+        window.clearTimeout(programmaticScrollClearRef.current);
+        programmaticScrollClearRef.current = null;
+      }
+    };
+  }, [threadId]);
+
+  const prepareNewTurnScroll = (targetThreadId: string | null) => {
+    pendingScrollActionRef.current = { kind: "new-turn", threadId: targetThreadId };
+    awaitingAssistantAfterUserRef.current = null;
+    cancelConversationScrollAnimation();
+    cancelConversationAnchor();
+    updateConversationScrollMode("reading");
+    setHasUnreadConversationContent(false);
+  };
+
+  const jumpToLatest = () => {
+    pendingScrollActionRef.current = null;
+    awaitingAssistantAfterUserRef.current = null;
+    cancelConversationAnchor();
+    updateConversationScrollMode("following");
+    setHasUnreadConversationContent(false);
+    setIsAtConversationLiveEdge(true);
+    const scrollContainer = messagesScrollRef.current;
+    if (scrollContainer) {
+      markProgrammaticScroll();
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    }
+  };
 
   const openOrchestration = (seed: string) => {
     setOrchestrationSeed(seed);
@@ -1205,6 +1451,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         });
         return;
       }
+      prepareNewTurnScroll(thread.id);
       sendPrompt({
         threadId: thread.id,
         message: check.text,
@@ -1272,6 +1519,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           description: `A prompt can contain at most ${MAX_AGENT_IMAGES} images.`,
         });
         return;
+      }
+      if (!editState) {
+        prepareNewTurnScroll(operationThreadId ?? threadId);
       }
       // A `/continue` thread carries an unsent transcript: send it as its own
       // content block alongside the user's message so the agent gets the prior
@@ -1513,6 +1763,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       }
       // Fire-and-forget like handleSend: the ACP call resolves only when the
       // whole orchestration turn ends, and optimistic state is already applied.
+      prepareNewTurnScroll(threadId);
       sendPrompt({ threadId, message: prompt }).catch((err) => {
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
@@ -1769,6 +2020,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           )}
           <div
             data-pipper-id="reading-column"
+            data-thread-id={threadId || undefined}
+            data-benchmark-ready={
+              threadId && allMessages.length > 0 && !isSwitchingThread ? "true" : "false"
+            }
             className={cn(
               "relative z-10 flex min-h-0 w-full flex-1 flex-col",
               // A full-bleed conversation reads badly, so the global view caps
@@ -1969,6 +2224,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               </div>
             </div>
 
+            {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&
+              isStreaming && (
+                <div className="sr-only" aria-live="polite">
+                  A response is still streaming. Jump to latest to follow it.
+                </div>
+              )}
+
             <div
               data-pipper-id="input-area"
               className={cn(
@@ -1976,6 +2238,25 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                 allMessages.length === 0 ? "bg-transparent" : "bg-surface-1",
               )}
             >
+              {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&
+                !isAtConversationLiveEdge &&
+                allMessages.length > 0 &&
+                (hasUnreadConversationContent || isStreaming) && (
+                  <div className="pointer-events-none absolute left-1/2 top-0 z-30 -mt-3 -translate-x-1/2 -translate-y-1/2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon-sm"
+                      className="pointer-events-auto rounded-full border border-border/80 bg-surface-2/95 shadow-lg backdrop-blur-sm"
+                      data-pipper-id="jump-to-latest"
+                      aria-label="Jump to latest reply and resume following"
+                      title="Jump to latest reply"
+                      onClick={jumpToLatest}
+                    >
+                      <ArrowDownIcon size={16} />
+                    </Button>
+                  </div>
+                )}
               <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
                 {visibleAgentError && (
                   <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">

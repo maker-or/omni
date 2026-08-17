@@ -123,10 +123,20 @@ export interface AcpToolCallState {
   title: string;
   kind?: ToolKind;
   status?: ToolCallStatus;
+  /**
+   * Full tool bodies stay out of the session slice. They are parked in a
+   * side map and only copied back onto a hydrated tool call for diff/trace
+   * expand. Live session state over IPC carries the lean fields below.
+   */
   content?: ToolCallContent[];
   locations?: Array<{ path: string; line?: number | null }>;
   rawInput?: unknown;
   rawOutput?: unknown;
+  /** Title-sized preview of content/rawOutput for the closed trace deck. */
+  outputPreview?: string;
+  hasPayload?: boolean;
+  hasDiff?: boolean;
+  terminalIds?: string[];
 }
 
 /**
@@ -166,6 +176,10 @@ export type AcpMessagePart =
       args: Record<string, unknown>;
       content?: ToolCallContent[];
       rawOutput?: unknown;
+      outputPreview?: string;
+      hasPayload?: boolean;
+      hasDiff?: boolean;
+      terminalIds?: string[];
     };
 
 /**
@@ -264,7 +278,7 @@ export interface AcpSessionState {
 export type AcpBridgeEvent =
   | { type: "session-state"; state: AcpSessionState }
   | { type: "session-update"; sessionId: string; threadId: string | null; update: SessionUpdate }
-  /** Full tool-call watermark for a thread, including background threads. */
+  /** Live/background tool-call watermark. Activation uses session-state only. */
   | {
       type: "thread-tool-calls";
       threadId: string;

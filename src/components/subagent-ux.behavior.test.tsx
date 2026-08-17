@@ -51,12 +51,15 @@ describe("SubagentComposer", () => {
         onCancel={() => {}}
       />,
     );
-    expect(html).toContain("Claude");
-    expect(html).toContain("Codex");
+    // Names live on the icon-only tabs as accessible labels, not visible text.
+    expect(html).toContain('aria-label="Claude"');
+    expect(html).toContain('aria-label="Codex"');
+    expect(html).toContain('aria-label="Orchestrator"');
+    expect(html).toContain('role="tablist"');
     // Not installed → not offered.
     expect(html).not.toContain("Gemini");
     // Auto mode is the default, and an empty goal blocks submission.
-    expect(html).toContain("The orchestrator decides how many subagents to spawn.");
+    expect(html).toContain("The orchestrator splits the goal across this many subagents.");
     expect(html).toMatch(/What should the orchestrator achieve/);
     expect(submitButtonTag(html)).toContain('disabled=""');
   });

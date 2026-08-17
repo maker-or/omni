@@ -41,3 +41,6 @@ coverage
 
 # Startup benchmark results
 startup-benchmark-results/
+
+# Benchmark results
+benchmarks

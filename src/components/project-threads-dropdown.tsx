@@ -185,7 +185,7 @@ export function ProjectThreadsDropdown() {
             className="w-72 max-h-[340px]"
           >
             <DropdownLabel className="font-semibold text-xs border-b border-border/50 pb-1.5 mb-0.5">
-              Threads ({activeProject.name})
+            {activeProject.name}
             </DropdownLabel>
 
             {isLoading ? (

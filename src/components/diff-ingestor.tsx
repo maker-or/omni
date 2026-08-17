@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/store/agent-store";
 import { useDiffStore } from "@/store/diff-store";
 import { recordDiffIngestion } from "@/lib/monitor-runtime-observer";
+import { resolveToolCalls } from "@/lib/resolve-tool-calls";
 
 /**
  * Headless diff coordinator. Diff payloads are intentionally ignored while a
@@ -41,6 +42,7 @@ export function DiffIngestor() {
 
   useEffect(() => {
     if (!activeThreadId) return;
+    let cancelled = false;
     // The active slice is updated by the authoritative session-state/stop
     // path. The background watermark can lag behind that event by one bridge
     // tick, which previously caused us to summarize the previous turn.
@@ -48,79 +50,91 @@ export function DiffIngestor() {
     const activeChanged = previousActiveThreadId.current !== activeThreadId;
     const running = new Set(runningThreadIds);
 
-    if (activeChanged) {
-      activateThread(activeThreadId);
-      baselineToolCallIds.current[activeThreadId] = new Set(Object.keys(typedToolCalls));
-      previousActiveThreadId.current = activeThreadId;
-      wasStreaming.current = isStreaming;
+    void (async () => {
+      const resolvedActive = await resolveToolCalls(activeThreadId, typedToolCalls);
+      if (cancelled) return;
 
-      if (!isStreaming && !hydratedThreadIds.current.has(activeThreadId)) {
-        for (const run of assistantToolCallRuns(activeEntries, typedToolCalls)) {
-          recordTurnSummary(activeThreadId, run.key, run.toolCalls);
+      if (activeChanged) {
+        activateThread(activeThreadId);
+        baselineToolCallIds.current[activeThreadId] = new Set(Object.keys(resolvedActive));
+        previousActiveThreadId.current = activeThreadId;
+        wasStreaming.current = isStreaming;
+
+        if (!isStreaming && !hydratedThreadIds.current.has(activeThreadId)) {
+          for (const run of assistantToolCallRuns(activeEntries, resolvedActive)) {
+            recordTurnSummary(activeThreadId, run.key, run.toolCalls);
+          }
+          hydratedThreadIds.current.add(activeThreadId);
         }
-        hydratedThreadIds.current.add(activeThreadId);
       }
-    }
 
-    for (const threadId of running) {
-      if (baselineToolCallIds.current[threadId]) continue;
-      baselineToolCallIds.current[threadId] = new Set(Object.keys(threadToolCalls[threadId] ?? {}));
-    }
-
-    const completedThreadIds = [...previousRunningThreadIds.current].filter(
-      (threadId) => !running.has(threadId),
-    );
-    for (const threadId of completedThreadIds) {
-      const calls = threadToolCalls[threadId] ?? {};
-      const baseline = baselineToolCallIds.current[threadId] ?? new Set<string>();
-      const turnToolCalls = Object.fromEntries(
-        Object.entries(calls).filter(([id]) => !baseline.has(id)),
-      );
-      const firstToolCallId = Object.keys(turnToolCalls)[0];
-      if (firstToolCallId) {
-        recordTurnSummary(threadId, firstToolCallId, turnToolCalls);
-      }
-      delete baselineToolCallIds.current[threadId];
-    }
-    previousRunningThreadIds.current = running;
-
-    if (isStreaming && !wasStreaming.current) {
-      wasStreaming.current = true;
-    }
-
-    const justSettled = wasStreaming.current && !isStreaming;
-    if (justSettled) {
-      const currentTurnToolCalls = toolCallsAfterLastUserMessage(activeEntries, typedToolCalls);
-      if (Object.keys(currentTurnToolCalls).length > 0) {
-        recordTurnSummary(
-          activeThreadId,
-          Object.keys(currentTurnToolCalls)[0]!,
-          currentTurnToolCalls,
+      for (const threadId of running) {
+        if (baselineToolCallIds.current[threadId]) continue;
+        baselineToolCallIds.current[threadId] = new Set(
+          Object.keys(threadToolCalls[threadId] ?? {}),
         );
       }
-      wasStreaming.current = false;
-    }
 
-    // Full diff extraction is an explicit-view operation. A settled turn can
-    // refresh an already-open panel once, but never on intermediate chunks.
-    const shouldLoadLatest = isOpen && (!previousOpen.current || activeChanged || justSettled);
-    if (shouldLoadLatest && !isStreaming) {
-      const metrics = ingestToolCalls(activeThreadId, typedToolCalls, true);
-      if (metrics) {
-        const threadCount = Object.keys(threadToolCalls).filter((id) => id !== "__none__").length;
-        recordDiffIngestion({ ...metrics, threadCount, toolCallCount: metrics.toolCallCount });
-        reportDiffIngestionAfterPaint({
-          activeThreadId,
-          ingestedThreadId: activeThreadId,
-          activeThreadStreaming: false,
-          isActiveThread: true,
-          threadCount,
-          toolCallCount: metrics.toolCallCount,
-          ...metrics,
-        });
+      const completedThreadIds = [...previousRunningThreadIds.current].filter(
+        (threadId) => !running.has(threadId),
+      );
+      for (const threadId of completedThreadIds) {
+        const calls = await resolveToolCalls(threadId, threadToolCalls[threadId] ?? {});
+        if (cancelled) return;
+        const baseline = baselineToolCallIds.current[threadId] ?? new Set<string>();
+        const turnToolCalls = Object.fromEntries(
+          Object.entries(calls).filter(([id]) => !baseline.has(id)),
+        );
+        const firstToolCallId = Object.keys(turnToolCalls)[0];
+        if (firstToolCallId) {
+          recordTurnSummary(threadId, firstToolCallId, turnToolCalls);
+        }
+        delete baselineToolCallIds.current[threadId];
       }
-    }
-    previousOpen.current = isOpen;
+      previousRunningThreadIds.current = running;
+
+      if (isStreaming && !wasStreaming.current) {
+        wasStreaming.current = true;
+      }
+
+      const justSettled = wasStreaming.current && !isStreaming;
+      if (justSettled) {
+        const currentTurnToolCalls = toolCallsAfterLastUserMessage(activeEntries, resolvedActive);
+        if (Object.keys(currentTurnToolCalls).length > 0) {
+          recordTurnSummary(
+            activeThreadId,
+            Object.keys(currentTurnToolCalls)[0]!,
+            currentTurnToolCalls,
+          );
+        }
+        wasStreaming.current = false;
+      }
+
+      // Full diff extraction is an explicit-view operation. A settled turn can
+      // refresh an already-open panel once, but never on intermediate chunks.
+      const shouldLoadLatest = isOpen && (!previousOpen.current || activeChanged || justSettled);
+      if (shouldLoadLatest && !isStreaming) {
+        const metrics = ingestToolCalls(activeThreadId, resolvedActive, true);
+        if (metrics) {
+          const threadCount = Object.keys(threadToolCalls).filter((id) => id !== "__none__").length;
+          recordDiffIngestion({ ...metrics, threadCount, toolCallCount: metrics.toolCallCount });
+          reportDiffIngestionAfterPaint({
+            activeThreadId,
+            ingestedThreadId: activeThreadId,
+            activeThreadStreaming: false,
+            isActiveThread: true,
+            threadCount,
+            toolCallCount: metrics.toolCallCount,
+            ...metrics,
+          });
+        }
+      }
+      previousOpen.current = isOpen;
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     activeThreadId,
     activeEntries,

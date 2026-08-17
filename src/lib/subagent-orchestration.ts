@@ -18,7 +18,7 @@ export interface SubagentAssignment {
 }
 
 export interface OrchestrationDraft {
-  /** auto: the orchestrator decides how many subagents to spawn. */
+  /** auto: the orchestrator splits the goal; spawn count is capped by maxConcurrent. */
   mode: "auto" | "manual";
   /** The overall goal (required in auto mode, optional in manual). */
   goal: string;
@@ -77,16 +77,28 @@ const ORCHESTRATOR_PREAMBLE =
 export function composeOrchestrationPrompt(
   draft: OrchestrationDraft,
   agents: ReadonlyArray<Pick<AcpAgentDescriptor, "id" | "displayName">>,
+  maxConcurrent?: number,
 ): string {
   const goal = draft.goal.trim();
+  const parallelCap =
+    typeof maxConcurrent === "number" && Number.isFinite(maxConcurrent)
+      ? Math.max(1, Math.min(8, Math.round(maxConcurrent)))
+      : null;
 
   if (draft.mode === "auto") {
+    const split =
+      parallelCap != null
+        ? `Decide how to split the goal below into at most ${parallelCap} subagent task${parallelCap === 1 ? "" : "s"}: ` +
+          `spawn up to ${parallelCap} subagent${parallelCap === 1 ? "" : "s"} ` +
+          `(running independent tasks in parallel). Do not spawn more than ${parallelCap}. `
+        : "Decide how to split the goal below into subagent tasks: spawn as many subagents as " +
+          "genuinely help (running independent tasks in parallel), ";
     return [
       ORCHESTRATOR_PREAMBLE,
-      "Decide how to split the goal below into subagent tasks: spawn as many subagents as " +
-        "genuinely help (running independent tasks in parallel), pick whichever available " +
-        "agent fits each task, then verify their reports against each other and synthesize " +
-        "one final answer. Do the work yourself only where delegation adds nothing.",
+      split +
+        "pick whichever available agent fits each task, then verify their reports against " +
+        "each other and synthesize one final answer. Do the work yourself only where " +
+        "delegation adds nothing.",
       `<goal>\n${goal}\n</goal>`,
     ].join("\n\n");
   }

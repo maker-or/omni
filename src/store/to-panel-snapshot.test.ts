@@ -110,7 +110,8 @@ describe("entry projection / toPanelSnapshot", () => {
           title: "Run shell",
           kind: "execute",
           status: "completed",
-          content: [{ type: "terminal", terminalId: "term-abc" }],
+          terminalIds: ["term-abc"],
+          hasPayload: true,
         },
       },
     });
@@ -123,12 +124,7 @@ describe("entry projection / toPanelSnapshot", () => {
     expect(content.some((p) => p.type === "thinking")).toBe(true);
     const toolPart = content.find((p) => p.type === "toolCall");
     expect(toolPart?.id).toBe("tc-term");
-    expect(
-      Array.isArray(toolPart?.content) &&
-        (toolPart!.content as Array<{ type?: string; terminalId?: string }>).some(
-          (b) => b.type === "terminal" && b.terminalId === "term-abc",
-        ),
-    ).toBe(true);
+    expect(toolPart?.terminalIds).toEqual(["term-abc"]);
 
     const toolResult = snapshot!.messages.find((m) => m.role === "toolResult");
     expect(toolResult?.toolCallId).toBe("tc-term");

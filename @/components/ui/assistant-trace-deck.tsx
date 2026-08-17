@@ -37,8 +37,12 @@ function AgentTerminalOutput({ terminalId }: { terminalId: string }) {
   );
 }
 
-function extractTerminalIdsFromPart(part: { content?: unknown; status?: string }): string[] {
-  const ids: string[] = [];
+function extractTerminalIdsFromPart(part: {
+  content?: unknown;
+  status?: string;
+  terminalIds?: string[];
+}): string[] {
+  const ids: string[] = [...(part.terminalIds ?? [])];
   if (!Array.isArray(part.content)) return ids;
   for (const block of part.content) {
     if (
@@ -379,7 +383,9 @@ function ActiveTraceRow({
           ? typeof activePart.rawOutput === "string"
             ? compactText(activePart.rawOutput, 8_000)
             : compactValue(activePart.rawOutput, 8_000)
-          : "";
+          : typeof activePart.outputPreview === "string"
+            ? activePart.outputPreview
+            : "";
       const isError = Boolean(toolResult?.isError) || activePart.status === "failed";
       const actionCopy = getToolActionCopy(toolName, args, resultText, isError);
       return actionCopy.label || toolName || "Ran an agent action";
@@ -523,6 +529,8 @@ function PassiveToolStepItem({
       typeof part.rawOutput === "string"
         ? compactText(part.rawOutput, MAX_RENDERED_TOOL_OUTPUT_CHARS)
         : compactValue(part.rawOutput, MAX_RENDERED_TOOL_OUTPUT_CHARS);
+  } else if (completedViaPart && typeof part.outputPreview === "string") {
+    resultText = part.outputPreview;
   }
 
   const actionCopy = getToolActionCopy(toolName, args, resultText, isError);

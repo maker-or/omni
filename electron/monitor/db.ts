@@ -17,6 +17,7 @@ import type {
   MonitorSwitchPhase,
   MonitorTabClickTiming,
   MonitorTabEvent,
+  MonitorTimeRange,
 } from "../../contracts/monitor.ts";
 
 let tablesReady = false;
@@ -361,6 +362,7 @@ export function upsertConnectionEpisode(episode: MonitorConnectionEpisode): void
 export function getConnectionEpisodes(
   limit = 500,
   connectionId?: string,
+  range?: MonitorTimeRange,
 ): MonitorConnectionEpisode[] {
   ensureMonitorTables();
   const rows = getDb()
@@ -376,10 +378,20 @@ export function getConnectionEpisodes(
               previous_connection_id AS previousConnectionId
        FROM monitor_connection_episodes
        WHERE (? IS NULL OR connection_id = ?)
+         AND (? IS NULL OR spawned_at <= ?)
+         AND (? IS NULL OR ended_at IS NULL OR ended_at >= ?)
        ORDER BY spawned_at DESC
        LIMIT ?`,
     )
-    .all(connectionId ?? null, connectionId ?? null, limit) as Array<Record<string, unknown>>;
+    .all(
+      connectionId ?? null,
+      connectionId ?? null,
+      range?.to ?? null,
+      range?.to ?? null,
+      range?.from ?? null,
+      range?.from ?? null,
+      limit,
+    ) as Array<Record<string, unknown>>;
   return rows.map((row) => {
     let runningThreadIds: string[] = [];
     try {
@@ -539,7 +551,7 @@ export function insertAcpUpdate(sessionId: string, update: MonitorAcpUpdate): vo
         update_type, update_bytes, handler_duration_ms, is_streaming, entry_count,
         tool_call_count, text_bytes, thought_bytes, tool_payload_bytes,
         largest_tool_payload_bytes, session_snapshot_bytes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       sessionId,
@@ -949,16 +961,18 @@ export function updateIncident(
     : null;
 }
 
-export function listIncidents(limit = 100): MonitorIncident[] {
+export function listIncidents(limit = 100, range?: MonitorTimeRange): MonitorIncident[] {
   ensureMonitorTables();
   const rows = getDb()
     .prepare(
       `SELECT id, timestamp, kind, summary, payload_json AS payloadJson
        FROM monitor_incidents
+       WHERE (? IS NULL OR timestamp >= ?)
+         AND (? IS NULL OR timestamp <= ?)
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(limit) as Array<{
+    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as Array<{
     id: number;
     timestamp: number;
     kind: MonitorIncidentKind;
@@ -1142,7 +1156,7 @@ export function insertTabClickTiming(timing: MonitorTabClickTiming): void {
     );
 }
 
-export function listSwitchRecords(limit = 500): MonitorSwitchRecord[] {
+export function listSwitchRecords(limit = 500, range?: MonitorTimeRange): MonitorSwitchRecord[] {
   ensureMonitorTables();
   interface SwitchRow {
     timestamp: number;
@@ -1163,10 +1177,12 @@ export function listSwitchRecords(limit = 500): MonitorSwitchRecord[] {
               source, phase, duration_ms AS durationMs, success, error,
               open_tab_count AS openTabCount, previous_thread_id AS previousThreadId
        FROM monitor_switches
+       WHERE (? IS NULL OR timestamp >= ?)
+         AND (? IS NULL OR timestamp <= ?)
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(limit) as unknown as SwitchRow[];
+    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as unknown as SwitchRow[];
   return rows.map((row) => ({
     timestamp: row.timestamp,
     threadId: row.threadId,
@@ -1182,7 +1198,7 @@ export function listSwitchRecords(limit = 500): MonitorSwitchRecord[] {
   }));
 }
 
-export function listTabEvents(limit = 500): MonitorTabEvent[] {
+export function listTabEvents(limit = 500, range?: MonitorTimeRange): MonitorTabEvent[] {
   ensureMonitorTables();
   interface TabEventRow {
     timestamp: number;
@@ -1196,10 +1212,12 @@ export function listTabEvents(limit = 500): MonitorTabEvent[] {
       `SELECT timestamp, action, thread_id AS threadId, open_tab_count AS openTabCount,
               active_thread_id AS activeThreadId
        FROM monitor_tab_events
+       WHERE (? IS NULL OR timestamp >= ?)
+         AND (? IS NULL OR timestamp <= ?)
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(limit) as unknown as TabEventRow[];
+    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as unknown as TabEventRow[];
   return rows.map((row) => ({
     timestamp: row.timestamp,
     action: row.action as MonitorTabEvent["action"],
@@ -1209,7 +1227,7 @@ export function listTabEvents(limit = 500): MonitorTabEvent[] {
   }));
 }
 
-export function listTabClickTimings(limit = 500): MonitorTabClickTiming[] {
+export function listTabClickTimings(limit = 500, range?: MonitorTimeRange): MonitorTabClickTiming[] {
   ensureMonitorTables();
   interface ClickTimingRow {
     timestamp: number;
@@ -1227,10 +1245,12 @@ export function listTabClickTimings(limit = 500): MonitorTabClickTiming[] {
               click_to_switch_resolved_ms AS clickToSwitchResolvedMs,
               switch_duration_ms AS switchDurationMs, phase, success
        FROM monitor_tab_click_timings
+       WHERE (? IS NULL OR timestamp >= ?)
+         AND (? IS NULL OR timestamp <= ?)
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(limit) as unknown as ClickTimingRow[];
+    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as unknown as ClickTimingRow[];
   return rows.map((row) => ({
     timestamp: row.timestamp,
     threadId: row.threadId,

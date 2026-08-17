@@ -71,6 +71,7 @@ export default defineConfig({
           main: resolve(__dirname, "index.html"),
           launch: resolve(__dirname, "launch.html"),
           monitor: resolve(__dirname, "monitor.html"),
+          settings: resolve(__dirname, "settings.html"),
         },
       },
     },

@@ -1,6 +1,8 @@
 import { describe, expect, test, beforeEach } from "vitest";
 import {
   applySessionUpdate,
+  applySessionUpdateInPlace,
+  applySessionUpdateUnbounded,
   applyTurnStop,
   appendLocalUserMessage,
   assemblePromptBlocks,
@@ -112,6 +114,10 @@ describe("acp-session-reducer", () => {
 
     expect(state.toolCalls.tc1?.status).toBe("completed");
     expect(state.toolCalls.tc1?.title).toBe("Read file");
+    expect(state.toolCalls.tc1?.content).toBeUndefined();
+    expect(state.toolCalls.tc1?.rawOutput).toBeUndefined();
+    expect(state.toolCalls.tc1?.hasPayload).toBe(true);
+    expect(state.toolCalls.tc1?.outputPreview).toBe("ok");
     expect(state.entries).toHaveLength(1);
     expect(state.entries[0]).toMatchObject({ type: "tool_call", toolCallId: "tc1" });
     // tool_call_update must not touch the entry list (identity preserved).
@@ -416,5 +422,54 @@ describe("acp-session-reducer", () => {
     });
     // Restored user chunks must not flip the session into a streaming state.
     expect(state.isStreaming).toBe(false);
+  });
+
+  test("in-place load apply matches unbounded apply", () => {
+    const updates = [
+      {
+        sessionUpdate: "user_message_chunk" as const,
+        messageId: "u1",
+        content: { type: "text" as const, text: "hello " },
+      },
+      {
+        sessionUpdate: "user_message_chunk" as const,
+        messageId: "u1",
+        content: { type: "text" as const, text: "there" },
+      },
+      {
+        sessionUpdate: "agent_thought_chunk" as const,
+        content: { type: "text" as const, text: "hmm" },
+      },
+      {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: "tc1",
+        title: "Read",
+        rawInput: { path: "/a.ts" },
+      },
+      {
+        sessionUpdate: "tool_call_update" as const,
+        toolCallId: "tc1",
+        status: "completed" as const,
+        content: [{ type: "content" as const, content: { type: "text" as const, text: "ok" } }],
+      },
+      {
+        sessionUpdate: "agent_message_chunk" as const,
+        content: { type: "text" as const, text: "done" },
+      },
+    ];
+
+    resetEntryIdCounter();
+    let immutable = createEmptySessionSlice();
+    for (const update of updates) {
+      immutable = applySessionUpdateUnbounded(immutable, update);
+    }
+
+    resetEntryIdCounter();
+    const mutable = createEmptySessionSlice();
+    for (const update of updates) {
+      applySessionUpdateInPlace(mutable, update);
+    }
+
+    expect(mutable).toEqual(immutable);
   });
 });

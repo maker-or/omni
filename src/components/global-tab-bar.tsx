@@ -32,6 +32,12 @@ import {
 } from "@/lib/thread-queries";
 import type { Thread } from "../../contracts/threads.ts";
 import { isThreadInWorkspace, normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
+import {
+  isNewTabShortcutEvent,
+  tabIndexFromShortcutEvent,
+  tabValueAtShortcutIndex,
+  tabValuesInBarOrder,
+} from "@/lib/tab-shortcuts";
 
 const TERMINAL_TAB_PREFIX = "terminal:";
 
@@ -320,6 +326,14 @@ export function GlobalTabBar() {
 
   const handleNewThread = () => {
     setIsDropdownOpen(false);
+    const currentDraft = useWorkspaceViewStore.getState().draft;
+    if (currentDraft?.dirty) {
+      const ok = window.confirm("Discard the new thread draft?");
+      if (!ok) return;
+    } else if (currentDraft) {
+      showAgent();
+      return;
+    }
     const project = activeProject;
     const worktreePath = project
       ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
@@ -383,6 +397,20 @@ export function GlobalTabBar() {
         ? "__draft__"
         : selectedThreadId;
 
+  const orderedTabValues = useMemo(
+    () =>
+      tabValuesInBarOrder(
+        visibleOpenThreads.map((thread) => thread.id),
+        terminalTabs.map((session) => session.id),
+        TERMINAL_TAB_PREFIX,
+      ),
+    [visibleOpenThreads, terminalTabs],
+  );
+
+  const handleTabChangeRef = useRef<(value: string) => void>(() => {});
+  const handleNewThreadRef = useRef(handleNewThread);
+  handleNewThreadRef.current = handleNewThread;
+
   const handleTabChange = (value: string) => {
     const clickStartedAt = performance.now();
     beginRendererInteraction("tab-click");
@@ -429,11 +457,42 @@ export function GlobalTabBar() {
         });
       });
   };
+  handleTabChangeRef.current = handleTabChange;
+
+  useEffect(() => {
+    const activateTabAtIndex = (index: number) => {
+      const value = tabValueAtShortcutIndex(orderedTabValues, index);
+      if (!value) return;
+      handleTabChangeRef.current(value);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isNewTabShortcutEvent(event)) {
+        event.preventDefault();
+        handleNewThreadRef.current();
+        return;
+      }
+      const index = tabIndexFromShortcutEvent(event);
+      if (index == null) return;
+      if (!tabValueAtShortcutIndex(orderedTabValues, index)) return;
+      event.preventDefault();
+      activateTabAtIndex(index);
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    const unsubscribeSelect = window.omni.tabs.onSelectByIndex?.(activateTabAtIndex);
+    const unsubscribeNewTab = window.omni.tabs.onNewTab?.(() => handleNewThreadRef.current());
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      unsubscribeSelect?.();
+      unsubscribeNewTab?.();
+    };
+  }, [orderedTabValues]);
 
   return (
     <Tabs value={selectedTabValue} onValueChange={handleTabChange}>
       <div
-        className="flex w-full max-w-[1120px] min-w-0 items-center gap-1"
+        className="flex w-full max-w-[1000px] min-w-0 items-center gap-1"
         data-pipper-id="global-tab-bar"
       >
         <TabsList

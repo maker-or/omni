@@ -7,6 +7,7 @@ import type {
   AcpPromptInput,
   AcpReplacePromptInput,
   AcpSessionState,
+  AcpToolCallState,
   AgentCapabilities,
   AvailableCommand,
   SessionConfigOption,
@@ -30,8 +31,8 @@ import type {
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
   MonitorSampleTick,
+  MonitorRecordedSession,
   MonitorSession,
-  MonitorSessionSummary,
   MonitorSwitchRecord,
   MonitorTabClickTiming,
   MonitorTabEvent,
@@ -39,6 +40,14 @@ import type {
 } from "../contracts/monitor.ts";
 import type { MonitorService } from "./monitor/service.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
+import type {
+  ThreadBenchmarkMode,
+  ThreadBenchmarkPrepared,
+  ThreadBenchmarkRendererReady,
+  ThreadBenchmarkReport,
+  ThreadBenchmarkRun,
+  ThreadBenchmarkStatus,
+} from "../contracts/benchmark.ts";
 
 export interface CreateProjectInput {
   name: string;
@@ -218,6 +227,22 @@ const api = {
         ipcRenderer.removeListener("tabs:changed", listener);
       };
     },
+    onSelectByIndex: (callback: (index: number) => void) => {
+      const listener = (_event: any, index: number) => {
+        if (typeof index === "number") callback(index);
+      };
+      ipcRenderer.on("tabs:selectByIndex", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:selectByIndex", listener);
+      };
+    },
+    onNewTab: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("tabs:newTab", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:newTab", listener);
+      };
+    },
   },
   agent: {
     getState: (): Promise<AcpSessionState> => ipcRenderer.invoke("agent:getState"),
@@ -232,6 +257,8 @@ const api = {
       cost?: { amount: number; currency: string };
     } | null> => ipcRenderer.invoke("agent:getStats"),
     getRunningThreads: (): Promise<string[]> => ipcRenderer.invoke("agent:getRunningThreads"),
+    getToolCalls: (threadId: string): Promise<Record<string, AcpToolCallState>> =>
+      ipcRenderer.invoke("agent:getToolCalls", threadId),
     sendPrompt: (input: AcpPromptInput): Promise<void> =>
       ipcRenderer.invoke("agent:sendPrompt", input),
     replacePrompt: (input: AcpReplacePromptInput): Promise<void> =>
@@ -363,19 +390,8 @@ const api = {
     getConnectionEpisodes: (): Promise<MonitorConnectionEpisode[]> =>
       ipcRenderer.invoke("monitor:getConnectionEpisodes"),
     getSessions: (): Promise<MonitorSession[]> => ipcRenderer.invoke("monitor:getSessions"),
-    getRecordedSession: (
-      sessionId: string,
-    ): Promise<{
-      session: MonitorSession | null;
-      ticks: MonitorSampleTick[];
-      rendererTelemetry: MonitorRendererTelemetry[];
-      diffIngestions: MonitorDiffIngestion[];
-      acpUpdates: MonitorAcpUpdate[];
-      bridgeEvents: MonitorBridgeEvent[];
-      incidents: MonitorIncident[];
-      connectionEpisodes: MonitorConnectionEpisode[];
-      summary: MonitorSessionSummary;
-    }> => ipcRenderer.invoke("monitor:getRecordedSession", sessionId),
+    getRecordedSession: (sessionId: string): Promise<MonitorRecordedSession> =>
+      ipcRenderer.invoke("monitor:getRecordedSession", sessionId),
     startRecording: (label?: string): Promise<MonitorSession> =>
       ipcRenderer.invoke("monitor:startRecording", label),
     stopRecording: (): Promise<MonitorSession | null> =>
@@ -415,6 +431,21 @@ const api = {
       ipcRenderer.on("monitor:incident", listener);
       return () => ipcRenderer.removeListener("monitor:incident", listener);
     },
+  },
+  benchmark: {
+    enabled: process.env.PIPPER_BENCHMARK_MODE === "1",
+    switchTimeoutMs: Math.max(
+      60_000,
+      Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS) || 60_000,
+    ),
+    status: (): Promise<ThreadBenchmarkStatus> => ipcRenderer.invoke("benchmark:status"),
+    prepare: (): Promise<ThreadBenchmarkPrepared> => ipcRenderer.invoke("benchmark:prepare"),
+    start: (mode: ThreadBenchmarkMode): Promise<ThreadBenchmarkRun> =>
+      ipcRenderer.invoke("benchmark:start", mode),
+    finish: (): Promise<ThreadBenchmarkReport> => ipcRenderer.invoke("benchmark:finish"),
+    cleanup: (): Promise<void> => ipcRenderer.invoke("benchmark:cleanup"),
+    reportRendererReady: (input: ThreadBenchmarkRendererReady): void =>
+      ipcRenderer.send("benchmark:rendererReady", input),
   },
 };
 

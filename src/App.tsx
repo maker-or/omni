@@ -789,8 +789,6 @@ export default function App() {
             </button>
           )}
           <ProjectThreadsDropdown />
-          <SleeplessControl />
-          <ThemeToggle />
         </div>
       </header>
 

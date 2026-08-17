@@ -11,6 +11,7 @@ import type {
   MonitorLiveSnapshot,
   MonitorProcessDescriptor,
   MonitorProcessSample,
+  MonitorRecordedSession,
   MonitorRendererTelemetry,
   MonitorRendererFreezeReport,
   MonitorSampleTick,
@@ -21,6 +22,7 @@ import type {
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../../contracts/monitor.ts";
+import { buildSwitchTimeline, emptyMonitorRecordedSession, SLOW_SWITCH_MS } from "./timeline.ts";
 import { getDb } from "../db.ts";
 import { sampleCurrentProcessMetrics } from "./platform-sampler.ts";
 import {
@@ -51,7 +53,6 @@ const SAMPLE_INTERVAL_MS = 1000;
 const RING_CAPACITY = 300;
 const RENDERER_RING_CAPACITY = 120;
 const MAX_RENDERER_EPISODES = 256;
-const SLOW_SWITCH_MS = 3000;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface MonitorConnectionLossEvent {
@@ -181,18 +182,26 @@ export class MonitorService {
     return listMonitorSessions(limit);
   }
 
-  async getRecordedSession(sessionId: string) {
+  async getRecordedSession(sessionId: string): Promise<MonitorRecordedSession> {
     try {
       await this.worker.flush();
     } catch (error) {
       console.warn("[Monitor] Worker flush failed before reading session:", error);
     }
-    const ticks = getSessionTicks(sessionId);
     const session = getMonitorSession(sessionId);
-    const incidents = listIncidents(500).filter((incident) => {
+    if (!session) return emptyMonitorRecordedSession();
+    const range = {
+      from: session.startedAt,
+      to: session.endedAt ?? Date.now(),
+    };
+    const ticks = getSessionTicks(sessionId);
+    const incidents = listIncidents(500, range).filter((incident) => {
       const payloadSessionId = incident.payload.sessionId;
-      return payloadSessionId === sessionId;
+      return payloadSessionId === sessionId || payloadSessionId == null;
     });
+    const switches = listSwitchRecords(2_000, range);
+    const tabEvents = listTabEvents(2_000, range);
+    const clickTimings = listTabClickTimings(2_000, range);
     return {
       session,
       ticks,
@@ -200,8 +209,12 @@ export class MonitorService {
       diffIngestions: getDiffIngestions(sessionId),
       acpUpdates: getAcpUpdates(sessionId),
       bridgeEvents: getBridgeEvents(sessionId),
-      connectionEpisodes: getConnectionEpisodes(500),
+      connectionEpisodes: getConnectionEpisodes(500, undefined, range),
       incidents,
+      switches,
+      tabEvents,
+      clickTimings,
+      switchTimeline: buildSwitchTimeline(tabEvents, switches, clickTimings),
       summary: summarizeSession(ticks, session, incidents.length),
     };
   }
@@ -509,61 +522,11 @@ export class MonitorService {
    * nearest-prior open-tab count so a regression can be tied to "4 -> 5 tabs".
    */
   getSwitchTimeline(limit = 500) {
-    const tabEvents = listTabEvents(limit).sort((a, b) => a.timestamp - b.timestamp);
-    const switches = listSwitchRecords(limit).sort((a, b) => a.timestamp - b.timestamp);
-    const clickTimings = listTabClickTimings(limit).sort((a, b) => a.timestamp - b.timestamp);
-
-    type Row =
-      | { kind: "tab_event"; timestamp: number; event: (typeof tabEvents)[number] }
-      | { kind: "switch"; timestamp: number; record: (typeof switches)[number] }
-      | { kind: "click"; timestamp: number; timing: (typeof clickTimings)[number] };
-    const rows: Row[] = [
-      ...tabEvents.map((event) => ({
-        kind: "tab_event" as const,
-        timestamp: event.timestamp,
-        event,
-      })),
-      ...switches.map((record) => ({
-        kind: "switch" as const,
-        timestamp: record.timestamp,
-        record,
-      })),
-      ...clickTimings.map((timing) => ({
-        kind: "click" as const,
-        timestamp: timing.timestamp,
-        timing,
-      })),
-    ].sort((a, b) => a.timestamp - b.timestamp);
-
-    let openTabCount = 0;
-    const annotated = [];
-    for (const row of rows) {
-      if (row.kind === "tab_event") openTabCount = row.event.openTabCount;
-      annotated.push({ ...row, openTabCount });
-    }
-
-    return {
-      rows: annotated,
-      switches,
-      tabEvents,
-      clickTimings,
-      summary: {
-        totalSwitches: switches.length,
-        cacheHits: switches.filter((s) => s.phase === "cache_hit").length,
-        sessionLoads: switches.filter((s) => s.phase === "session_load").length,
-        sessionResumes: switches.filter((s) => s.phase === "session_resume").length,
-        sessionNews: switches.filter((s) => s.phase === "session_new").length,
-        failures: switches.filter((s) => !s.success).length,
-        slowSwitches: switches.filter((s) => s.durationMs >= SLOW_SWITCH_MS).length,
-        // A switch immediately after a tab-count change is the exact window the
-        // "adding a tab invalidates warm sessions" hypothesis predicts.
-        switchesAfterTabChange: switches.filter((s) =>
-          tabEvents.some(
-            (e) => Math.abs(e.timestamp - s.timestamp) < 2000 && e.timestamp <= s.timestamp,
-          ),
-        ).length,
-      },
-    };
+    return buildSwitchTimeline(
+      listTabEvents(limit),
+      listSwitchRecords(limit),
+      listTabClickTimings(limit),
+    );
   }
 
   private async tick(): Promise<void> {

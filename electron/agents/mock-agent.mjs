@@ -5,6 +5,7 @@
  */
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 
 const PROTOCOL_VERSION = 1;
 
@@ -42,6 +43,25 @@ function write(msg) {
   process.stdout.write(JSON.stringify(msg) + "\n");
 }
 
+async function writeWithBackpressure(msg) {
+  if (process.stdout.write(JSON.stringify(msg) + "\n")) return;
+  await new Promise((resolve) => process.stdout.once("drain", resolve));
+}
+
+async function writeRawLine(line) {
+  const payload = line.endsWith("\n") ? line : `${line}\n`;
+  if (process.stdout.write(payload)) return;
+  await new Promise((resolve) => process.stdout.once("drain", resolve));
+}
+
+/**
+ * Swap the fixture session id without parse+stringify of the 200 MiB body.
+ * Fixture lines are `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"...","update":...}}`.
+ */
+export function rewriteFixtureSessionId(line, sessionId) {
+  return line.replace(/"sessionId"\s*:\s*"[^"]*"/, `"sessionId":${JSON.stringify(sessionId)}`);
+}
+
 function respond(id, result) {
   write({ jsonrpc: "2.0", id, result });
 }
@@ -56,6 +76,18 @@ function notify(method, params) {
 
 function sessionUpdate(sessionId, update) {
   notify("session/update", { sessionId, update });
+}
+
+async function replayBenchmarkFixture(sessionId, fixturePath) {
+  const input = createReadStream(fixturePath, { encoding: "utf8" });
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  let updates = 0;
+  for await (const line of lines) {
+    if (!line.includes('"session/update"')) continue;
+    await writeRawLine(rewriteFixtureSessionId(line, sessionId));
+    updates += 1;
+  }
+  process.stderr.write(`[benchmark] replayed ${updates} updates from ${fixturePath}\n`);
 }
 
 function textFromPrompt(prompt) {
@@ -229,6 +261,24 @@ function handleRequest(msg) {
           cancelled: false,
         };
         sessions.set(params.sessionId, session);
+      }
+      const benchmarkFixture = process.env.PIPPER_BENCHMARK_FIXTURE;
+      if (benchmarkFixture) {
+        void replayBenchmarkFixture(session.id, benchmarkFixture)
+          .then(() => {
+            respond(id, {
+              sessionId: session.id,
+              configOptions: session.configOptions,
+            });
+          })
+          .catch((error) => {
+            respondError(
+              id,
+              -32002,
+              `Benchmark fixture replay failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
+        break;
       }
       respond(id, {
         sessionId: session.id,

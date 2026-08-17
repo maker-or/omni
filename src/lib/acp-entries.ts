@@ -56,8 +56,12 @@ function toolCallPart(
         arguments: toolCallArgs(tc),
         args: toolCallArgs(tc),
         status: tc.status,
-        content: tc.content,
-        rawOutput: tc.rawOutput,
+        outputPreview: tc.outputPreview,
+        hasPayload: tc.hasPayload,
+        hasDiff: tc.hasDiff,
+        terminalIds: tc.terminalIds,
+        ...(tc.content ? { content: tc.content } : {}),
+        ...(tc.rawOutput !== undefined ? { rawOutput: tc.rawOutput } : {}),
       }
     : {
         type: "toolCall",
@@ -221,7 +225,7 @@ export function projectToolResultMessages(toolCalls: ToolCallMap): AcpToolResult
       continue;
     }
     const textParts: string[] = [];
-    const terminalIds: string[] = [];
+    const terminalIds = [...(tc.terminalIds ?? [])];
     for (const block of tc.content ?? []) {
       const typed = block as {
         type?: string;
@@ -230,7 +234,7 @@ export function projectToolResultMessages(toolCalls: ToolCallMap): AcpToolResult
         text?: string;
       };
       if (typed.type === "terminal" && typed.terminalId) {
-        terminalIds.push(typed.terminalId);
+        if (!terminalIds.includes(typed.terminalId)) terminalIds.push(typed.terminalId);
         textParts.push(`[terminal:${typed.terminalId}]`);
       } else if (typed.type === "content" && typed.content?.type === "text") {
         textParts.push(typed.content.text ?? "");
@@ -240,10 +244,10 @@ export function projectToolResultMessages(toolCalls: ToolCallMap): AcpToolResult
         textParts.push(typed.text);
       }
     }
-    if (tc.rawOutput != null && textParts.length === 0) {
-      textParts.push(
-        typeof tc.rawOutput === "string" ? tc.rawOutput : JSON.stringify(tc.rawOutput),
-      );
+    if (textParts.length === 0 && typeof tc.rawOutput === "string") {
+      textParts.push(tc.rawOutput);
+    } else if (textParts.length === 0 && tc.outputPreview) {
+      textParts.push(tc.outputPreview);
     }
     const result: AcpToolResultMessage = {
       id: `tool-result-${tc.toolCallId}`,
