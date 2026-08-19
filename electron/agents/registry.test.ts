@@ -1,11 +1,10 @@
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   BUILTIN_ACP_AGENTS,
   listRegisteredAgents,
-  preferAsarUnpackedPath,
   probeAgentAvailability,
   resolveAgentSpawn,
 } from "./registry.ts";
@@ -27,6 +26,8 @@ describe("ACP agent registry", () => {
 
     const codex = BUILTIN_ACP_AGENTS.find((a) => a.id === "codex-acp")!;
     expect(codex.npmPackage).toBe("@agentclientprotocol/codex-acp");
+    expect(codex.installKind).toBe("npx");
+    expect(codex.detectCommands).toContain("codex-acp");
     expect(codex.docsUrl).toContain("codex-acp");
 
     const claude = BUILTIN_ACP_AGENTS.find((a) => a.id === "claude-agent-acp")!;
@@ -91,47 +92,35 @@ describe("ACP agent registry", () => {
     expect(spawn.args.some((a) => a.includes("mock-agent.mjs"))).toBe(true);
   });
 
-  test("preferAsarUnpackedPath rewrites app.asar to app.asar.unpacked when that path exists", () => {
-    const root = mkdtempSync(join(tmpdir(), "pipper-asar-"));
-    const asarVirtual = join(root, "app.asar", "node_modules", "pkg", "index.js");
-    const unpacked = join(root, "app.asar.unpacked", "node_modules", "pkg", "index.js");
-    mkdirSync(dirname(unpacked), { recursive: true });
-    // asar is a file in real packs; simulate virtual path string only for rewrite.
-    writeFileSync(unpacked, "module.exports = {}\n");
-
-    expect(preferAsarUnpackedPath(asarVirtual)).toBe(unpacked);
-    // Already unpacked / non-asar paths pass through.
-    expect(preferAsarUnpackedPath(unpacked)).toBe(unpacked);
-    expect(preferAsarUnpackedPath("/tmp/plain/path.js")).toBe("/tmp/plain/path.js");
-  });
-
-  test("preferAsarUnpackedPath keeps app.asar path when unpacked file is missing", () => {
-    const asarOnly = join(
-      tmpdir(),
-      "no-such-pipper-asar",
-      "app.asar",
-      "node_modules",
-      "pkg",
-      "index.js",
-    );
-    expect(preferAsarUnpackedPath(asarOnly)).toBe(asarOnly);
-  });
-
-  test("resolveAgentSpawn for codex-acp uses ELECTRON_RUN_AS_NODE and resolved adapter", () => {
+  test("resolveAgentSpawn for codex-acp resolves via npx or detected binary", () => {
     const codex = listRegisteredAgents().find((a) => a.id === "codex-acp");
-    if (!codex?.available) return; // skip if dependency missing in this environment
+    if (!codex?.available) return; // skip if neither codex-acp nor npx is on PATH
     const spawn = resolveAgentSpawn(codex);
-    expect(spawn.env.ELECTRON_RUN_AS_NODE).toBe("1");
-    expect(spawn.args[0]).toBeTruthy();
-    // Adapter path must not point into a non-existent asar.unpacked when we rewrote.
-    if (spawn.args[0]!.includes("app.asar.unpacked")) {
-      expect(existsSync(spawn.args[0]!)).toBe(true);
+    if (/npx/.test(spawn.command)) {
+      // npx fallback path: args must contain -y and the package name exactly once
+      expect(spawn.args).toContain("-y");
+      expect(spawn.args).toContain("@agentclientprotocol/codex-acp");
+    } else {
+      // detectCommands found a codex-acp binary directly (e.g. global install or node_modules/.bin)
+      expect(spawn.command).toMatch(/codex-acp/);
     }
-    if (spawn.env.CODEX_PATH) {
-      expect(existsSync(spawn.env.CODEX_PATH)).toBe(true);
-      // Must not spawn native binary through the asar archive path.
-      expect(spawn.env.CODEX_PATH.includes(`${sep}app.asar${sep}`)).toBe(false);
+    // Must never set Electron-specific env vars (no longer bundled)
+    expect(spawn.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    expect(spawn.env.ELECTRON_NO_ASAR).toBeUndefined();
+    expect(spawn.env.CODEX_PATH).toBeUndefined();
+  });
+
+  test("codex-acp npx resolution is idempotent across repeated re-probes", () => {
+    const codex = BUILTIN_ACP_AGENTS.find((a) => a.id === "codex-acp")!;
+    let probed = probeAgentAvailability(codex);
+    for (let i = 0; i < 3; i++) {
+      probed = probeAgentAvailability(probed);
     }
+    const pkgOccurrences = probed.args.filter(
+      (a) => a === "@agentclientprotocol/codex-acp",
+    ).length;
+    expect(pkgOccurrences).toBeLessThanOrEqual(1);
+    expect(probed.args.filter((a) => a === "-y").length).toBeLessThanOrEqual(1);
   });
 
   test("resolveAgentSpawn for missing binary agent throws with install hint", () => {

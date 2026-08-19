@@ -16,6 +16,7 @@ import type {
   MonitorRendererFreezeReport,
   MonitorSampleTick,
   MonitorSession,
+  MonitorSessionCacheEvent,
   MonitorSessionSummary,
   MonitorSwitchRecord,
   MonitorTabClickTiming,
@@ -30,11 +31,13 @@ import {
   getMonitorSession,
   insertIncident,
   initializeMonitorDb,
+  insertSessionCacheEvent,
   insertSwitchRecord,
   insertTabEvent,
   insertTabClickTiming,
   listIncidents,
   listMonitorSessions,
+  listSessionCacheEvents,
   listSwitchRecords,
   listTabEvents,
   listTabClickTimings,
@@ -67,6 +70,8 @@ export interface MonitorConnectionLossEvent {
   uptimeMs: number;
   intentional?: boolean;
   stderrTail?: string;
+  sessionCountAtTermination?: number;
+  invalidatedThreadIds?: string[];
 }
 
 export interface MonitorConnectionStartedEvent {
@@ -331,6 +336,12 @@ export class MonitorService {
     episode.activeThreadId = event.activeThreadId;
     episode.runningThreadIds = event.runningThreadIds;
     episode.uptimeMs = event.uptimeMs;
+    if (event.sessionCountAtTermination !== undefined) {
+      episode.sessionCountAtTermination = event.sessionCountAtTermination;
+    }
+    if (event.invalidatedThreadIds) {
+      episode.invalidatedThreadIds = event.invalidatedThreadIds;
+    }
     if (event.stderrTail) episode.stderrTail = event.stderrTail;
     episode.terminalCause =
       episode.processExitedAt && episode.transportClosedAt
@@ -362,6 +373,20 @@ export class MonitorService {
           `ACP connection lost (${event.agentId} · ${episode.terminalCause})`,
           payload,
         );
+    if (event.invalidatedThreadIds && event.invalidatedThreadIds.length >= 2) {
+      const massIncident = insertIncident(
+        "mass_session_invalidation",
+        `Mass session invalidation (${event.invalidatedThreadIds.length} sessions purged by ${event.agentId})`,
+        {
+          agentId: event.agentId,
+          connectionId: event.connectionId,
+          invalidatedThreadIds: event.invalidatedThreadIds,
+          cause: episode.terminalCause,
+          sessionId: this.recordingSessionId,
+        },
+      );
+      this.onBroadcast("monitor:incident", massIncident);
+    }
     if (!incident) return;
     if (!existingIncidentId) this.connectionIncidentIds.set(event.connectionId, incident.id);
     this.connectionStartedAt.delete(event.connectionId);
@@ -488,6 +513,23 @@ export class MonitorService {
    */
   reportSwitch(record: MonitorSwitchRecord): void {
     insertSwitchRecord(record);
+    if (record.wasResidentInMemory && record.phase !== "cache_hit") {
+      const incident = insertIncident(
+        "unexpected_cold_switch",
+        `Unexpected cold switch for thread ${record.threadId} (expected warm cache hit)`,
+        {
+          ...record,
+          sessionId: this.recordingSessionId,
+        },
+      );
+      this.onBroadcast("monitor:incident", incident);
+    }
+    this.broadcastLive();
+  }
+
+  /** Durable record of an in-memory session cache mutation. */
+  reportSessionCacheEvent(event: MonitorSessionCacheEvent): void {
+    insertSessionCacheEvent(event);
     this.broadcastLive();
   }
 
@@ -505,6 +547,10 @@ export class MonitorService {
 
   getSwitchRecords(limit = 500): MonitorSwitchRecord[] {
     return listSwitchRecords(limit);
+  }
+
+  getSessionCacheEvents(limit = 500): MonitorSessionCacheEvent[] {
+    return listSessionCacheEvents(limit);
   }
 
   getTabEvents(limit = 500): MonitorTabEvent[] {

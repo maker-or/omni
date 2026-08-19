@@ -55,7 +55,10 @@ export type MonitorIncidentKind =
   | "connection_loss"
   | "switch_slow"
   | "switch_failed"
-  | "tab_highlight_mismatch";
+  | "tab_highlight_mismatch"
+  | "unexpected_cold_switch"
+  | "mass_session_invalidation"
+  | "agent_thrashing";
 
 export interface MonitorIncident {
   id: number;
@@ -90,6 +93,8 @@ export interface MonitorConnectionEpisode {
   stderrTail: string;
   reconnectAttempt: number;
   previousConnectionId: string | null;
+  sessionCountAtTermination?: number;
+  invalidatedThreadIds?: string[];
 }
 
 export interface MonitorSession {
@@ -342,6 +347,47 @@ export interface MonitorSwitchRecord {
   /** Open-tab count at switch time (read from the tabs state). */
   openTabCount: number;
   previousThreadId: string | null;
+  /** In-memory cached session count in AgentConnectionManager.sessions before switch. */
+  cachedSessionCount?: number;
+  /** Whether this thread was already resident in this.sessions before switch. */
+  wasResidentInMemory?: boolean;
+  /** Active agent ID before switch started. */
+  agentIdBefore?: string | null;
+  /** Target agent ID for the activated thread. */
+  agentIdTarget?: string | null;
+  /** Whether switch forced an agent connection renegotiation. */
+  agentSwitched?: boolean;
+  /** Active workspace CWD before switch. */
+  workspaceCwdBefore?: string | null;
+  /** Target workspace CWD. */
+  workspaceCwdTarget?: string | null;
+  /** Whether switch changed the active workspace directory. */
+  workspaceCwdChanged?: boolean;
+}
+
+/**
+ * A mutation to the in-memory ThreadSessionRuntime cache in AgentConnectionManager.
+ * Tracks precisely when and why thread sessions enter or leave memory.
+ */
+export interface MonitorSessionCacheEvent {
+  timestamp: number;
+  action: "insert" | "evict" | "invalidate_agent" | "close_session" | "clear_all";
+  threadId: string;
+  agentSessionId?: string | null;
+  agentId?: string | null;
+  trigger:
+    | "thread_created"
+    | "switch_load"
+    | "process_exit"
+    | "transport_closed"
+    | "tab_closed"
+    | "app_restore"
+    | "app_shutdown"
+    | "manual";
+  cachedSessionCount: number;
+  openTabCount: number;
+  cachedThreadIds: string[];
+  reason?: string | null;
 }
 
 /**

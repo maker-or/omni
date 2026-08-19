@@ -77,6 +77,7 @@ import type {
   MonitorAcpUpdate,
   MonitorBridgeEvent,
   MonitorProcessDescriptor,
+  MonitorSessionCacheEvent,
   MonitorSwitchPhase,
   MonitorSwitchRecord,
 } from "../contracts/monitor.ts";
@@ -99,6 +100,8 @@ export interface AgentMonitorObserver {
     spawnedAt: number;
     intentional: boolean;
     stderrTail: string;
+    sessionCountAtTermination?: number;
+    invalidatedThreadIds?: string[];
   }) => void;
   onConnectionExit: (input: {
     connectionId: string;
@@ -111,9 +114,12 @@ export interface AgentMonitorObserver {
     spawnedAt: number;
     intentional: boolean;
     stderrTail: string;
+    sessionCountAtTermination?: number;
+    invalidatedThreadIds?: string[];
   }) => void;
   /** Fired once per thread activation with the resolved cache phase. */
   onSwitchRecord?: (record: MonitorSwitchRecord) => void;
+  onSessionCacheEvent?: (event: MonitorSessionCacheEvent) => void;
   onAcpUpdate?: (update: MonitorAcpUpdate) => void;
   onBridgeEvent?: (event: MonitorBridgeEvent) => void;
 }
@@ -124,6 +130,10 @@ const ACP_SWITCH_PHASE_TIMEOUT_MS =
     ? configuredSwitchTimeout
     : 10_000;
 const ACP_PROMPT_TIMEOUT_MS = 10 * 60_000;
+
+/** npx agents may need to download on first launch — allow up to 2 minutes for initialize. */
+const ACP_NPX_INIT_TIMEOUT_MS = 120_000;
+
 
 function modelOptionsFromConfig(
   options: SessionConfigOption[] | undefined,
@@ -937,9 +947,11 @@ export class AgentConnectionManager {
 
   private async spawnAndInitialize(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
     const { command, args, env } = resolveAgentSpawn(descriptor);
+    const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      ...(useShell && { shell: true }),
     }) as ChildProcessWithoutNullStreams;
 
     const connectionId = randomUUID();
@@ -973,6 +985,10 @@ export class AgentConnectionManager {
     const reportExit = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (exitReported) return;
       exitReported = true;
+      const targetSessions = [...this.sessions.values()].filter((s) => s.agentId === descriptor.id);
+      const invalidatedThreadIds = [...this.sessions.entries()]
+        .filter(([, s]) => s.agentId === descriptor.id)
+        .map(([tid]) => tid);
       this.monitorObserver?.onConnectionExit({
         connectionId,
         agentId: descriptor.id,
@@ -984,6 +1000,8 @@ export class AgentConnectionManager {
         spawnedAt,
         intentional: this.intentionalConnectionIds.has(connectionId),
         stderrTail,
+        sessionCountAtTermination: targetSessions.length,
+        invalidatedThreadIds,
       });
       this.connectionSpawnedAt.delete(connectionId);
       this.intentionalConnectionIds.delete(connectionId);
@@ -1076,7 +1094,7 @@ export class AgentConnectionManager {
             version: "0.0.20",
           },
         }),
-        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        /\bnpx(?:\.cmd)?$/i.test(command) ? ACP_NPX_INIT_TIMEOUT_MS : ACP_SWITCH_PHASE_TIMEOUT_MS,
         "agent/initialize",
       );
     } catch (err) {
@@ -1103,6 +1121,10 @@ export class AgentConnectionManager {
       // different failure mode from a process exit and must be visible in the
       // incident log. The exit handler owns the latter case.
       if (child.exitCode == null && child.signalCode == null) {
+        const targetSessions = [...this.sessions.values()].filter((s) => s.agentId === descriptor.id);
+        const invalidatedThreadIds = [...this.sessions.entries()]
+          .filter(([, s]) => s.agentId === descriptor.id)
+          .map(([tid]) => tid);
         this.monitorObserver?.onConnectionClosed?.({
           connectionId,
           agentId: descriptor.id,
@@ -1112,6 +1134,8 @@ export class AgentConnectionManager {
           spawnedAt,
           intentional: this.intentionalConnectionIds.has(connectionId),
           stderrTail,
+          sessionCountAtTermination: targetSessions.length,
+          invalidatedThreadIds,
         });
       }
       const current = this.connections.get(descriptor.id);
@@ -1150,6 +1174,20 @@ export class AgentConnectionManager {
       this.rejectQueuedPrompts(threadId, "agent connection closed");
     }
     this.toolCallStarts.clear();
+    for (const [threadId, runtime] of this.sessions) {
+      this.monitorObserver?.onSessionCacheEvent?.({
+        timestamp: Date.now(),
+        action: "clear_all",
+        threadId,
+        agentSessionId: runtime.agentSessionId,
+        agentId: runtime.agentId,
+        trigger: "app_shutdown",
+        cachedSessionCount: 0,
+        openTabCount: 0,
+        cachedThreadIds: [],
+        reason: "Connection closed / app shutdown",
+      });
+    }
     this.sessions.clear();
     this.workspaceRoots.clear();
     this.terminalManager.killAll();
@@ -1181,6 +1219,18 @@ export class AgentConnectionManager {
         this.subagents.releaseSessionMcp(runtime.agentSessionId);
         this.releaseWorkspaceRoot(runtime.agentSessionId);
         this.sessions.delete(threadId);
+        this.monitorObserver?.onSessionCacheEvent?.({
+          timestamp: Date.now(),
+          action: "invalidate_agent",
+          threadId,
+          agentSessionId: runtime.agentSessionId,
+          agentId,
+          trigger: "process_exit",
+          cachedSessionCount: this.sessions.size,
+          openTabCount: 0,
+          cachedThreadIds: [...this.sessions.keys()],
+          reason: `Agent ${agentId} connection closed / process exited`,
+        });
         this.emit({ type: "thread-closed", threadId });
       }
     }
@@ -1245,56 +1295,56 @@ export class AgentConnectionManager {
       else runtime.slice = applySessionUpdate(runtime.slice, update);
       this.syncToolPayloads(runtime, update);
     } else {
-    runtime.monitorUpdateCount += 1;
-    const sampledRetention =
-      runtime.monitorUpdateCount % 10 === 0 || update.sessionUpdate.startsWith("tool_");
-    const tracker = this.retentionFor(runtime);
-    let retained;
-    if (loading) {
-      const before = sampledRetention ? captureRetentionTail(runtime.slice) : null;
-      applySessionUpdateInPlace(runtime.slice, update);
-      this.syncToolPayloads(runtime, update);
-      retained = before
-        ? tracker.observeAfterMutation(before, runtime.slice, update)
-        : {
-            entryCount: runtime.slice.entries.length,
-            toolCallCount: tracker.snapshot(runtime.slice).toolCallCount,
-            textBytes: 0,
-            thoughtBytes: 0,
-            toolPayloadBytes: 0,
-            largestToolPayloadBytes: 0,
-            sessionSnapshotBytes: 0,
-          };
-    } else {
-      const previousSlice = runtime.slice;
-      runtime.slice = applySessionUpdate(runtime.slice, update);
-      this.syncToolPayloads(runtime, update);
-      retained = sampledRetention
-        ? tracker.observe(previousSlice, runtime.slice, update)
-        : {
-            entryCount: runtime.slice.entries.length,
-            toolCallCount: Object.keys(runtime.slice.toolCalls).length,
-            textBytes: 0,
-            thoughtBytes: 0,
-            toolPayloadBytes: 0,
-            largestToolPayloadBytes: 0,
-            sessionSnapshotBytes: 0,
-          };
-    }
-    this.monitorObserver.onAcpUpdate({
-      timestamp: Date.now(),
-      agentId: runtime.agentId,
-      connectionId: this.connectionForAgent(runtime.agentId)?.connectionId ?? null,
-      sessionId,
-      threadId: runtime.threadId,
-      threadRole: runtime.threadId === this.activeThreadId ? "active" : "background",
-      turnId: runtime.activeTurnId,
-      updateType: update.sessionUpdate,
-      updateBytes: jsonBytes(update),
-      handlerDurationMs: performance.now() - startedAt,
-      isStreaming: runtime.slice.isStreaming,
-      ...retained,
-    });
+      runtime.monitorUpdateCount += 1;
+      const sampledRetention =
+        runtime.monitorUpdateCount % 10 === 0 || update.sessionUpdate.startsWith("tool_");
+      const tracker = this.retentionFor(runtime);
+      let retained;
+      if (loading) {
+        const before = sampledRetention ? captureRetentionTail(runtime.slice) : null;
+        applySessionUpdateInPlace(runtime.slice, update);
+        this.syncToolPayloads(runtime, update);
+        retained = before
+          ? tracker.observeAfterMutation(before, runtime.slice, update)
+          : {
+              entryCount: runtime.slice.entries.length,
+              toolCallCount: tracker.snapshot(runtime.slice).toolCallCount,
+              textBytes: 0,
+              thoughtBytes: 0,
+              toolPayloadBytes: 0,
+              largestToolPayloadBytes: 0,
+              sessionSnapshotBytes: 0,
+            };
+      } else {
+        const previousSlice = runtime.slice;
+        runtime.slice = applySessionUpdate(runtime.slice, update);
+        this.syncToolPayloads(runtime, update);
+        retained = sampledRetention
+          ? tracker.observe(previousSlice, runtime.slice, update)
+          : {
+              entryCount: runtime.slice.entries.length,
+              toolCallCount: Object.keys(runtime.slice.toolCalls).length,
+              textBytes: 0,
+              thoughtBytes: 0,
+              toolPayloadBytes: 0,
+              largestToolPayloadBytes: 0,
+              sessionSnapshotBytes: 0,
+            };
+      }
+      this.monitorObserver.onAcpUpdate({
+        timestamp: Date.now(),
+        agentId: runtime.agentId,
+        connectionId: this.connectionForAgent(runtime.agentId)?.connectionId ?? null,
+        sessionId,
+        threadId: runtime.threadId,
+        threadRole: runtime.threadId === this.activeThreadId ? "active" : "background",
+        turnId: runtime.activeTurnId,
+        updateType: update.sessionUpdate,
+        updateBytes: jsonBytes(update),
+        handlerDurationMs: performance.now() - startedAt,
+        isStreaming: runtime.slice.isStreaming,
+        ...retained,
+      });
     }
     if (loading) return;
     // `applySessionUpdate` sets isStreaming=true for every agent chunk/tool_call,
@@ -1996,9 +2046,16 @@ export class AgentConnectionManager {
   ): Promise<OpenTabsState> {
     const startedAt = Date.now();
     const previousThreadId = this.activeThreadId;
-    let phase: MonitorSwitchPhase = this.sessions.has(threadId) ? "cache_hit" : "session_load";
+    const wasResidentInMemory = this.sessions.has(threadId);
+    const cachedSessionCount = this.sessions.size;
+    const agentIdBefore = this.connection?.agentId ?? null;
+    const workspaceCwdBefore = this.getActiveCwd();
+    let phase: MonitorSwitchPhase = wasResidentInMemory ? "cache_hit" : "session_load";
     let openTabCount = 0;
     const record = (success: boolean, error?: string) => {
+      const thread = getThread(threadId);
+      const agentIdTarget = thread?.agent_id ?? null;
+      const workspaceCwdTarget = this.getActiveCwd();
       this.monitorObserver?.onSwitchRecord?.({
         timestamp: Date.now(),
         threadId,
@@ -2011,6 +2068,18 @@ export class AgentConnectionManager {
         error,
         openTabCount,
         previousThreadId,
+        cachedSessionCount,
+        wasResidentInMemory,
+        agentIdBefore,
+        agentIdTarget,
+        agentSwitched:
+          agentIdBefore !== null && agentIdTarget !== null && agentIdBefore !== agentIdTarget,
+        workspaceCwdBefore,
+        workspaceCwdTarget,
+        workspaceCwdChanged:
+          workspaceCwdBefore !== null &&
+          workspaceCwdTarget !== null &&
+          workspaceCwdBefore !== workspaceCwdTarget,
       });
     };
     try {
@@ -2090,6 +2159,17 @@ export class AgentConnectionManager {
         retention: new SessionRetentionTracker(),
       };
       this.sessions.set(threadId, runtime);
+      this.monitorObserver?.onSessionCacheEvent?.({
+        timestamp: Date.now(),
+        action: "insert",
+        threadId,
+        agentSessionId: thread.agent_session_id,
+        agentId: live.agentId,
+        trigger: "switch_load",
+        cachedSessionCount: this.sessions.size,
+        openTabCount: 0,
+        cachedThreadIds: [...this.sessions.keys()],
+      });
       this.loadingSessionThreads.add(threadId);
 
       try {
@@ -2146,6 +2226,18 @@ export class AgentConnectionManager {
         // No session could be established — remove the placeholder so a
         // retry doesn't silently reuse a dead runtime.
         this.sessions.delete(threadId);
+        this.monitorObserver?.onSessionCacheEvent?.({
+          timestamp: Date.now(),
+          action: "evict",
+          threadId,
+          agentSessionId: runtime.agentSessionId,
+          agentId: runtime.agentId,
+          trigger: "switch_load",
+          cachedSessionCount: this.sessions.size,
+          openTabCount: 0,
+          cachedThreadIds: [...this.sessions.keys()],
+          reason: "Session establishment failed",
+        });
         this.threadActivationGenerations.delete(threadId);
         throw err;
       } finally {
@@ -2239,6 +2331,17 @@ export class AgentConnectionManager {
       toolPayloads: new Map(),
       retention: new SessionRetentionTracker(),
     });
+    this.monitorObserver?.onSessionCacheEvent?.({
+      timestamp: Date.now(),
+      action: "insert",
+      threadId: thread.id,
+      agentSessionId: created.sessionId,
+      agentId: live.agentId,
+      trigger: "thread_created",
+      cachedSessionCount: this.sessions.size,
+      openTabCount: 0,
+      cachedThreadIds: [...this.sessions.keys()],
+    });
 
     const projectChanged = this.activeProjectId !== projectId;
     this.activeProjectId = projectId;
@@ -2310,6 +2413,18 @@ export class AgentConnectionManager {
     }
     this.releaseWorkspaceRoot(sessionId);
     this.sessions.delete(threadId);
+    this.monitorObserver?.onSessionCacheEvent?.({
+      timestamp: Date.now(),
+      action: "evict",
+      threadId,
+      agentSessionId: sessionId,
+      agentId: runtime?.agentId ?? thread.agent_id,
+      trigger: "tab_closed",
+      cachedSessionCount: this.sessions.size,
+      openTabCount: 0,
+      cachedThreadIds: [...this.sessions.keys()],
+      reason: "Thread deleted",
+    });
     this.emit({ type: "thread-closed", threadId });
     removeThreadRow(threadId);
 
@@ -2368,6 +2483,18 @@ export class AgentConnectionManager {
     }
     this.releaseWorkspaceRoot(runtime.agentSessionId);
     this.sessions.delete(threadId);
+    this.monitorObserver?.onSessionCacheEvent?.({
+      timestamp: Date.now(),
+      action: "close_session",
+      threadId,
+      agentSessionId: runtime.agentSessionId,
+      agentId: runtime.agentId,
+      trigger: "tab_closed",
+      cachedSessionCount: this.sessions.size,
+      openTabCount: 0,
+      cachedThreadIds: [...this.sessions.keys()],
+      reason: "Tab session closed",
+    });
     this.emit({ type: "thread-closed", threadId });
   }
 

@@ -63,11 +63,15 @@ export async function probeAgentHandshake(
   }
 
   let child: ChildProcessWithoutNullStreams;
+  let spawnCommand = "";
   try {
     const { command, args, env } = resolveAgentSpawn(descriptor);
+    spawnCommand = command;
+    const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
     child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      ...(useShell && { shell: true }),
     }) as ChildProcessWithoutNullStreams;
   } catch (err) {
     return {
@@ -116,7 +120,7 @@ export async function probeAgentHandshake(
       timeoutHandle = setTimeout(() => {
         if (settled) return;
         reject(new Error("__pipper_probe_timeout__"));
-      }, options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS);
+      }, options.timeoutMs ?? (/\bnpx(?:\.cmd)?$/i.test(spawnCommand) ? 120_000 : DEFAULT_PROBE_TIMEOUT_MS));
     });
 
     const run = async () => {

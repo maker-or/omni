@@ -13,6 +13,7 @@ import type {
   MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
+  MonitorSessionCacheEvent,
   MonitorSwitchRecord,
   MonitorSwitchPhase,
   MonitorTabClickTiming,
@@ -254,6 +255,24 @@ export function ensureMonitorTables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_monitor_click_timings_ts
       ON monitor_tab_click_timings(timestamp);
+
+    CREATE TABLE IF NOT EXISTS monitor_session_cache_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      agent_session_id TEXT,
+      agent_id TEXT,
+      trigger TEXT NOT NULL,
+      cached_session_count INTEGER NOT NULL,
+      open_tab_count INTEGER NOT NULL,
+      cached_thread_ids_json TEXT NOT NULL DEFAULT '[]',
+      reason TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_cache_events_ts
+      ON monitor_session_cache_events(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_monitor_cache_events_thread
+      ON monitor_session_cache_events(thread_id, timestamp);
   `);
   addColumnIfMissing(db, "monitor_samples", "thread_ids_json", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(
@@ -305,6 +324,21 @@ export function ensureMonitorTables(): void {
     "dom_attribution_json",
     "TEXT NOT NULL DEFAULT '[]'",
   );
+  addColumnIfMissing(db, "monitor_switches", "cached_session_count", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "monitor_switches", "was_resident", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "monitor_switches", "agent_id_before", "TEXT");
+  addColumnIfMissing(db, "monitor_switches", "agent_id_target", "TEXT");
+  addColumnIfMissing(db, "monitor_switches", "agent_switched", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "monitor_switches", "workspace_cwd_before", "TEXT");
+  addColumnIfMissing(db, "monitor_switches", "workspace_cwd_target", "TEXT");
+  addColumnIfMissing(db, "monitor_switches", "workspace_cwd_changed", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "monitor_connection_episodes", "session_count_at_termination", "INTEGER");
+  addColumnIfMissing(
+    db,
+    "monitor_connection_episodes",
+    "invalidated_thread_ids_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
   tablesReady = true;
 }
 
@@ -316,8 +350,9 @@ export function upsertConnectionEpisode(episode: MonitorConnectionEpisode): void
         connection_id, agent_id, pid, spawned_at, initialized_at,
         transport_closed_at, process_exited_at, ended_at, exit_code, signal,
         intentional, terminal_cause, active_thread_id, running_thread_ids_json,
-        uptime_ms, stderr_tail, reconnect_attempt, previous_connection_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        uptime_ms, stderr_tail, reconnect_attempt, previous_connection_id,
+        session_count_at_termination, invalidated_thread_ids_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(connection_id) DO UPDATE SET
         agent_id = excluded.agent_id,
         pid = excluded.pid,
@@ -335,7 +370,9 @@ export function upsertConnectionEpisode(episode: MonitorConnectionEpisode): void
         uptime_ms = excluded.uptime_ms,
         stderr_tail = excluded.stderr_tail,
         reconnect_attempt = excluded.reconnect_attempt,
-        previous_connection_id = excluded.previous_connection_id`,
+        previous_connection_id = excluded.previous_connection_id,
+        session_count_at_termination = excluded.session_count_at_termination,
+        invalidated_thread_ids_json = excluded.invalidated_thread_ids_json`,
     )
     .run(
       episode.connectionId,
@@ -356,6 +393,8 @@ export function upsertConnectionEpisode(episode: MonitorConnectionEpisode): void
       episode.stderrTail,
       episode.reconnectAttempt,
       episode.previousConnectionId,
+      episode.sessionCountAtTermination ?? null,
+      JSON.stringify(episode.invalidatedThreadIds ?? []),
     );
 }
 
@@ -375,7 +414,9 @@ export function getConnectionEpisodes(
               terminal_cause AS terminalCause, active_thread_id AS activeThreadId,
               running_thread_ids_json AS runningThreadIdsJson, uptime_ms AS uptimeMs,
               stderr_tail AS stderrTail, reconnect_attempt AS reconnectAttempt,
-              previous_connection_id AS previousConnectionId
+              previous_connection_id AS previousConnectionId,
+              session_count_at_termination AS sessionCountAtTermination,
+              invalidated_thread_ids_json AS invalidatedThreadIdsJson
        FROM monitor_connection_episodes
        WHERE (? IS NULL OR connection_id = ?)
          AND (? IS NULL OR spawned_at <= ?)
@@ -401,6 +442,14 @@ export function getConnectionEpisodes(
     } catch {
       // Preserve a readable empty value for rows written by an older build.
     }
+    let invalidatedThreadIds: string[] | undefined;
+    try {
+      const parsed = JSON.parse(String(row.invalidatedThreadIdsJson ?? "[]"));
+      if (Array.isArray(parsed))
+        invalidatedThreadIds = parsed.filter((id): id is string => typeof id === "string");
+    } catch {
+      // ignore
+    }
     return {
       connectionId: String(row.connectionId),
       agentId: String(row.agentId),
@@ -424,6 +473,9 @@ export function getConnectionEpisodes(
       reconnectAttempt: Number(row.reconnectAttempt ?? 1),
       previousConnectionId:
         row.previousConnectionId == null ? null : String(row.previousConnectionId),
+      sessionCountAtTermination:
+        row.sessionCountAtTermination == null ? undefined : Number(row.sessionCountAtTermination),
+      invalidatedThreadIds,
     };
   });
 }
@@ -972,7 +1024,13 @@ export function listIncidents(limit = 100, range?: MonitorTimeRange): MonitorInc
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as Array<{
+    .all(
+      range?.from ?? null,
+      range?.from ?? null,
+      range?.to ?? null,
+      range?.to ?? null,
+      limit,
+    ) as Array<{
     id: number;
     timestamp: number;
     kind: MonitorIncidentKind;
@@ -1107,8 +1165,10 @@ export function insertSwitchRecord(record: MonitorSwitchRecord): void {
     .prepare(
       `INSERT INTO monitor_switches (
         timestamp, thread_id, agent_id, project_id, source, phase,
-        duration_ms, success, error, open_tab_count, previous_thread_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        duration_ms, success, error, open_tab_count, previous_thread_id,
+        cached_session_count, was_resident, agent_id_before, agent_id_target,
+        agent_switched, workspace_cwd_before, workspace_cwd_target, workspace_cwd_changed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       record.timestamp,
@@ -1122,6 +1182,14 @@ export function insertSwitchRecord(record: MonitorSwitchRecord): void {
       record.error ?? null,
       record.openTabCount,
       record.previousThreadId,
+      record.cachedSessionCount ?? 0,
+      record.wasResidentInMemory ? 1 : 0,
+      record.agentIdBefore ?? null,
+      record.agentIdTarget ?? null,
+      record.agentSwitched ? 1 : 0,
+      record.workspaceCwdBefore ?? null,
+      record.workspaceCwdTarget ?? null,
+      record.workspaceCwdChanged ? 1 : 0,
     );
 }
 
@@ -1134,6 +1202,79 @@ export function insertTabEvent(event: MonitorTabEvent): void {
       ) VALUES (?, ?, ?, ?, ?)`,
     )
     .run(event.timestamp, event.action, event.threadId, event.openTabCount, event.activeThreadId);
+}
+
+export function insertSessionCacheEvent(event: MonitorSessionCacheEvent): void {
+  ensureMonitorTables();
+  getDb()
+    .prepare(
+      `INSERT INTO monitor_session_cache_events (
+        timestamp, action, thread_id, agent_session_id, agent_id, trigger,
+        cached_session_count, open_tab_count, cached_thread_ids_json, reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      event.timestamp,
+      event.action,
+      event.threadId,
+      event.agentSessionId ?? null,
+      event.agentId ?? null,
+      event.trigger,
+      event.cachedSessionCount,
+      event.openTabCount,
+      JSON.stringify(event.cachedThreadIds ?? []),
+      event.reason ?? null,
+    );
+}
+
+export function listSessionCacheEvents(
+  limit = 500,
+  range?: MonitorTimeRange,
+): MonitorSessionCacheEvent[] {
+  ensureMonitorTables();
+  interface CacheEventRow {
+    timestamp: number;
+    action: MonitorSessionCacheEvent["action"];
+    threadId: string;
+    agentSessionId: string | null;
+    agentId: string | null;
+    trigger: MonitorSessionCacheEvent["trigger"];
+    cachedSessionCount: number;
+    openTabCount: number;
+    cachedThreadIdsJson: string;
+    reason: string | null;
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT timestamp, action, thread_id AS threadId, agent_session_id AS agentSessionId,
+              agent_id AS agentId, trigger, cached_session_count AS cachedSessionCount,
+              open_tab_count AS openTabCount, cached_thread_ids_json AS cachedThreadIdsJson,
+              reason
+       FROM monitor_session_cache_events
+       WHERE (? IS NULL OR timestamp >= ?)
+         AND (? IS NULL OR timestamp <= ?)
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(
+      range?.from ?? null,
+      range?.from ?? null,
+      range?.to ?? null,
+      range?.to ?? null,
+      limit,
+    ) as unknown as CacheEventRow[];
+  return rows.map((row) => ({
+    timestamp: row.timestamp,
+    action: row.action,
+    threadId: row.threadId,
+    agentSessionId: row.agentSessionId,
+    agentId: row.agentId,
+    trigger: row.trigger,
+    cachedSessionCount: row.cachedSessionCount,
+    openTabCount: row.openTabCount,
+    cachedThreadIds: parseJsonArray(row.cachedThreadIdsJson),
+    reason: row.reason,
+  }));
 }
 
 export function insertTabClickTiming(timing: MonitorTabClickTiming): void {
@@ -1170,19 +1311,38 @@ export function listSwitchRecords(limit = 500, range?: MonitorTimeRange): Monito
     error: string | null;
     openTabCount: number;
     previousThreadId: string | null;
+    cachedSessionCount: number | null;
+    wasResident: number | null;
+    agentIdBefore: string | null;
+    agentIdTarget: string | null;
+    agentSwitched: number | null;
+    workspaceCwdBefore: string | null;
+    workspaceCwdTarget: string | null;
+    workspaceCwdChanged: number | null;
   }
   const rows = getDb()
     .prepare(
       `SELECT timestamp, thread_id AS threadId, agent_id AS agentId, project_id AS projectId,
               source, phase, duration_ms AS durationMs, success, error,
-              open_tab_count AS openTabCount, previous_thread_id AS previousThreadId
+              open_tab_count AS openTabCount, previous_thread_id AS previousThreadId,
+              cached_session_count AS cachedSessionCount, was_resident AS wasResident,
+              agent_id_before AS agentIdBefore, agent_id_target AS agentIdTarget,
+              agent_switched AS agentSwitched, workspace_cwd_before AS workspaceCwdBefore,
+              workspace_cwd_target AS workspaceCwdTarget,
+              workspace_cwd_changed AS workspaceCwdChanged
        FROM monitor_switches
        WHERE (? IS NULL OR timestamp >= ?)
          AND (? IS NULL OR timestamp <= ?)
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as unknown as SwitchRow[];
+    .all(
+      range?.from ?? null,
+      range?.from ?? null,
+      range?.to ?? null,
+      range?.to ?? null,
+      limit,
+    ) as unknown as SwitchRow[];
   return rows.map((row) => ({
     timestamp: row.timestamp,
     threadId: row.threadId,
@@ -1195,6 +1355,14 @@ export function listSwitchRecords(limit = 500, range?: MonitorTimeRange): Monito
     error: row.error ?? undefined,
     openTabCount: row.openTabCount,
     previousThreadId: row.previousThreadId,
+    cachedSessionCount: row.cachedSessionCount ?? undefined,
+    wasResidentInMemory: row.wasResident != null ? row.wasResident === 1 : undefined,
+    agentIdBefore: row.agentIdBefore,
+    agentIdTarget: row.agentIdTarget,
+    agentSwitched: row.agentSwitched != null ? row.agentSwitched === 1 : undefined,
+    workspaceCwdBefore: row.workspaceCwdBefore,
+    workspaceCwdTarget: row.workspaceCwdTarget,
+    workspaceCwdChanged: row.workspaceCwdChanged != null ? row.workspaceCwdChanged === 1 : undefined,
   }));
 }
 
@@ -1217,7 +1385,13 @@ export function listTabEvents(limit = 500, range?: MonitorTimeRange): MonitorTab
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as unknown as TabEventRow[];
+    .all(
+      range?.from ?? null,
+      range?.from ?? null,
+      range?.to ?? null,
+      range?.to ?? null,
+      limit,
+    ) as unknown as TabEventRow[];
   return rows.map((row) => ({
     timestamp: row.timestamp,
     action: row.action as MonitorTabEvent["action"],
@@ -1227,7 +1401,10 @@ export function listTabEvents(limit = 500, range?: MonitorTimeRange): MonitorTab
   }));
 }
 
-export function listTabClickTimings(limit = 500, range?: MonitorTimeRange): MonitorTabClickTiming[] {
+export function listTabClickTimings(
+  limit = 500,
+  range?: MonitorTimeRange,
+): MonitorTabClickTiming[] {
   ensureMonitorTables();
   interface ClickTimingRow {
     timestamp: number;
@@ -1250,7 +1427,13 @@ export function listTabClickTimings(limit = 500, range?: MonitorTimeRange): Moni
        ORDER BY timestamp DESC
        LIMIT ?`,
     )
-    .all(range?.from ?? null, range?.from ?? null, range?.to ?? null, range?.to ?? null, limit) as unknown as ClickTimingRow[];
+    .all(
+      range?.from ?? null,
+      range?.from ?? null,
+      range?.to ?? null,
+      range?.to ?? null,
+      limit,
+    ) as unknown as ClickTimingRow[];
   return rows.map((row) => ({
     timestamp: row.timestamp,
     threadId: row.threadId,

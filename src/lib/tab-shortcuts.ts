@@ -22,7 +22,10 @@ export function tabValuesInBarOrder(
   return [...threadIds, ...terminalIds.map((id) => `${terminalPrefix}${id}`)];
 }
 
-export function tabValueAtShortcutIndex(tabValues: readonly string[], index: number): string | null {
+export function tabValueAtShortcutIndex(
+  tabValues: readonly string[],
+  index: number,
+): string | null {
   if (!Number.isInteger(index) || index < 0 || index > TAB_SHORTCUT_MAX_INDEX) return null;
   return tabValues[index] ?? null;
 }
@@ -52,4 +55,10 @@ export function tabIndexFromShortcutEvent(event: KeyboardEvent): number | null {
 export function isNewTabShortcutEvent(event: KeyboardEvent): boolean {
   if (!isPlainModShortcut(event)) return false;
   return event.code === "KeyT" || event.key.toLowerCase() === "t";
+}
+
+/** ⌘W / Ctrl+W — close active tab. */
+export function isCloseTabShortcutEvent(event: KeyboardEvent): boolean {
+  if (!isPlainModShortcut(event)) return false;
+  return event.code === "KeyW" || event.key.toLowerCase() === "w";
 }

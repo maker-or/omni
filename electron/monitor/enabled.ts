@@ -7,5 +7,7 @@ export function isMonitorEnabled(env: NodeJS.ProcessEnv = process.env): boolean 
   const raw = env.PIPPER_MONITOR ?? env.PIPPER_MONITOR_ENABLED;
   if (raw == null || raw.trim() === "") return true;
   const normalized = raw.trim().toLowerCase();
-  return normalized !== "0" && normalized !== "false" && normalized !== "off" && normalized !== "no";
+  return (
+    normalized !== "0" && normalized !== "false" && normalized !== "off" && normalized !== "no"
+  );
 }

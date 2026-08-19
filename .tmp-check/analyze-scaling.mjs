@@ -3,16 +3,56 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const RUNS = [
-  { scale: 100, mode: "cold", dir: "benchmarks/results/scaling/100/runs/e267b457-8947-4d3d-a4e2-8034eaf80fd6" },
-  { scale: 100, mode: "warm", dir: "benchmarks/results/scaling/100/runs/18b6eef7-68ee-4ca1-81b1-5b67fb83cbff" },
-  { scale: 200, mode: "cold", dir: "benchmarks/results/scaling/200/runs/475938f0-9dc0-4201-a55c-fefa0aa981e0" },
-  { scale: 200, mode: "warm", dir: "benchmarks/results/scaling/200/runs/936d031b-fc50-4ae1-9fcf-3372e7928b6a" },
-  { scale: 300, mode: "cold", dir: "benchmarks/results/scaling/300/runs/de352839-b83e-497d-9047-f1e9e1d09067" },
-  { scale: 300, mode: "warm", dir: "benchmarks/results/scaling/300/runs/0dd92c82-1615-4cbf-bd2d-327bdc4ac529" },
-  { scale: 500, mode: "cold", dir: "benchmarks/results/scaling/500/runs/9a6a416b-621a-4164-8a53-8c8ca58731fd" },
-  { scale: 500, mode: "warm", dir: "benchmarks/results/scaling/500/runs/c6e2899e-fb1f-4c44-9c9a-d3db145551b1" },
-  { scale: 400, mode: "cold", dir: "benchmarks/results/scaling/500/runs/def164c8-3ac6-4aa8-9fb6-171c0e64a7a5" },
-  { scale: 400, mode: "warm", dir: "benchmarks/results/scaling/500/runs/aa737bcd-f93b-4515-801b-125087c4944a" },
+  {
+    scale: 100,
+    mode: "cold",
+    dir: "benchmarks/results/scaling/100/runs/e267b457-8947-4d3d-a4e2-8034eaf80fd6",
+  },
+  {
+    scale: 100,
+    mode: "warm",
+    dir: "benchmarks/results/scaling/100/runs/18b6eef7-68ee-4ca1-81b1-5b67fb83cbff",
+  },
+  {
+    scale: 200,
+    mode: "cold",
+    dir: "benchmarks/results/scaling/200/runs/475938f0-9dc0-4201-a55c-fefa0aa981e0",
+  },
+  {
+    scale: 200,
+    mode: "warm",
+    dir: "benchmarks/results/scaling/200/runs/936d031b-fc50-4ae1-9fcf-3372e7928b6a",
+  },
+  {
+    scale: 300,
+    mode: "cold",
+    dir: "benchmarks/results/scaling/300/runs/de352839-b83e-497d-9047-f1e9e1d09067",
+  },
+  {
+    scale: 300,
+    mode: "warm",
+    dir: "benchmarks/results/scaling/300/runs/0dd92c82-1615-4cbf-bd2d-327bdc4ac529",
+  },
+  {
+    scale: 500,
+    mode: "cold",
+    dir: "benchmarks/results/scaling/500/runs/9a6a416b-621a-4164-8a53-8c8ca58731fd",
+  },
+  {
+    scale: 500,
+    mode: "warm",
+    dir: "benchmarks/results/scaling/500/runs/c6e2899e-fb1f-4c44-9c9a-d3db145551b1",
+  },
+  {
+    scale: 400,
+    mode: "cold",
+    dir: "benchmarks/results/scaling/500/runs/def164c8-3ac6-4aa8-9fb6-171c0e64a7a5",
+  },
+  {
+    scale: 400,
+    mode: "warm",
+    dir: "benchmarks/results/scaling/500/runs/aa737bcd-f93b-4515-801b-125087c4944a",
+  },
 ];
 
 function pct(values, p) {
@@ -68,19 +108,31 @@ function summarizeTicks(ticks, t0) {
 
   // downsample series to ~20 points
   const step = Math.max(1, Math.floor(series.length / 20));
-  const sampled = series.filter((_, i) => i % step === 0 || i === series.length - 1).map((row) => ({
-    tMs: row.t,
-    totalMemMiB: mib(row.totalMem),
-    totalCpu: Number(row.totalCpu.toFixed(1)),
-    mainMemMiB: mib(row.roles["electron-main"]?.mem),
-    mainHeapMiB: mib(row.roles["electron-main"]?.heapUsed),
-    mainCpu: row.roles["electron-main"]?.cpu != null ? Number(row.roles["electron-main"].cpu.toFixed(1)) : null,
-    rendererMemMiB: mib(row.roles["electron-renderer"]?.mem),
-    rendererCpu: row.roles["electron-renderer"]?.cpu != null ? Number(row.roles["electron-renderer"].cpu.toFixed(1)) : null,
-    agentMemMiB: mib(row.roles["acp-agent"]?.mem),
-    agentCpu: row.roles["acp-agent"]?.cpu != null ? Number(row.roles["acp-agent"].cpu.toFixed(1)) : null,
-    gpuCpu: row.roles["electron-gpu"]?.cpu != null ? Number(row.roles["electron-gpu"].cpu.toFixed(1)) : null,
-  }));
+  const sampled = series
+    .filter((_, i) => i % step === 0 || i === series.length - 1)
+    .map((row) => ({
+      tMs: row.t,
+      totalMemMiB: mib(row.totalMem),
+      totalCpu: Number(row.totalCpu.toFixed(1)),
+      mainMemMiB: mib(row.roles["electron-main"]?.mem),
+      mainHeapMiB: mib(row.roles["electron-main"]?.heapUsed),
+      mainCpu:
+        row.roles["electron-main"]?.cpu != null
+          ? Number(row.roles["electron-main"].cpu.toFixed(1))
+          : null,
+      rendererMemMiB: mib(row.roles["electron-renderer"]?.mem),
+      rendererCpu:
+        row.roles["electron-renderer"]?.cpu != null
+          ? Number(row.roles["electron-renderer"].cpu.toFixed(1))
+          : null,
+      agentMemMiB: mib(row.roles["acp-agent"]?.mem),
+      agentCpu:
+        row.roles["acp-agent"]?.cpu != null ? Number(row.roles["acp-agent"].cpu.toFixed(1)) : null,
+      gpuCpu:
+        row.roles["electron-gpu"]?.cpu != null
+          ? Number(row.roles["electron-gpu"].cpu.toFixed(1))
+          : null,
+    }));
 
   return {
     tickCount: ticks.length,
@@ -113,9 +165,12 @@ function summarizeAcp(updates) {
   const snapshots = updates.map((u) => u.sessionSnapshotBytes);
   const byType = {};
   let maxHandler = updates[0];
-  const topHandlers = [...updates].sort((a, b) => b.handlerDurationMs - a.handlerDurationMs).slice(0, 8);
+  const topHandlers = [...updates]
+    .sort((a, b) => b.handlerDurationMs - a.handlerDurationMs)
+    .slice(0, 8);
   for (const u of updates) {
-    if (!byType[u.updateType]) byType[u.updateType] = { count: 0, bytes: 0, maxHandler: 0, sumHandler: 0 };
+    if (!byType[u.updateType])
+      byType[u.updateType] = { count: 0, bytes: 0, maxHandler: 0, sumHandler: 0 };
     const t = byType[u.updateType];
     t.count += 1;
     t.bytes += u.updateBytes;

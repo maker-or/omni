@@ -171,9 +171,13 @@ let latestRefreshId = 0;
 // Main activation can spend up to 10s on initialize plus three 10s session
 // phases (load, resume, new). Keep the renderer pending until that budget has
 // elapsed so a late session-state cannot surprise the user after a false error.
-const THREAD_SWITCH_TIMEOUT_MS = window.omni.benchmark.enabled
-  ? window.omni.benchmark.switchTimeoutMs
-  : 60_000;
+// Read lazily: Node tests import this module without a preload `window.omni`.
+const DEFAULT_THREAD_SWITCH_TIMEOUT_MS = 60_000;
+
+function threadSwitchTimeoutMs(): number {
+  const benchmark = typeof window === "undefined" ? undefined : window.omni?.benchmark;
+  return benchmark?.enabled ? benchmark.switchTimeoutMs : DEFAULT_THREAD_SWITCH_TIMEOUT_MS;
+}
 
 /**
  * The runtime's authoritative session snapshots currently contain user text
@@ -974,7 +978,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
         await withTimeout(
           window.omni.agent.switchThread(threadId),
-          THREAD_SWITCH_TIMEOUT_MS,
+          threadSwitchTimeoutMs(),
           `Switch to ${threadId}`,
         );
         // `agent:switchThread` emits the complete target snapshot before its

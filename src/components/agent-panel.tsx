@@ -1041,7 +1041,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
   useEffect(() => {
     if (
-      !window.omni.benchmark.enabled ||
+      !window.omni?.benchmark?.enabled ||
       !threadId ||
       isSwitchingThread ||
       allMessages.length === 0
@@ -1186,6 +1186,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       document.removeEventListener("keydown", stopOnReaderIntent, true);
     };
   }, [threadId]);
+
+  useEffect(() => {
+    setTraceDeckOpenByKey({});
+  }, [threadId, requestedThreadId]);
 
   useEffect(() => {
     if (!threadId) return;

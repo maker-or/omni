@@ -24,9 +24,10 @@
       "icon": "openai-codex",
       "docsUrl": "https://github.com/agentclientprotocol/codex-acp",
       "authHint": "Sign in with ChatGPT or provide CODEX_API_KEY / OPENAI_API_KEY.",
-      "installHint": "Bundled with Pipper Code.",
-      "installKind": "binary",
-      "npmPackage": "@agentclientprotocol/codex-acp"
+      "installHint": "npm install -g @agentclientprotocol/codex-acp  (or use npx on first launch)",
+      "installKind": "npx",
+      "npmPackage": "@agentclientprotocol/codex-acp",
+      "detectCommands": ["codex-acp"]
     },
     {
       "id": "claude-agent-acp",

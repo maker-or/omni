@@ -84,13 +84,7 @@ function AgentTabs({
 }
 
 /** Numbered strip for how many subagents may run at once. */
-function ParallelTabs({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (count: number) => void;
-}) {
+function ParallelTabs({ value, onChange }: { value: number; onChange: (count: number) => void }) {
   return (
     <Tabs
       value={String(value)}
@@ -102,7 +96,12 @@ function ParallelTabs({
     >
       <TabsList aria-label="Max parallel subagents">
         {PARALLEL_COUNTS.map((count) => (
-          <TabItem key={count} value={String(count)} label={String(count)} className="px-2.5 py-1" />
+          <TabItem
+            key={count}
+            value={String(count)}
+            label={String(count)}
+            className="px-2.5 py-1"
+          />
         ))}
       </TabsList>
     </Tabs>

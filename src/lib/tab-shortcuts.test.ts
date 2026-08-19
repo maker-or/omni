@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  isCloseTabShortcutEvent,
   isNewTabShortcutEvent,
   tabIndexFromShortcutEvent,
   tabValueAtShortcutIndex,
@@ -46,13 +47,19 @@ describe("global tab number shortcuts", () => {
     expect(tabIndexFromShortcutEvent(keyEvent({ key: "1", metaKey: true, code: "Digit1" }))).toBe(
       0,
     );
-    expect(tabIndexFromShortcutEvent(keyEvent({ key: "4", ctrlKey: true, code: "Digit4" }))).toBe(3);
-    expect(tabIndexFromShortcutEvent(keyEvent({ key: "9", metaKey: true, code: "Digit9" }))).toBe(8);
+    expect(tabIndexFromShortcutEvent(keyEvent({ key: "4", ctrlKey: true, code: "Digit4" }))).toBe(
+      3,
+    );
+    expect(tabIndexFromShortcutEvent(keyEvent({ key: "9", metaKey: true, code: "Digit9" }))).toBe(
+      8,
+    );
     expect(tabIndexFromShortcutEvent(keyEvent({ key: "1" }))).toBeNull();
     expect(
       tabIndexFromShortcutEvent(keyEvent({ key: "1", metaKey: true, shiftKey: true })),
     ).toBeNull();
-    expect(tabIndexFromShortcutEvent(keyEvent({ key: "0", metaKey: true, code: "Digit0" }))).toBeNull();
+    expect(
+      tabIndexFromShortcutEvent(keyEvent({ key: "0", metaKey: true, code: "Digit0" })),
+    ).toBeNull();
   });
 
   test("⌘T / Ctrl+T is the new-tab shortcut", () => {
@@ -61,6 +68,15 @@ describe("global tab number shortcuts", () => {
     expect(isNewTabShortcutEvent(keyEvent({ key: "t" }))).toBe(false);
     expect(
       isNewTabShortcutEvent(keyEvent({ key: "t", metaKey: true, shiftKey: true, code: "KeyT" })),
+    ).toBe(false);
+  });
+
+  test("⌘W / Ctrl+W is the close-tab shortcut", () => {
+    expect(isCloseTabShortcutEvent(keyEvent({ key: "w", metaKey: true, code: "KeyW" }))).toBe(true);
+    expect(isCloseTabShortcutEvent(keyEvent({ key: "W", ctrlKey: true, code: "KeyW" }))).toBe(true);
+    expect(isCloseTabShortcutEvent(keyEvent({ key: "w" }))).toBe(false);
+    expect(
+      isCloseTabShortcutEvent(keyEvent({ key: "w", metaKey: true, shiftKey: true, code: "KeyW" })),
     ).toBe(false);
   });
 });

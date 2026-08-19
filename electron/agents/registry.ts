@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, accessSync, constants, realpathSync } from "node:fs";
-import { join, dirname, sep } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
@@ -13,82 +12,6 @@ interface RegistryFile {
 
 /** Directory of this module (avoid naming `__dirname` — electron-vite injects that). */
 const registryDir = dirname(fileURLToPath(import.meta.url));
-/** Avoid naming `require` — electron-vite injects a top-level CJS shim. */
-const nodeRequire = createRequire(import.meta.url);
-
-/**
- * Map `…/app.asar/…` → `…/app.asar.unpacked/…` when the unpacked file exists.
- *
- * Electron packs modules into asar and unpacks native binaries (asarUnpack).
- * `require.resolve` often still returns a virtual `app.asar` path. That is fine
- * for reading JS in the main process, but under `ELECTRON_RUN_AS_NODE` (and for
- * `spawn` of native executables) paths through `app.asar` fail with ENOTDIR
- * because asar is a file, not a directory.
- */
-export function preferAsarUnpackedPath(filePath: string): string {
-  const asarMarker = `${sep}app.asar${sep}`;
-  const unpackedMarker = `${sep}app.asar.unpacked${sep}`;
-  if (!filePath.includes(asarMarker) || filePath.includes(unpackedMarker)) {
-    return filePath;
-  }
-  const unpacked = filePath.replace(asarMarker, unpackedMarker);
-  return existsSync(unpacked) ? unpacked : filePath;
-}
-
-/** Platform triple used by `@openai/codex` native packages. */
-function codexTargetTriple(): string | null {
-  const { platform, arch } = process;
-  if (platform === "darwin" && arch === "arm64") return "aarch64-apple-darwin";
-  if (platform === "darwin" && arch === "x64") return "x86_64-apple-darwin";
-  if (platform === "linux" && arch === "arm64") return "aarch64-unknown-linux-musl";
-  if (platform === "linux" && arch === "x64") return "x86_64-unknown-linux-musl";
-  if (platform === "win32" && arch === "arm64") return "aarch64-pc-windows-msvc";
-  if (platform === "win32" && arch === "x64") return "x86_64-pc-windows-msvc";
-  return null;
-}
-
-const CODEX_PLATFORM_PACKAGE: Record<string, string> = {
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-};
-
-/**
- * Absolute path to the native Codex binary under asar.unpacked when available.
- * Used as `CODEX_PATH` so codex-acp does not re-resolve through app.asar.
- */
-function bundledCodexNativeBinaryPath(adapterEntry: string): string | null {
-  const triple = codexTargetTriple();
-  if (!triple) return null;
-  const platformPackage = CODEX_PLATFORM_PACKAGE[triple];
-  if (!platformPackage) return null;
-  try {
-    const req = createRequire(adapterEntry);
-    const packageJsonPath = preferAsarUnpackedPath(req.resolve(`${platformPackage}/package.json`));
-    const binary = join(
-      dirname(packageJsonPath),
-      "vendor",
-      triple,
-      "bin",
-      process.platform === "win32" ? "codex.exe" : "codex",
-    );
-    return existsSync(binary) ? binary : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Adapter is an app dependency, not an on-demand npx download. */
-function bundledCodexAcpPath(): string | null {
-  try {
-    return preferAsarUnpackedPath(nodeRequire.resolve("@agentclientprotocol/codex-acp"));
-  } catch {
-    return null;
-  }
-}
 
 /** Built-in catalog — used when config.json is missing or incomplete. */
 export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
@@ -117,9 +40,11 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     icon: "openai-codex",
     docsUrl: "https://github.com/agentclientprotocol/codex-acp",
     authHint: "Sign in with ChatGPT or provide CODEX_API_KEY / OPENAI_API_KEY.",
-    installHint: "Bundled with Pipper Code.",
-    installKind: "binary",
+    installHint:
+      "npm install -g @agentclientprotocol/codex-acp  (or use npx on first launch)",
+    installKind: "npx",
     npmPackage: "@agentclientprotocol/codex-acp",
+    detectCommands: ["codex-acp"],
   },
   {
     id: "claude-agent-acp",
@@ -378,23 +303,6 @@ export function probeAgentAvailability(agent: AcpAgentDescriptor): AcpAgentDescr
     };
   }
 
-  if (base.id === "codex-acp") {
-    const bundledPath = bundledCodexAcpPath();
-    return bundledPath
-      ? {
-          ...base,
-          available: true,
-          resolvedCommand: bundledPath,
-          statusMessage: null,
-        }
-      : {
-          ...base,
-          available: false,
-          resolvedCommand: null,
-          statusMessage: "Pipper's bundled Codex ACP adapter is missing. Reinstall Pipper.",
-        };
-  }
-
   // Cursor's CLI binary is literally named `agent`, a name other unrelated CLIs also
   // install (e.g. Grok). A generic PATH lookup can silently pick one of those instead,
   // which then hangs forever because it doesn't speak ACP — so resolve it separately
@@ -532,46 +440,6 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
       command: process.execPath.includes("Electron") ? "node" : process.execPath,
       args: [script],
       env,
-    };
-  }
-
-  if (agent.id === "codex-acp") {
-    const adapterPath = bundledCodexAcpPath();
-    if (!adapterPath) {
-      throw new Error("Pipper's bundled Codex ACP adapter is missing. Reinstall Pipper.");
-    }
-    // Under ELECTRON_RUN_AS_NODE, Electron's asar support still patches
-    // Module._resolveFilename. When the adapter spawns @openai/codex it
-    // resolves modules through the virtual app.asar/ file. The native binary
-    // path inside codex.js then goes through app.asar/ → spawn ENOTDIR.
-    //
-    // ELECTRON_NO_ASAR disables asar entirely for this child process. All
-    // modules that will be loaded at runtime are safe:
-    //   - The adapter (codex-acp dist/index.js) is a 30K-line bundled file
-    //     with all JS deps inlined — no runtime require/import for those.
-    //   - The only runtime dependency it loads is @openai/codex (Branch B in
-    //     startCodexConnection) which has zero dependencies outside the
-    //     @openai/* scope — all already in asarUnpack.
-    //   - With asar off, require.resolve uses real filesystem paths under
-    //     app.asar.unpacked/, so codex.js constructs a real path for the
-    //     native binary → spawn succeeds.
-    //
-    // CODEX_PATH (Branch A in the adapter) is kept as a direct spawn
-    // optimization when the native binary path is resolvable — it bypasses
-    // codex.js entirely and is unaffected by asar either way.
-    const nativeBinary = bundledCodexNativeBinaryPath(adapterPath);
-    const codexEnv: Record<string, string> = {
-      ...env,
-      ELECTRON_RUN_AS_NODE: "1",
-      ELECTRON_NO_ASAR: "1",
-    };
-    if (nativeBinary) {
-      codexEnv.CODEX_PATH = nativeBinary;
-    }
-    return {
-      command: process.execPath,
-      args: [adapterPath],
-      env: codexEnv,
     };
   }
 

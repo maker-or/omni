@@ -1,7 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
 
 vi.mock("electron", () => ({
-  app: { getPath: () => "/nonexistent-userdata", connect: vi.fn() },
+  app: {
+    getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp",
+    connect: vi.fn(),
+  },
 }));
 
 import { AgentConnectionManager } from "./agent-connection-manager.ts";
@@ -52,7 +55,8 @@ describe("activation snapshot", () => {
       }
     ).pushState("t1");
 
-    expect(events.map((event) => event.type)).toEqual(["session-state", "running-threads"]);
+    expect(events.map((event) => event.type)).toEqual(["session-state"]);
+    expect(events.some((event) => event.type === "thread-tool-calls")).toBe(false);
   });
 
   test("session slice stays lean while getToolCalls returns parked bodies", async () => {

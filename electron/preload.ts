@@ -243,6 +243,13 @@ const api = {
         ipcRenderer.removeListener("tabs:newTab", listener);
       };
     },
+    onCloseActive: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("tabs:closeActive", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:closeActive", listener);
+      };
+    },
   },
   agent: {
     getState: (): Promise<AcpSessionState> => ipcRenderer.invoke("agent:getState"),
@@ -407,6 +414,8 @@ const api = {
     reportTabClickTiming: (timing: MonitorTabClickTiming): Promise<void> =>
       ipcRenderer.invoke("monitor:reportTabClickTiming", timing),
     getSwitches: (): Promise<MonitorSwitchRecord[]> => ipcRenderer.invoke("monitor:getSwitches"),
+    getSessionCacheEvents: (): Promise<MonitorSessionCacheEvent[]> =>
+      ipcRenderer.invoke("monitor:getSessionCacheEvents"),
     getTabEvents: (): Promise<MonitorTabEvent[]> => ipcRenderer.invoke("monitor:getTabEvents"),
     getTabClickTimings: (): Promise<MonitorTabClickTiming[]> =>
       ipcRenderer.invoke("monitor:getTabClickTimings"),
@@ -434,10 +443,7 @@ const api = {
   },
   benchmark: {
     enabled: process.env.PIPPER_BENCHMARK_MODE === "1",
-    switchTimeoutMs: Math.max(
-      60_000,
-      Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS) || 60_000,
-    ),
+    switchTimeoutMs: Math.max(60_000, Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS) || 60_000),
     status: (): Promise<ThreadBenchmarkStatus> => ipcRenderer.invoke("benchmark:status"),
     prepare: (): Promise<ThreadBenchmarkPrepared> => ipcRenderer.invoke("benchmark:prepare"),
     start: (mode: ThreadBenchmarkMode): Promise<ThreadBenchmarkRun> =>

@@ -117,7 +117,8 @@ export function buildSwitchTimeline(
       switchesAfterTabChange: orderedSwitches.filter((entry) =>
         orderedTabEvents.some(
           (event) =>
-            Math.abs(event.timestamp - entry.timestamp) < 2000 && event.timestamp <= entry.timestamp,
+            Math.abs(event.timestamp - entry.timestamp) < 2000 &&
+            event.timestamp <= entry.timestamp,
         ),
       ).length,
     },

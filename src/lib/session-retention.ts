@@ -137,7 +137,11 @@ export class SessionRetentionTracker {
     };
   }
 
-  observe(previous: AcpSessionSlice, next: AcpSessionSlice, update: SessionUpdate): SessionRetentionSnapshot {
+  observe(
+    previous: AcpSessionSlice,
+    next: AcpSessionSlice,
+    update: SessionUpdate,
+  ): SessionRetentionSnapshot {
     this.noteEntries(previous.entries, next.entries);
     this.noteTools(previous.toolCalls, next.toolCalls, update);
     return this.snapshot(next);

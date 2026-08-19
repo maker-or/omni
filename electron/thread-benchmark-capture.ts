@@ -15,7 +15,6 @@ import {
   type ThreadBenchmarkRun,
 } from "../contracts/benchmark.ts";
 
-
 export function parseFixtureTurns(fixturePath: string): number | null {
   const match = basename(fixturePath).match(/(\d+)turns/i);
   if (!match) return null;
@@ -108,7 +107,9 @@ export function buildBenchmarkInsights(input: {
     }
   }
 
-  const freezeIncidents = monitor.incidents.filter((incident) => incident.kind === "renderer_freeze");
+  const freezeIncidents = monitor.incidents.filter(
+    (incident) => incident.kind === "renderer_freeze",
+  );
   const domPeaks = new Map<
     string,
     { id: string; peakNodeCount: number; peakNodeDelta: number; mutationCount: number }
@@ -243,7 +244,9 @@ export function buildBenchmarkInsights(input: {
             ? incident.payload.activeThreadId
             : null,
       })),
-      domPeaks: [...domPeaks.values()].sort((left, right) => right.peakNodeCount - left.peakNodeCount),
+      domPeaks: [...domPeaks.values()].sort(
+        (left, right) => right.peakNodeCount - left.peakNodeCount,
+      ),
       eventTotals,
     },
     acp: {
@@ -358,7 +361,10 @@ export function captureDirForRun(outputDir: string, runId: string): string {
   return join(outputDir, "runs", runId);
 }
 
-function indexEntryFromCapture(outputDir: string, capture: ThreadBenchmarkCapture): ThreadBenchmarkIndexEntry {
+function indexEntryFromCapture(
+  outputDir: string,
+  capture: ThreadBenchmarkCapture,
+): ThreadBenchmarkIndexEntry {
   return {
     runId: capture.identity.runId,
     monitorSessionId: capture.identity.monitorSessionId,
@@ -384,14 +390,22 @@ export async function writeBenchmarkCapture(
   const report = { ...capture.report, artifactDir: runDir };
   await mkdir(runDir, { recursive: true });
   await Promise.all([
-    writeFile(join(runDir, "identity.json"), `${JSON.stringify(capture.identity, null, 2)}\n`, "utf8"),
+    writeFile(
+      join(runDir, "identity.json"),
+      `${JSON.stringify(capture.identity, null, 2)}\n`,
+      "utf8",
+    ),
     writeFile(join(runDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8"),
     writeFile(
       join(runDir, "insights.json"),
       `${JSON.stringify(capture.report.insights, null, 2)}\n`,
       "utf8",
     ),
-    writeFile(join(runDir, "monitor.json"), `${JSON.stringify(capture.monitor, null, 2)}\n`, "utf8"),
+    writeFile(
+      join(runDir, "monitor.json"),
+      `${JSON.stringify(capture.monitor, null, 2)}\n`,
+      "utf8",
+    ),
   ]);
 
   const indexPath = join(outputDir, "index.json");

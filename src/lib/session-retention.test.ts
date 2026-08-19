@@ -4,6 +4,7 @@ import {
   applySessionUpdateInPlace,
   applySessionUpdateUnbounded,
   createEmptySessionSlice,
+  resetEntryIdCounter,
   trimSessionSlice,
 } from "./acp-session-reducer";
 import {
@@ -72,9 +73,13 @@ describe("session retention tracker", () => {
 
     const trimmed = trimSessionSlice(state);
     expect(tracker.recompute(trimmed)).toEqual(computeRetentionMetrics(trimmed));
-    expect(applySessionUpdate(createEmptySessionSlice(), updates[0]!)).toEqual(
-      trimSessionSlice(applySessionUpdateUnbounded(createEmptySessionSlice(), updates[0]!)),
+    resetEntryIdCounter();
+    const bounded = applySessionUpdate(createEmptySessionSlice(), updates[0]!);
+    resetEntryIdCounter();
+    const unbounded = trimSessionSlice(
+      applySessionUpdateUnbounded(createEmptySessionSlice(), updates[0]!),
     );
+    expect(bounded).toEqual(unbounded);
   });
 
   test("observeAfterMutation matches a full scan for in-place replay", () => {

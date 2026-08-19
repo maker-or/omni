@@ -12,11 +12,7 @@ import type {
 import type { AgentManager } from "./agent.ts";
 import { emptyMonitorRecordedSession } from "./monitor/timeline.ts";
 import type { MonitorService } from "./monitor/service.ts";
-import {
-  openThreadTab,
-  readOpenTabsState,
-  setActiveThreadTab,
-} from "./open-tabs.ts";
+import { openThreadTab, readOpenTabsState, setActiveThreadTab } from "./open-tabs.ts";
 import {
   buildBenchmarkIdentity,
   buildBenchmarkInsights,

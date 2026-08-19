@@ -75,10 +75,7 @@ import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
-import type {
-  ThreadBenchmarkMode,
-  ThreadBenchmarkRendererReady,
-} from "../contracts/benchmark.ts";
+import type { ThreadBenchmarkMode, ThreadBenchmarkRendererReady } from "../contracts/benchmark.ts";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
@@ -955,6 +952,9 @@ function initializeMonitorService(): void {
     onSwitchRecord: (record) => {
       monitorService?.reportSwitch(record);
     },
+    onSessionCacheEvent: (event) => {
+      monitorService?.reportSessionCacheEvent(event);
+    },
     onAcpUpdate: (update) => {
       monitorService?.reportAcpUpdate(update);
     },
@@ -1029,7 +1029,10 @@ function broadcastToWindows(channel: string, ...args: any[]) {
   }
 }
 
-function sendMainWindowTabEvent(channel: "tabs:selectByIndex" | "tabs:newTab", ...args: unknown[]) {
+function sendMainWindowTabEvent(
+  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:closeActive",
+  ...args: unknown[]
+) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(channel, ...args);
   if (!mainWindow.isFocused()) mainWindow.focus();
@@ -1071,14 +1074,32 @@ function buildAppMenu(): void {
               accelerator: "CommandOrControl+T",
               click: () => sendMainWindowTabEvent("tabs:newTab"),
             },
-            { type: "separator" },
-            { role: "close" },
+            {
+              label: "Close Tab",
+              accelerator: "CommandOrControl+W",
+              click: () => sendMainWindowTabEvent("tabs:closeActive"),
+            },
+            {
+              label: "Close Window",
+              accelerator: "CommandOrControl+Shift+W",
+              role: "close",
+            },
           ]
         : [
             {
               label: "New Tab",
               accelerator: "CommandOrControl+T",
               click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            {
+              label: "Close Tab",
+              accelerator: "CommandOrControl+W",
+              click: () => sendMainWindowTabEvent("tabs:closeActive"),
+            },
+            {
+              label: "Close Window",
+              accelerator: "CommandOrControl+Shift+W",
+              role: "close",
             },
             { type: "separator" },
             {
@@ -1859,16 +1880,19 @@ function registerIpc(): void {
     monitorService?.reportTabClickTiming(timing);
   });
   ipcMain.handle("monitor:getSwitches", () => monitorService?.getSwitchRecords() ?? []);
+  ipcMain.handle("monitor:getSessionCacheEvents", () => monitorService?.getSessionCacheEvents() ?? []);
   ipcMain.handle("monitor:getTabEvents", () => monitorService?.getTabEvents() ?? []);
   ipcMain.handle("monitor:getTabClickTimings", () => monitorService?.getTabClickTimings() ?? []);
 
-  ipcMain.handle("benchmark:status", () =>
-    threadBenchmarkController?.status() ?? {
-      enabled: false,
-      prepared: null,
-      run: null,
-      rendererReady: null,
-    },
+  ipcMain.handle(
+    "benchmark:status",
+    () =>
+      threadBenchmarkController?.status() ?? {
+        enabled: false,
+        prepared: null,
+        run: null,
+        rendererReady: null,
+      },
   );
   ipcMain.handle("benchmark:prepare", () => {
     if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
@@ -1883,10 +1907,8 @@ function registerIpc(): void {
     return threadBenchmarkController.finish();
   });
   ipcMain.handle("benchmark:cleanup", () => threadBenchmarkController?.cleanup());
-  ipcMain.on(
-    "benchmark:rendererReady",
-    (_event, input: ThreadBenchmarkRendererReady) =>
-      threadBenchmarkController?.reportRendererReady(input),
+  ipcMain.on("benchmark:rendererReady", (_event, input: ThreadBenchmarkRendererReady) =>
+    threadBenchmarkController?.reportRendererReady(input),
   );
   ipcMain.handle("monitor:getSwitchTimeline", () => monitorService?.getSwitchTimeline() ?? null);
   ipcMain.handle("monitor:openWindow", () => {

@@ -34,6 +34,7 @@ import type {
   MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
+  MonitorSessionCacheEvent,
   MonitorSwitchRecord,
   MonitorTabClickTiming,
   MonitorTabEvent,
@@ -164,6 +165,7 @@ declare global {
         onChanged: (callback: (state: OpenTabsState) => void) => () => void;
         onSelectByIndex: (callback: (index: number) => void) => () => void;
         onNewTab: (callback: () => void) => () => void;
+        onCloseActive: (callback: () => void) => () => void;
       };
       agent: {
         getState: () => Promise<AcpSessionState>;
@@ -269,6 +271,7 @@ declare global {
         reportTabMismatch: (report: MonitorTabMismatchReport) => Promise<void>;
         reportTabClickTiming: (timing: MonitorTabClickTiming) => Promise<void>;
         getSwitches: () => Promise<MonitorSwitchRecord[]>;
+        getSessionCacheEvents: () => Promise<MonitorSessionCacheEvent[]>;
         getTabEvents: () => Promise<MonitorTabEvent[]>;
         getTabClickTimings: () => Promise<MonitorTabClickTiming[]>;
         openWindow: () => Promise<void>;

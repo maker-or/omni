@@ -336,7 +336,9 @@ describe("agent store ACP bridge behavior", () => {
     bridgeHandler?.({
       type: "session-state",
       state: sessionState("thread-b", {
-        toolCalls: { t2: { toolCallId: "t2", title: "Read", status: "completed", hasPayload: true } },
+        toolCalls: {
+          t2: { toolCallId: "t2", title: "Read", status: "completed", hasPayload: true },
+        },
       }),
     });
 

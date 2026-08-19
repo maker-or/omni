@@ -17,3 +17,16 @@ You can download actaul application from the pipper[https://www.pipper.dev/downl
 Pipper is a normal Electron desktop client with a stable launcher and a bundled renderer. The packaged application loads its UI from `out/renderer`; it does not start a guest Vite server or require a mutable active workspace.
 
 The renderer talks to the Electron main process through the preload bridge. Main-process responsibilities include SQLite-backed projects and threads, ACP agent sessions, terminals, worktrees, MCP configuration, authentication, and launcher binary updates. User projects remain separate Git repositories and are used as agent working directories.
+
+## Benchmarks
+
+Generate a deterministic conversation fixture with `bun run bench:fixture`. The normal thread benchmark launches Electron and measures ACP replay through the real renderer. To benchmark the full conversation pipeline without opening Electron or Chromium, add `--node-only`:
+
+```bash
+bun run bench:thread -- \
+  --node-only \
+  --fixture benchmarks/fixtures/conversation-500turns-200mib.jsonl \
+  --runs 3
+```
+
+The node-only report is written to `benchmarks/results/node` by default. It measures fixture streaming, JSON parsing, the real session reducer, tool-payload retention, final state size, and process memory. It does not measure React, DOM, virtualization, or browser paint.

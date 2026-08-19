@@ -33,6 +33,7 @@ import {
 import type { Thread } from "../../contracts/threads.ts";
 import { isThreadInWorkspace, normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import {
+  isCloseTabShortcutEvent,
   isNewTabShortcutEvent,
   tabIndexFromShortcutEvent,
   tabValueAtShortcutIndex,
@@ -459,6 +460,34 @@ export function GlobalTabBar() {
   };
   handleTabChangeRef.current = handleTabChange;
 
+  const handleCloseActiveTab = () => {
+    const currentMode = useWorkspaceViewStore.getState().mode;
+    const currentDraft = useWorkspaceViewStore.getState().draft;
+    const curTerminalId = useWorkspaceViewStore.getState().activeTerminalId;
+    const curThreadId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId;
+
+    if (currentDraft) {
+      if (currentDraft.dirty) {
+        const ok = window.confirm("Discard the new thread draft?");
+        if (!ok) return;
+      }
+      endDraft();
+      return;
+    }
+
+    if (currentMode === "terminal" && curTerminalId) {
+      handleCloseTerminal(curTerminalId);
+      return;
+    }
+
+    if (curThreadId) {
+      void handleCloseThreadTab(curThreadId);
+    }
+  };
+
+  const handleCloseActiveTabRef = useRef(handleCloseActiveTab);
+  handleCloseActiveTabRef.current = handleCloseActiveTab;
+
   useEffect(() => {
     const activateTabAtIndex = (index: number) => {
       const value = tabValueAtShortcutIndex(orderedTabValues, index);
@@ -472,6 +501,11 @@ export function GlobalTabBar() {
         handleNewThreadRef.current();
         return;
       }
+      if (isCloseTabShortcutEvent(event)) {
+        event.preventDefault();
+        handleCloseActiveTabRef.current();
+        return;
+      }
       const index = tabIndexFromShortcutEvent(event);
       if (index == null) return;
       if (!tabValueAtShortcutIndex(orderedTabValues, index)) return;
@@ -482,10 +516,14 @@ export function GlobalTabBar() {
     window.addEventListener("keydown", onKeyDown, true);
     const unsubscribeSelect = window.omni.tabs.onSelectByIndex?.(activateTabAtIndex);
     const unsubscribeNewTab = window.omni.tabs.onNewTab?.(() => handleNewThreadRef.current());
+    const unsubscribeCloseActive = window.omni.tabs.onCloseActive?.(() =>
+      handleCloseActiveTabRef.current(),
+    );
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       unsubscribeSelect?.();
       unsubscribeNewTab?.();
+      unsubscribeCloseActive?.();
     };
   }, [orderedTabValues]);
 
