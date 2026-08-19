@@ -128,7 +128,7 @@ export function AuthenticatedStage({
               setStage("list");
             }}
           />
-        )   : stage === "list" ? (
+        ) : stage === "list" ? (
           <>
             <header className="flex flex-col gap-1 pb-2 border-b border-border">
               <div className="flex items-start justify-between gap-2">

@@ -2239,8 +2239,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
             <div
               data-pipper-id="input-area"
               className={cn(
-                "relative z-10 p-3 transition-colors duration-300",
-                allMessages.length === 0 ? "bg-transparent" : "bg-surface-1",
+                "relative z-10 p-3 transition-colors duration-300"
               )}
             >
               {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&

@@ -40,7 +40,9 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
       hasMounted.current = true;
     }, []);
 
+    const isChecked = checked ?? (checkedIndex === index);
     const isActive = activeIndex === index;
+    const isHighlighted = isActive || isChecked;
     const skipAnimation = !hasMounted.current;
 
     return (
@@ -55,7 +57,7 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
           data-pipper-id={pipperId}
           tabIndex={index === (checkedIndex ?? 0) ? 0 : -1}
           role="menuitemradio"
-          aria-checked={!!checked}
+          aria-checked={!!isChecked}
           aria-label={label}
           onClick={onSelect}
           onKeyDown={(e) => {
@@ -77,10 +79,10 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
               </span>
               <Icon
                 size={16}
-                strokeWidth={isActive || checked ? 2 : 1.5}
+                strokeWidth={isHighlighted ? 2 : 1.5}
                 className={cn(
                   "col-start-1 row-start-1 transition-[color,stroke-width] duration-80",
-                  isActive || checked ? "text-foreground" : "text-muted-foreground",
+                  isHighlighted ? "text-foreground" : "text-muted-foreground",
                 )}
               />
             </span>
@@ -97,17 +99,24 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
               <span
                 className={cn(
                   "col-start-1 row-start-1 truncate transition-[color,font-variation-settings] duration-80",
-                  isActive || checked ? "text-foreground" : "text-muted-foreground",
+                  isHighlighted ? "text-foreground" : "text-muted-foreground",
                 )}
                 style={{
-                  fontVariationSettings: checked ? fontWeights.semibold : fontWeights.normal,
+                  fontVariationSettings: isHighlighted ? fontWeights.semibold : fontWeights.normal,
                 }}
               >
                 {label}
               </span>
             </span>
             {description ? (
-              <span className="truncate text-[11px] text-muted-foreground">{description}</span>
+              <span
+                className={cn(
+                  "truncate text-[11px] transition-colors duration-80",
+                  isHighlighted ? "text-muted-foreground" : "text-muted-foreground/70",
+                )}
+              >
+                {description}
+              </span>
             ) : null}
           </span>
           <AnimatePresence>
