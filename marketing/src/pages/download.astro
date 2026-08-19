@@ -72,7 +72,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                         >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
                     >
                 </div>
-                <div id="windows-launch-note" class="mt-4">
+                <div id="windows-launch-note" class="mt-4" style="display: none !important;">
                     <strong class="font-medium">Windows note:</strong> This build is unsigned.
                     If SmartScreen warns you, choose <strong>More info</strong> and then
                     <strong>Run anyway</strong>, or right-click the installer and choose
@@ -130,7 +130,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     >
                 </section>
 
-                <section class="platform-card flex flex-col gap-3">
+                <section id="windows-platform-card" class="platform-card flex flex-col gap-3" style="display: none !important;">
                     <span class="download-handle download-handle--tl" aria-hidden="true"></span>
                     <span class="download-handle download-handle--tr" aria-hidden="true"></span>
                     <span class="download-handle download-handle--bl" aria-hidden="true"></span>
@@ -155,7 +155,7 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     <div class="grid grid-cols-2 max-sm:grid-cols-1 gap-2">
                         <a
                             id="win64-download"
-                            class="platform-download flex flex-col gap-[0.2rem] p-[0.85rem_1rem] rounded-[10px] border border-[rgba(12,58,143,0.15)] bg-[rgba(255,255,255,0.02)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:-translate-y-px active:translate-y-0 data-[disabled=true]:opacity-50 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:[transform:none] data-[disabled=true]:hover:bg-[rgba(255,255,255,0.02)] data-[disabled=true]:hover:border-[rgba(255,255,255,0.15)]"
+                            class="platform-download flex flex-col gap-[0.2rem] p-[0.85rem_1rem] rounded-[10px] border border-[rgba(12,58,143,0.15)] bg-[rgba(255,255,255,0.02)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:-translate-y-px active:translate-y-0 data-[disabled=true]:opacity-50 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:[transform:none] data-[disabled=true]:hover:bg-[rgba(255,255,255,0.02)] data-[disabled=true]:hover:border-[rgba(12,58,143,0.15)]"
                             data-asset="win-x64.exe"
                             data-disabled="true"
                             aria-disabled="true"
@@ -254,10 +254,15 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
 
     .download-platforms {
         display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
         gap: 1.2rem !important;
         width: 100% !important;
         margin: 0 !important;
+    }
+
+    #windows-launch-note,
+    #windows-platform-card {
+        display: none !important;
     }
 
     .platform-card {
@@ -382,7 +387,11 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
         }
         const existing = current.slice("Version ".length);
         if (existing === version) return;
-        versionLabel.textContent = `Versions macOS ${existing} / Windows ${version}`;
+        const windowsCard = document.querySelector("#windows-platform-card");
+        const isWindowsHidden = !windowsCard || getComputedStyle(windowsCard).display === "none";
+        if (!isWindowsHidden) {
+            versionLabel.textContent = `Versions macOS ${existing} / Windows ${version}`;
+        }
     }
 
     async function resolvePlatformDownload({
