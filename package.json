@@ -106,14 +106,14 @@
     "vite": "^8.2.1",
     "vitest": "^4.1.10"
   },
-  "trustedDependencies": [
-    "node-pty"
-  ],
   "devEngines": {
     "packageManager": {
       "name": "bun",
       "version": "1.3.14",
       "onFail": "download"
     }
-  }
+  },
+  "trustedDependencies": [
+    "node-pty"
+  ]
 }

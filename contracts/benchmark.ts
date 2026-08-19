@@ -2,7 +2,33 @@ import type { MonitorRecordedSession } from "./monitor.ts";
 
 export type ThreadBenchmarkMode = "cold" | "warm";
 
-export const THREAD_BENCHMARK_CAPTURE_SCHEMA_VERSION = 2;
+/**
+ * Product job the timed run measured. These are not interchangeable with T3's
+ * similarly named axes — report them as separate user jobs, never one score.
+ *
+ * - `native-open`: click a thread that is not resident. Omni must `session/load`
+ *   and replay the full fixture. Clock includes that replay.
+ * - `resident-hydrate`: conversation is already in the process session cache.
+ *   Clock is click -> paint of the full resident timeline. Not a last-N-turn
+ *   persistence window.
+ * - `live-turn-stream`: empty thread is already open. Clock includes every live
+ *   `session/prompt` until the last turn paints. This is the streaming job.
+ */
+export type ThreadBenchmarkJob = "native-open" | "resident-hydrate" | "live-turn-stream";
+
+/**
+ * Wire name for the timed path. Kept for existing result files and T3's dual-axis
+ * vocabulary. Prefer `ThreadBenchmarkJob` when labeling output.
+ * - `acp-session-load` → `native-open`
+ * - `persisted-thread-hydrate` → `resident-hydrate`
+ * - `live-turn-stream` → `live-turn-stream`
+ */
+export type ThreadBenchmarkOpenPath =
+  | "acp-session-load"
+  | "persisted-thread-hydrate"
+  | "live-turn-stream";
+
+export const THREAD_BENCHMARK_CAPTURE_SCHEMA_VERSION = 3;
 
 export interface ThreadBenchmarkPrepared {
   targetThreadId: string;
@@ -10,12 +36,22 @@ export interface ThreadBenchmarkPrepared {
   targetSelector: string;
   fixturePath: string;
   fixtureBytes: number;
+  expectedTurnCount: number | null;
+  job: ThreadBenchmarkJob;
+}
+
+export interface ThreadBenchmarkIngestedTurn {
+  turnIndex: number;
+  ingestedTurnCount: number;
+  expectedTurnCount: number | null;
 }
 
 export interface ThreadBenchmarkRun {
   runId: string;
   threadId: string;
   mode: ThreadBenchmarkMode;
+  job: ThreadBenchmarkJob;
+  openPath: ThreadBenchmarkOpenPath;
   startedAt: number;
 }
 
@@ -31,6 +67,8 @@ export interface ThreadBenchmarkIdentity {
   monitorSessionId: string;
   label: string;
   mode: ThreadBenchmarkMode;
+  job: ThreadBenchmarkJob;
+  openPath: ThreadBenchmarkOpenPath;
   fixturePath: string;
   fixtureName: string;
   fixtureBytes: number;
@@ -149,6 +187,8 @@ export interface ThreadBenchmarkInsights {
 export interface ThreadBenchmarkReport {
   runId: string;
   mode: ThreadBenchmarkMode;
+  job: ThreadBenchmarkJob;
+  openPath: ThreadBenchmarkOpenPath;
   threadId: string;
   startedAt: number;
   finishedAt: number;
@@ -184,12 +224,16 @@ export interface ThreadBenchmarkIndexEntry {
   monitorSessionId: string;
   label: string;
   mode: ThreadBenchmarkMode;
+  job: ThreadBenchmarkJob;
+  openPath: ThreadBenchmarkOpenPath;
   fixtureName: string;
   fixtureTurns: number | null;
   fixtureBytes: number;
   startedAt: number;
   finishedAt: number;
   rendererReadyMs: number | null;
+  totalRows: number | null;
+  visibleRows: number | null;
   switchPhase: string | null;
   freezeIncidentCount: number;
   path: string;

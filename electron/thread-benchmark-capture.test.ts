@@ -10,6 +10,8 @@ import {
   buildBenchmarkInsights,
   buildBenchmarkReport,
   buildRecordingLabel,
+  jobForOpenPath,
+  jobTitle,
   parseFixtureTurns,
   writeBenchmarkCapture,
 } from "./thread-benchmark-capture.ts";
@@ -214,9 +216,13 @@ describe("thread benchmark capture", () => {
   it("parses fixture turns and builds a queryable recording label", () => {
     expect(parseFixtureTurns("/tmp/conversation-200turns-80mib.jsonl")).toBe(200);
     expect(parseFixtureTurns("/tmp/manual-fixture.jsonl")).toBeNull();
-    expect(buildRecordingLabel("cold", 200, 80 * 1024 * 1024)).toBe(
-      "thread-benchmark:cold:200t:80mib",
+    expect(buildRecordingLabel("cold", "acp-session-load", 200, 80 * 1024 * 1024)).toBe(
+      "thread-benchmark:cold:200t:80mib:acp-session-load",
     );
+    expect(jobForOpenPath("acp-session-load")).toBe("native-open");
+    expect(jobForOpenPath("persisted-thread-hydrate")).toBe("resident-hydrate");
+    expect(jobForOpenPath("live-turn-stream")).toBe("live-turn-stream");
+    expect(jobTitle("native-open")).toContain("session/load");
   });
 
   it("derives process, switch, and freeze insights from a recorded monitor session", () => {
@@ -225,6 +231,8 @@ describe("thread benchmark capture", () => {
         runId: "run-1",
         threadId: "thread-target",
         mode: "cold",
+        job: "native-open",
+        openPath: "acp-session-load",
         startedAt: 1_000,
       },
       prepared: {
@@ -233,11 +241,14 @@ describe("thread benchmark capture", () => {
         targetSelector: '[data-pipper-id="thread-tab-thread-target"]',
         fixturePath: "/tmp/conversation-200turns-80mib.jsonl",
         fixtureBytes: 80 * 1024 * 1024,
+        expectedTurnCount: 200,
+        job: "native-open",
       },
       monitorSessionId: "run-1",
       finishedAt: 4_000,
     });
-    expect(identity.label).toBe("thread-benchmark:cold:200t:80mib");
+    expect(identity.label).toBe("thread-benchmark:cold:200t:80mib:acp-session-load");
+    expect(identity.job).toBe("native-open");
     expect(identity.fixtureTurns).toBe(200);
 
     const insights = buildBenchmarkInsights({
@@ -266,6 +277,8 @@ describe("thread benchmark capture", () => {
         runId: "session-abc",
         threadId: "thread-target",
         mode: "warm",
+        job: "native-open",
+        openPath: "acp-session-load",
         startedAt: 10,
       },
       prepared: {
@@ -274,6 +287,8 @@ describe("thread benchmark capture", () => {
         targetSelector: "[data-pipper-id=thread-tab-thread-target]",
         fixturePath: "/tmp/conversation-100turns-40mib.jsonl",
         fixtureBytes: 40 * 1024 * 1024,
+        expectedTurnCount: 100,
+        job: "native-open",
       },
       monitorSessionId: "session-abc",
       finishedAt: 20,
@@ -301,7 +316,14 @@ describe("thread benchmark capture", () => {
     });
 
     const index = JSON.parse(await readFile(join(outputDir, "index.json"), "utf8")) as {
-      runs: Array<{ runId: string; path: string; label: string }>;
+      runs: Array<{
+        runId: string;
+        path: string;
+        label: string;
+        job: string;
+        totalRows: number | null;
+        visibleRows: number | null;
+      }>;
     };
     const writtenInsights = JSON.parse(await readFile(join(runDir, "insights.json"), "utf8")) as {
       rendererReadyMs: number;
@@ -311,9 +333,38 @@ describe("thread benchmark capture", () => {
     };
     expect(index.runs).toHaveLength(1);
     expect(index.runs[0]?.runId).toBe("session-abc");
-    expect(index.runs[0]?.label).toBe("thread-benchmark:warm:100t:40mib");
+    expect(index.runs[0]?.label).toBe("thread-benchmark:warm:100t:40mib:acp-session-load");
+    expect(index.runs[0]?.job).toBe("native-open");
+    expect(index.runs[0]?.totalRows).toBe(12);
+    expect(index.runs[0]?.visibleRows).toBe(6);
     expect(index.runs[0]?.path).toBe("runs/session-abc");
     expect(writtenInsights.rendererReadyMs).toBe(700);
     expect(writtenMonitor.acpUpdates).toHaveLength(2);
+  });
+
+  it("labels live-turn-stream as its own job", () => {
+    const identity = buildBenchmarkIdentity({
+      run: {
+        runId: "run-stream",
+        threadId: "thread-target",
+        mode: "cold",
+        job: "live-turn-stream",
+        openPath: "live-turn-stream",
+        startedAt: 1,
+      },
+      prepared: {
+        targetThreadId: "thread-target",
+        controlThreadId: "thread-control",
+        targetSelector: "[data-pipper-id=thread-tab-thread-target]",
+        fixturePath: "/tmp/conversation-100turns-40mib.jsonl",
+        fixtureBytes: 40 * 1024 * 1024,
+        expectedTurnCount: 100,
+        job: "live-turn-stream",
+      },
+      monitorSessionId: "run-stream",
+      finishedAt: 2,
+    });
+    expect(identity.job).toBe("live-turn-stream");
+    expect(identity.label).toBe("thread-benchmark:cold:100t:40mib:live-turn-stream");
   });
 });

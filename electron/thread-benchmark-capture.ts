@@ -8,12 +8,40 @@ import {
   type ThreadBenchmarkIndex,
   type ThreadBenchmarkIndexEntry,
   type ThreadBenchmarkInsights,
+  type ThreadBenchmarkJob,
   type ThreadBenchmarkMode,
+  type ThreadBenchmarkOpenPath,
   type ThreadBenchmarkPrepared,
   type ThreadBenchmarkProcessPeak,
   type ThreadBenchmarkReport,
   type ThreadBenchmarkRun,
 } from "../contracts/benchmark.ts";
+
+export function jobForOpenPath(openPath: ThreadBenchmarkOpenPath): ThreadBenchmarkJob {
+  if (openPath === "persisted-thread-hydrate") return "resident-hydrate";
+  if (openPath === "live-turn-stream") return "live-turn-stream";
+  return "native-open";
+}
+
+export function jobTitle(job: ThreadBenchmarkJob): string {
+  if (job === "resident-hydrate") {
+    return "resident-hydrate (in-process session cache hit)";
+  }
+  if (job === "live-turn-stream") {
+    return "live-turn-stream (session/prompt per fixture turn)";
+  }
+  return "native-open (session/load full history)";
+}
+
+export function jobSummary(job: ThreadBenchmarkJob): string {
+  if (job === "resident-hydrate") {
+    return "Conversation is loaded during untimed prepare and left resident. The clock is click to paint of the full resident timeline. This is not T3's last-10-turn persistence window.";
+  }
+  if (job === "live-turn-stream") {
+    return "The thread is already open and empty. The clock includes every live session/prompt until the last turn paints. Comparable to T3 turn-by-turn ingest, not to Omni session/load.";
+  }
+  return "Click a thread that is not resident. The clock includes ACP session/load, fixture replay, reduce, and first paint of the full timeline.";
+}
 
 export function parseFixtureTurns(fixturePath: string): number | null {
   const match = basename(fixturePath).match(/(\d+)turns/i);
@@ -24,12 +52,13 @@ export function parseFixtureTurns(fixturePath: string): number | null {
 
 export function buildRecordingLabel(
   mode: ThreadBenchmarkMode,
+  openPath: ThreadBenchmarkOpenPath,
   fixtureTurns: number | null,
   fixtureBytes: number,
 ): string {
   const turns = fixtureTurns != null ? `${fixtureTurns}t` : "unknownt";
   const mib = `${Math.max(1, Math.round(fixtureBytes / 1024 / 1024))}mib`;
-  return `thread-benchmark:${mode}:${turns}:${mib}`;
+  return `thread-benchmark:${mode}:${turns}:${mib}:${openPath}`;
 }
 
 export function buildBenchmarkIdentity(input: {
@@ -42,8 +71,15 @@ export function buildBenchmarkIdentity(input: {
   return {
     runId: input.run.runId,
     monitorSessionId: input.monitorSessionId,
-    label: buildRecordingLabel(input.run.mode, fixtureTurns, input.prepared.fixtureBytes),
+    label: buildRecordingLabel(
+      input.run.mode,
+      input.run.openPath,
+      fixtureTurns,
+      input.prepared.fixtureBytes,
+    ),
     mode: input.run.mode,
+    job: input.run.job ?? jobForOpenPath(input.run.openPath),
+    openPath: input.run.openPath,
     fixturePath: input.prepared.fixturePath,
     fixtureName: basename(input.prepared.fixturePath),
     fixtureBytes: input.prepared.fixtureBytes,
@@ -333,6 +369,8 @@ export function buildBenchmarkReport(input: {
   return {
     runId: identity.runId,
     mode: identity.mode,
+    job: identity.job,
+    openPath: identity.openPath,
     threadId: identity.threadId,
     startedAt: identity.startedAt,
     finishedAt: identity.finishedAt,
@@ -370,12 +408,16 @@ function indexEntryFromCapture(
     monitorSessionId: capture.identity.monitorSessionId,
     label: capture.identity.label,
     mode: capture.identity.mode,
+    job: capture.identity.job,
+    openPath: capture.identity.openPath,
     fixtureName: capture.identity.fixtureName,
     fixtureTurns: capture.identity.fixtureTurns,
     fixtureBytes: capture.identity.fixtureBytes,
     startedAt: capture.identity.startedAt,
     finishedAt: capture.identity.finishedAt,
     rendererReadyMs: capture.report.rendererReadyMs,
+    totalRows: capture.report.totalRows,
+    visibleRows: capture.report.visibleRows,
     switchPhase: capture.report.switchPhase,
     freezeIncidentCount: capture.report.freezeIncidentCount,
     path: relative(outputDir, captureDirForRun(outputDir, capture.identity.runId)) || ".",

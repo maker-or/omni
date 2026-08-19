@@ -698,6 +698,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   // When in agent view with no active thread, no requested thread, and no draft,
   // automatically bootstrap into draft mode so the composer is always ready.
   useEffect(() => {
+    if (window.omni?.benchmark?.enabled) return;
     if (isDraftMode || requestedThreadId || snapshot?.threadId) return;
     const project = activeProject;
     const worktreePath = project

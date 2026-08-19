@@ -9,8 +9,13 @@ import { createReadStream } from "node:fs";
 
 const PROTOCOL_VERSION = 1;
 
-/** @type {Map<string, { id: string, cwd: string, title: string | null, configOptions: any[], cancelled: boolean }>} */
+/** @type {Map<string, { id: string, cwd: string, title: string | null, configOptions: any[], cancelled: boolean, fixtureTurnCursor: number }>} */
 const sessions = new Map();
+
+/** @type {string[][] | null} */
+let cachedFixtureTurns = null;
+/** @type {string | null} */
+let cachedFixturePath = null;
 
 const defaultConfigOptions = [
   {
@@ -62,6 +67,70 @@ export function rewriteFixtureSessionId(line, sessionId) {
   return line.replace(/"sessionId"\s*:\s*"[^"]*"/, `"sessionId":${JSON.stringify(sessionId)}`);
 }
 
+export function isFixtureTurnMarker(line) {
+  return line.includes('"kind":"turn"') && !line.includes('"session/update"');
+}
+
+export function isFixtureTurnBoundary(line) {
+  return (
+    line.includes('"session/update"') &&
+    line.includes('"sessionUpdate":"user_message_chunk"') &&
+    line.includes('"messageId":"message_user_')
+  );
+}
+
+/**
+ * Split a fixture into per-turn `session/update` line groups.
+ * Prefers explicit `{"kind":"turn",...}` markers; otherwise a new turn starts
+ * at each `user_message_chunk` whose messageId is `message_user_*`. Trailing
+ * size-padding tool updates attach to the last turn.
+ */
+export function splitFixtureTurns(lines) {
+  const turns = [];
+  let current = [];
+  let sawMarkers = false;
+  for (const line of lines) {
+    if (!line) continue;
+    if (isFixtureTurnMarker(line)) {
+      sawMarkers = true;
+      if (current.length > 0) turns.push(current);
+      current = [];
+      continue;
+    }
+    if (!line.includes('"session/update"')) continue;
+    if (!sawMarkers && isFixtureTurnBoundary(line) && current.length > 0) {
+      turns.push(current);
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.length > 0) turns.push(current);
+  return turns;
+}
+
+async function loadFixtureTurns(fixturePath) {
+  if (cachedFixtureTurns && cachedFixturePath === fixturePath) return cachedFixtureTurns;
+  const input = createReadStream(fixturePath, { encoding: "utf8" });
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  const collected = [];
+  for await (const line of lines) collected.push(line);
+  cachedFixtureTurns = splitFixtureTurns(collected);
+  cachedFixturePath = fixturePath;
+  return cachedFixtureTurns;
+}
+
+async function replayNextFixtureTurn(session, fixturePath) {
+  const turns = await loadFixtureTurns(fixturePath);
+  const cursor = session.fixtureTurnCursor ?? 0;
+  if (cursor >= turns.length) return false;
+  const turn = turns[cursor];
+  session.fixtureTurnCursor = cursor + 1;
+  for (const line of turn) {
+    await writeRawLine(rewriteFixtureSessionId(line, session.id));
+  }
+  return true;
+}
+
 function respond(id, result) {
   write({ jsonrpc: "2.0", id, result });
 }
@@ -109,6 +178,18 @@ async function handlePrompt(id, params) {
     return;
   }
   session.cancelled = false;
+  const benchmarkFixture = process.env.PIPPER_BENCHMARK_FIXTURE;
+  if (benchmarkFixture) {
+    const replayed = await replayNextFixtureTurn(session, benchmarkFixture);
+    if (replayed) {
+      if (session.cancelled) {
+        respond(id, { stopReason: "cancelled" });
+        return;
+      }
+      respond(id, { stopReason: "end_turn" });
+      return;
+    }
+  }
   const userText = textFromPrompt(params.prompt);
   const msgId = randomUUID();
   const thoughtId = msgId;
@@ -235,6 +316,7 @@ function handleRequest(msg) {
         title: null,
         configOptions,
         cancelled: false,
+        fixtureTurnCursor: 0,
       });
       // Advertise slash commands
       setTimeout(() => {
@@ -259,6 +341,7 @@ function handleRequest(msg) {
           title: "Restored session",
           configOptions: structuredClone(defaultConfigOptions),
           cancelled: false,
+          fixtureTurnCursor: 0,
         };
         sessions.set(params.sessionId, session);
       }
@@ -317,6 +400,7 @@ function handleRequest(msg) {
         title: prevSession?.title ?? null,
         configOptions: prevSession?.configOptions ?? structuredClone(defaultConfigOptions),
         cancelled: false,
+        fixtureTurnCursor: prevSession?.fixtureTurnCursor ?? 0,
       };
       sessions.set(newId, session);
       respond(id, {

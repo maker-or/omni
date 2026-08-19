@@ -1,6 +1,12 @@
 import { useAgentStore } from "@/store/agent-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 
+/** Benchmark runs drive thread switches from Playwright. Never block on a draft confirm. */
+export function confirmDiscardDraft(): boolean {
+  if (typeof window !== "undefined" && window.omni?.benchmark?.enabled) return true;
+  return window.confirm("Discard the new thread draft?");
+}
+
 /**
  * Switch the active agent thread and make the agent view the visible mode.
  *

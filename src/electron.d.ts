@@ -42,7 +42,9 @@ import type {
 } from "../../contracts/monitor.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../../contracts/sleepless.ts";
 import type {
+  ThreadBenchmarkIngestedTurn,
   ThreadBenchmarkMode,
+  ThreadBenchmarkOpenPath,
   ThreadBenchmarkPrepared,
   ThreadBenchmarkRendererReady,
   ThreadBenchmarkReport,
@@ -283,11 +285,17 @@ declare global {
         enabled: boolean;
         switchTimeoutMs: number;
         status: () => Promise<ThreadBenchmarkStatus>;
-        prepare: () => Promise<ThreadBenchmarkPrepared>;
-        start: (mode: ThreadBenchmarkMode) => Promise<ThreadBenchmarkRun>;
+        prepare: (openPath?: ThreadBenchmarkOpenPath) => Promise<ThreadBenchmarkPrepared>;
+        start: (
+          mode: ThreadBenchmarkMode,
+          openPath?: ThreadBenchmarkOpenPath,
+        ) => Promise<ThreadBenchmarkRun>;
+        ingestTurn: () => Promise<ThreadBenchmarkIngestedTurn>;
+        streamReset: () => Promise<ThreadBenchmarkPrepared>;
         finish: () => Promise<ThreadBenchmarkReport>;
         cleanup: () => Promise<void>;
         reportRendererReady: (input: ThreadBenchmarkRendererReady) => void;
+        reportStreamReady: (input: ThreadBenchmarkRendererReady) => void;
       };
     };
   }

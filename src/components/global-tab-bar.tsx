@@ -22,7 +22,7 @@ import { useAgentStore } from "@/store/agent-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
-import { selectThread } from "@/lib/thread-actions";
+import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import {
   OPEN_TABS_QUERY_KEY,
@@ -274,7 +274,7 @@ export function GlobalTabBar() {
   const handleSelectThread = async (id: string, activateView = true) => {
     const currentDraft = useWorkspaceViewStore.getState().draft;
     if (currentDraft?.dirty) {
-      const ok = window.confirm("Discard the new thread draft?");
+      const ok = confirmDiscardDraft();
       if (!ok) return;
     }
     if (currentDraft) endDraft();
@@ -329,7 +329,7 @@ export function GlobalTabBar() {
     setIsDropdownOpen(false);
     const currentDraft = useWorkspaceViewStore.getState().draft;
     if (currentDraft?.dirty) {
-      const ok = window.confirm("Discard the new thread draft?");
+      const ok = confirmDiscardDraft();
       if (!ok) return;
     } else if (currentDraft) {
       showAgent();
@@ -468,7 +468,7 @@ export function GlobalTabBar() {
 
     if (currentDraft) {
       if (currentDraft.dirty) {
-        const ok = window.confirm("Discard the new thread draft?");
+        const ok = confirmDiscardDraft();
         if (!ok) return;
       }
       endDraft();

@@ -246,6 +246,20 @@
   --shadow-2: var(--shadow-2);
   --shadow-1: var(--shadow-1);
   --color-shadow-color: var(--shadow-color);
+  @keyframes spinner-move {
+    to {
+      stroke-dashoffset: -100;
+    }
+  }
+  @keyframes spinner-dash {
+    0%,
+    100% {
+      stroke-dasharray: 15 85;
+    }
+    50% {
+      stroke-dasharray: 40 60;
+    }
+  }
 }
 
 /*
@@ -319,7 +333,8 @@
  * still running). A moving highlight band travels across the glyphs by
  * animating a text-clipped gradient's background-position.
  */
-.animate-text-shimmer {
+.animate-text-shimmer,
+.shimmer-text {
   background: linear-gradient(
     90deg,
     var(--muted-foreground) 0%,
@@ -334,6 +349,16 @@
   color: transparent;
   -webkit-text-fill-color: transparent;
   animation: text-shimmer 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-text-shimmer,
+  .shimmer-text {
+    animation: none;
+    color: var(--muted-foreground);
+    -webkit-text-fill-color: var(--muted-foreground);
+    background: none;
+  }
 }
 
 /* =============================================================================

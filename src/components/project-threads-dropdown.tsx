@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/store/project-store";
 import { useAgentStore } from "@/store/agent-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
-import { selectThread } from "@/lib/thread-actions";
+import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { useQueryClient } from "@tanstack/react-query";
 import { OPEN_TABS_QUERY_KEY } from "@/lib/thread-queries";
 import { Dropdown, DropdownLabel, DropdownSeparator } from "@/components/ui/dropdown";
@@ -135,7 +135,7 @@ export function ProjectThreadsDropdown() {
     try {
       const viewState = useWorkspaceViewStore.getState();
       if (viewState.draft?.dirty) {
-        const ok = window.confirm("Discard the new thread draft?");
+        const ok = confirmDiscardDraft();
         if (!ok) return;
       }
       if (viewState.draft) {

@@ -116,9 +116,7 @@ describe("ACP agent registry", () => {
     for (let i = 0; i < 3; i++) {
       probed = probeAgentAvailability(probed);
     }
-    const pkgOccurrences = probed.args.filter(
-      (a) => a === "@agentclientprotocol/codex-acp",
-    ).length;
+    const pkgOccurrences = probed.args.filter((a) => a === "@agentclientprotocol/codex-acp").length;
     expect(pkgOccurrences).toBeLessThanOrEqual(1);
     expect(probed.args.filter((a) => a === "-y").length).toBeLessThanOrEqual(1);
   });

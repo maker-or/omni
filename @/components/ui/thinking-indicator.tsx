@@ -35,6 +35,7 @@ const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
     }, [isStreaming]);
 
     const displayedText = label ?? (isStreaming ? words[index] : "Thought process");
+    const invisibleText = label ?? words.reduce((a, b) => (a.length >= b.length ? a : b));
 
     return (
       <>
@@ -81,13 +82,16 @@ const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
           >
             {isStreaming ? (
               <>
-                <span className="col-start-1 row-start-1 invisible shimmer-text" aria-hidden="true">
-                  {words.reduce((a, b) => (a.length >= b.length ? a : b))}
+                <span
+                  className="col-start-1 row-start-1 invisible select-none pointer-events-none"
+                  aria-hidden="true"
+                >
+                  {invisibleText}
                 </span>
                 <AnimatePresence mode="popLayout" initial={false}>
                   <motion.span
                     key={displayedText}
-                    className="col-start-1 row-start-1 shimmer-text"
+                    className="col-start-1 row-start-1 animate-text-shimmer shimmer-text"
                     initial={{ y: "80%", opacity: 0 }}
                     animate={{
                       y: 0,

@@ -75,7 +75,11 @@ import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
-import type { ThreadBenchmarkMode, ThreadBenchmarkRendererReady } from "../contracts/benchmark.ts";
+import type {
+  ThreadBenchmarkMode,
+  ThreadBenchmarkOpenPath,
+  ThreadBenchmarkRendererReady,
+} from "../contracts/benchmark.ts";
 
 // Initialize PATH prepend early for child process resolutions
 prependStandardPaths();
@@ -1880,7 +1884,10 @@ function registerIpc(): void {
     monitorService?.reportTabClickTiming(timing);
   });
   ipcMain.handle("monitor:getSwitches", () => monitorService?.getSwitchRecords() ?? []);
-  ipcMain.handle("monitor:getSessionCacheEvents", () => monitorService?.getSessionCacheEvents() ?? []);
+  ipcMain.handle(
+    "monitor:getSessionCacheEvents",
+    () => monitorService?.getSessionCacheEvents() ?? [],
+  );
   ipcMain.handle("monitor:getTabEvents", () => monitorService?.getTabEvents() ?? []);
   ipcMain.handle("monitor:getTabClickTimings", () => monitorService?.getTabClickTimings() ?? []);
 
@@ -1894,13 +1901,24 @@ function registerIpc(): void {
         rendererReady: null,
       },
   );
-  ipcMain.handle("benchmark:prepare", () => {
+  ipcMain.handle("benchmark:prepare", (_event, openPath: ThreadBenchmarkOpenPath | undefined) => {
     if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
-    return threadBenchmarkController.prepare();
+    return threadBenchmarkController.prepare(openPath);
   });
-  ipcMain.handle("benchmark:start", (_event, mode: ThreadBenchmarkMode) => {
+  ipcMain.handle(
+    "benchmark:start",
+    (_event, mode: ThreadBenchmarkMode, openPath: ThreadBenchmarkOpenPath | undefined) => {
+      if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
+      return threadBenchmarkController.start(mode, openPath);
+    },
+  );
+  ipcMain.handle("benchmark:ingestTurn", () => {
     if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
-    return threadBenchmarkController.start(mode);
+    return threadBenchmarkController.ingestTurn();
+  });
+  ipcMain.handle("benchmark:streamReset", () => {
+    if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
+    return threadBenchmarkController.streamReset();
   });
   ipcMain.handle("benchmark:finish", () => {
     if (!threadBenchmarkController) throw new Error("Benchmark controller is not initialized.");
@@ -1909,6 +1927,9 @@ function registerIpc(): void {
   ipcMain.handle("benchmark:cleanup", () => threadBenchmarkController?.cleanup());
   ipcMain.on("benchmark:rendererReady", (_event, input: ThreadBenchmarkRendererReady) =>
     threadBenchmarkController?.reportRendererReady(input),
+  );
+  ipcMain.on("benchmark:streamReady", (_event, input: ThreadBenchmarkRendererReady) =>
+    threadBenchmarkController?.reportStreamReady(input),
   );
   ipcMain.handle("monitor:getSwitchTimeline", () => monitorService?.getSwitchTimeline() ?? null);
   ipcMain.handle("monitor:openWindow", () => {

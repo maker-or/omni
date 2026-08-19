@@ -134,7 +134,6 @@ const ACP_PROMPT_TIMEOUT_MS = 10 * 60_000;
 /** npx agents may need to download on first launch — allow up to 2 minutes for initialize. */
 const ACP_NPX_INIT_TIMEOUT_MS = 120_000;
 
-
 function modelOptionsFromConfig(
   options: SessionConfigOption[] | undefined,
 ): Array<{ modelId: string; name: string; provider?: string }> {
@@ -1121,7 +1120,9 @@ export class AgentConnectionManager {
       // different failure mode from a process exit and must be visible in the
       // incident log. The exit handler owns the latter case.
       if (child.exitCode == null && child.signalCode == null) {
-        const targetSessions = [...this.sessions.values()].filter((s) => s.agentId === descriptor.id);
+        const targetSessions = [...this.sessions.values()].filter(
+          (s) => s.agentId === descriptor.id,
+        );
         const invalidatedThreadIds = [...this.sessions.entries()]
           .filter(([, s]) => s.agentId === descriptor.id)
           .map(([tid]) => tid);

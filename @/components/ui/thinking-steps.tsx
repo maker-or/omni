@@ -183,7 +183,7 @@ function ThinkingStep({
             <span
               className={cn(
                 "text-[13px] leading-tight text-foreground",
-                isActive && "shimmer-text",
+                isActive && "animate-text-shimmer shimmer-text",
                 isError && "text-amber-700 dark:text-amber-300",
               )}
               style={{ fontVariationSettings: fontWeights.medium }}

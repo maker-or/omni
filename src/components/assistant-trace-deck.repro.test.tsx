@@ -41,6 +41,8 @@ test("streaming state renders single compact active row with live tool title and
   // Active row rendered
   expect(html).toContain('data-pipper-id="assistant-trace-deck-active"');
   expect(html).toContain("Searched the codebase");
+  // Text shimmer animation class applied to streaming text
+  expect(html).toMatch(/animate-text-shimmer|shimmer-text/);
   // Zero historical step items or heavy accordion structures rendered during streaming
   expect(html).not.toContain('data-pipper-id="assistant-tool-step"');
   expect(html).not.toContain('data-pipper-id="assistant-thinking-step"');

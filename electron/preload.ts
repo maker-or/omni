@@ -41,7 +41,9 @@ import type {
 import type { MonitorService } from "./monitor/service.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
 import type {
+  ThreadBenchmarkIngestedTurn,
   ThreadBenchmarkMode,
+  ThreadBenchmarkOpenPath,
   ThreadBenchmarkPrepared,
   ThreadBenchmarkRendererReady,
   ThreadBenchmarkReport,
@@ -445,13 +447,22 @@ const api = {
     enabled: process.env.PIPPER_BENCHMARK_MODE === "1",
     switchTimeoutMs: Math.max(60_000, Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS) || 60_000),
     status: (): Promise<ThreadBenchmarkStatus> => ipcRenderer.invoke("benchmark:status"),
-    prepare: (): Promise<ThreadBenchmarkPrepared> => ipcRenderer.invoke("benchmark:prepare"),
-    start: (mode: ThreadBenchmarkMode): Promise<ThreadBenchmarkRun> =>
-      ipcRenderer.invoke("benchmark:start", mode),
+    prepare: (openPath?: ThreadBenchmarkOpenPath): Promise<ThreadBenchmarkPrepared> =>
+      ipcRenderer.invoke("benchmark:prepare", openPath),
+    start: (
+      mode: ThreadBenchmarkMode,
+      openPath?: ThreadBenchmarkOpenPath,
+    ): Promise<ThreadBenchmarkRun> => ipcRenderer.invoke("benchmark:start", mode, openPath),
+    ingestTurn: (): Promise<ThreadBenchmarkIngestedTurn> =>
+      ipcRenderer.invoke("benchmark:ingestTurn"),
+    streamReset: (): Promise<ThreadBenchmarkPrepared> =>
+      ipcRenderer.invoke("benchmark:streamReset"),
     finish: (): Promise<ThreadBenchmarkReport> => ipcRenderer.invoke("benchmark:finish"),
     cleanup: (): Promise<void> => ipcRenderer.invoke("benchmark:cleanup"),
     reportRendererReady: (input: ThreadBenchmarkRendererReady): void =>
       ipcRenderer.send("benchmark:rendererReady", input),
+    reportStreamReady: (input: ThreadBenchmarkRendererReady): void =>
+      ipcRenderer.send("benchmark:streamReady", input),
   },
 };
 

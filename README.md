@@ -20,7 +20,22 @@ The renderer talks to the Electron main process through the preload bridge. Main
 
 ## Benchmarks
 
-Generate a deterministic conversation fixture with `bun run bench:fixture`. The normal thread benchmark launches Electron and measures ACP replay through the real renderer. To benchmark the full conversation pipeline without opening Electron or Chromium, add `--node-only`:
+Generate a deterministic conversation fixture with `bun run bench:fixture`. The Electron thread benchmark measures three **separate jobs**. Do not collapse them into one winner-takes-all number, and do not compare Omni `native-open` to T3's last-10-turn hydrate.
+
+- `acp-session-load` / **native-open**: click a thread that is not resident. Clock includes `session/load` and full fixture replay.
+- `persisted-thread-hydrate` / **resident-hydrate**: conversation already in the process session cache. Clock is click to paint.
+- `live-turn-stream`: empty thread is already open. Clock includes every live `session/prompt` until the last turn paints. This is the streaming job.
+
+```bash
+bun run bench:thread -- \
+  --fixture benchmarks/fixtures/conversation-100turns-40mib.jsonl \
+  --axis all \
+  --runs 1
+```
+
+`--axis both` still runs the two click jobs. `--axis live-turn-stream` runs only the streaming job. Reports print job name, ready time, **row counts**, and resource use.
+
+To benchmark the conversation pipeline without opening Electron or Chromium, add `--node-only`. That report is not a UI comparison:
 
 ```bash
 bun run bench:thread -- \

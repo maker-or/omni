@@ -21,10 +21,11 @@ interface AuthenticatedStageProps {
   handleProjectCreated: (project: Project) => void;
 }
 
-type LaunchStage = "agent" | "sleepless" | "list" | "add";
+type LaunchStage = "agent" | "sleepless" | "shortcuts" | "list" | "add";
 
 const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
 const SLEEPLESS_ONBOARDING_STORAGE_KEY = "pipper.launch.sleeplessConfigured";
+const SHORTCUTS_ONBOARDING_STORAGE_KEY = "pipper.launch.shortcutsShown";
 
 export function AuthenticatedStage({
   authUser,
@@ -51,6 +52,9 @@ export function AuthenticatedStage({
       }
       if (stageParam === "sleepless") {
         return "sleepless";
+      }
+      if (stageParam === "shortcuts") {
+        return "shortcuts";
       }
       // First-run / explicit agent re-pick: show registry before projects.
       try {
@@ -79,7 +83,11 @@ export function AuthenticatedStage({
       <div
         className={cn(
           "w-full z-10 rounded-2xl p-8 flex flex-col gap-6",
-          stage === "agent" ? "max-w-3xl" : stage === "sleepless" ? "max-w-xl" : "max-w-md",
+          stage === "agent"
+            ? "max-w-3xl"
+            : stage === "sleepless" || stage === "shortcuts"
+              ? "max-w-xl"
+              : "max-w-md",
         )}
       >
         {stage === "agent" ? (
@@ -92,6 +100,10 @@ export function AuthenticatedStage({
                   sessionStorage.setItem(AGENT_PICK_STORAGE_KEY, "1");
                   if (sessionStorage.getItem(SLEEPLESS_ONBOARDING_STORAGE_KEY) !== "1") {
                     setStage("sleepless");
+                    return;
+                  }
+                  if (sessionStorage.getItem(SHORTCUTS_ONBOARDING_STORAGE_KEY) !== "1") {
+                    setStage("shortcuts");
                     return;
                   }
                 } catch {
@@ -108,6 +120,10 @@ export function AuthenticatedStage({
                 sessionStorage.setItem(SLEEPLESS_ONBOARDING_STORAGE_KEY, "1");
               } catch {
                 // ignore
+              }
+              if (sessionStorage.getItem(SHORTCUTS_ONBOARDING_STORAGE_KEY) !== "1") {
+                setStage("shortcuts");
+                return;
               }
               setStage("list");
             }}

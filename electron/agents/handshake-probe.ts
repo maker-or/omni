@@ -117,10 +117,14 @@ export async function probeAgentHandshake(
     });
 
     const timedOut = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        if (settled) return;
-        reject(new Error("__pipper_probe_timeout__"));
-      }, options.timeoutMs ?? (/\bnpx(?:\.cmd)?$/i.test(spawnCommand) ? 120_000 : DEFAULT_PROBE_TIMEOUT_MS));
+      timeoutHandle = setTimeout(
+        () => {
+          if (settled) return;
+          reject(new Error("__pipper_probe_timeout__"));
+        },
+        options.timeoutMs ??
+          (/\bnpx(?:\.cmd)?$/i.test(spawnCommand) ? 120_000 : DEFAULT_PROBE_TIMEOUT_MS),
+      );
     });
 
     const run = async () => {

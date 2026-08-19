@@ -1362,7 +1362,8 @@ export function listSwitchRecords(limit = 500, range?: MonitorTimeRange): Monito
     agentSwitched: row.agentSwitched != null ? row.agentSwitched === 1 : undefined,
     workspaceCwdBefore: row.workspaceCwdBefore,
     workspaceCwdTarget: row.workspaceCwdTarget,
-    workspaceCwdChanged: row.workspaceCwdChanged != null ? row.workspaceCwdChanged === 1 : undefined,
+    workspaceCwdChanged:
+      row.workspaceCwdChanged != null ? row.workspaceCwdChanged === 1 : undefined,
   }));
 }
 

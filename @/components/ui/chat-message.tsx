@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, type ReactNode } from "react";
+import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, type HTMLMotionProps } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
@@ -40,6 +40,27 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
     const shape = useShape();
     const isUser = from === "user";
     const showTime = isUser && time != null;
+    // Three-line clamp on user messages (assistant replies stream, so they
+    // stay unclamped). `line-clamp-3` is always applied to user bubbles when
+    // not expanded — it's a no-op for content under 3 lines, so short
+    // messages look identical. Overflow is detected by comparing scrollHeight
+    // to clientHeight (the clamp sets overflow:hidden, so scrollHeight holds
+    // the full natural height while clientHeight holds the 3-line cap). The
+    // toggle only renders when overflow is real. While expanded the clamp is
+    // removed, so we skip measurement — otherwise it would clear `clamped`
+    // and hide the "Show less" button.
+    const [expanded, setExpanded] = useState(false);
+    const [clamped, setClamped] = useState(false);
+    const bodyRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+      if (!isUser || !bodyRef.current || expanded) return;
+      const el = bodyRef.current;
+      const measure = () => setClamped(el.scrollHeight - el.clientHeight > 1);
+      measure();
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [isUser, children, expanded]);
 
     return (
       <>
@@ -90,18 +111,38 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           )}
           {children != null && children !== "" && (
             <div
+              ref={isUser ? bodyRef : undefined}
               className={cn(
                 "max-w-full py-2 text-[14px] whitespace-pre-wrap break-words text-pretty",
                 isUser
                   ? cn(
                       shape.bg,
                       "px-3.5 bg-[color-mix(in_oklab,var(--accent),var(--background)_45%)] text-accent-foreground",
+                      !expanded && "line-clamp-3",
                     )
                   : "text-foreground",
               )}
             >
               {children}
             </div>
+          )}
+          {isUser && clamped && !expanded && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="self-end rounded-md px-1 text-[12px] leading-none text-accent-foreground/70 transition-colors hover:text-accent-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+            >
+              Show more
+            </button>
+          )}
+          {isUser && clamped && expanded && (
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              className="self-end rounded-md px-1 text-[12px] leading-none text-accent-foreground/70 transition-colors hover:text-accent-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+            >
+              Show less
+            </button>
           )}
           {(showTime || actions != null) && (
             <div

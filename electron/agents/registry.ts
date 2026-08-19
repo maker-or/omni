@@ -40,8 +40,7 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     icon: "openai-codex",
     docsUrl: "https://github.com/agentclientprotocol/codex-acp",
     authHint: "Sign in with ChatGPT or provide CODEX_API_KEY / OPENAI_API_KEY.",
-    installHint:
-      "npm install -g @agentclientprotocol/codex-acp  (or use npx on first launch)",
+    installHint: "npm install -g @agentclientprotocol/codex-acp  (or use npx on first launch)",
     installKind: "npx",
     npmPackage: "@agentclientprotocol/codex-acp",
     detectCommands: ["codex-acp"],
