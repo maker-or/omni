@@ -40,6 +40,7 @@ function seedSession(manager: AgentConnectionManager, threadId: string, sessionI
     activeTurnId: null,
     monitorUpdateCount: 0,
     toolPayloads: new Map(),
+    emittedToolCalls: null,
   });
   (manager as unknown as { activeThreadId: string | null }).activeThreadId = threadId;
 }

@@ -1,33 +1,29 @@
-- To produce the conversation -> bun run bench:fixture -- --turns 500 --target-mib 200
+# Streaming Ingest Benchmark (Omni vs T3 Code)
 
-- Native open (session/load full history) -> bun run bench:thread -- --fixture benchmarks/fixtures/conversation-400turns-160mib.jsonl --runs 1 --output-dir benchmarks/results/scaling/400 --no-monitor
+One test. The only workload measured identically by both harnesses: a fresh, empty conversation receives the entire fixture turn-by-turn through each app's real agent pipeline while the clock runs. The clock stops when the last turn is fully painted.
 
-- All three jobs (native-open, resident-hydrate, live-turn-stream) -> bun run bench:thread -- --fixture benchmarks/fixtures/conversation-100turns-40mib.jsonl --axis all --runs 1 --output-dir benchmarks/results/scaling/100-jobs
+## Run
 
-- Live turn stream only -> bun run bench:thread -- --fixture benchmarks/fixtures/conversation-100turns-40mib.jsonl --axis live-turn-stream --runs 1
+```sh
+bun run bench:thread -- --fixture benchmarks/fixtures/conversation-100turns-40mib.jsonl --runs 1 \
+  --output-dir benchmarks/results/testA-streaming/run1
+```
 
-- To run the node-only benchmark -> bun run bench:thread -- --node-only --fixture benchmarks/fixtures/conversation-500turns-200mib.jsonl
+- `--runs 3` loops inside one process; prefer separate invocations (`--runs 1`, three times) to avoid warm-cache flattering.
+- Results land in `<output-dir>/latest.json` / `latest.md`, plus per-run captures under `results/runs/`.
 
-Jobs are not one score. `native-open` times opening a long thread via session/load. `resident-hydrate` times click-to-paint when the session is already in memory. `live-turn-stream` times a live conversation (one session/prompt per fixture turn). Compare those to the matching T3 _user job_, not to a similarly named axis.
+To regenerate the fixture: `bun run bench:fixture -- --turns 100 --target-mib 40`.
 
-Fixture
+## Comparing against T3 Code
 
-100 - 40 MiB
+The T3-side counterpart lives in `~/code/t3code/benchmark/` and runs its `acp-session-load` axis — semantically the same job (fresh thread, all turns inside the clock). Protocol used for the published numbers:
 
-200 - 80 MiB
+1. Interleave runs: omni → t3 → omni → t3 → omni → t3 (`--runs 1` each).
+2. Take the median of the three attempts per mode.
+3. Disclose the ~0.4 s of click/navigate/settle overhead included in T3's clock.
 
-300 - 120 MiB
+Published results and methodology: [`testA-streaming/REPORT.md`](testA-streaming/REPORT.md). Blog write-up: `blog/blog21.md`.
 
-400 - 160 MiB
+## Historical axes removed
 
-500 - 200 MiB
-
-600 - 240 MiB
-
-700 - 280 MiB
-
-800 - 320 MiB
-
-900 - 360 MiB
-
-1000 - 400 MiB
+The runner previously also supported `acp-session-load` (bulk session/load open) and `persisted-thread-hydrate` (click a resident thread). These were removed because neither has an equal-work counterpart in T3's harness — T3 windows persisted threads to roughly their last ten turns, so any hydrate/open comparison measures different amounts of work and is not defensible. The streaming test avoids that entirely: both apps must ingest 100% of the data through their own pipeline.

@@ -31,6 +31,7 @@ import { queryClient } from "../lib/query-client";
 import { OPEN_TABS_QUERY_KEY } from "../lib/thread-queries";
 import { useThreadStore } from "./thread-store";
 import { recordRendererEvent } from "../lib/monitor-runtime-observer";
+import { estimateJsonBytes } from "../lib/session-retention";
 import {
   forgetThreadToolPayloads,
   rememberToolPayloadFromUpdate,
@@ -743,8 +744,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       // Single writer for ACP terminal-output (no second onEvent subscription).
       const rawCleanup = window.omni.agent.onEvent((payload: AcpBridgeEvent) => {
         const eventStartedAt = performance.now();
-        const serializedPayload = JSON.stringify(payload);
-        const payloadBytes = new TextEncoder().encode(serializedPayload).byteLength;
+        // Approximate wire size without serializing: JSON.stringify plus a
+        // TextEncoder pass on every bridge event duplicated the IPC
+        // structured clone on the renderer main thread and was quadratic
+        // once tool payloads accumulate. estimateJsonBytes walks the payload
+        // with O(1) string lengths and allocates nothing.
+        const payloadBytes = estimateJsonBytes(payload);
         const activeThreadId = get().state?.threadId ?? null;
         const eventThreadId =
           "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;

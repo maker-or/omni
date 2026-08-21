@@ -40,7 +40,7 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
       hasMounted.current = true;
     }, []);
 
-    const isChecked = checked ?? (checkedIndex === index);
+    const isChecked = checked ?? checkedIndex === index;
     const isActive = activeIndex === index;
     const isHighlighted = isActive || isChecked;
     const skipAnimation = !hasMounted.current;

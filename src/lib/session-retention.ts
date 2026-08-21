@@ -58,7 +58,11 @@ export function estimateJsonBytes(value: unknown): number {
 }
 
 function byteLength(value: string): number {
-  return Buffer.byteLength(value, "utf8");
+  // The renderer bundle has no Node Buffer (nodeIntegration: false). Use it
+  // where it exists (main process); approximate with code-unit count elsewhere.
+  return typeof Buffer !== "undefined"
+    ? Buffer.byteLength(value, "utf8")
+    : value.length;
 }
 
 export function entryTextBytes(entry: AcpEntry): { textBytes: number; thoughtBytes: number } {

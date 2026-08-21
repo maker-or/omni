@@ -292,6 +292,13 @@ interface ThreadSessionRuntime {
   /** Full tool bodies parked off the lean session slice. */
   toolPayloads: Map<string, ToolCallPayload>;
   retention: SessionRetentionTracker;
+  /**
+   * Tool-call record already sent to the renderer (via thread-tool-calls or a
+   * session-state snapshot). The record is only re-broadcast when its
+   * reference changes, so message-chunk updates don't ship the full
+   * accumulated tool payload over IPC on every streamed chunk.
+   */
+  emittedToolCalls: AcpSessionSlice["toolCalls"] | null;
 }
 
 function jsonBytes(value: unknown): number {
@@ -789,6 +796,10 @@ export class AgentConnectionManager {
       this.emit({ type: "session-state", state: this.getState() });
     } else {
       this.emit({ type: "session-state", state: this.buildSessionState(id) });
+      // The snapshot carries toolCalls and the renderer adopts them, so the
+      // per-update thread-tool-calls guard can treat them as already sent.
+      const runtime = this.sessions.get(id);
+      if (runtime) runtime.emittedToolCalls = runtime.slice.toolCalls;
     }
     this.emitRunningThreads();
   }
@@ -1383,11 +1394,18 @@ export class AgentConnectionManager {
     };
 
     this.emit(event);
-    this.emit({
-      type: "thread-tool-calls",
-      threadId: runtime.threadId,
-      toolCalls: runtime.slice.toolCalls,
-    });
+    // Message-chunk updates leave the tool-call record untouched; only
+    // re-broadcast the full record when the reducer actually replaced it.
+    // Resending it per chunk made live streaming O(total tool payload) per
+    // update across IPC, structured clone, and renderer store spreads.
+    if (runtime.slice.toolCalls !== runtime.emittedToolCalls) {
+      runtime.emittedToolCalls = runtime.slice.toolCalls;
+      this.emit({
+        type: "thread-tool-calls",
+        threadId: runtime.threadId,
+        toolCalls: runtime.slice.toolCalls,
+      });
+    }
     // The renderer applies the same pure reducer to session-update. Sending a
     // full session-state snapshot for every chunk needlessly rebuilds the panel
     // projection and forces all snapshot subscribers to render again. The next
@@ -2158,6 +2176,7 @@ export class AgentConnectionManager {
         monitorUpdateCount: 0,
         toolPayloads: new Map(),
         retention: new SessionRetentionTracker(),
+        emittedToolCalls: null,
       };
       this.sessions.set(threadId, runtime);
       this.monitorObserver?.onSessionCacheEvent?.({
@@ -2331,6 +2350,7 @@ export class AgentConnectionManager {
       monitorUpdateCount: 0,
       toolPayloads: new Map(),
       retention: new SessionRetentionTracker(),
+      emittedToolCalls: null,
     });
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),

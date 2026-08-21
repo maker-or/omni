@@ -44,6 +44,13 @@ export const MAX_SESSION_ENTRIES = 2_000;
 export const MAX_SESSION_TOOL_CALLS = 500;
 
 export function trimSessionSlice(state: AcpSessionSlice): AcpSessionSlice {
+  // Fast path: this runs on every streamed chunk. When nothing is over
+  // budget, skip building the referenced-id Set and the tool-call entry list
+  // entirely — both are O(entries + toolCalls) allocations per update.
+  const toolCallCount = Object.keys(state.toolCalls).length;
+  if (state.entries.length <= MAX_SESSION_ENTRIES && toolCallCount <= MAX_SESSION_TOOL_CALLS) {
+    return state;
+  }
   const entries =
     state.entries.length > MAX_SESSION_ENTRIES
       ? state.entries.slice(-MAX_SESSION_ENTRIES)
