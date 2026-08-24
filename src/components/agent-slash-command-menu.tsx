@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Button } from "@/components/ui/button";
+import { Dropdown } from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import type { AgentCommand } from "@/lib/agent-commands";
 
 interface AgentSlashCommandMenuProps {
@@ -16,6 +18,14 @@ export function AgentSlashCommandMenu({
   onSelect,
 }: AgentSlashCommandMenuProps) {
   const prefersReducedMotion = useReducedMotion();
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-proximity-index="${selectedIndex}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
 
   return (
     <AnimatePresence initial={false}>
@@ -43,21 +53,30 @@ export function AgentSlashCommandMenu({
             prefersReducedMotion ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0 }
           }
           style={{ transformOrigin: "bottom center" }}
-          className="absolute inset-x-5 bottom-[calc(100%-12px)] z-0 overflow-hidden rounded-t-xl border border-border bg-surface-2 px-2 pb-5 pt-2 shadow-lg"
+          className="absolute inset-x-5 bottom-[calc(100%-12px)] z-0 overflow-hidden rounded-2xl border border-border/80 bg-surface-3 shadow-surface-4"
         >
-          <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-            {commands.slice(0, 8).map((command, index) => (
-              <Button
-                key={command.name}
-                variant="ghost"
-                size="sm"
-                active={selectedIndex === index}
-                className="w-full justify-start"
-                onClick={() => onSelect(command.name)}
-              >
-                {command.name}
-              </Button>
-            ))}
+          <div className="h-2" aria-hidden="true" />
+          <div ref={listRef}>
+            <Dropdown
+              checkedIndex={selectedIndex}
+              className="w-full max-h-64 overflow-y-auto rounded-none bg-transparent shadow-none"
+              role="listbox"
+              aria-label="Slash commands"
+            >
+              {commands.map((command, index) => (
+                <MenuItem
+                  key={command.name}
+                  label={`/${command.name}`}
+                  description={command.description || undefined}
+                  index={index}
+                  className="w-full px-3 py-2.5"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                  }}
+                  onSelect={() => onSelect(command.name)}
+                />
+              ))}
+            </Dropdown>
           </div>
         </motion.div>
       )}

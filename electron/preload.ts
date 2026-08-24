@@ -77,6 +77,12 @@ const api = {
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
   },
+  window: {
+    /** Report document.visibilityState so main can gate hidden-window traffic. */
+    reportVisibility: (visible: boolean): void => {
+      ipcRenderer.send("window:reportVisibility", visible);
+    },
+  },
   sleepless: {
     getStatus: (): Promise<SleeplessStatus | null> => ipcRenderer.invoke("sleepless:getStatus"),
     setEnabled: (enabled: boolean): Promise<SleeplessStatus | null> =>
@@ -156,6 +162,13 @@ const api = {
       ipcRenderer.on("projects:activeChanged", listener);
       return () => {
         ipcRenderer.removeListener("projects:activeChanged", listener);
+      };
+    },
+    onListChanged: (callback: (project: Project) => void) => {
+      const listener = (_event: any, project: Project) => callback(project);
+      ipcRenderer.on("projects:listChanged", listener);
+      return () => {
+        ipcRenderer.removeListener("projects:listChanged", listener);
       };
     },
   },

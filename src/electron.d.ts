@@ -72,6 +72,9 @@ declare global {
       shell: {
         openExternal: (url: string) => Promise<void>;
       };
+      window: {
+        reportVisibility: (visible: boolean) => void;
+      };
       sleepless: {
         getStatus: () => Promise<SleeplessStatus | null>;
         setEnabled: (enabled: boolean) => Promise<SleeplessStatus | null>;
@@ -111,6 +114,7 @@ declare global {
         getFileTree: () => Promise<ProjectFileTreeSnapshot>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
+        onListChanged: (callback: (project: Project) => void) => () => void;
       };
       worktrees: {
         list: (projectId: string) => Promise<Worktree[]>;

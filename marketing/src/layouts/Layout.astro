@@ -4,6 +4,7 @@ import "../styles/global.css";
 const {
     title = "pipper",
     description = "pipper — self-improving agent interface",
+    image = "/og.png",
     pageClass,
     hideHeader,
     hideFooter = false,
@@ -12,6 +13,7 @@ const {
 const pagePath = Astro.url.pathname;
 const site = Astro.site ?? new URL("https://www.pipper.dev");
 const canonical = new URL(pagePath, site);
+const ogImage = new URL(image, site).toString();
 const pageName =
     pagePath === "/"
         ? "home"
@@ -61,9 +63,15 @@ const isCanvasPage = [
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />
         <meta property="og:url" content={canonical} />
+        <meta property="og:image" content={ogImage} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={title} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={title} />
         <meta name="twitter:description" content={description} />
+        <meta name="twitter:image" content={ogImage} />
+        <meta name="twitter:image:alt" content={title} />
         <script
             type="application/ld+json"
             is:inline

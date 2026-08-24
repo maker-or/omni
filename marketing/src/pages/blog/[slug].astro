@@ -82,6 +82,7 @@ const articleSchema = {
     "@type": "Article",
     headline: post.data.title,
     description: post.data.description,
+    image: new URL(post.data.image ?? "/og.png", Astro.site ?? "https://www.pipper.dev").toString(),
     datePublished: post.data.date.toISOString(),
     author: { "@type": "Organization", name: post.data.author },
     publisher: { "@type": "Organization", name: "pipper code" },
@@ -93,6 +94,7 @@ const articleSchema = {
 <Layout
     title={post.data.title}
     description={post.data.description}
+    image={post.data.image}
     pageClass="blog-post-page"
 >
     <script type="application/ld+json" is:inline set:html={JSON.stringify(articleSchema)} />

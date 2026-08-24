@@ -43,6 +43,8 @@ import {
 import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
+import { createElectronOsNotifier } from "./os-notifications";
+import { WindowVisibilityGate } from "./window-visibility";
 import { MonitorService } from "./monitor/service.ts";
 import { isMonitorEnabled } from "./monitor/enabled.ts";
 import { emptyMonitorRecordedSession } from "./monitor/timeline.ts";
@@ -315,6 +317,29 @@ let launchWindow: BrowserWindow | null = null;
 let monitorWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+/**
+ * Single source of truth for "can the user currently see the main window".
+ * Consumed by the agent bridge (hidden-window delta coalescing) and the OS
+ * notification policy (only notify when the in-app UI cannot show it).
+ */
+const windowVisibilityGate = new WindowVisibilityGate();
+// Windows renders OS notifications only when the App User Model ID matches
+// the packaged identity (electron-builder.yml appId); other platforms ignore.
+app.setAppUserModelId("com.maker-or.omni");
+/**
+ * Whether the main window holds keyboard focus. Notifications key off
+ * attention (focused AND visible = user is here), which is broader than the
+ * visibility gate: Cmd+Tab away leaves the window "visible" on macOS while
+ * the user is clearly elsewhere.
+ */
+let mainWindowFocused = true;
+const osNotifier = createElectronOsNotifier(() => {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
 let threadBenchmarkController: ThreadBenchmarkController | null = null;
 let pendingStartupAgentProjectId: string | null = null;
 let startupAgentActivationStarted = false;
@@ -783,6 +808,21 @@ async function createMainWindow(): Promise<void> {
   mainWindow.on("closed", () => {
     killAllPtyProcesses("WindowClosed");
     mainWindow = null;
+    mainWindowFocused = false;
+    windowVisibilityGate.setWindowVisible(false);
+  });
+
+  // Feed the visibility gate from window-level events; the renderer reports
+  // document.visibilityState separately (covers full occlusion).
+  mainWindow.on("minimize", () => windowVisibilityGate.setWindowVisible(false));
+  mainWindow.on("restore", () => windowVisibilityGate.setWindowVisible(true));
+  mainWindow.on("hide", () => windowVisibilityGate.setWindowVisible(false));
+  mainWindow.on("show", () => windowVisibilityGate.setWindowVisible(true));
+  mainWindow.on("focus", () => {
+    mainWindowFocused = true;
+  });
+  mainWindow.on("blur", () => {
+    mainWindowFocused = false;
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -1056,6 +1096,16 @@ function buildAppMenu(): void {
                 label: "Settings…",
                 accelerator: "Command+,",
                 click: () => createSettingsWindow(),
+              },
+              {
+                label: "Send Test Notification",
+                click: () => {
+                  osNotifier({
+                    kind: "turn-completed",
+                    threadTitle: "Pipper",
+                    detail: "If you can read this, OS notifications work.",
+                  });
+                },
               },
               { type: "separator" },
               { role: "services" },
@@ -1436,6 +1486,21 @@ function registerIpc(): void {
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
     }
+
+    // Background add: the user already has a live main window (e.g. they hit
+    // "Add Project" from the header switcher). Registering the project must
+    // not disturb their current threads/terminals — just close the launch
+    // window and let the main window pick up the new entry in its list.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (launchWindow && !launchWindow.isDestroyed()) {
+        launchWindow.close();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+      broadcastToWindows("projects:listChanged", project);
+      return;
+    }
+
     setActiveProjectId(projectId);
     await markLaunchComplete(projectId);
     await requireAgentManager().activateProject(projectId);
@@ -1444,14 +1509,7 @@ function registerIpc(): void {
       launchWindow.close();
     }
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      killAllPtyProcesses("LaunchComplete");
-      mainWindow.webContents.reload();
-      mainWindow.show();
-      mainWindow.focus();
-    } else {
-      createMainWindow();
-    }
+    createMainWindow();
   });
 
   ipcMain.handle("launch:show", (_event, stage?: "list" | "add" | "onboarding") => {
@@ -1692,6 +1750,9 @@ function registerIpc(): void {
   );
   ipcMain.on("agent:reportEditorText", (_event, text: string) => {
     requireAgentManager().reportEditorText(text);
+  });
+  ipcMain.on("window:reportVisibility", (_event, visible: unknown) => {
+    windowVisibilityGate.setRendererVisible(visible === true);
   });
 
   ipcMain.handle("subagents:getConfig", () => requireAgentManager().getSubagentConfig());
@@ -2064,6 +2125,9 @@ app.whenReady().then(async () => {
     },
     onRunningThreadsChanged: (threadIds) => sleeplessController?.setRunningThreadIds(threadIds),
     setAgentContext: setActiveAgentContext,
+    visibility: windowVisibilityGate,
+    attention: { isFocused: () => mainWindowFocused },
+    notify: osNotifier,
   });
   sleeplessController = new SleeplessController({
     platform: process.platform,

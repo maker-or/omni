@@ -97,6 +97,15 @@ export default function App() {
       .catch(() => setMonitorEnabled(false));
   }, []);
 
+  // Report document.visibilityState to main so the agent bridge can stop
+  // replaying streaming deltas into a window nobody can see.
+  useEffect(() => {
+    const report = () => window.omni?.window?.reportVisibility(!document.hidden);
+    report();
+    document.addEventListener("visibilitychange", report);
+    return () => document.removeEventListener("visibilitychange", report);
+  }, []);
+
   useMonitorTabSync(monitorEnabled);
 
   useEffect(() => {
@@ -473,6 +482,20 @@ export default function App() {
     });
     return unsubscribe;
   }, [loadActiveProject]);
+
+  useEffect(() => {
+    if (!window.omni?.projects?.onListChanged) return;
+    const unsubscribe = window.omni.projects.onListChanged((project) => {
+      void loadProjectsList();
+      toast({
+        icon: <FolderPlus weight="duotone" className="size-5 text-emerald-500" />,
+        title: "Project added",
+        description: `${project.name} is ready in your project list.`,
+        duration: 5000,
+      });
+    });
+    return unsubscribe;
+  }, []);
 
   if (isLoading && !activeProject) {
     return (

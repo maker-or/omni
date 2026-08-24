@@ -170,6 +170,16 @@ export function GlobalTabBar() {
   }, [activeProject?.id]);
 
   useEffect(() => {
+    if (!window.omni?.projects?.onListChanged) return;
+    const unsubscribe = window.omni.projects.onListChanged(() => {
+      void window.omni.projects
+        .list()
+        .then((list) => setProjectsList(list))
+        .catch((err) => console.error("Failed to reload projects list:", err));
+    });
+    return unsubscribe;
+  }, []);
+  useEffect(() => {
     initializeGlobalListener();
   }, [initializeGlobalListener]);
 

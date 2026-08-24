@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -39,6 +40,7 @@ import {
   getFreeText,
   removeEntityKind,
   resolveAgentId,
+  setFreeText,
   stripEntityKinds,
   titleFromText,
   upsertEntity,
@@ -1011,12 +1013,15 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const diffSummaries = useDiffStore((state) => state.summaries);
   const isStreaming = snapshot?.isStreaming ?? false;
   const streamingMessage = isStreaming ? (snapshot?.streamingMessage ?? null) : null;
+  // Slash detection reads whichever composer is active: draft free text while
+  // creating a thread, the live input otherwise (inputValue mirrors liveContent).
+  const composerFreeText = isDraftMode ? getFreeText(draftContent) : inputValue;
   const slashMatches = useMemo(() => {
-    const trimmed = inputValue.trimStart();
+    const trimmed = composerFreeText.trimStart();
     if (!trimmed.startsWith("/")) return [];
     const query = trimmed.slice(1).split(/\s+/, 1)[0].toLowerCase();
     return matchAgentCommands(commands, query);
-  }, [commands, inputValue]);
+  }, [commands, composerFreeText]);
 
   const allMessages = useMemo(
     () =>
@@ -1647,6 +1652,12 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   };
 
   const applyCommand = (commandName: string) => {
+    // Route composer-text writes through the active stage so a command picked
+    // from the draft menu lands in draftContent, not just the live input.
+    const setComposerText = (text: string) => {
+      if (isDraftMode) handleDraftContentChange(setFreeText(draftContent, text));
+      else setInputValue(text);
+    };
     if (commandName === SUBAGENT_COMMAND) {
       openOrchestration("");
       return;
@@ -1658,7 +1669,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           title: "Nothing to continue",
           description: "This conversation has no messages to carry over yet.",
         });
-        setInputValue("");
+        setComposerText("");
         return;
       }
       if (continuableAgents.length === 0) {
@@ -1667,16 +1678,17 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           title: "No agents available",
           description: "Install or sign in to another agent to continue this conversation.",
         });
-        setInputValue("");
+        setComposerText("");
         return;
       }
-      setInputValue("");
+      setComposerText("");
       setSelectedCommandIndex(0);
       setContinueSelectedIndex(0);
       setContinuePickerOpen(true);
       return;
     }
-    setInputValue(`/${commandName} `);
+    setComposerText(`/${commandName} `);
+    setSelectedCommandIndex(0);
   };
 
   // `/continue` picks a target agent, snapshots this thread's user/assistant
@@ -1731,6 +1743,53 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Shared composer key handling for both stages: /continue agent picker,
+  // slash-command menu navigation, and command accept (Tab / Enter).
+  const handleComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (continuePickerOpen && continuableAgents.length) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setContinueSelectedIndex(
+          (current) =>
+            (current + (event.key === "ArrowDown" ? 1 : -1) + continuableAgents.length) %
+            continuableAgents.length,
+        );
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        const agent = continuableAgents[continueSelectedIndex] ?? continuableAgents[0];
+        if (agent) void handleContinueWithAgent(agent.id);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setContinuePickerOpen(false);
+        return;
+      }
+    }
+    if (slashMatches.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      setSelectedCommandIndex(
+        (current) =>
+          (current + (event.key === "ArrowDown" ? 1 : -1) + slashMatches.length) %
+          slashMatches.length,
+      );
+      return;
+    }
+    if (
+      slashMatches.length &&
+      (event.key === "Tab" || (event.key === "Enter" && !/\s/.test(composerFreeText.trimStart())))
+    ) {
+      event.preventDefault();
+      applyCommand(slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name);
+      return;
+    }
+    if (event.key === "Escape") {
+      setSelectedCommandIndex(0);
     }
   };
 
@@ -2409,6 +2468,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                       maxFiles={MAX_AGENT_IMAGES}
                       showImageAttach={true}
                       textareaRef={composerTextareaRef}
+                      onTextareaKeyDown={handleComposerKeyDown}
                     />
                   ) : inlineRequest ? (
                     <AgentQuestionCard request={inlineRequest} className="relative z-10" />
@@ -2474,61 +2534,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                         showImageAttach={showImageAttach}
                         textareaRef={composerTextareaRef}
                         placeholder={isConnecting ? "Connecting to agent runtime..." : undefined}
-                        onTextareaKeyDown={(event) => {
-                          if (continuePickerOpen && continuableAgents.length) {
-                            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                              event.preventDefault();
-                              setContinueSelectedIndex(
-                                (current) =>
-                                  (current +
-                                    (event.key === "ArrowDown" ? 1 : -1) +
-                                    continuableAgents.length) %
-                                  continuableAgents.length,
-                              );
-                              return;
-                            }
-                            if (event.key === "Enter" || event.key === "Tab") {
-                              event.preventDefault();
-                              const agent =
-                                continuableAgents[continueSelectedIndex] ?? continuableAgents[0];
-                              if (agent) void handleContinueWithAgent(agent.id);
-                              return;
-                            }
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              setContinuePickerOpen(false);
-                              return;
-                            }
-                          }
-                          if (
-                            slashMatches.length &&
-                            (event.key === "ArrowDown" || event.key === "ArrowUp")
-                          ) {
-                            event.preventDefault();
-                            setSelectedCommandIndex(
-                              (current) =>
-                                (current +
-                                  (event.key === "ArrowDown" ? 1 : -1) +
-                                  slashMatches.length) %
-                                slashMatches.length,
-                            );
-                            return;
-                          }
-                          if (
-                            slashMatches.length &&
-                            (event.key === "Tab" ||
-                              (event.key === "Enter" && !/\s/.test(inputValue.trimStart())))
-                          ) {
-                            event.preventDefault();
-                            applyCommand(
-                              slashMatches[selectedCommandIndex]?.name ?? slashMatches[0]!.name,
-                            );
-                            return;
-                          }
-                          if (event.key === "Escape") {
-                            setSelectedCommandIndex(0);
-                          }
-                        }}
+                        onTextareaKeyDown={handleComposerKeyDown}
                         rightSlotExtra={
                           <div className="flex items-center gap-1.5">
                             {thoughtLevelValues.length > 0 && (

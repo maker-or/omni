@@ -52,6 +52,8 @@ import {
 import { listMcpServers, toAcpMcpServers } from "./mcp-servers.ts";
 import { SubagentManager } from "./subagents/subagent-manager.ts";
 import { TerminalManager } from "./terminal-manager.ts";
+import type { AgentOsNotification, OsNotifier } from "./os-notifications.ts";
+import type { WindowAttentionSource, WindowVisibilitySource } from "./window-visibility.ts";
 import {
   applySessionUpdate,
   applySessionUpdateInPlace,
@@ -129,7 +131,11 @@ const ACP_SWITCH_PHASE_TIMEOUT_MS =
   Number.isFinite(configuredSwitchTimeout) && configuredSwitchTimeout >= 1_000
     ? configuredSwitchTimeout
     : 10_000;
-const ACP_PROMPT_TIMEOUT_MS = 10 * 60_000;
+const configuredPromptTimeout = Number(process.env.PIPPER_ACP_PROMPT_TIMEOUT_MS);
+const ACP_PROMPT_TIMEOUT_MS =
+  Number.isFinite(configuredPromptTimeout) && configuredPromptTimeout >= 60_000
+    ? configuredPromptTimeout
+    : 45 * 60_000;
 
 /** npx agents may need to download on first launch — allow up to 2 minutes for initialize. */
 const ACP_NPX_INIT_TIMEOUT_MS = 120_000;
@@ -305,6 +311,10 @@ function jsonBytes(value: unknown): number {
   return estimateJsonBytes(value);
 }
 
+function bridgeEventThreadId(payload: AcpBridgeEvent): string | null {
+  return "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;
+}
+
 interface PendingPermission {
   resolve: (response: acp.RequestPermissionResponse) => void;
   request: AcpPermissionRequest;
@@ -441,6 +451,13 @@ export class AgentConnectionManager {
   private activationGeneration = 0;
   private readonly threadActivationGenerations = new Map<string, number>();
 
+  /** Reports whether the main window can currently be seen by the user. */
+  private readonly visibility?: WindowVisibilitySource;
+  /** Reports whether the window currently has keyboard focus (user attention). */
+  private readonly windowAttention?: WindowAttentionSource;
+  /** Delivers OS notifications for events that happen while the user is away. */
+  private readonly notify?: OsNotifier;
+
   private currentEditorText = "";
   private turnSequence = 0;
 
@@ -453,6 +470,9 @@ export class AgentConnectionManager {
     setAgentContext?: (
       ctx: { agentId?: string | null; agentName?: string | null; modelId?: string | null } | null,
     ) => void;
+    visibility?: WindowVisibilitySource;
+    attention?: WindowAttentionSource;
+    notify?: OsNotifier;
   }) {
     this.sendToRenderer =
       options.sendToRenderer.length <= 1
@@ -464,6 +484,14 @@ export class AgentConnectionManager {
     this.captureAnalytics = options.captureAnalytics;
     this.onRunningThreadsChanged = options.onRunningThreadsChanged;
     this.setAgentContext = options.setAgentContext;
+    this.visibility = options.visibility;
+    this.windowAttention = options.attention;
+    this.notify = options.notify;
+    // The hidden-window gate dropped streaming deltas; the moment the window
+    // can be seen again, catch the renderer up with one authoritative pass.
+    options.visibility?.onChange((visible) => {
+      if (visible) this.flushCoalescedStateToRenderer();
+    });
     this.terminalManager = new TerminalManager({
       onOutput: (terminalId, chunk) => {
         this.emit({ type: "terminal-output", terminalId, output: chunk, append: true });
@@ -659,7 +687,29 @@ export class AgentConnectionManager {
     this.preferredAgentId = agentId;
   }
 
+  /**
+   * Streaming deltas an invisible renderer need not replay: the main process
+   * keeps the authoritative slice either way, and one snapshot on visible
+   * produces the same end state. Everything user-actionable (permissions),
+   * cheap (stop, running-threads), or window-scoped (title) stays direct.
+   */
+  private static readonly COALESCIBLE_WHEN_HIDDEN = new Set<AcpBridgeEvent["type"]>([
+    "session-update",
+    "thread-tool-calls",
+  ]);
+
+  private isRendererVisible(): boolean {
+    return this.visibility?.isVisible() ?? true;
+  }
+
   private emit(payload: AcpBridgeEvent): void {
+    if (
+      AgentConnectionManager.COALESCIBLE_WHEN_HIDDEN.has(payload.type) &&
+      !this.isRendererVisible()
+    ) {
+      this.recordCoalescedEvent(payload);
+      return;
+    }
     if (!this.monitorObserver?.onBridgeEvent) {
       this.sendToRenderer("agent:event", payload);
       return;
@@ -667,8 +717,7 @@ export class AgentConnectionManager {
     const startedAt = performance.now();
     const bytes = jsonBytes(payload);
     const serializationMs = performance.now() - startedAt;
-    const threadId =
-      "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;
+    const threadId = bridgeEventThreadId(payload);
     const threadRole = threadId
       ? threadId === this.activeThreadId
         ? "active"
@@ -688,6 +737,76 @@ export class AgentConnectionManager {
         threadRole,
         deliveryMode: "direct",
       });
+    }
+  }
+
+  /**
+   * Bookkeeping for a suppressed event. Bytes stay unmeasured on purpose:
+   * walking a multi-KB payload here would reintroduce per-event cost on the
+   * exact hot path this gate exists to elide.
+   */
+  private recordCoalescedEvent(payload: AcpBridgeEvent): void {
+    const observer = this.monitorObserver?.onBridgeEvent;
+    if (!observer) return;
+    const threadId = bridgeEventThreadId(payload);
+    observer({
+      timestamp: Date.now(),
+      eventType: payload.type,
+      bytes: 0,
+      serializationMs: 0,
+      deliveryMs: 0,
+      threadId,
+      threadRole: threadId
+        ? threadId === this.activeThreadId
+          ? "active"
+          : "background"
+        : "unknown",
+      deliveryMode: "coalesced",
+    });
+  }
+
+  /**
+   * Catch the renderer up after a hidden period without replaying the delta
+   * storm: one authoritative session-state for the displayed thread, plus any
+   * tool-call records that drifted from their emission watermark (the same
+   * reference-equality guard handleSessionUpdate uses per update).
+   */
+  private flushCoalescedStateToRenderer(): void {
+    this.pushState(this.activeThreadId);
+    for (const runtime of this.sessions.values()) {
+      if (!this.sessions.has(runtime.threadId)) continue;
+      if (runtime.slice.toolCalls === runtime.emittedToolCalls) continue;
+      runtime.emittedToolCalls = runtime.slice.toolCalls;
+      this.emit({
+        type: "thread-tool-calls",
+        threadId: runtime.threadId,
+        toolCalls: runtime.slice.toolCalls,
+      });
+    }
+  }
+
+  private threadDisplayTitle(threadId: string | null): string | null {
+    if (!threadId) return null;
+    const runtime = this.sessions.get(threadId);
+    if (runtime?.slice.title) return runtime.slice.title;
+    return getThread(threadId)?.title ?? null;
+  }
+
+  /**
+   * Fire an OS notification only when the user is not attending to the app.
+   * Attention is broader than visibility: Cmd+Tab to another app on macOS
+   * leaves the window "visible" (no minimize, no full occlusion) while the
+   * user is clearly elsewhere — that is exactly when a finished turn or a
+   * blocked permission must escalate to the OS.
+   */
+  private notifyIfHidden(notification: AgentOsNotification): void {
+    const visible = this.isRendererVisible();
+    const focused = this.windowAttention?.isFocused() ?? true;
+    if (visible && focused) return;
+    try {
+      this.notify?.(notification);
+    } catch (error) {
+      console.error("[Notifications] failed:", error);
     }
   }
 
@@ -1466,6 +1585,16 @@ export class AgentConnectionManager {
       }
       this.pendingPermissions.set(key, { resolve, request, timer });
       this.emit({ type: "permission-request", request });
+      // An agent blocked on permissions while the user is away is dead time;
+      // the in-app prompt cannot be seen, so escalate to the OS.
+      this.notifyIfHidden({
+        kind: "permission-required",
+        threadTitle: this.threadDisplayTitle(request.threadId),
+        detail:
+          typeof (params.toolCall as { title?: string } | null | undefined)?.title === "string"
+            ? (params.toolCall as { title: string }).title
+            : undefined,
+      });
     });
   }
 
@@ -1615,6 +1744,15 @@ export class AgentConnectionManager {
           threadId: runtime.threadId,
           stopReason: result.stopReason,
         });
+        // The user walked away: surface the settled turn at the OS level.
+        this.notifyIfHidden({
+          kind: "turn-completed",
+          threadTitle: this.threadDisplayTitle(runtime.threadId),
+          detail:
+            result.stopReason && result.stopReason !== "end_turn"
+              ? `stopped: ${result.stopReason}`
+              : undefined,
+        });
         prompt.resolve(result);
       })
       .catch((error) => {
@@ -1625,11 +1763,25 @@ export class AgentConnectionManager {
           turn_duration_ms: Date.now() - turnStartedAt,
           error_type: error instanceof Error ? error.name : undefined,
         });
+        if (error instanceof Error && /timed out/i.test(error.message)) {
+          this.captureAnalytics?.("prompt_timeout", {
+            ...agentProps,
+            project_id: runtime.projectId,
+            thread_id: runtime.threadId,
+            turn_duration_ms: Date.now() - turnStartedAt,
+            error_type: "session_prompt_timeout",
+          });
+        }
         // If ACP timed out or was cancelled, its underlying request may still
         // be alive. Do not start another prompt against the same session.
         if (error instanceof Error && /timed out|cancelled/i.test(error.message)) {
           this.rejectQueuedPrompts(runtime.threadId, error.message);
         }
+        this.notifyIfHidden({
+          kind: "turn-failed",
+          threadTitle: this.threadDisplayTitle(runtime.threadId),
+          detail: error instanceof Error ? error.message.slice(0, 140) : undefined,
+        });
         prompt.reject(error);
       })
       .finally(() => {

@@ -31,7 +31,7 @@ The test:
 1. Start with an empty conversation.
 2. Feed it 100 turns (a turn = one user prompt plus the agent's full reply), one at a time, in order — the way a real session arrives.
 3. Start the clock when the first turn is requested.
-4. Stop it when the final turn is fully received *and* visible on screen — verified by counting rendered rows in the app's real UI, not by asking the app when it thinks it's done.
+4. Stop it when the final turn is fully received _and_ visible on screen — verified by counting rendered rows in the app's real UI, not by asking the app when it thinks it's done.
 
 A deterministic script generated the content: multi-paragraph replies, code blocks, and tool-call records, sized to 40 MiB across 235 messages. Both apps read the same file, and we confirmed the bytes matched by checksum rather than trusting two separately generated copies.
 
@@ -55,22 +55,22 @@ Benchmarks usually break in predictable ways: mismatched data, warm caches, cher
 
 Median of three attempts, 100 turns / 40 MiB each:
 
-| | Omni | T3 Code |
-|---|---:|---:|
-| Cold stream + render | **3.15 s** | 176.8 s |
-| Warm stream + render | **2.74 s** | 198.9 s |
-| Average time per turn | ~31 ms | ~1,768 ms |
-| Renderer heap growth | flat (~21 MiB) | grew every run (33 → 71 MiB) |
-| Whole-app peak memory | ~1.0–1.4 GB | ~2.1–2.4 GB |
-| Frozen frames during streaming | 0 | 0 |
+|                                |           Omni |                      T3 Code |
+| ------------------------------ | -------------: | ---------------------------: |
+| Cold stream + render           |     **3.15 s** |                      176.8 s |
+| Warm stream + render           |     **2.74 s** |                      198.9 s |
+| Average time per turn          |         ~31 ms |                    ~1,768 ms |
+| Renderer heap growth           | flat (~21 MiB) | grew every run (33 → 71 MiB) |
+| Whole-app peak memory          |    ~1.0–1.4 GB |                  ~2.1–2.4 GB |
+| Frozen frames during streaming |              0 |                            0 |
 
 Individual attempts:
 
 | Attempt | Omni cold | Omni warm | T3 cold | T3 warm |
-|---|---:|---:|---:|---:|
-| 1 | 3.15 s | 2.74 s | 337.4 s | 198.9 s |
-| 2 | 7.78 s * | 15.6 s * | 176.8 s | 187.2 s |
-| 3 | 2.89 s | 2.66 s | 151.8 s | 216.5 s |
+| ------- | --------: | --------: | ------: | ------: |
+| 1       |    3.15 s |    2.74 s | 337.4 s | 198.9 s |
+| 2       | 7.78 s \* | 15.6 s \* | 176.8 s | 187.2 s |
+| 3       |    2.89 s |    2.66 s | 151.8 s | 216.5 s |
 
 \* Attempt 2 ran right after a T3 run that had pinned the CPU for nine straight minutes, so the machine hadn't settled. Even Omni's worst number against T3's best leaves a gap above 20×.
 
@@ -94,12 +94,12 @@ So the framing isn't "T3 is slow." The two apps made opposite bets:
 
 Neither bet is free. But for "how fast does a live conversation appear on screen," the memory-first pipeline wins by orders of magnitude, and tuning won't close the gap while a durability round-trip sits between the agent and the screen.
 
-One more signal backs the structural read: T3 got *slower* as conversations grew within our runs — warm runs consistently slower than cold, interface-side memory climbing across successive runs. Per-update costs that scale with conversation size point to work proportional to total history rather than to each new update. Omni stayed flat: warm runs marginally faster than cold, memory steady regardless of turn count.
+One more signal backs the structural read: T3 got _slower_ as conversations grew within our runs — warm runs consistently slower than cold, interface-side memory climbing across successive runs. Per-update costs that scale with conversation size point to work proportional to total history rather than to each new update. Omni stayed flat: warm runs marginally faster than cold, memory steady regardless of turn count.
 
 ## What this benchmark does not claim
 
 - **It measures live ingestion only.** Opening an already-saved conversation is a different workload with different trade-offs, and our tests for that path aren't yet fair enough to publish. No claim here.
-- **Absolute seconds don't transfer to real models.** With a real LLM, both apps spend multiple seconds a turn waiting on it. What transfers is the *overhead per turn* — the app's own tax on every update — which is what this test isolates. Omni's tax is ~31 ms per turn; T3's is ~1,800 ms.
+- **Absolute seconds don't transfer to real models.** With a real LLM, both apps spend multiple seconds a turn waiting on it. What transfers is the _overhead per turn_ — the app's own tax on every update — which is what this test isolates. Omni's tax is ~31 ms per turn; T3's is ~1,800 ms.
 - **Zero freezes ≠ identical smoothness.** Both apps were stable under this workload. We're claiming a throughput and resource-efficiency gap, not a stability gap.
 - **Mock backend, on purpose.** If you want to dispute these numbers, reproduce them with a real model endpoint — but know that mostly measures the model provider, which is why we didn't.
 

@@ -31,6 +31,7 @@ export type AnalyticsEventName =
   | "prompt_submitted"
   | "turn_completed"
   | "turn_failed"
+  | "prompt_timeout"
   | "tokens_reported"
   | "tool_call_finished"
   | "subagent_run_completed"
