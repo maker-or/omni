@@ -23,13 +23,12 @@ import type {
 } from "../contracts/launcher-updates.ts";
 import type {
   MonitorConnectionEpisode,
-  MonitorAcpUpdate,
-  MonitorBridgeEvent,
   MonitorDiffIngestion,
   MonitorIncident,
   MonitorLiveSnapshot,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
+  MonitorSessionCacheEvent,
   MonitorSampleTick,
   MonitorRecordedSession,
   MonitorSession,

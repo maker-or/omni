@@ -25,6 +25,8 @@ const DEFAULT_PROBE_TIMEOUT_MS = 20_000;
 
 export interface ProbeOptions {
   timeoutMs?: number;
+  /** App version for ACP `clientInfo`; callers pass `app.getVersion()`. */
+  clientVersion?: string;
 }
 
 /**
@@ -134,7 +136,11 @@ export async function probeAgentHandshake(
           fs: { readTextFile: true, writeTextFile: true },
           terminal: true,
         },
-        clientInfo: { name: "pipper", title: "Pipper", version: "0.0.20" },
+        clientInfo: {
+          name: "pipper",
+          title: "Pipper",
+          version: options.clientVersion ?? "0.0.0",
+        },
       });
 
       // Throwaway session proves the agent will accept work in Pipper — including

@@ -344,9 +344,11 @@ let threadBenchmarkController: ThreadBenchmarkController | null = null;
 let pendingStartupAgentProjectId: string | null = null;
 let startupAgentActivationStarted = false;
 let startupAgentActivationFallback: ReturnType<typeof setTimeout> | null = null;
+let deferredStartupWorkStarted = false;
 
 function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
   if (startupAgentActivationStarted || !pendingStartupAgentProjectId || !agentManager) return;
+  startDeferredStartupWork();
   startupAgentActivationStarted = true;
   if (startupAgentActivationFallback) {
     clearTimeout(startupAgentActivationFallback);
@@ -371,6 +373,40 @@ let sleeplessController: SleeplessController | null = null;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
+
+/**
+ * Services that do not contribute to the initial UI state start only after
+ * the first frame (or its fallback). Agent activation starts this first, so
+ * diagnostics still observe the full ACP connection lifecycle.
+ */
+function startDeferredStartupWork(): void {
+  if (deferredStartupWorkStarted) return;
+  deferredStartupWorkStarted = true;
+
+  initializeMonitorService();
+  void sleeplessController?.initialize().catch((error) => {
+    console.error("[Sleepless] Initialization failed:", error);
+  });
+
+  const updates = launcherUpdateManager;
+  if (!updates) return;
+  logStartupMilestone("launcher-recovery:start");
+  void updates
+    .recover()
+    .then(() => {
+      logStartupMilestone("launcher-recovery:complete");
+      updates.startPeriodicChecks();
+      return updates.check();
+    })
+    .catch((error) => {
+      console.error("[Startup] Launcher recovery failed:", error);
+    });
+}
+
+function scheduleDeferredStartupWork(): void {
+  const fallback = setTimeout(startDeferredStartupWork, 2000);
+  fallback.unref?.();
+}
 
 function requireAgentManager(): AgentManager {
   if (!agentManager) {
@@ -792,6 +828,7 @@ async function createMainWindow(): Promise<void> {
   mainWindow.on("ready-to-show", () => {
     logStartupMilestone("main-window:ready-to-show");
     mainWindow?.show();
+    scheduleDeferredStartupWork();
   });
 
   mainWindow.webContents.once("dom-ready", () => {
@@ -1044,6 +1081,7 @@ function createLaunchWindow(stage: "list" | "add" | "onboarding" = "list"): void
   launchWindow.on("ready-to-show", () => {
     console.log("[Main] launchWindow ready-to-show");
     launchWindow?.show();
+    scheduleDeferredStartupWork();
   });
 
   launchWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
@@ -1277,6 +1315,7 @@ function registerIpc(): void {
         `renderer=${Math.round(payload.rendererElapsedMs)}ms`,
       );
       if (payload.label === "first-contentful-paint") {
+        startDeferredStartupWork();
         startStartupAgentActivation("first-paint");
       }
     },
@@ -1717,7 +1756,9 @@ function registerIpc(): void {
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
   ipcMain.handle("agent:getModelCatalogs", () => requireAgentManager().getModelCatalogs());
-  ipcMain.handle("agent:probeAgent", (_event, agentId: string) => probeAgentById(agentId));
+  ipcMain.handle("agent:probeAgent", (_event, agentId: string) =>
+    probeAgentById(agentId, { clientVersion: app.getVersion() }),
+  );
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
   );
@@ -2112,6 +2153,8 @@ app.whenReady().then(async () => {
     });
   }
   agentManager = new AgentManager({
+    // Electron resolves this from package.json's `version` field.
+    clientVersion: app.getVersion(),
     sendToRenderer: sendToMainWindow,
     setWindowTitle: setMainWindowTitle,
     broadcastActiveProject: (projectId: string) => {
@@ -2140,10 +2183,6 @@ app.whenReady().then(async () => {
     broadcast: (status) => broadcastToWindows("sleepless:statusChanged", status),
   });
   sleeplessController.setRunningThreadIds(agentManager.getRunningThreadIds());
-  void sleeplessController.initialize().catch((error) => {
-    console.error("[Sleepless] Initialization failed:", error);
-  });
-  initializeMonitorService();
   threadBenchmarkController = new ThreadBenchmarkController({
     enabled: benchmarkEnabled,
     fixturePath: process.env.PIPPER_BENCHMARK_FIXTURE ?? null,
@@ -2178,12 +2217,6 @@ app.whenReady().then(async () => {
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
   });
   registerIpc();
-  logStartupMilestone("launcher-recovery:start");
-  const launcherRecovery = launcherUpdateManager.recover().then(() => {
-    logStartupMilestone("launcher-recovery:complete");
-    launcherUpdateManager?.startPeriodicChecks();
-    void launcherUpdateManager?.check();
-  });
 
   logStartupMilestone("launch-state:read:start");
   const state = await readLaunchState();
@@ -2214,10 +2247,6 @@ app.whenReady().then(async () => {
     createLaunchWindow("list");
   }
 
-  void launcherRecovery.catch((error) => {
-    console.error("[Startup] Launcher recovery failed:", error);
-  });
-
   app.on("activate", async () => {
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
@@ -2227,9 +2256,22 @@ app.whenReady().then(async () => {
         if (s.completed && authUser) {
           if (s.projectId) {
             setActiveProjectId(s.projectId);
-            void agentManager?.activateFromLaunchState();
+            // Restoring a closed main window follows the same first-paint
+            // boundary as cold startup: do not compete with Chromium while
+            // this renderer is rebuilding.
+            pendingStartupAgentProjectId = s.projectId;
+            startupAgentActivationStarted = false;
           }
-          createMainWindow();
+          void createMainWindow();
+          if (s.projectId) {
+            mainWindow?.once("ready-to-show", () => {
+              startupAgentActivationFallback = setTimeout(
+                () => startStartupAgentActivation("fallback"),
+                2000,
+              );
+              startupAgentActivationFallback.unref?.();
+            });
+          }
         } else {
           createLaunchWindow("list");
         }

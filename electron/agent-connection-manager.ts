@@ -1,13 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { Readable, Writable } from "node:stream";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { constants as fsConstants, existsSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { constants as fsConstants } from "node:fs";
+import { dirname } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
   AgentCapabilities,
-  AuthMethod,
   ContentBlock,
   SessionConfigOption,
   SessionUpdate,
@@ -15,7 +11,6 @@ import type {
 import type {
   AcpAgentDescriptor,
   AcpBridgeEvent,
-  AcpPermissionRequest,
   AcpPromptInput,
   AcpReplacePromptInput,
   AcpSessionState,
@@ -43,17 +38,30 @@ import {
 } from "./launch-state.ts";
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
+import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
 import {
-  getAgentDescriptor,
-  getDefaultAgentId,
-  listRegisteredAgents,
-  resolveAgentSpawn,
-} from "./agents/registry.ts";
+  ACP_SWITCH_PHASE_TIMEOUT_MS,
+  ConnectionLifecycle,
+  requestWithTimeout,
+  type AgentMonitorObserver,
+  type LiveConnection,
+} from "./connection-lifecycle.ts";
 import { listMcpServers, toAcpMcpServers } from "./mcp-servers.ts";
 import { SubagentManager } from "./subagents/subagent-manager.ts";
 import { TerminalManager } from "./terminal-manager.ts";
 import type { AgentOsNotification, OsNotifier } from "./os-notifications.ts";
 import type { WindowAttentionSource, WindowVisibilitySource } from "./window-visibility.ts";
+import { WorkspaceGuard } from "./workspace-guard.ts";
+import { ThreadSessionRegistry, type ThreadSessionRuntime } from "./thread-session-registry.ts";
+import {
+  ActivationSupersededError,
+  isActivationSuperseded,
+  raceActivation,
+  throwIfSuperseded,
+} from "./activation.ts";
+import { PermissionCoordinator } from "./permission-coordinator.ts";
+import { ACP_PROMPT_TIMEOUT_MS, PromptScheduler } from "./prompt-scheduler.ts";
+import { RendererBroadcaster } from "./renderer-broadcaster.ts";
 import {
   applySessionUpdate,
   applySessionUpdateInPlace,
@@ -61,7 +69,6 @@ import {
   appendLocalUserMessage,
   assemblePromptBlocks,
   createEmptySessionSlice,
-  type AcpSessionSlice,
 } from "../src/lib/acp-session-reducer.ts";
 import {
   SessionRetentionTracker,
@@ -76,69 +83,10 @@ import {
 } from "../src/lib/tool-call-payload.ts";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
 import type {
-  MonitorAcpUpdate,
-  MonitorBridgeEvent,
   MonitorProcessDescriptor,
-  MonitorSessionCacheEvent,
   MonitorSwitchPhase,
   MonitorSwitchRecord,
 } from "../contracts/monitor.ts";
-
-export interface AgentMonitorObserver {
-  onConnectionSpawned: (input: {
-    connectionId: string;
-    agentId: string;
-    pid: number;
-    spawnedAt: number;
-    previousConnectionId: string | null;
-  }) => void;
-  onConnectionReady?: (input: { connectionId: string; initializedAt: number }) => void;
-  onConnectionClosed?: (input: {
-    connectionId: string;
-    agentId: string;
-    pid: number | null;
-    activeThreadId: string | null;
-    runningThreadIds: string[];
-    spawnedAt: number;
-    intentional: boolean;
-    stderrTail: string;
-    sessionCountAtTermination?: number;
-    invalidatedThreadIds?: string[];
-  }) => void;
-  onConnectionExit: (input: {
-    connectionId: string;
-    agentId: string;
-    pid: number | null;
-    exitCode: number | null;
-    signal: NodeJS.Signals | null;
-    activeThreadId: string | null;
-    runningThreadIds: string[];
-    spawnedAt: number;
-    intentional: boolean;
-    stderrTail: string;
-    sessionCountAtTermination?: number;
-    invalidatedThreadIds?: string[];
-  }) => void;
-  /** Fired once per thread activation with the resolved cache phase. */
-  onSwitchRecord?: (record: MonitorSwitchRecord) => void;
-  onSessionCacheEvent?: (event: MonitorSessionCacheEvent) => void;
-  onAcpUpdate?: (update: MonitorAcpUpdate) => void;
-  onBridgeEvent?: (event: MonitorBridgeEvent) => void;
-}
-
-const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
-const ACP_SWITCH_PHASE_TIMEOUT_MS =
-  Number.isFinite(configuredSwitchTimeout) && configuredSwitchTimeout >= 1_000
-    ? configuredSwitchTimeout
-    : 10_000;
-const configuredPromptTimeout = Number(process.env.PIPPER_ACP_PROMPT_TIMEOUT_MS);
-const ACP_PROMPT_TIMEOUT_MS =
-  Number.isFinite(configuredPromptTimeout) && configuredPromptTimeout >= 60_000
-    ? configuredPromptTimeout
-    : 45 * 60_000;
-
-/** npx agents may need to download on first launch — allow up to 2 minutes for initialize. */
-const ACP_NPX_INIT_TIMEOUT_MS = 120_000;
 
 function modelOptionsFromConfig(
   options: SessionConfigOption[] | undefined,
@@ -184,148 +132,11 @@ function modelOptionsFromConfig(
   return out;
 }
 
-function requestWithTimeout<T>(
-  request: Promise<T>,
-  timeoutMs: number,
-  phase: string,
-  onTimeout?: () => void,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      onTimeout?.();
-      reject(new Error(`${phase} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    request.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-async function terminateChildProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode != null || child.signalCode != null) return;
-  const exited = new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-  });
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    return;
-  }
-  const timer = new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, 2_000);
-    timeout.unref?.();
-  });
-  await Promise.race([exited, timer]);
-  if (child.exitCode == null && child.signalCode == null) {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // best effort
-    }
-    await Promise.race([
-      exited,
-      new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, 2_000);
-        timeout.unref?.();
-      }),
-    ]);
-  }
-}
-
 type SendToRenderer = (channel: string, payload: unknown) => void;
 type EventSendToRenderer = (event: AcpBridgeEvent) => void;
 type SetWindowTitle = (title: string) => void;
-interface LiveConnection {
-  connectionId: string;
-  agentId: string;
-  agentInfoName: string;
-  process: ChildProcessWithoutNullStreams;
-  connection: acp.ClientConnection;
-  agent: acp.ClientContext;
-  agentCapabilities: AgentCapabilities;
-  authMethods: AuthMethod[];
-  /**
-   * Set only when the agent actually rejects `session/new` with an
-   * `auth_required` error — i.e. the user is genuinely not signed in. This is
-   * distinct from `authMethods`, which merely advertises the auth flows the
-   * agent *supports* and is present even for signed-in users, so it must never
-   * be used to decide whether authentication is required.
-   */
-  authRequiredMessage: string | null;
-  /**
-   * Non-standard model catalog some agents (e.g. Grok) advertise in the
-   * initialize result's `_meta.modelState` instead of via session config
-   * options. When present we synthesize a "model" config option from it and
-   * route model switches through the custom `session/set_model` method.
-   */
-  modelState?: {
-    currentModelId?: string | null;
-    availableModels?: Array<{ modelId: string; name: string }>;
-  } | null;
-  closed: Promise<void>;
-}
-
-interface ThreadSessionRuntime {
-  threadId: string;
-  agentSessionId: string;
-  /** Which agent process owns this session. */
-  agentId: string;
-  projectId: string;
-  cwd: string;
-  slice: AcpSessionSlice;
-  editorText: string;
-  /**
-   * True only between a client-initiated prompt request being sent and its
-   * response resolving. `isStreaming` (which drives the composer's stop button
-   * and the tab's working indicator) is set true by every agent chunk/tool_call
-   * in `applySessionUpdate`, but is only cleared by `applyTurnStop` when the
-   * prompt request resolves. Without this flag, a `session/update` that arrives
-   * after the turn ends — a late flush, or an agent streaming background work
-   * out-of-band — would flip `isStreaming` back to true with nothing left to
-   * clear it, sticking the loader forever. Updates outside an active turn are
-   * clamped to non-streaming in `handleSessionUpdate`.
-   */
-  promptInFlight: boolean;
-  activeTurnId: string | null;
-  monitorUpdateCount: number;
-  /** Full tool bodies parked off the lean session slice. */
-  toolPayloads: Map<string, ToolCallPayload>;
-  retention: SessionRetentionTracker;
-  /**
-   * Tool-call record already sent to the renderer (via thread-tool-calls or a
-   * session-state snapshot). The record is only re-broadcast when its
-   * reference changes, so message-chunk updates don't ship the full
-   * accumulated tool payload over IPC on every streamed chunk.
-   */
-  emittedToolCalls: AcpSessionSlice["toolCalls"] | null;
-}
-
 function jsonBytes(value: unknown): number {
   return estimateJsonBytes(value);
-}
-
-function bridgeEventThreadId(payload: AcpBridgeEvent): string | null {
-  return "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;
-}
-
-interface PendingPermission {
-  resolve: (response: acp.RequestPermissionResponse) => void;
-  request: AcpPermissionRequest;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-interface QueuedPrompt {
-  blocks: ContentBlock[];
-  streamingBehavior?: "followUp" | "steer";
-  resolve: (result: any) => void;
-  reject: (error: unknown) => void;
 }
 
 /**
@@ -347,21 +158,19 @@ function isAuthRequiredError(err: unknown): boolean {
  */
 const NO_FOLLOW = process.platform !== "win32" && typeof fsConstants.O_NOFOLLOW === "number";
 
-function readFileOptions(): { encoding: "utf8"; flag?: number } {
-  return NO_FOLLOW
-    ? { encoding: "utf8", flag: fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW }
-    : { encoding: "utf8" };
-}
+/** Constant per platform; hoisted so agent fs requests don't rebuild them. */
+const READ_FILE_OPTIONS: { encoding: "utf8"; flag?: number } = NO_FOLLOW
+  ? { encoding: "utf8", flag: fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW }
+  : { encoding: "utf8" };
 
-function writeFileOptions(): { encoding: "utf8"; flag?: number } {
-  return NO_FOLLOW
-    ? {
-        encoding: "utf8",
-        flag:
-          fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW,
-      }
-    : { encoding: "utf8" };
-}
+/** Constant per platform; hoisted so agent fs requests don't rebuild them. */
+const WRITE_FILE_OPTIONS: { encoding: "utf8"; flag?: number } = NO_FOLLOW
+  ? {
+      encoding: "utf8",
+      flag:
+        fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW,
+    }
+  : { encoding: "utf8" };
 
 function emptySessionState(): AcpSessionState {
   return {
@@ -403,40 +212,30 @@ export class AgentConnectionManager {
   ) => void;
   private readonly onRunningThreadsChanged?: (threadIds: string[]) => void;
 
-  private connection: LiveConnection | null = null;
   private connecting: Promise<LiveConnection> | null = null;
-  /** In-flight spawn per agentId, so concurrent callers share one spawn instead of racing. */
-  private readonly spawning = new Map<string, Promise<LiveConnection>>();
-  /**
-   * Keep one live ACP transport per agent. ACP sessions belong to the agent
-   * process that created them, so tearing this down on every cross-agent
-   * thread switch made switching require a new process plus session restore.
-   */
-  private readonly connections = new Map<string, LiveConnection>();
   private activeProjectId: string | null = null;
   private activeThreadId: string | null = null;
   private preferredAgentId: string = getDefaultAgentId();
-  private readonly sessions = new Map<string, ThreadSessionRuntime>();
+  private readonly sessions = new ThreadSessionRegistry();
   /**
    * Session replay is delivered as session/update notifications while
    * session/load is still in flight. Keep those notifications in the main
    * process until the activation can publish one complete authoritative state.
    */
   private readonly loadingSessionThreads = new Set<string>();
-  /**
-   * Path guard: ACP session id → the set of filesystem roots that session may
-   * touch. Seeded from the session's cwd (the worktree or project root) so a
-   * worktree-bound agent can't read/write into a sibling worktree. Sessions
-   * absent from the map are unguarded. See
-   * docs/worktree.md "Threat model".
-   */
-  private readonly workspaceRoots = new Map<string, Set<string>>();
-  private readonly pendingPermissions = new Map<string, PendingPermission>();
-  private permissionRequestSequence = 0;
-  /** Local rejectors make abort/timeout settle prompt callers even if ACP ignores cancel. */
-  private readonly pendingPromptCancels = new Map<string, () => void>();
-  private readonly queuedPrompts = new Map<string, QueuedPrompt[]>();
+  /** Per-session filesystem containment for agent reads/writes/terminals. */
+  private readonly workspaceGuard = new WorkspaceGuard();
+  private readonly permissions = new PermissionCoordinator({
+    autoResponse: (params) => this.subagents.autoPermissionResponse(params),
+    findThreadBySessionId: (sessionId) => this.findThreadBySessionId(sessionId),
+    emit: (event) => this.emit(event),
+    notifyIfHidden: (notification) => this.notifyIfHidden(notification),
+    threadDisplayTitle: (threadId) => this.threadDisplayTitle(threadId),
+  });
+  private readonly prompts = new PromptScheduler();
   private readonly terminalManager: TerminalManager;
+  private broadcaster!: RendererBroadcaster;
+  private lifecycle!: ConnectionLifecycle;
   /** Client-hosted subagent tool: lets any session spawn sibling agent sessions. */
   private readonly subagents: SubagentManager;
   /** Dedup key for the last broadcast running-threads set. */
@@ -444,19 +243,11 @@ export class AgentConnectionManager {
   /** Per tool-call start timestamps for `tool_call_finished` timing, keyed `${sessionId}:${toolCallId}`. */
   private readonly toolCallStarts = new Map<string, { startedAt: number; kind?: string }>();
   private monitorObserver: AgentMonitorObserver | null = null;
-  private readonly connectionSpawnedAt = new Map<string, number>();
-  private readonly intentionalConnectionIds = new Set<string>();
-  private readonly lastConnectionIds = new Map<string, string>();
   private threadActivationQueue: Promise<unknown> = Promise.resolve();
+  /** Aborts the currently running (or queued) activation; nulled when it settles. */
+  private activationAbort: AbortController | null = null;
   private activationGeneration = 0;
   private readonly threadActivationGenerations = new Map<string, number>();
-
-  /** Reports whether the main window can currently be seen by the user. */
-  private readonly visibility?: WindowVisibilitySource;
-  /** Reports whether the window currently has keyboard focus (user attention). */
-  private readonly windowAttention?: WindowAttentionSource;
-  /** Delivers OS notifications for events that happen while the user is away. */
-  private readonly notify?: OsNotifier;
 
   private currentEditorText = "";
   private turnSequence = 0;
@@ -473,6 +264,8 @@ export class AgentConnectionManager {
     visibility?: WindowVisibilitySource;
     attention?: WindowAttentionSource;
     notify?: OsNotifier;
+    /** App version for ACP `clientInfo`; defaults when unset (tests). */
+    clientVersion?: string;
   }) {
     this.sendToRenderer =
       options.sendToRenderer.length <= 1
@@ -484,13 +277,14 @@ export class AgentConnectionManager {
     this.captureAnalytics = options.captureAnalytics;
     this.onRunningThreadsChanged = options.onRunningThreadsChanged;
     this.setAgentContext = options.setAgentContext;
-    this.visibility = options.visibility;
-    this.windowAttention = options.attention;
-    this.notify = options.notify;
-    // The hidden-window gate dropped streaming deltas; the moment the window
-    // can be seen again, catch the renderer up with one authoritative pass.
-    options.visibility?.onChange((visible) => {
-      if (visible) this.flushCoalescedStateToRenderer();
+    this.broadcaster = new RendererBroadcaster({
+      send: this.sendToRenderer,
+      visibility: options.visibility,
+      attention: options.attention,
+      notify: options.notify,
+      getActiveThreadId: () => this.activeThreadId,
+      getBridgeEventObserver: () => this.monitorObserver?.onBridgeEvent,
+      flushAfterHiddenPeriod: () => this.flushCoalescedStateToRenderer(),
     });
     this.terminalManager = new TerminalManager({
       onOutput: (terminalId, chunk) => {
@@ -513,6 +307,40 @@ export class AgentConnectionManager {
       captureAnalytics: (name, properties) => this.captureAnalytics?.(name, properties),
     });
     void this.subagents.init();
+    this.lifecycle = new ConnectionLifecycle({
+      terminal: this.terminalManager,
+      clientVersion: options.clientVersion ?? "0.0.0",
+      hooks: {
+        onSessionUpdate: (sessionId, update) => this.handleSessionUpdate(sessionId, update),
+        onRequestPermission: (params, requestId) => this.handlePermissionRequest(params, requestId),
+        onReadTextFile: (params) => this.handleReadTextFile(params),
+        onWriteTextFile: (params) => this.handleWriteTextFile(params),
+        assertWithinWorkspace: (sessionId, targetPath) =>
+          this.workspaceGuard.assertWithin(sessionId, targetPath),
+      },
+      getMonitorObserver: () => this.monitorObserver,
+      getActiveThreadId: () => this.activeThreadId,
+      getRunningThreadIds: () => this.getRunningThreadIds(),
+      getSessionsByAgent: (agentId) =>
+        [...this.sessions.values()]
+          .filter((session) => session.agentId === agentId)
+          .map((session) => ({
+            threadId: session.threadId,
+            agentSessionId: session.agentSessionId,
+          })),
+      invalidateAgentSessions: (agentId) => this.invalidateAgentSessions(agentId),
+      onConnected: (agentId, connectDurationMs, installKind) =>
+        this.captureAnalytics?.("agent_connected", {
+          ...this.agentProps(agentId),
+          connect_duration_ms: connectDurationMs,
+          install_kind: installKind,
+        } as AnalyticsProperties),
+      onConnectFailed: (agentId, errorName) =>
+        this.captureAnalytics?.("agent_connection_failed", {
+          ...this.agentProps(agentId),
+          error_type: errorName,
+        } as AnalyticsProperties),
+    });
   }
 
   getSubagentConfig() {
@@ -571,7 +399,7 @@ export class AgentConnectionManager {
     for (const runtime of this.sessions.values()) {
       add(runtime.agentId, modelOptionsFromConfig(runtime.slice.configOptions));
     }
-    for (const live of this.connections.values()) {
+    for (const live of this.lifecycle.all()) {
       add(
         live.agentId,
         (live.modelState?.availableModels ?? []).map((model) => ({
@@ -593,7 +421,7 @@ export class AgentConnectionManager {
     await Promise.all(
       selectedAgentIds.map(async (agentId) => {
         if (result[agentId]?.length) return;
-        const live = this.connections.get(agentId);
+        const live = this.lifecycle.getCached(agentId);
         if (!live) return;
         let attached: Awaited<ReturnType<typeof this.sessionMcpServers>> | null = null;
         let sessionId: string | null = null;
@@ -659,7 +487,13 @@ export class AgentConnectionManager {
         mergeToolCallPayload(payloads.get(extracted.toolCallId), extracted.payload),
       );
     }
-    this.evictOrphanToolPayloads(runtime);
+    // Orphans can only appear when the reducer replaced the record with a
+    // smaller one (trim). Chunk-heavy streams keep the record reference-equal,
+    // so this scan runs per tool-call mutation instead of per streamed chunk.
+    if (runtime.slice.toolCalls !== runtime.lastSyncedToolCalls) {
+      runtime.lastSyncedToolCalls = runtime.slice.toolCalls;
+      this.evictOrphanToolPayloads(runtime);
+    }
   }
 
   private evictOrphanToolPayloads(runtime: ThreadSessionRuntime): void {
@@ -687,82 +521,9 @@ export class AgentConnectionManager {
     this.preferredAgentId = agentId;
   }
 
-  /**
-   * Streaming deltas an invisible renderer need not replay: the main process
-   * keeps the authoritative slice either way, and one snapshot on visible
-   * produces the same end state. Everything user-actionable (permissions),
-   * cheap (stop, running-threads), or window-scoped (title) stays direct.
-   */
-  private static readonly COALESCIBLE_WHEN_HIDDEN = new Set<AcpBridgeEvent["type"]>([
-    "session-update",
-    "thread-tool-calls",
-  ]);
-
-  private isRendererVisible(): boolean {
-    return this.visibility?.isVisible() ?? true;
-  }
-
+  /** Bridge-event output goes through RendererBroadcaster (see that module). */
   private emit(payload: AcpBridgeEvent): void {
-    if (
-      AgentConnectionManager.COALESCIBLE_WHEN_HIDDEN.has(payload.type) &&
-      !this.isRendererVisible()
-    ) {
-      this.recordCoalescedEvent(payload);
-      return;
-    }
-    if (!this.monitorObserver?.onBridgeEvent) {
-      this.sendToRenderer("agent:event", payload);
-      return;
-    }
-    const startedAt = performance.now();
-    const bytes = jsonBytes(payload);
-    const serializationMs = performance.now() - startedAt;
-    const threadId = bridgeEventThreadId(payload);
-    const threadRole = threadId
-      ? threadId === this.activeThreadId
-        ? "active"
-        : "background"
-      : "unknown";
-    const deliveryStartedAt = performance.now();
-    try {
-      this.sendToRenderer("agent:event", payload);
-    } finally {
-      this.monitorObserver.onBridgeEvent({
-        timestamp: Date.now(),
-        eventType: payload.type,
-        bytes,
-        serializationMs,
-        deliveryMs: performance.now() - deliveryStartedAt,
-        threadId,
-        threadRole,
-        deliveryMode: "direct",
-      });
-    }
-  }
-
-  /**
-   * Bookkeeping for a suppressed event. Bytes stay unmeasured on purpose:
-   * walking a multi-KB payload here would reintroduce per-event cost on the
-   * exact hot path this gate exists to elide.
-   */
-  private recordCoalescedEvent(payload: AcpBridgeEvent): void {
-    const observer = this.monitorObserver?.onBridgeEvent;
-    if (!observer) return;
-    const threadId = bridgeEventThreadId(payload);
-    observer({
-      timestamp: Date.now(),
-      eventType: payload.type,
-      bytes: 0,
-      serializationMs: 0,
-      deliveryMs: 0,
-      threadId,
-      threadRole: threadId
-        ? threadId === this.activeThreadId
-          ? "active"
-          : "background"
-        : "unknown",
-      deliveryMode: "coalesced",
-    });
+    this.broadcaster.emit(payload);
   }
 
   /**
@@ -785,29 +546,15 @@ export class AgentConnectionManager {
     }
   }
 
-  private threadDisplayTitle(threadId: string | null): string | null {
+  private threadDisplayTitle(threadId: string | null | undefined): string | null {
     if (!threadId) return null;
     const runtime = this.sessions.get(threadId);
     if (runtime?.slice.title) return runtime.slice.title;
     return getThread(threadId)?.title ?? null;
   }
 
-  /**
-   * Fire an OS notification only when the user is not attending to the app.
-   * Attention is broader than visibility: Cmd+Tab to another app on macOS
-   * leaves the window "visible" (no minimize, no full occlusion) while the
-   * user is clearly elsewhere — that is exactly when a finished turn or a
-   * blocked permission must escalate to the OS.
-   */
   private notifyIfHidden(notification: AgentOsNotification): void {
-    const visible = this.isRendererVisible();
-    const focused = this.windowAttention?.isFocused() ?? true;
-    if (visible && focused) return;
-    try {
-      this.notify?.(notification);
-    } catch (error) {
-      console.error("[Notifications] failed:", error);
-    }
+    this.broadcaster.notifyIfHidden(notification);
   }
 
   getState(): AcpSessionState {
@@ -816,7 +563,7 @@ export class AgentConnectionManager {
       return {
         ...emptySessionState(),
         projectId: this.activeProjectId,
-        agentId: this.connection?.agentId ?? this.preferredAgentId,
+        agentId: this.lifecycle.active?.agentId ?? this.preferredAgentId,
         authRequiredMessage: this.authMessage(),
       };
     }
@@ -857,7 +604,7 @@ export class AgentConnectionManager {
     // An agent advertising `authMethods` at `initialize` is NOT a sign-in
     // signal — signed-in agents advertise them too — so we must not nag based
     // on that alone (that false positive is what made onboarding unreliable).
-    return this.connection?.authRequiredMessage ?? null;
+    return this.lifecycle.active?.authRequiredMessage ?? null;
   }
 
   private buildSessionState(threadId: string): AcpSessionState {
@@ -868,7 +615,7 @@ export class AgentConnectionManager {
         ...emptySessionState(),
         projectId: thread?.project_id ?? this.activeProjectId,
         threadId,
-        agentId: thread?.agent_id ?? this.connection?.agentId ?? null,
+        agentId: thread?.agent_id ?? this.lifecycle.active?.agentId ?? null,
         agentSessionId: thread?.agent_session_id ?? null,
         title: thread?.title ?? null,
         authRequiredMessage: this.authMessage(),
@@ -931,7 +678,8 @@ export class AgentConnectionManager {
     const running = new Set(this.getRunningThreadIds());
     const entries: MonitorProcessDescriptor[] = [];
 
-    for (const [agentId, live] of this.connections) {
+    for (const live of this.lifecycle.all()) {
+      const agentId = live.agentId;
       const pid = live.process.pid;
       if (!pid) continue;
       const threadIds = [...this.sessions.entries()]
@@ -966,7 +714,7 @@ export class AgentConnectionManager {
   /** Thread IDs whose agent is currently streaming (across every open thread). */
   getRunningThreadIds(): string[] {
     const running: string[] = [];
-    for (const [threadId, runtime] of this.sessions) {
+    for (const [threadId, runtime] of this.sessions.entries()) {
       if (runtime.slice.isStreaming) running.push(threadId);
     }
     return running.sort();
@@ -984,12 +732,13 @@ export class AgentConnectionManager {
 
   async ensureConnection(agentId?: string): Promise<LiveConnection> {
     const targetId = agentId ?? this.preferredAgentId;
-    if (this.connection && this.connection.agentId === targetId) {
-      return this.connection;
+    const active = this.lifecycle.active;
+    if (active && active.agentId === targetId) {
+      return active;
     }
-    const cached = this.connections.get(targetId);
+    const cached = this.lifecycle.getCached(targetId);
     if (cached) {
-      this.connection = cached;
+      this.lifecycle.setActive(cached);
       return cached;
     }
     if (this.connecting) {
@@ -1014,35 +763,8 @@ export class AgentConnectionManager {
     if (!descriptor) {
       throw new Error(`Unknown agent: ${agentId}`);
     }
-    const cached = this.connections.get(agentId);
-    if (cached) return cached;
-    let pending = this.spawning.get(agentId);
-    const isNewSpawn = !pending;
-    const spawnStartedAt = Date.now();
-    if (!pending) {
-      pending = this.spawnAndInitialize(descriptor).finally(() => this.spawning.delete(agentId));
-      this.spawning.set(agentId, pending);
-    }
-    try {
-      const live = await pending;
-      this.connections.set(agentId, live);
-      if (isNewSpawn) {
-        this.captureAnalytics?.("agent_connected", {
-          ...this.agentProps(agentId),
-          connect_duration_ms: Date.now() - spawnStartedAt,
-          install_kind: descriptor.installKind,
-        });
-      }
-      return live;
-    } catch (err) {
-      if (isNewSpawn) {
-        this.captureAnalytics?.("agent_connection_failed", {
-          ...this.agentProps(agentId),
-          error_type: err instanceof Error ? err.name : undefined,
-        });
-      }
-      throw err;
-    }
+    // Spawn dedup + registration + connect analytics live in ConnectionLifecycle.
+    return this.lifecycle.acquire(descriptor);
   }
 
   async switchAgent(agentId: string): Promise<LiveConnection> {
@@ -1051,9 +773,9 @@ export class AgentConnectionManager {
       state: { ...this.getState(), switchingAgent: true },
     });
 
-    const previousAgentId = this.connection?.agentId ?? null;
+    const previousAgentId = this.lifecycle.active?.agentId ?? null;
     const live = await this.acquireConnection(agentId);
-    this.connection = live;
+    this.lifecycle.setActive(live);
     this.preferredAgentId = agentId;
     if (previousAgentId && previousAgentId !== live.agentId) {
       this.captureAnalytics?.("agent_switched", {
@@ -1074,238 +796,12 @@ export class AgentConnectionManager {
     return live;
   }
 
-  private async spawnAndInitialize(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
-    const { command, args, env } = resolveAgentSpawn(descriptor);
-    const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
-    const child = spawn(command, args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-      ...(useShell && { shell: true }),
-    }) as ChildProcessWithoutNullStreams;
-
-    const connectionId = randomUUID();
-    const spawnedAt = Date.now();
-    const previousConnectionId = this.lastConnectionIds.get(descriptor.id) ?? null;
-    let stderrTail = "";
-    const appendStderr = (buf: Buffer): void => {
-      const text = buf.toString("utf8");
-      stderrTail = `${stderrTail}${text}`.slice(-16_384);
-    };
-
-    child.stderr.on("data", (buf: Buffer) => {
-      appendStderr(buf);
-      const text = buf.toString("utf8").trim();
-      if (text) console.error(`[acp-agent:${descriptor.id}]`, text);
-    });
-
-    // Register the lifecycle before the handshake. A process that dies or
-    // times out during initialize is still a real connection episode and must
-    // not disappear from diagnostics.
-    this.connectionSpawnedAt.set(connectionId, spawnedAt);
-    this.lastConnectionIds.set(descriptor.id, connectionId);
-    this.monitorObserver?.onConnectionSpawned({
-      connectionId,
-      agentId: descriptor.id,
-      pid: child.pid ?? 0,
-      spawnedAt,
-      previousConnectionId,
-    });
-    let exitReported = false;
-    const reportExit = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
-      if (exitReported) return;
-      exitReported = true;
-      const targetSessions = [...this.sessions.values()].filter((s) => s.agentId === descriptor.id);
-      const invalidatedThreadIds = [...this.sessions.entries()]
-        .filter(([, s]) => s.agentId === descriptor.id)
-        .map(([tid]) => tid);
-      this.monitorObserver?.onConnectionExit({
-        connectionId,
-        agentId: descriptor.id,
-        pid: child.pid ?? null,
-        exitCode,
-        signal,
-        activeThreadId: this.activeThreadId,
-        runningThreadIds: this.getRunningThreadIds(),
-        spawnedAt,
-        intentional: this.intentionalConnectionIds.has(connectionId),
-        stderrTail,
-        sessionCountAtTermination: targetSessions.length,
-        invalidatedThreadIds,
-      });
-      this.connectionSpawnedAt.delete(connectionId);
-      this.intentionalConnectionIds.delete(connectionId);
-      const current = this.connections.get(descriptor.id);
-      if (this.connection?.process === child) this.connection = null;
-      if (current?.process === child) {
-        this.connections.delete(descriptor.id);
-        this.invalidateAgentSessions(descriptor.id);
-      }
-    };
-    child.on("exit", reportExit);
-
-    const input = Writable.toWeb(child.stdin);
-    const output = Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>;
-    const stream = acp.ndJsonStream(input, output);
-
-    let agentCtx!: acp.ClientContext;
-    let initResult!: acp.InitializeResponse;
-
-    const app = acp
-      .client({ name: "pipper" })
-      .onNotification(acp.methods.client.session.update, async (ctx) => {
-        await this.handleSessionUpdate(ctx.params.sessionId, ctx.params.update);
-      })
-      .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
-        return this.handlePermissionRequest(ctx.params, ctx.requestId);
-      })
-      .onRequest(acp.methods.client.fs.readTextFile, async (ctx) => {
-        return this.handleReadTextFile(ctx.params);
-      })
-      .onRequest(acp.methods.client.fs.writeTextFile, async (ctx) => {
-        return this.handleWriteTextFile(ctx.params);
-      })
-      .onRequest(acp.methods.client.terminal.create, async (ctx) => {
-        // Option A path guard: bound the terminal's *starting* cwd to the
-        // session's workspace. The spawned process can still `cd` out — an
-        // honest agent won't; a hard boundary (OS sandbox) is deferred. See
-        // docs/worktree.md "Threat model".
-        if (ctx.params.cwd) {
-          this.assertWithinWorkspace(ctx.params.sessionId, ctx.params.cwd);
-        }
-        const terminalId = this.terminalManager.create({
-          command: ctx.params.command,
-          args: ctx.params.args ?? undefined,
-          cwd: ctx.params.cwd ?? undefined,
-          sessionId: ctx.params.sessionId,
-          env: ctx.params.env as never,
-          outputByteLimit: ctx.params.outputByteLimit ?? undefined,
-        });
-        return { terminalId };
-      })
-      .onRequest(acp.methods.client.terminal.output, async (ctx) => {
-        const out = this.terminalManager.getOutput(ctx.params.terminalId);
-        return {
-          output: out.output,
-          truncated: out.truncated,
-          exitStatus: out.exitStatus,
-        };
-      })
-      .onRequest(acp.methods.client.terminal.waitForExit, async (ctx) => {
-        const result = await this.terminalManager.waitForExit(
-          ctx.params.terminalId,
-          ACP_SWITCH_PHASE_TIMEOUT_MS,
-        );
-        return { exitCode: result.exitCode, signal: result.signal };
-      })
-      .onRequest(acp.methods.client.terminal.kill, async (ctx) => {
-        this.terminalManager.kill(ctx.params.terminalId);
-        return {};
-      })
-      .onRequest(acp.methods.client.terminal.release, async (ctx) => {
-        this.terminalManager.release(ctx.params.terminalId);
-        return {};
-      });
-
-    const connection = app.connect(stream);
-    agentCtx = connection.agent;
-
-    try {
-      initResult = await requestWithTimeout(
-        agentCtx.request(acp.methods.agent.initialize, {
-          protocolVersion: acp.PROTOCOL_VERSION,
-          clientCapabilities: {
-            fs: { readTextFile: true, writeTextFile: true },
-            terminal: true,
-          },
-          clientInfo: {
-            name: "pipper",
-            title: "Pipper",
-            version: "0.0.20",
-          },
-        }),
-        /\bnpx(?:\.cmd)?$/i.test(command) ? ACP_NPX_INIT_TIMEOUT_MS : ACP_SWITCH_PHASE_TIMEOUT_MS,
-        "agent/initialize",
-      );
-    } catch (err) {
-      // A timed-out handshake has no usable owner. Close both sides so the
-      // abandoned request cannot keep the child process and transport alive.
-      try {
-        connection.close();
-      } catch {
-        // best effort
-      }
-      await terminateChildProcess(child);
-      throw err;
-    }
-
-    const agentInfoName = initResult.agentInfo?.name ?? descriptor.name ?? descriptor.id;
-    const agentCapabilities = initResult.agentCapabilities ?? {};
-    const authMethods = initResult.authMethods ?? [];
-    const modelState =
-      (initResult as { _meta?: { modelState?: LiveConnection["modelState"] } })._meta?.modelState ??
-      null;
-
-    const closed = connection.closed.then(() => {
-      // A transport can close while its child is still alive. That is a
-      // different failure mode from a process exit and must be visible in the
-      // incident log. The exit handler owns the latter case.
-      if (child.exitCode == null && child.signalCode == null) {
-        const targetSessions = [...this.sessions.values()].filter(
-          (s) => s.agentId === descriptor.id,
-        );
-        const invalidatedThreadIds = [...this.sessions.entries()]
-          .filter(([, s]) => s.agentId === descriptor.id)
-          .map(([tid]) => tid);
-        this.monitorObserver?.onConnectionClosed?.({
-          connectionId,
-          agentId: descriptor.id,
-          pid: child.pid ?? null,
-          activeThreadId: this.activeThreadId,
-          runningThreadIds: this.getRunningThreadIds(),
-          spawnedAt,
-          intentional: this.intentionalConnectionIds.has(connectionId),
-          stderrTail,
-          sessionCountAtTermination: targetSessions.length,
-          invalidatedThreadIds,
-        });
-      }
-      const current = this.connections.get(descriptor.id);
-      if (this.connection?.process === child) this.connection = null;
-      if (current?.process === child) {
-        this.connections.delete(descriptor.id);
-        this.invalidateAgentSessions(descriptor.id);
-      }
-    });
-
-    this.monitorObserver?.onConnectionReady?.({ connectionId, initializedAt: Date.now() });
-
-    return {
-      connectionId,
-      agentId: descriptor.id,
-      agentInfoName,
-      process: child,
-      connection,
-      agent: agentCtx,
-      agentCapabilities,
-      authMethods,
-      authRequiredMessage: null,
-      modelState,
-      closed,
-    };
-  }
-
   private async closeConnection(): Promise<void> {
-    this.connection = null;
-    this.cancelAllPendingPermissions();
-    for (const threadId of this.pendingPromptCancels.keys()) {
-      this.cancelPendingPrompt(threadId, "connection closed");
-      this.rejectQueuedPrompts(threadId, "agent connection closed");
-    }
-    for (const threadId of this.queuedPrompts.keys()) {
-      this.rejectQueuedPrompts(threadId, "agent connection closed");
-    }
+    this.lifecycle.setActive(null);
+    this.permissions.cancelAll();
+    this.prompts.abortAll();
     this.toolCallStarts.clear();
-    for (const [threadId, runtime] of this.sessions) {
+    for (const [threadId, runtime] of this.sessions.entries()) {
       this.monitorObserver?.onSessionCacheEvent?.({
         timestamp: Date.now(),
         action: "clear_all",
@@ -1320,36 +816,24 @@ export class AgentConnectionManager {
       });
     }
     this.sessions.clear();
-    this.workspaceRoots.clear();
+    this.workspaceGuard.clear();
     this.terminalManager.killAll();
-    const liveConnections = [...this.connections.values()];
-    this.connections.clear();
-    await Promise.all(
-      liveConnections.map(async (live) => {
-        this.intentionalConnectionIds.add(live.connectionId);
-        try {
-          live.connection.close();
-        } catch {
-          // ignore
-        }
-        await terminateChildProcess(live.process);
-      }),
-    );
+    await this.lifecycle.terminateAll();
   }
 
   private invalidateAgentSessions(agentId: string): void {
     let activeInvalidated = false;
-    for (const [threadId, runtime] of this.sessions) {
+    for (const [threadId, runtime] of this.sessions.entries()) {
       if (runtime.agentId === agentId) {
         activeInvalidated ||= this.activeThreadId === threadId;
-        this.cancelPendingPermissions(runtime.agentSessionId);
-        this.cancelPendingPrompt(threadId, "agent connection closed");
-        this.rejectQueuedPrompts(threadId, "agent connection closed");
+        this.permissions.cancelForSession(runtime.agentSessionId);
+        this.prompts.cancelInFlight(threadId, "agent connection closed");
+        this.prompts.rejectQueued(threadId, "agent connection closed");
         this.clearToolCallTiming(runtime.agentSessionId);
         this.terminalManager.releaseSession(runtime.agentSessionId);
         this.subagents.releaseSessionMcp(runtime.agentSessionId);
         this.releaseWorkspaceRoot(runtime.agentSessionId);
-        this.sessions.delete(threadId);
+        this.sessions.remove(threadId);
         this.monitorObserver?.onSessionCacheEvent?.({
           timestamp: Date.now(),
           action: "invalidate_agent",
@@ -1375,23 +859,11 @@ export class AgentConnectionManager {
   }
 
   private findThreadBySessionId(sessionId: string): string | null {
-    for (const [threadId, runtime] of this.sessions) {
-      if (runtime.agentSessionId === sessionId) return threadId;
-    }
-    return null;
+    return this.sessions.threadIdForSession(sessionId);
   }
 
   private connectionForAgent(agentId: string): LiveConnection | null {
-    if (this.connection?.agentId === agentId) return this.connection;
-    return this.connections.get(agentId) ?? null;
-  }
-
-  private cancelPendingPrompt(threadId: string, reason: string): void {
-    const cancel = this.pendingPromptCancels.get(threadId);
-    if (!cancel) return;
-    cancel();
-    this.pendingPromptCancels.delete(threadId);
-    console.warn(`[agent] prompt for ${threadId} cancelled: ${reason}`);
+    return this.lifecycle.connectionFor(agentId);
   }
 
   private async handleSessionUpdate(sessionId: string, update: SessionUpdate): Promise<void> {
@@ -1419,9 +891,15 @@ export class AgentConnectionManager {
 
     this.trackToolCallTiming(sessionId, runtime, update);
 
+    // Running-threads emission depends solely on per-runtime isStreaming
+    // flags, and this handler mutates exactly one runtime's slice — so emit
+    // only when THIS runtime's flag flipped, not on every streamed chunk.
+    const wasStreaming = runtime.slice.isStreaming;
     const loading = this.loadingSessionThreads.has(runtime.threadId);
-    const monitorAcp = this.monitorObserver?.onAcpUpdate != null;
-    if (!monitorAcp) {
+    // Capture the observer method once: the null/undefined check must survive
+    // to the call below, and `this.monitorObserver` alone doesn't narrow.
+    const acpObserver = this.monitorObserver?.onAcpUpdate;
+    if (!acpObserver) {
       if (loading) applySessionUpdateInPlace(runtime.slice, update);
       else runtime.slice = applySessionUpdate(runtime.slice, update);
       this.syncToolPayloads(runtime, update);
@@ -1462,7 +940,7 @@ export class AgentConnectionManager {
               sessionSnapshotBytes: 0,
             };
       }
-      this.monitorObserver.onAcpUpdate({
+      acpObserver({
         timestamp: Date.now(),
         agentId: runtime.agentId,
         connectionId: this.connectionForAgent(runtime.agentId)?.connectionId ?? null,
@@ -1492,8 +970,9 @@ export class AgentConnectionManager {
     ) {
       runtime.slice = { ...runtime.slice, isStreaming: false };
     }
-    // A background thread's streaming can flip via updates without a pushState; keep tabs in sync.
-    this.emitRunningThreads();
+    // A background thread's streaming can flip via updates without a pushState; keep
+    // tabs in sync — but only signal an actual streaming transition.
+    if (wasStreaming !== runtime.slice.isStreaming) this.emitRunningThreads();
 
     if (runtime.slice.titleChanged && runtime.slice.title && this.sessions.has(runtime.threadId)) {
       updateThreadTitle(runtime.threadId, runtime.slice.title);
@@ -1534,180 +1013,44 @@ export class AgentConnectionManager {
     }
   }
 
-  private permissionKey(sessionId: string, requestId: string | number): string {
-    return `${sessionId}:${String(requestId)}`;
-  }
-
   private handlePermissionRequest(
     params: acp.RequestPermissionRequest,
-    requestId: string | number | null,
+    requestId?: string | number | null,
   ): Promise<acp.RequestPermissionResponse> {
-    // Subagent sessions have no UI surface to answer on; resolve per config.
-    const auto = this.subagents.autoPermissionResponse(params);
-    if (auto) return Promise.resolve(auto);
-
-    const sessionId = params.sessionId;
-    const stableRequestId = requestId ?? ++this.permissionRequestSequence;
-    const key = this.permissionKey(sessionId, stableRequestId);
-    const request: AcpPermissionRequest = {
-      sessionId,
-      requestId: stableRequestId,
-      threadId: this.findThreadBySessionId(sessionId),
-      toolCall: params.toolCall as AcpPermissionRequest["toolCall"],
-      options: (params.options ?? []).map((opt) => ({
-        optionId: opt.optionId,
-        name: opt.name,
-        kind: opt.kind,
-      })),
-    };
-
-    return new Promise((resolve) => {
-      // Default allow_once after timeout if UI never responds.
-      const timer = setTimeout(() => {
-        const pending = this.pendingPermissions.get(key);
-        if (!pending) return;
-        const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options[0];
-        this.pendingPermissions.delete(key);
-        if (allow) {
-          resolve({
-            outcome: { outcome: "selected", optionId: allow.optionId },
-          });
-        } else {
-          resolve({ outcome: { outcome: "cancelled" } });
-        }
-        this.emit({ type: "permission-resolved", sessionId, requestId: stableRequestId });
-      }, 120_000);
-      const displaced = this.pendingPermissions.get(key);
-      if (displaced) {
-        clearTimeout(displaced.timer);
-        displaced.resolve({ outcome: { outcome: "cancelled" } });
-        this.emit({ type: "permission-resolved", sessionId, requestId: stableRequestId });
-      }
-      this.pendingPermissions.set(key, { resolve, request, timer });
-      this.emit({ type: "permission-request", request });
-      // An agent blocked on permissions while the user is away is dead time;
-      // the in-app prompt cannot be seen, so escalate to the OS.
-      this.notifyIfHidden({
-        kind: "permission-required",
-        threadTitle: this.threadDisplayTitle(request.threadId),
-        detail:
-          typeof (params.toolCall as { title?: string } | null | undefined)?.title === "string"
-            ? (params.toolCall as { title: string }).title
-            : undefined,
-      });
-    });
+    return this.permissions.handle(params, requestId ?? null);
   }
 
-  async respondToPermission(response: {
+  respondToPermission(response: {
     sessionId: string;
     requestId?: string | number;
     optionId?: string;
     cancelled?: boolean;
   }): Promise<void> {
-    const key =
-      response.requestId == null
-        ? [...this.pendingPermissions.entries()].find(
-            ([, pending]) => pending.request.sessionId === response.sessionId,
-          )?.[0]
-        : this.permissionKey(response.sessionId, response.requestId);
-    const pending = key ? this.pendingPermissions.get(key) : undefined;
-    if (!pending) return;
-    this.pendingPermissions.delete(key!);
-    clearTimeout(pending.timer);
-    if (response.cancelled || !response.optionId) {
-      pending.resolve({ outcome: { outcome: "cancelled" } });
-    } else {
-      pending.resolve({
-        outcome: { outcome: "selected", optionId: response.optionId },
-      });
-    }
-    this.emit({
-      type: "permission-resolved",
-      sessionId: response.sessionId,
-      requestId: pending.request.requestId,
-    });
+    return this.permissions.respond(response);
   }
 
-  private cancelPendingPermissions(sessionId: string): void {
-    for (const [key, pending] of this.pendingPermissions) {
-      if (pending.request.sessionId !== sessionId) continue;
-      this.pendingPermissions.delete(key);
-      clearTimeout(pending.timer);
-      pending.resolve({ outcome: { outcome: "cancelled" } });
-      this.emit({
-        type: "permission-resolved",
-        sessionId,
-        requestId: pending.request.requestId,
-      });
-    }
-  }
-
-  private cancelAllPendingPermissions(): void {
-    for (const sessionId of new Set(
-      [...this.pendingPermissions.values()].map((p) => p.request.sessionId),
-    )) {
-      this.cancelPendingPermissions(sessionId);
-    }
-  }
-
+  /**
+   * Kept as the single seam for prompt dispatch so tests can stub it; the
+   * queue/cancel/timeout mechanics live in PromptScheduler.
+   */
   private requestPrompt(
     live: LiveConnection,
     runtime: ThreadSessionRuntime,
     blocks: ContentBlock[],
     streamingBehavior?: "followUp" | "steer",
   ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      let cancel!: () => void;
-      let timeout!: ReturnType<typeof setTimeout>;
-      const finish = (callback: () => void) => {
-        if (settled) return;
-        settled = true;
-        if (this.pendingPromptCancels.get(runtime.threadId) === cancel) {
-          this.pendingPromptCancels.delete(runtime.threadId);
-        }
-        clearTimeout(timeout);
-        callback();
-      };
-      cancel = () => finish(() => reject(new Error("agent prompt cancelled")));
-      timeout = setTimeout(() => {
-        void live.agent
-          .notify(acp.methods.agent.session.cancel, { sessionId: runtime.agentSessionId })
-          .catch(() => {});
-        finish(() =>
-          reject(new Error(`session/prompt timed out after ${ACP_PROMPT_TIMEOUT_MS}ms`)),
-        );
-      }, ACP_PROMPT_TIMEOUT_MS);
-      this.pendingPromptCancels.set(runtime.threadId, cancel);
-
-      live.agent
-        .request(acp.methods.agent.session.prompt, {
-          sessionId: runtime.agentSessionId,
-          prompt: blocks,
-          ...(streamingBehavior ? { streamingBehavior } : {}),
-        })
-        .then(
-          (result) => finish(() => resolve(result)),
-          (error) => finish(() => reject(error)),
-        );
-    });
-  }
-
-  private rejectQueuedPrompts(threadId: string, reason: string): void {
-    const queued = this.queuedPrompts.get(threadId);
-    if (!queued) return;
-    this.queuedPrompts.delete(threadId);
-    for (const prompt of queued) prompt.reject(new Error(reason));
+    return this.prompts.send(
+      live.agent,
+      { threadId: runtime.threadId, agentSessionId: runtime.agentSessionId },
+      blocks,
+      streamingBehavior,
+    );
   }
 
   private drainPromptQueue(runtime: ThreadSessionRuntime, live: LiveConnection): void {
     if (runtime.promptInFlight) return;
-    const queue = this.queuedPrompts.get(runtime.threadId);
-    const prompt = queue?.shift();
-    if (!prompt) {
-      this.queuedPrompts.delete(runtime.threadId);
-      return;
-    }
+    const prompt = this.prompts.dequeue(runtime.threadId);
+    if (!prompt) return;
 
     runtime.promptInFlight = true;
     const turnStartedAt = Date.now();
@@ -1775,7 +1118,7 @@ export class AgentConnectionManager {
         // If ACP timed out or was cancelled, its underlying request may still
         // be alive. Do not start another prompt against the same session.
         if (error instanceof Error && /timed out|cancelled/i.test(error.message)) {
-          this.rejectQueuedPrompts(runtime.threadId, error.message);
+          this.prompts.rejectQueued(runtime.threadId, error.message);
         }
         this.notifyIfHidden({
           kind: "turn-failed",
@@ -1798,8 +1141,8 @@ export class AgentConnectionManager {
   private async handleReadTextFile(
     params: acp.ReadTextFileRequest,
   ): Promise<acp.ReadTextFileResponse> {
-    this.assertWithinWorkspace(params.sessionId, params.path);
-    const content = await readFile(params.path, readFileOptions());
+    this.workspaceGuard.assertWithin(params.sessionId, params.path);
+    const content = await readFile(params.path, READ_FILE_OPTIONS);
     if (params.line != null || params.limit != null) {
       const lines = content.split("\n");
       const start = Math.max(0, (params.line ?? 1) - 1);
@@ -1812,9 +1155,9 @@ export class AgentConnectionManager {
   private async handleWriteTextFile(
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse> {
-    this.assertWithinWorkspace(params.sessionId, params.path);
+    this.workspaceGuard.assertWithin(params.sessionId, params.path);
     await mkdir(dirname(params.path), { recursive: true });
-    await writeFile(params.path, params.content, writeFileOptions());
+    await writeFile(params.path, params.content, WRITE_FILE_OPTIONS);
     return {};
   }
 
@@ -1867,7 +1210,7 @@ export class AgentConnectionManager {
           const parts = currentValue.split("\t");
           currentValue = parts[1]?.trim() || parts[0]?.trim() || currentValue;
         }
-        let choices = opt.options;
+        let choices = (opt as { options?: Record<string, unknown>[] }).options;
         if (Array.isArray(choices)) {
           choices = choices.map((item) => {
             if (item && typeof item === "object") {
@@ -1939,64 +1282,11 @@ export class AgentConnectionManager {
 
   /** Seed the path guard for an ACP session with its (realpath'd) cwd root. */
   private registerWorkspaceRoot(agentSessionId: string, cwd: string): void {
-    let root = resolve(cwd);
-    try {
-      root = realpathSync(root);
-    } catch {
-      // cwd may not exist yet in exotic cases; fall back to the resolved path.
-    }
-    this.workspaceRoots.set(agentSessionId, new Set([root]));
+    this.workspaceGuard.register(agentSessionId, cwd);
   }
 
   private releaseWorkspaceRoot(agentSessionId: string | null | undefined): void {
-    if (agentSessionId) this.workspaceRoots.delete(agentSessionId);
-  }
-
-  /**
-   * Resolve a target path through its deepest *existing* ancestor's realpath so
-   * a not-yet-created file still resolves through symlink-free parents (defeats
-   * `../worktree-b` and a symlinked parent), then re-append the missing tail.
-   */
-  private resolveExistingPrefix(targetPath: string): string {
-    let current = resolve(targetPath);
-    const tail: string[] = [];
-    while (!existsSync(current)) {
-      const parent = dirname(current);
-      if (parent === current) break;
-      tail.unshift(basename(current));
-      current = parent;
-    }
-    let real = current;
-    try {
-      real = realpathSync(current);
-    } catch {
-      // keep the resolved (non-real) path
-    }
-    return tail.length ? join(real, ...tail) : real;
-  }
-
-  /**
-   * Reject an agent file/terminal target that escapes its session's workspace
-   * root(s). No-op for unguarded (internal) sessions. Uses `path.relative` — not
-   * `startsWith`, which would let `/proj-evil` escape root `/proj`.
-   */
-  private assertWithinWorkspace(agentSessionId: string | undefined, targetPath: string): void {
-    // Explicit allowlist of unguarded internal session IDs that bypass validation
-    const unguardedInternalSessions = new Set<string>([]);
-
-    if (!agentSessionId) return;
-    if (unguardedInternalSessions.has(agentSessionId)) return;
-
-    const roots = this.workspaceRoots.get(agentSessionId);
-    if (!roots || roots.size === 0) {
-      throw new Error("Path outside workspace");
-    }
-    const resolved = this.resolveExistingPrefix(targetPath);
-    for (const root of roots) {
-      const rel = relative(root, resolved);
-      if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return;
-    }
-    throw new Error("Path outside workspace");
+    this.workspaceGuard.release(agentSessionId);
   }
 
   private async sessionNew(
@@ -2143,25 +1433,45 @@ export class AgentConnectionManager {
     };
   }
 
-  private enqueueThreadActivation<T>(task: () => Promise<T>): Promise<T> {
-    const result = this.threadActivationQueue.then(task, task);
+  private enqueueThreadActivation<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    // A newly requested activation supersedes the slow prepare running ahead
+    // of it: cancellable operations (switch/restore) abandon their in-flight
+    // session phases instead of making every later request wait out full phase
+    // timeouts. Durable operations (create/delete/close) receive the signal
+    // but deliberately ignore it — their effect must complete.
+    this.activationAbort?.abort(new ActivationSupersededError());
+    const controller = new AbortController();
+    this.activationAbort = controller;
+    const result = this.threadActivationQueue.then(
+      () => task(controller.signal),
+      () => task(controller.signal),
+    );
     this.threadActivationQueue = result.then(
       () => undefined,
       () => undefined,
     );
+    void result
+      .catch(() => {
+        // Rejection is the caller's concern; this chain only clears the abort handle.
+      })
+      .finally(() => {
+        if (this.activationAbort === controller) this.activationAbort = null;
+      });
     return result;
   }
 
   async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
-    return this.enqueueThreadActivation(() =>
-      this.activateProjectInternal(projectId, preferredThreadId),
+    return this.enqueueThreadActivation((signal) =>
+      this.activateProjectInternal(projectId, preferredThreadId, signal),
     );
   }
 
   private async activateProjectInternal(
     projectId: string,
     preferredThreadId?: string | null,
+    signal?: AbortSignal,
   ): Promise<void> {
+    throwIfSuperseded(signal);
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
@@ -2202,24 +1512,28 @@ export class AgentConnectionManager {
     // switchThread reconciles the persisted workspace to the activated
     // thread's cwd, so header/tabs/terminals agree after restart and after
     // project switches.
-    await this.switchThreadInternal(thread.id, "restore");
+    await this.switchThreadInternal(thread.id, "restore", signal);
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
 
   async switchThread(threadId: string): Promise<OpenTabsState> {
-    return this.enqueueThreadActivation(() => this.switchThreadInternal(threadId, "tab"));
+    return this.enqueueThreadActivation((signal) =>
+      this.switchThreadInternal(threadId, "tab", signal),
+    );
   }
 
   private async switchThreadInternal(
     threadId: string,
     source: MonitorSwitchRecord["source"] = "tab",
+    signal?: AbortSignal,
   ): Promise<OpenTabsState> {
+    throwIfSuperseded(signal);
     const startedAt = Date.now();
     const previousThreadId = this.activeThreadId;
     const wasResidentInMemory = this.sessions.has(threadId);
     const cachedSessionCount = this.sessions.size;
-    const agentIdBefore = this.connection?.agentId ?? null;
+    const agentIdBefore = this.lifecycle.active?.agentId ?? null;
     const workspaceCwdBefore = this.getActiveCwd();
     let phase: MonitorSwitchPhase = wasResidentInMemory ? "cache_hit" : "session_load";
     let openTabCount = 0;
@@ -2230,7 +1544,7 @@ export class AgentConnectionManager {
       this.monitorObserver?.onSwitchRecord?.({
         timestamp: Date.now(),
         threadId,
-        agentId: this.connection?.agentId ?? null,
+        agentId: this.lifecycle.active?.agentId ?? null,
         projectId: this.activeProjectId,
         source,
         phase,
@@ -2254,9 +1568,13 @@ export class AgentConnectionManager {
       });
     };
     try {
-      const state = await this.switchThreadCore(threadId, (nextPhase) => {
-        phase = nextPhase;
-      });
+      const state = await this.switchThreadCore(
+        threadId,
+        (nextPhase) => {
+          phase = nextPhase;
+        },
+        signal,
+      );
       // The returned tabs state reflects the open-tab set after this
       // activation; capture it so records are comparable to tab events.
       openTabCount = state.openThreadIds.length;
@@ -2276,25 +1594,29 @@ export class AgentConnectionManager {
   private async switchThreadCore(
     threadId: string,
     onPhase: (phase: MonitorSwitchPhase) => void,
+    signal?: AbortSignal,
   ): Promise<OpenTabsState> {
     const thread = getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     const project = getProject(thread.project_id);
     if (!project) throw new Error(`Project not found: ${thread.project_id}`);
 
-    // Switch agent if needed
-    if (thread.agent_id && thread.agent_id !== this.connection?.agentId) {
+    // Switch agent if needed. Cold spawns are the longest activation phase
+    // (up to the npx initialize timeout); abandoning an await is safe because
+    // ConnectionLifecycle dedups spawns — the next activation shares its result.
+    if (thread.agent_id && thread.agent_id !== this.lifecycle.active?.agentId) {
       try {
-        await this.switchAgent(thread.agent_id);
-      } catch {
+        await raceActivation(this.switchAgent(thread.agent_id), signal);
+      } catch (err) {
+        if (isActivationSuperseded(err)) throw err;
         // Fall back to preferred / default if registered agent missing
-        await this.ensureConnection(this.preferredAgentId);
+        await raceActivation(this.ensureConnection(this.preferredAgentId), signal);
       }
     } else {
-      await this.ensureConnection(thread.agent_id || this.preferredAgentId);
+      await raceActivation(this.ensureConnection(thread.agent_id || this.preferredAgentId), signal);
     }
 
-    const live = this.connection!;
+    const live = this.lifecycle.active!;
     const projectChanged = this.activeProjectId !== project.id;
     this.activeProjectId = project.id;
     this.activeThreadId = threadId;
@@ -2330,7 +1652,7 @@ export class AgentConnectionManager {
         retention: new SessionRetentionTracker(),
         emittedToolCalls: null,
       };
-      this.sessions.set(threadId, runtime);
+      this.sessions.register(runtime);
       this.monitorObserver?.onSessionCacheEvent?.({
         timestamp: Date.now(),
         action: "insert",
@@ -2348,7 +1670,7 @@ export class AgentConnectionManager {
         let sessionId = thread.agent_session_id;
         let configOptions: SessionConfigOption[] = [];
         try {
-          const loaded = await this.sessionLoad(live, cwd, sessionId);
+          const loaded = await raceActivation(this.sessionLoad(live, cwd, sessionId), signal);
           if (this.threadActivationGenerations.get(threadId) !== generation) {
             throw new Error(`Stale activation for thread ${threadId}`);
           }
@@ -2359,6 +1681,9 @@ export class AgentConnectionManager {
           // still complete later, so never cascade into resume/new and create a
           // second session while the timed-out load is alive.
           if (err instanceof Error && /timed out/i.test(err.message)) throw err;
+          // Same rule when superseded: nobody is waiting on this thread, so
+          // abandon instead of establishing sessions behind the newer request.
+          if (isActivationSuperseded(err)) throw err;
           // Agent restarted — try resume. A failed load may have streamed a
           // partial replay before erroring; drop it so the fallback path
           // doesn't append onto half a timeline.
@@ -2366,13 +1691,17 @@ export class AgentConnectionManager {
           this.retentionFor(runtime).reset();
           this.payloadsFor(runtime).clear();
           try {
-            const resumed = await this.sessionResume(live, thread.agent_session_id, cwd);
+            const resumed = await raceActivation(
+              this.sessionResume(live, thread.agent_session_id, cwd),
+              signal,
+            );
             onPhase("session_resume");
             sessionId = resumed.sessionId;
             configOptions = resumed.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
-          } catch {
-            const created = await this.sessionNew(live, cwd);
+          } catch (err) {
+            if (isActivationSuperseded(err)) throw err;
+            const created = await raceActivation(this.sessionNew(live, cwd), signal);
             onPhase("session_new");
             sessionId = created.sessionId;
             configOptions = created.configOptions;
@@ -2382,7 +1711,9 @@ export class AgentConnectionManager {
 
         // Merge instead of replacing the slice: the replay already populated
         // entries/toolCalls, only the session identity and config are new.
-        runtime.agentSessionId = sessionId;
+        // Rebind also updates the session-id index so streaming keeps routing
+        // here under the session's NEW id.
+        this.sessions.rebindSession(threadId, sessionId);
         this.registerWorkspaceRoot(sessionId, cwd);
         if (configOptions.length > 0 || runtime.slice.configOptions.length === 0) {
           runtime.slice = { ...runtime.slice, configOptions };
@@ -2397,7 +1728,7 @@ export class AgentConnectionManager {
       } catch (err) {
         // No session could be established — remove the placeholder so a
         // retry doesn't silently reuse a dead runtime.
-        this.sessions.delete(threadId);
+        this.sessions.remove(threadId);
         this.monitorObserver?.onSessionCacheEvent?.({
           timestamp: Date.now(),
           action: "evict",
@@ -2418,18 +1749,26 @@ export class AgentConnectionManager {
     }
 
     touchThread(threadId);
+    // Publish BEFORE persisting: the renderer paints the switched view without
+    // waiting on disk. Durability is unchanged — the writes still run (and are
+    // awaited before this returns), they stay serialized in the launch-state /
+    // open-tabs queues, and FIFO order across activations preserves the
+    // single-writer selection invariant.
+    this.pushState(threadId);
     // Every thread activation reconciles the persisted workspace to the
     // session's actual cwd — the main process is the single writer for the
     // canonical selection, and the renderer only mirrors it. This keeps
     // header, tab scoping, and terminals coherent for tab clicks, close
     // fallbacks, and orchestration switches alike.
-    await updateWorkspaceSelection(project.id, cwd);
-    await updateLaunchSelection({ projectId: project.id, threadId });
+    const selectionsSettled = Promise.all([
+      updateWorkspaceSelection(project.id, cwd),
+      updateLaunchSelection({ projectId: project.id, threadId }),
+    ]);
     // Return the state produced by the same queued mutation. Callers that need
     // to broadcast the tab state can use this result without performing a
     // second read-modify-write for the same switch.
     const openTabsState = await recordThreadSwitch(threadId);
-    this.pushState(threadId);
+    await selectionsSettled;
     return openTabsState;
   }
 
@@ -2489,7 +1828,7 @@ export class AgentConnectionManager {
       boundWorktree,
     );
 
-    this.sessions.set(thread.id, {
+    this.sessions.register({
       threadId: thread.id,
       agentSessionId: created.sessionId,
       agentId: live.agentId,
@@ -2527,8 +1866,6 @@ export class AgentConnectionManager {
     // the previous project while the agent panel already follows the new one.
     if (projectChanged) this.broadcastActiveProject?.(projectId);
     touchThread(thread.id);
-    await updateWorkspaceSelection(projectId, cwd);
-    await updateLaunchSelection({ projectId, threadId: thread.id });
 
     this.captureAnalytics?.("thread_created", {
       project_id: projectId,
@@ -2538,7 +1875,14 @@ export class AgentConnectionManager {
       is_main: boundWorktree === null,
     } as AnalyticsProperties);
 
+    // Same publish-before-persist ordering as switches: the new thread's view
+    // renders immediately while the durable selections settle below.
     this.pushState(thread.id);
+    const selectionsSettled = Promise.all([
+      updateWorkspaceSelection(projectId, cwd),
+      updateLaunchSelection({ projectId, threadId: thread.id }),
+    ]);
+    await selectionsSettled;
 
     // Seed model after the session exists so the first prompt lands on the
     // user's chosen model. Best-effort: a failed seed still leaves a usable thread.
@@ -2567,9 +1911,9 @@ export class AgentConnectionManager {
     const runtime = this.sessions.get(threadId);
     const sessionId = runtime?.agentSessionId ?? thread.agent_session_id;
     const owner = this.connectionForAgent(runtime?.agentId ?? thread.agent_id);
-    this.cancelPendingPermissions(sessionId);
-    this.cancelPendingPrompt(threadId, "thread deleted");
-    this.rejectQueuedPrompts(threadId, "thread deleted");
+    this.permissions.cancelForSession(sessionId);
+    this.prompts.cancelInFlight(threadId, "thread deleted");
+    this.prompts.rejectQueued(threadId, "thread deleted");
     this.clearToolCallTiming(sessionId);
     this.terminalManager.releaseSession(sessionId);
     if (sessionId) this.subagents.releaseSessionMcp(sessionId);
@@ -2585,7 +1929,7 @@ export class AgentConnectionManager {
       }
     }
     this.releaseWorkspaceRoot(sessionId);
-    this.sessions.delete(threadId);
+    this.sessions.remove(threadId);
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),
       action: "evict",
@@ -2635,9 +1979,9 @@ export class AgentConnectionManager {
     const runtime = this.sessions.get(threadId);
     if (!runtime) return;
     const owner = this.connectionForAgent(runtime.agentId);
-    this.cancelPendingPermissions(runtime.agentSessionId);
-    this.cancelPendingPrompt(threadId, "thread session closed");
-    this.rejectQueuedPrompts(threadId, "thread session closed");
+    this.permissions.cancelForSession(runtime.agentSessionId);
+    this.prompts.cancelInFlight(threadId, "thread session closed");
+    this.prompts.rejectQueued(threadId, "thread session closed");
     this.clearToolCallTiming(runtime.agentSessionId);
     this.terminalManager.releaseSession(runtime.agentSessionId);
     this.subagents.releaseSessionMcp(runtime.agentSessionId);
@@ -2655,7 +1999,7 @@ export class AgentConnectionManager {
       }
     }
     this.releaseWorkspaceRoot(runtime.agentSessionId);
-    this.sessions.delete(threadId);
+    this.sessions.remove(threadId);
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),
       action: "close_session",
@@ -2694,7 +2038,14 @@ export class AgentConnectionManager {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
     if (!this.sessions.has(threadId)) {
-      await this.switchThread(threadId);
+      try {
+        await this.switchThread(threadId);
+      } catch (err) {
+        // Our prepare lost a supersede race with a newer activation. The
+        // winner has finished by now, so one retry runs unqueued and fast.
+        if (!isActivationSuperseded(err)) throw err;
+        await this.switchThread(threadId);
+      }
     }
     const runtime = this.sessions.get(threadId);
     const live = runtime ? this.connectionForAgent(runtime.agentId) : null;
@@ -2725,15 +2076,9 @@ export class AgentConnectionManager {
     this.pushState(threadId);
     touchThread(threadId);
 
-    const queued = new Promise<any>((resolve, reject) => {
-      const queue = this.queuedPrompts.get(threadId) ?? [];
-      queue.push({
-        blocks,
-        streamingBehavior: input.streamingBehavior,
-        resolve,
-        reject,
-      });
-      this.queuedPrompts.set(threadId, queue);
+    const queued = this.prompts.enqueue(threadId, {
+      blocks,
+      streamingBehavior: input.streamingBehavior,
     });
     this.drainPromptQueue(runtime, live);
     await queued;
@@ -2760,7 +2105,12 @@ export class AgentConnectionManager {
   async replacePrompt(input: AcpReplacePromptInput): Promise<void> {
     const threadId = input.threadId;
     if (!this.sessions.has(threadId)) {
-      await this.switchThread(threadId);
+      try {
+        await this.switchThread(threadId);
+      } catch (err) {
+        if (!isActivationSuperseded(err)) throw err;
+        await this.switchThread(threadId);
+      }
     }
     const runtime = this.sessions.get(threadId);
     const live = runtime ? this.connectionForAgent(runtime.agentId) : null;
@@ -2813,13 +2163,13 @@ export class AgentConnectionManager {
     const runtime = this.sessions.get(threadId);
     const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !owner) return;
-    this.cancelPendingPrompt(threadId, "user abort");
-    this.rejectQueuedPrompts(threadId, "agent prompt cancelled");
+    this.prompts.cancelInFlight(threadId, "user abort");
+    this.prompts.rejectQueued(threadId, "agent prompt cancelled");
     this.clearToolCallTiming(runtime.agentSessionId);
     await owner.agent
       .notify(acp.methods.agent.session.cancel, { sessionId: runtime.agentSessionId })
       .catch(() => {});
-    this.cancelPendingPermissions(runtime.agentSessionId);
+    this.permissions.cancelForSession(runtime.agentSessionId);
     // Cascade cancel to subagent runs this session spawned.
     this.subagents.cancelRunsForParent(runtime.agentSessionId);
     // Cascade cancel to ACP agent terminals (session/cancel → terminal/kill).
@@ -2891,7 +2241,7 @@ export class AgentConnectionManager {
   }
 
   getCapabilities(): AgentCapabilities | null {
-    return this.connection?.agentCapabilities ?? null;
+    return this.lifecycle.active?.agentCapabilities ?? null;
   }
 
   /** Promote the given agent onto the analytics base context (name resolved from the registry). */

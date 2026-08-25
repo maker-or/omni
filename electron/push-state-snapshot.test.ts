@@ -24,11 +24,11 @@ function makeManager() {
 function seedSession(manager: AgentConnectionManager, threadId: string, sessionId: string) {
   const sessions = (
     manager as unknown as {
-      sessions: Map<string, Record<string, unknown>>;
+      sessions: { register: (runtime: Record<string, unknown>) => void };
       activeThreadId: string | null;
     }
   ).sessions;
-  sessions.set(threadId, {
+  sessions.register({
     threadId,
     agentSessionId: sessionId,
     agentId: "agent-a",
@@ -79,7 +79,9 @@ describe("activation snapshot", () => {
     ).handleSessionUpdate("s1", update);
 
     const sessions = (
-      manager as unknown as { sessions: Map<string, { slice: { toolCalls: Record<string, any> } }> }
+      manager as unknown as {
+        sessions: { get: (id: string) => { slice: { toolCalls: Record<string, any> } } };
+      }
     ).sessions;
     const stored = sessions.get("t1")!.slice.toolCalls.tc1;
     expect(stored.content).toBeUndefined();
@@ -90,6 +92,44 @@ describe("activation snapshot", () => {
     const hydrated = manager.getToolCalls("t1");
     expect(hydrated.tc1?.content).toEqual(update.content);
     expect(hydrated.tc1?.rawOutput).toEqual({ padding: "xxxx" });
+  });
+
+  test("updates follow the rebound session id after load→resume→new", async () => {
+    const { manager } = makeManager();
+    seedSession(manager, "t1", "stale-id");
+    const sessions = (
+      manager as unknown as {
+        sessions: {
+          rebindSession: (threadId: string, sessionId: string) => void;
+          get: (id: string) => { slice: { entries: unknown[] } };
+        };
+      }
+    ).sessions;
+
+    // The switchThreadCore fallback chain settles on a different session id.
+    sessions.rebindSession("t1", "fresh-id");
+
+    // Streaming under the NEW id routes into the same thread's slice...
+    await (
+      manager as unknown as {
+        handleSessionUpdate: (id: string, u: SessionUpdate) => Promise<void>;
+      }
+    ).handleSessionUpdate("fresh-id", {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "after rebind" },
+    } as SessionUpdate);
+    expect(sessions.get("t1")!.slice.entries).toHaveLength(1);
+
+    // ...and the stale id no longer routes anywhere.
+    await (
+      manager as unknown as {
+        handleSessionUpdate: (id: string, u: SessionUpdate) => Promise<void>;
+      }
+    ).handleSessionUpdate("stale-id", {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "stray" },
+    } as SessionUpdate);
+    expect(sessions.get("t1")!.slice.entries).toHaveLength(1);
   });
 
   test("session_load applies unbounded until load finishes", async () => {
@@ -118,5 +158,44 @@ describe("activation snapshot", () => {
       }
     ).sessions;
     expect(Object.keys(sessions.get("t1")!.slice.toolCalls).length).toBe(505);
+  });
+
+  test("trimmed tool calls do not leak their parked payloads", async () => {
+    const { manager } = makeManager();
+    seedSession(manager, "t1", "s1");
+
+    // Exceed the 500-tool-call cap so the reducer trims the record down.
+    for (let index = 0; index < 505; index += 1) {
+      await (
+        manager as unknown as {
+          handleSessionUpdate: (id: string, u: SessionUpdate) => Promise<void>;
+        }
+      ).handleSessionUpdate("s1", {
+        sessionUpdate: "tool_call",
+        toolCallId: `tc-${index}`,
+        title: "Read",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "body" } }],
+      } as SessionUpdate);
+    }
+
+    const runtime = (
+      manager as unknown as {
+        sessions: {
+          get: (id: string) => {
+            slice: { toolCalls: Record<string, unknown> };
+            toolPayloads?: Map<string, unknown>;
+          };
+        };
+      }
+    ).sessions.get("t1")!;
+
+    const liveIds = Object.keys(runtime.slice.toolCalls);
+    expect(liveIds.length).toBeLessThanOrEqual(500);
+    // Every parked payload must belong to a live tool call — an orphan here is
+    // a per-thread memory leak on long-running sessions.
+    for (const payloadId of runtime.toolPayloads?.keys() ?? []) {
+      expect(runtime.slice.toolCalls[payloadId as string]).toBeTruthy();
+    }
   });
 });

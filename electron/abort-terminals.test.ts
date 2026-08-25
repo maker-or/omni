@@ -34,7 +34,7 @@ describe("abort terminal cascade", () => {
       src.indexOf("async setConfigOption"),
     );
     expect(abortBlock).toContain("session.cancel");
-    expect(abortBlock).toContain("cancelPendingPermissions");
+    expect(abortBlock).toContain("cancelForSession");
     expect(abortBlock).toContain("killRunning");
   });
 });

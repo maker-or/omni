@@ -34,8 +34,10 @@ function seedSession(
   sessionId: string,
   promptInFlight: boolean,
 ) {
-  const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
-  sessions.set(threadId, {
+  const sessions = (
+    manager as unknown as { sessions: { register: (runtime: Record<string, unknown>) => void } }
+  ).sessions;
+  sessions.register({
     threadId,
     agentSessionId: sessionId,
     agentId: "agent-a",

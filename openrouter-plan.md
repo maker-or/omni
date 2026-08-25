@@ -15,9 +15,9 @@ Why this fits this repo:
 
 Rejected alternatives:
 
-- *Proxy BYOK into other agents' CLIs* (base-URL overrides per vendor): fragile, drifts per CLI version, breaks their auth flows.
-- *In-process runtime in main*: breaks process isolation; crashes take down main; loses the uniform spawn/probe/reconnect model.
-- *OpenAI-compatible local server + generic adapter*: same cost with more glue.
+- _Proxy BYOK into other agents' CLIs_ (base-URL overrides per vendor): fragile, drifts per CLI version, breaks their auth flows.
+- _In-process runtime in main_: breaks process isolation; crashes take down main; loses the uniform spawn/probe/reconnect model.
+- _OpenAI-compatible local server + generic adapter_: same cost with more glue.
 
 ## 2. Architecture
 
@@ -28,14 +28,14 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
                                        | transcript persistence (session/load resume)
 ```
 
-| Component | Location | Notes |
-|---|---|---|
-| Bundled agent | `electron/agents/openrouter-agent/` (TS) -> standalone ESM bundle at `out/agents/pipper-openrouter.mjs` (rolldown; SDK+zod inlined) | Protocol surface modeled on `mock-agent.mjs` |
-| Registry entry | `BUILTIN_ACP_AGENTS` + `contracts/acp.ts` | New `installKind: "bundled"`; always `available: true`; icon `openrouter` |
-| Spawn resolution | `probeAgentAvailability` / `resolveAgentSpawn` | Spawn Electron itself with `ELECTRON_RUN_AS_NODE=1`, system-node fallback |
-| Key vault | `electron/secrets.ts` (new): `safeStorage` -> encrypted blob in SQLite `secrets` table | First secret storage in app; IPC `secrets:*` in main.ts + preload.ts |
-| Settings UI | `src/settings/app.tsx` | OpenRouter card: paste key, validate, show credits, remove |
-| Model catalog sync | Agent fetches `GET /api/v1/models` -> advertises model `configOptions`; renderer seeds `useModelCatalogStore.remember("pipper-openrouter", ...)` pre-connect | Disk cache, 24h TTL |
+| Component          | Location                                                                                                                                                     | Notes                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Bundled agent      | `electron/agents/openrouter-agent/` (TS) -> standalone ESM bundle at `out/agents/pipper-openrouter.mjs` (rolldown; SDK+zod inlined)                          | Protocol surface modeled on `mock-agent.mjs`                              |
+| Registry entry     | `BUILTIN_ACP_AGENTS` + `contracts/acp.ts`                                                                                                                    | New `installKind: "bundled"`; always `available: true`; icon `openrouter` |
+| Spawn resolution   | `probeAgentAvailability` / `resolveAgentSpawn`                                                                                                               | Spawn Electron itself with `ELECTRON_RUN_AS_NODE=1`, system-node fallback |
+| Key vault          | `electron/secrets.ts` (new): `safeStorage` -> encrypted blob in SQLite `secrets` table                                                                       | First secret storage in app; IPC `secrets:*` in main.ts + preload.ts      |
+| Settings UI        | `src/settings/app.tsx`                                                                                                                                       | OpenRouter card: paste key, validate, show credits, remove                |
+| Model catalog sync | Agent fetches `GET /api/v1/models` -> advertises model `configOptions`; renderer seeds `useModelCatalogStore.remember("pipper-openrouter", ...)` pre-connect | Disk cache, 24h TTL                                                       |
 
 ## 3. Phases
 
@@ -103,6 +103,7 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 ## 4. Edge-case matrix
 
 ### Spawn / runtime
+
 - Packaged app has no guaranteed system `node` -> spawn `process.execPath` with `ELECTRON_RUN_AS_NODE: 1`. Verify mac + win packaged builds (mock agent has this latent gap today).
 - Agent crash mid-turn: child exit while SSE in-flight surfaces as `stop` with error on that thread only; sibling threads sharing the connection reconnect via existing spawn dedupe.
 - stdout is protocol-only - SDK/diagnostic logging goes to stderr + rotating file, or JSON-RPC framing breaks.
@@ -110,6 +111,7 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 - Windows: no .cmd shim needed (we spawn Electron binary directly), but verify PATHEXT-independent resolution and long paths.
 
 ### Auth & key lifecycle
+
 - Invalid/revoked key mid-session (worked, then 401): surface needs-auth state, keep thread and transcript intact; prompt resumes after key fix without session loss.
 - Insufficient credits (402) mid-stream: end turn gracefully with balance link; partial output preserved.
 - Key rotation while sessions live: vault change restarts pipper-openrouter connections (existing reconnect machinery), sessions resume from transcript.
@@ -117,6 +119,7 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 - Account banned/moderation-blocked: map to clear error class, not generic failure.
 
 ### Network
+
 - Offline at spawn vs offline mid-turn: distinguishable states; queued prompt fails fast with retry affordance.
 - DNS failure, TLS interception (corporate MITM proxies): actionable error copy; document proxy expectations.
 - HTTP_PROXY/HTTPS_PROXY support: undici needs explicit dispatcher - explicit work item, not free.
@@ -124,6 +127,7 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 - Retry policy: GETs freely; completions POST retried only when zero tokens received (avoid double billing).
 
 ### Streaming protocol
+
 - SSE disconnect mid-tool-call (partial args JSON): fail that tool call cleanly, emit tool_call_update cancelled, end turn with error entry, transcript stays consistent.
 - Malformed/unknown chunk types: ignore forward-compatibly; log to stderr file.
 - Unicode multibyte split across chunk boundaries: buffer-decode safely.
@@ -133,6 +137,7 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 - Parallel tool calls in one step: preserve order, unique ids, no interleaved arg corruption.
 
 ### Model catalog & selection
+
 - Catalog endpoint down at startup: disk cache; never-fetched case falls back to curated static list baked into bundle.
 - Persisted thread pinned to deprecated/removed slug: session/load succeeds, falls back to default model + inline notice.
 - Alias models (`~openai/gpt-latest`) have unknown context window: conservative estimate until first usage reading.
@@ -142,6 +147,7 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 - Models without function-calling support: hide from default list or degrade to text-only mode with banner.
 
 ### Tools & permissions
+
 - Cancel arrives while permission request pending: respond cancelled (AcpPermissionResponse.cancelled exists), tool never executes.
 - allow_always persistence per project+tool, revocable later; scoped so "always" never leaks across projects.
 - bash cross-platform quoting (cmd vs POSIX shells), timeout kill, zombie reaping, Ctrl+C propagation, streaming output cap.
@@ -152,17 +158,20 @@ Renderer --IPC-- Main --spawn(stdio)-- pipper-openrouter agent --HTTPS-- OpenRou
 - Two parallel tool calls writing one file: serialize per-path writes.
 
 ### Concurrency
+
 - One agent process multiplexes N sessions across threads (manager dedupes spawns by agentId): session state keyed per sessionId; a slow stream must not starve others.
 - Multiple concurrent streams share one API key -> account-wide OpenRouter rate limits: shared 429 backoff / circuit breaker, queue rather than parallel-fail.
 - Subagent runs spawning pipper-openrouter at depth+1: maxConcurrent queue applies; verify depth gating.
 - App quit mid-stream: transcript flush + child kill ordering.
 
 ### Cost & billing guardrails
+
 - usage cost null for some providers -> badge hides gracefully.
 - Hard per-turn ceiling exceeded mid-loop: abort with clear message; monthly soft warning banner.
 - Trust OpenRouter's reported usage/cost fields; never estimate silently.
 
 ### Privacy & compliance
+
 - First cloud-model selection shows one-time disclosure that code/prompts leave the machine.
 - ZDR routing option in advanced settings.
 - Analytics carry only sanitized metadata (model_id), never prompts/keys/file contents.

@@ -22,6 +22,7 @@ import {
   listWorktrees,
   parseWorktreePorcelain,
   resolveInstallCommand,
+  samePath,
   switchWorktreeBranch,
 } from "./worktree-manager.ts";
 
@@ -125,15 +126,10 @@ describe("createWorktree", () => {
     expect(worktree.path).toContain(join("worktrees", PROJECT_ID, "feature-x"));
 
     // Git knows about it as a worktree on the expected branch.
-    const listed = parseWorktreePorcelain(
-      execFileSync("git", ["worktree", "list", "--porcelain"], {
-        cwd: projectPath,
-        encoding: "utf8",
-      }),
-    );
-    // Porcelain paths are raw git output — POSIX separators and long names on
-    // Windows — so they only compare against a canonical path once resolved.
-    const entry = listed.find((w) => realPath(w.path) === worktree.path);
+    const listed = parseWorktreePorcelain(git(projectPath, ["worktree", "list", "--porcelain"]));
+    // Porcelain paths are raw git output — POSIX separators and potentially
+    // different casing on Windows — so use the production path comparator.
+    const entry = listed.find((w) => samePath(w.path, worktree.path));
     expect(entry?.branch).toBe("pipper/feature-x");
     expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
   });

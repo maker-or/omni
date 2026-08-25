@@ -54,7 +54,11 @@ export class ThreadBenchmarkController {
   private rendererReady: ThreadBenchmarkRendererReady | null = null;
   private ingestedTurnCount = 0;
 
-  constructor(private readonly options: ThreadBenchmarkControllerOptions) {}
+  private readonly options: ThreadBenchmarkControllerOptions;
+
+  constructor(options: ThreadBenchmarkControllerOptions) {
+    this.options = options;
+  }
 
   status(): ThreadBenchmarkStatus {
     return {

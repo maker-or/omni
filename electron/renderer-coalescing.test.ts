@@ -46,7 +46,9 @@ function makeManager(options?: {
     focused = next;
   };
   const manager = new AgentConnectionManager({
-    sendToRenderer: (_channel: string, event: AcpBridgeEvent) => events.push(event),
+    sendToRenderer: (_channel: string, event: unknown) => {
+      events.push(event as AcpBridgeEvent);
+    },
     setWindowTitle: () => {},
     visibility,
     attention,
@@ -63,9 +65,10 @@ function seedSession(
   promptInFlight: boolean,
   title?: string,
 ) {
-  const sessions = (manager as unknown as { sessions: Map<string, Record<string, unknown>> })
-    .sessions;
-  sessions.set(threadId, {
+  const sessions = (
+    manager as unknown as { sessions: { register: (runtime: Record<string, unknown>) => void } }
+  ).sessions;
+  sessions.register({
     threadId,
     agentSessionId: sessionId,
     agentId: "agent-a",
@@ -147,7 +150,7 @@ describe("hidden-window delta coalescing", () => {
     seedSession(manager, "t2", "s2", false);
     // Seed the emitted watermark as if already sent once.
     const runtime = (
-      manager as unknown as { sessions: Map<string, { emittedToolCalls: unknown }> }
+      manager as unknown as { sessions: { get: (id: string) => { emittedToolCalls: unknown } } }
     ).sessions.get("t2")!;
     runtime.emittedToolCalls = (
       runtime as unknown as { slice: { toolCalls: unknown } }
@@ -198,11 +201,15 @@ describe("hidden-window OS notifications", () => {
       requestPrompt: () => Promise<{ stopReason: string }>;
     };
     // Drive drainPromptQueue with a stubbed requestPrompt.
-    const runtime = (manager as unknown as { sessions: Map<string, unknown> }).sessions.get("t1")!;
-    const queuedPrompts = new Map<string, { resolve: (r: unknown) => void }[]>([
-      ["t1", [{ resolve: () => {} }]],
-    ]);
-    Object.defineProperty(manager, "queuedPrompts", { value: queuedPrompts });
+    const runtime = (
+      manager as unknown as { sessions: { get: (id: string) => Record<string, unknown> } }
+    ).sessions.get("t1")!;
+    // Seed the prompt queue where PromptScheduler now owns it.
+    const queueOwner = manager as unknown as {
+      prompts: { queued: Map<string, { resolve: (r: unknown) => void }[]> };
+    };
+    const queuedPrompts = queueOwner.prompts.queued;
+    queuedPrompts.set("t1", [{ resolve: () => {} }]);
     Object.defineProperty(manager, "requestPrompt", {
       value: () => Promise.resolve({ stopReason: "end_turn" }),
     });
@@ -269,11 +276,15 @@ describe("hidden-window OS notifications", () => {
     const drain = manager as unknown as {
       drainPromptQueue: (runtime: unknown, live: unknown) => void;
     };
-    const runtime = (manager as unknown as { sessions: Map<string, unknown> }).sessions.get("t1")!;
-    const queuedPrompts = new Map<string, { resolve: (r: unknown) => void }[]>([
-      ["t1", [{ resolve: () => {} }]],
-    ]);
-    Object.defineProperty(manager, "queuedPrompts", { value: queuedPrompts });
+    const runtime = (
+      manager as unknown as { sessions: { get: (id: string) => Record<string, unknown> } }
+    ).sessions.get("t1")!;
+    // Seed the prompt queue where PromptScheduler now owns it.
+    const queueOwner = manager as unknown as {
+      prompts: { queued: Map<string, { resolve: (r: unknown) => void }[]> };
+    };
+    const queuedPrompts = queueOwner.prompts.queued;
+    queuedPrompts.set("t1", [{ resolve: () => {} }]);
     Object.defineProperty(manager, "requestPrompt", {
       value: () => Promise.resolve({ stopReason: "end_turn" }),
     });
