@@ -283,6 +283,8 @@ export type AcpBridgeEvent =
       type: "thread-tool-calls";
       threadId: string;
       toolCalls: Record<string, AcpToolCallState>;
+      /** False when this event carries only changed tool-call records. Defaults to full replace. */
+      replace?: boolean;
     }
   | { type: "permission-request"; request: AcpPermissionRequest }
   | { type: "permission-resolved"; sessionId: string; requestId?: string | number }

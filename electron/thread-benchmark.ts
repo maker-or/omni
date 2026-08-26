@@ -41,6 +41,7 @@ function assertOpenPath(openPath: ThreadBenchmarkOpenPath): ThreadBenchmarkOpenP
   if (
     openPath === "acp-session-load" ||
     openPath === "persisted-thread-hydrate" ||
+    openPath === "persisted-thread-snapshot" ||
     openPath === "live-turn-stream"
   ) {
     return openPath;
@@ -129,6 +130,11 @@ export class ThreadBenchmarkController {
       await manager.closeThreadSession(target.id);
       await manager.switchThread(target.id);
       await this.waitForThreadSettled(manager, target.id);
+      if (resolvedPath === "persisted-thread-snapshot") {
+        const persisted = await manager.flushThreadSnapshot(target.id);
+        if (!persisted) throw new Error("Benchmark prepare could not persist the thread snapshot.");
+        await manager.closeThreadSession(target.id);
+      }
       await manager.switchThread(control.id);
       const tabs = await setActiveThreadTab(control.id);
       this.options.broadcastTabs(tabs);
@@ -172,6 +178,11 @@ export class ThreadBenchmarkController {
       await manager.closeThreadSession(prepared.targetThreadId);
       await manager.switchThread(prepared.targetThreadId);
       await this.waitForThreadSettled(manager, prepared.targetThreadId);
+      if (openPath === "persisted-thread-snapshot") {
+        const persisted = await manager.flushThreadSnapshot(prepared.targetThreadId);
+        if (!persisted) throw new Error("Benchmark prepare could not persist the thread snapshot.");
+        await manager.closeThreadSession(prepared.targetThreadId);
+      }
       await manager.switchThread(prepared.controlThreadId);
       const tabs = await setActiveThreadTab(prepared.controlThreadId);
       this.options.broadcastTabs(tabs);
@@ -219,7 +230,10 @@ export class ThreadBenchmarkController {
       }
       const tabs = await setActiveThreadTab(prepared.controlThreadId);
       this.options.broadcastTabs(tabs);
-      if (mode === "cold" && resolvedPath === "acp-session-load") {
+      if (
+        mode === "cold" &&
+        (resolvedPath === "acp-session-load" || resolvedPath === "persisted-thread-snapshot")
+      ) {
         await manager.closeThreadSession(prepared.targetThreadId);
       }
     }
@@ -306,7 +320,11 @@ export class ThreadBenchmarkController {
     // Live streaming uses reportStreamReady after the last prompt, not first paint.
     if (this.run.openPath === "live-turn-stream") return;
     const manager = this.options.agentManager();
-    if (manager.isThreadLoading(input.threadId) || manager.getState().threadId !== input.threadId) {
+    const snapshotPaint = this.run.openPath === "persisted-thread-snapshot";
+    if (
+      (!snapshotPaint && manager.isThreadLoading(input.threadId)) ||
+      manager.getState().threadId !== input.threadId
+    ) {
       return;
     }
     this.rendererReady = input;
@@ -321,6 +339,12 @@ export class ThreadBenchmarkController {
     const prepared = this.prepared;
     const run = this.run;
     if (!prepared || !run) throw new Error("No thread benchmark is running.");
+    if (run.openPath === "persisted-thread-snapshot") {
+      // Preserve click-to-snapshot-paint as rendererReadyMs, but keep the
+      // capture open until authoritative replay completes so correctness and
+      // update-count parity remain part of the benchmark contract.
+      await this.waitForThreadSettled(this.options.agentManager(), run.threadId);
+    }
     const monitor = this.options.monitorService();
     let recorded = emptyMonitorRecordedSession();
     let session: Awaited<ReturnType<MonitorService["stopRecording"]>> = null;

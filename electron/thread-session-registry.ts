@@ -1,6 +1,7 @@
 import type { AcpSessionSlice } from "../src/lib/acp-session-reducer.ts";
 import { SessionRetentionTracker } from "../src/lib/session-retention.ts";
 import type { ToolCallPayload } from "../src/lib/tool-call-payload.ts";
+import type { LoadedThreadSnapshot } from "./thread-snapshot-store.ts";
 
 export interface ThreadSessionRuntime {
   threadId: string;
@@ -42,6 +43,29 @@ export interface ThreadSessionRuntime {
    * chunk updates keep it reference-equal, so the scan skips them entirely.
    */
   lastSyncedToolCalls?: AcpSessionSlice["toolCalls"] | null;
+  /** False while ACP session/load is establishing a snapshot-restored runtime. */
+  agentReady?: boolean;
+  /** True when the visible slice came from the persistent display cache. */
+  snapshotRestored?: boolean;
+  /** Authoritative replay accumulator kept off the renderer paint path. */
+  replaySlice?: AcpSessionSlice;
+  /** Full payloads accompanying replaySlice. */
+  replayToolPayloads?: Map<string, ToolCallPayload>;
+  /** Optimistic local entries added while replaySlice is catching up. */
+  pendingLocalEntries?: AcpSessionSlice["entries"];
+  /** Whether the persisted payload sidecar has completed hydration. */
+  payloadsReady?: boolean;
+  /** Immutable persisted generation used for selective payload hydration. */
+  snapshotPayloadSource?: LoadedThreadSnapshot;
+  /** True when the lean slice or parked payloads changed after the snapshot. */
+  snapshotDirty?: boolean;
+  /** Monotonic payload mutation counter used to make post-write eviction safe. */
+  payloadRevision?: number;
+  /** Cooperative background-replay scheduler bookkeeping. */
+  backgroundUpdatesSinceYield?: number;
+  backgroundWorkStartedAt?: number;
+  /** Latest background tool-call map waiting for a throttled renderer flush. */
+  backgroundToolCallsDirty?: boolean;
 }
 
 /**

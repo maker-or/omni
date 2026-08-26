@@ -53,6 +53,7 @@ import type { AgentOsNotification, OsNotifier } from "./os-notifications.ts";
 import type { WindowAttentionSource, WindowVisibilitySource } from "./window-visibility.ts";
 import { WorkspaceGuard } from "./workspace-guard.ts";
 import { ThreadSessionRegistry, type ThreadSessionRuntime } from "./thread-session-registry.ts";
+import { ThreadSnapshotStore, type LoadedThreadSnapshot } from "./thread-snapshot-store.ts";
 import {
   ActivationSupersededError,
   isActivationSuperseded,
@@ -69,6 +70,8 @@ import {
   appendLocalUserMessage,
   assemblePromptBlocks,
   createEmptySessionSlice,
+  trimSessionSlice,
+  type AcpSessionSlice,
 } from "../src/lib/acp-session-reducer.ts";
 import {
   SessionRetentionTracker,
@@ -79,6 +82,7 @@ import {
   hydrateToolCalls,
   mergeToolCallPayload,
   payloadFromSessionUpdate,
+  stripToolPayloadFromSessionUpdate,
   type ToolCallPayload,
 } from "../src/lib/tool-call-payload.ts";
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema.ts";
@@ -223,6 +227,17 @@ export class AgentConnectionManager {
    * process until the activation can publish one complete authoritative state.
    */
   private readonly loadingSessionThreads = new Set<string>();
+  /** Resolves callers waiting to submit while a cached display restores ACP. */
+  private readonly sessionReadyWaiters = new Map<
+    string,
+    { promise: Promise<void>; resolve: () => void }
+  >();
+  private readonly snapshotStore = new ThreadSnapshotStore();
+  private readonly snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly snapshotWriteChains = new Map<string, Promise<void>>();
+  private readonly backgroundToolCallTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private snapshotPreloadTask: ReturnType<typeof setImmediate> | null = null;
+  private snapshotWritesDisabled = false;
   /** Per-session filesystem containment for agent reads/writes/terminals. */
   private readonly workspaceGuard = new WorkspaceGuard();
   private readonly permissions = new PermissionCoordinator({
@@ -462,10 +477,40 @@ export class AgentConnectionManager {
     return result;
   }
 
-  getToolCalls(threadId: string): Record<string, AcpToolCallState> {
+  async getToolCalls(
+    threadId: string,
+    requestedIds?: readonly string[],
+  ): Promise<Record<string, AcpToolCallState>> {
     const runtime = this.sessions.get(threadId);
     if (!runtime) return {};
-    return hydrateToolCalls(runtime.slice.toolCalls, this.payloadsFor(runtime));
+    const ids = requestedIds?.length
+      ? requestedIds.filter((id) => Boolean(runtime.slice.toolCalls[id]))
+      : Object.keys(runtime.slice.toolCalls);
+    const payloads = this.payloadsFor(runtime);
+    const missingIds = ids.filter(
+      (id) => runtime.slice.toolCalls[id]?.hasPayload && !payloads.has(id),
+    );
+    if (missingIds.length > 0 && runtime.snapshotPayloadSource) {
+      try {
+        const restored = await this.snapshotStore.loadPayloads(
+          runtime.snapshotPayloadSource,
+          missingIds,
+        );
+        if (this.sessions.get(threadId) === runtime) {
+          for (const [id, payload] of restored) {
+            if (!payloads.has(id)) payloads.set(id, payload);
+          }
+        }
+      } catch (error) {
+        console.warn(`[thread-snapshot] selective payload restore failed for ${threadId}:`, error);
+        runtime.snapshotPayloadSource = undefined;
+        void this.deletePersistedSnapshot(threadId);
+      }
+    }
+    const selected = Object.fromEntries(
+      ids.map((id) => [id, runtime.slice.toolCalls[id]]).filter(([, toolCall]) => toolCall),
+    ) as Record<string, AcpToolCallState>;
+    return hydrateToolCalls(selected, payloads);
   }
 
   private payloadsFor(runtime: ThreadSessionRuntime): Map<string, ToolCallPayload> {
@@ -473,13 +518,41 @@ export class AgentConnectionManager {
     return runtime.toolPayloads;
   }
 
+  private beginThreadLoad(threadId: string): void {
+    this.loadingSessionThreads.add(threadId);
+    if (this.sessionReadyWaiters.has(threadId)) return;
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    this.sessionReadyWaiters.set(threadId, { promise, resolve });
+  }
+
+  private endThreadLoad(threadId: string): void {
+    this.loadingSessionThreads.delete(threadId);
+    const waiter = this.sessionReadyWaiters.get(threadId);
+    this.sessionReadyWaiters.delete(threadId);
+    waiter?.resolve();
+  }
+
+  private async waitForThreadReady(threadId: string): Promise<void> {
+    await this.sessionReadyWaiters.get(threadId)?.promise;
+    const runtime = this.sessions.get(threadId);
+    if (!runtime || runtime.agentReady === false) {
+      throw new Error("The agent session is not ready for this thread.");
+    }
+  }
+
   private retentionFor(runtime: ThreadSessionRuntime): SessionRetentionTracker {
     if (!runtime.retention) runtime.retention = new SessionRetentionTracker();
     return runtime.retention;
   }
 
-  private syncToolPayloads(runtime: ThreadSessionRuntime, update: SessionUpdate): void {
-    const payloads = this.payloadsFor(runtime);
+  private syncPayloadsFor(
+    slice: AcpSessionSlice,
+    payloads: Map<string, ToolCallPayload>,
+    update: SessionUpdate,
+  ): void {
     const extracted = payloadFromSessionUpdate(update);
     if (extracted) {
       payloads.set(
@@ -490,10 +563,18 @@ export class AgentConnectionManager {
     // Orphans can only appear when the reducer replaced the record with a
     // smaller one (trim). Chunk-heavy streams keep the record reference-equal,
     // so this scan runs per tool-call mutation instead of per streamed chunk.
-    if (runtime.slice.toolCalls !== runtime.lastSyncedToolCalls) {
-      runtime.lastSyncedToolCalls = runtime.slice.toolCalls;
-      this.evictOrphanToolPayloads(runtime);
+    for (const id of payloads.keys()) {
+      if (!slice.toolCalls[id]) payloads.delete(id);
     }
+  }
+
+  private syncToolPayloads(runtime: ThreadSessionRuntime, update: SessionUpdate): void {
+    const previous = runtime.lastSyncedToolCalls;
+    const extracted = payloadFromSessionUpdate(update);
+    if (runtime.slice.toolCalls === previous && !extracted) return;
+    this.syncPayloadsFor(runtime.slice, this.payloadsFor(runtime), update);
+    runtime.lastSyncedToolCalls = runtime.slice.toolCalls;
+    if (extracted) runtime.payloadRevision = (runtime.payloadRevision ?? 0) + 1;
   }
 
   private evictOrphanToolPayloads(runtime: ThreadSessionRuntime): void {
@@ -501,6 +582,200 @@ export class AgentConnectionManager {
     for (const id of payloads.keys()) {
       if (!runtime.slice.toolCalls[id]) payloads.delete(id);
     }
+  }
+
+  private scheduleSnapshot(runtime: ThreadSessionRuntime): void {
+    if (
+      !this.snapshotStore.enabled ||
+      this.snapshotWritesDisabled ||
+      runtime.snapshotDirty === false
+    ) {
+      return;
+    }
+    const existing = this.snapshotTimers.get(runtime.threadId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.snapshotTimers.delete(runtime.threadId);
+      void this.queueSnapshotWrite(runtime);
+    }, 2_000);
+    timer.unref?.();
+    this.snapshotTimers.set(runtime.threadId, timer);
+  }
+
+  private queueSnapshotWrite(runtime: ThreadSessionRuntime): Promise<void> {
+    if (
+      !this.snapshotStore.enabled ||
+      this.snapshotWritesDisabled ||
+      runtime.slice.isStreaming ||
+      runtime.promptInFlight ||
+      this.loadingSessionThreads.has(runtime.threadId) ||
+      runtime.agentReady === false
+    ) {
+      return Promise.resolve();
+    }
+    const input = {
+      threadId: runtime.threadId,
+      agentSessionId: runtime.agentSessionId,
+      agentId: runtime.agentId,
+      slice: runtime.slice,
+      payloads: new Map(this.payloadsFor(runtime)),
+    };
+    const payloadRevision = runtime.payloadRevision ?? 0;
+    const previous = this.snapshotWriteChains.get(runtime.threadId) ?? Promise.resolve();
+    const write = previous
+      .catch(() => undefined)
+      .then(() =>
+        this.snapshotStore.write({
+          ...input,
+          // Resolve the base generation only after the prior per-thread write
+          // settles; that write may have atomically replaced and unlinked it.
+          baseSnapshot: runtime.snapshotPayloadSource,
+        }),
+      )
+      .then((snapshot) => {
+        if (!snapshot || this.sessions.get(runtime.threadId) !== runtime) return;
+        runtime.snapshotPayloadSource = snapshot;
+        if ((runtime.payloadRevision ?? 0) === payloadRevision) {
+          // The immutable sidecar is now the backing store. Keep the main
+          // process lean; individual trace/diff payloads reload on demand.
+          this.payloadsFor(runtime).clear();
+          runtime.snapshotDirty = false;
+        }
+      })
+      .catch((error) => {
+        if (!this.snapshotWritesDisabled) {
+          console.warn("[thread-snapshot] disabling writes for this app session:", error);
+        }
+        this.snapshotWritesDisabled = true;
+      })
+      .finally(() => {
+        if (this.snapshotWriteChains.get(runtime.threadId) === write) {
+          this.snapshotWriteChains.delete(runtime.threadId);
+        }
+      });
+    this.snapshotWriteChains.set(runtime.threadId, write);
+    return write;
+  }
+
+  private async flushRuntimeSnapshot(runtime: ThreadSessionRuntime): Promise<void> {
+    const timer = this.snapshotTimers.get(runtime.threadId);
+    if (timer) clearTimeout(timer);
+    this.snapshotTimers.delete(runtime.threadId);
+    await this.queueSnapshotWrite(runtime);
+  }
+
+  /** Force a settled snapshot to disk (used by benchmark setup and shutdown). */
+  async flushThreadSnapshot(threadId: string): Promise<boolean> {
+    const runtime = this.sessions.get(threadId);
+    if (!runtime || runtime.agentReady === false || this.loadingSessionThreads.has(threadId)) {
+      return false;
+    }
+    await this.flushRuntimeSnapshot(runtime);
+    return !this.snapshotWritesDisabled;
+  }
+
+  private async flushAllSnapshots(): Promise<void> {
+    await Promise.all(
+      [...this.sessions.values()].map((runtime) => this.flushRuntimeSnapshot(runtime)),
+    );
+    await Promise.all(this.snapshotWriteChains.values());
+  }
+
+  private async deletePersistedSnapshot(threadId: string): Promise<void> {
+    const timer = this.snapshotTimers.get(threadId);
+    if (timer) clearTimeout(timer);
+    this.snapshotTimers.delete(threadId);
+    await this.snapshotWriteChains.get(threadId)?.catch(() => undefined);
+    await this.snapshotStore.delete(threadId).catch((error) => {
+      console.warn(`[thread-snapshot] delete failed for ${threadId}:`, error);
+    });
+  }
+
+  private settleRuntime(runtime: ThreadSessionRuntime): void {
+    runtime.slice = applyTurnStop(runtime.slice);
+    this.flushBackgroundToolCalls(runtime);
+    this.scheduleSnapshot(runtime);
+  }
+
+  private scheduleBackgroundToolCalls(runtime: ThreadSessionRuntime): void {
+    runtime.backgroundToolCallsDirty = true;
+    if (this.backgroundToolCallTimers.has(runtime.threadId)) return;
+    const timer = setTimeout(() => {
+      this.backgroundToolCallTimers.delete(runtime.threadId);
+      this.flushBackgroundToolCalls(runtime);
+    }, 100);
+    timer.unref?.();
+    this.backgroundToolCallTimers.set(runtime.threadId, timer);
+  }
+
+  private flushBackgroundToolCalls(runtime: ThreadSessionRuntime): void {
+    const timer = this.backgroundToolCallTimers.get(runtime.threadId);
+    if (timer) clearTimeout(timer);
+    this.backgroundToolCallTimers.delete(runtime.threadId);
+    if (!runtime.backgroundToolCallsDirty || this.sessions.get(runtime.threadId) !== runtime) {
+      return;
+    }
+    runtime.backgroundToolCallsDirty = false;
+    runtime.emittedToolCalls = runtime.slice.toolCalls;
+    this.emit({
+      type: "thread-tool-calls",
+      threadId: runtime.threadId,
+      toolCalls: runtime.slice.toolCalls,
+    });
+  }
+
+  private async yieldAfterBackgroundWork(
+    runtime: ThreadSessionRuntime,
+    loading: boolean,
+  ): Promise<void> {
+    if (!loading && runtime.threadId === this.activeThreadId) return;
+    const now = performance.now();
+    runtime.backgroundWorkStartedAt ??= now;
+    runtime.backgroundUpdatesSinceYield = (runtime.backgroundUpdatesSinceYield ?? 0) + 1;
+    if (runtime.backgroundUpdatesSinceYield < 32 && now - runtime.backgroundWorkStartedAt < 4) {
+      return;
+    }
+    runtime.backgroundUpdatesSinceYield = 0;
+    runtime.backgroundWorkStartedAt = performance.now();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  private scheduleAdjacentSnapshotPreload(activeThread: Thread): void {
+    if (!this.snapshotStore.enabled) return;
+    if (this.snapshotPreloadTask) clearImmediate(this.snapshotPreloadTask);
+    const candidates = listThreads()
+      .filter(
+        (thread) =>
+          thread.id !== activeThread.id &&
+          thread.project_id === activeThread.project_id &&
+          (thread.worktree_path ?? null) === (activeThread.worktree_path ?? null) &&
+          !this.sessions.has(thread.id),
+      )
+      .slice(0, 2);
+    if (candidates.length === 0) return;
+    this.snapshotPreloadTask = setImmediate(() => {
+      this.snapshotPreloadTask = null;
+      try {
+        this.snapshotStore.preload(candidates);
+      } catch (error) {
+        console.warn("[thread-snapshot] adjacent preload failed:", error);
+      }
+    });
+  }
+
+  private mergePendingLocalEntries(
+    runtime: ThreadSessionRuntime,
+    slice: AcpSessionSlice,
+  ): AcpSessionSlice {
+    const pending = runtime.pendingLocalEntries ?? [];
+    runtime.pendingLocalEntries = [];
+    if (pending.length === 0) return applyTurnStop(slice);
+    const settled = applyTurnStop(slice);
+    return trimSessionSlice({
+      ...settled,
+      entries: [...settled.entries, ...pending],
+      isStreaming: true,
+    });
   }
 
   getPreferredAgentId(): string {
@@ -802,6 +1077,7 @@ export class AgentConnectionManager {
     this.prompts.abortAll();
     this.toolCallStarts.clear();
     for (const [threadId, runtime] of this.sessions.entries()) {
+      this.endThreadLoad(threadId);
       this.monitorObserver?.onSessionCacheEvent?.({
         timestamp: Date.now(),
         action: "clear_all",
@@ -833,6 +1109,7 @@ export class AgentConnectionManager {
         this.terminalManager.releaseSession(runtime.agentSessionId);
         this.subagents.releaseSessionMcp(runtime.agentSessionId);
         this.releaseWorkspaceRoot(runtime.agentSessionId);
+        this.endThreadLoad(threadId);
         this.sessions.remove(threadId);
         this.monitorObserver?.onSessionCacheEvent?.({
           timestamp: Date.now(),
@@ -896,13 +1173,33 @@ export class AgentConnectionManager {
     // only when THIS runtime's flag flipped, not on every streamed chunk.
     const wasStreaming = runtime.slice.isStreaming;
     const loading = this.loadingSessionThreads.has(runtime.threadId);
+    const replayingSnapshot = loading && runtime.replaySlice != null;
+    const targetSlice = replayingSnapshot ? runtime.replaySlice! : runtime.slice;
+    const updateToolCallId =
+      update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update"
+        ? update.toolCallId
+        : null;
+    const payloadAlreadyPersisted = Boolean(
+      replayingSnapshot &&
+      updateToolCallId &&
+      runtime.snapshotPayloadSource?.slice.toolCalls[updateToolCallId],
+    );
+    const targetPayloads = replayingSnapshot
+      ? payloadAlreadyPersisted
+        ? null
+        : (runtime.replayToolPayloads ??= new Map())
+      : this.payloadsFor(runtime);
     // Capture the observer method once: the null/undefined check must survive
     // to the call below, and `this.monitorObserver` alone doesn't narrow.
     const acpObserver = this.monitorObserver?.onAcpUpdate;
     if (!acpObserver) {
-      if (loading) applySessionUpdateInPlace(runtime.slice, update);
-      else runtime.slice = applySessionUpdate(runtime.slice, update);
-      this.syncToolPayloads(runtime, update);
+      if (loading) {
+        applySessionUpdateInPlace(targetSlice, update);
+        if (targetPayloads) this.syncPayloadsFor(targetSlice, targetPayloads, update);
+      } else {
+        runtime.slice = applySessionUpdate(runtime.slice, update);
+        this.syncToolPayloads(runtime, update);
+      }
     } else {
       runtime.monitorUpdateCount += 1;
       const sampledRetention =
@@ -910,14 +1207,14 @@ export class AgentConnectionManager {
       const tracker = this.retentionFor(runtime);
       let retained;
       if (loading) {
-        const before = sampledRetention ? captureRetentionTail(runtime.slice) : null;
-        applySessionUpdateInPlace(runtime.slice, update);
-        this.syncToolPayloads(runtime, update);
+        const before = sampledRetention ? captureRetentionTail(targetSlice) : null;
+        applySessionUpdateInPlace(targetSlice, update);
+        if (targetPayloads) this.syncPayloadsFor(targetSlice, targetPayloads, update);
         retained = before
-          ? tracker.observeAfterMutation(before, runtime.slice, update)
+          ? tracker.observeAfterMutation(before, targetSlice, update)
           : {
-              entryCount: runtime.slice.entries.length,
-              toolCallCount: tracker.snapshot(runtime.slice).toolCallCount,
+              entryCount: targetSlice.entries.length,
+              toolCallCount: tracker.snapshot(targetSlice).toolCallCount,
               textBytes: 0,
               thoughtBytes: 0,
               toolPayloadBytes: 0,
@@ -951,11 +1248,21 @@ export class AgentConnectionManager {
         updateType: update.sessionUpdate,
         updateBytes: jsonBytes(update),
         handlerDurationMs: performance.now() - startedAt,
-        isStreaming: runtime.slice.isStreaming,
+        isStreaming: targetSlice.isStreaming,
         ...retained,
       });
     }
-    if (loading) return;
+    if (loading) {
+      if (!replayingSnapshot || (updateToolCallId != null && !payloadAlreadyPersisted)) {
+        runtime.snapshotDirty = true;
+        if (payloadFromSessionUpdate(update)) {
+          runtime.payloadRevision = (runtime.payloadRevision ?? 0) + 1;
+        }
+      }
+      await this.yieldAfterBackgroundWork(runtime, true);
+      return;
+    }
+    runtime.snapshotDirty = true;
     // `applySessionUpdate` sets isStreaming=true for every agent chunk/tool_call,
     // but only `applyTurnStop` (on the prompt request resolving) clears it. An
     // update that lands outside an active turn — a late flush after the response,
@@ -972,7 +1279,12 @@ export class AgentConnectionManager {
     }
     // A background thread's streaming can flip via updates without a pushState; keep
     // tabs in sync — but only signal an actual streaming transition.
-    if (wasStreaming !== runtime.slice.isStreaming) this.emitRunningThreads();
+    if (wasStreaming !== runtime.slice.isStreaming) {
+      if (runtime.threadId !== this.activeThreadId && !runtime.slice.isStreaming) {
+        this.flushBackgroundToolCalls(runtime);
+      }
+      this.emitRunningThreads();
+    }
 
     if (runtime.slice.titleChanged && runtime.slice.title && this.sessions.has(runtime.threadId)) {
       updateThreadTitle(runtime.threadId, runtime.slice.title);
@@ -988,21 +1300,34 @@ export class AgentConnectionManager {
       type: "session-update",
       sessionId,
       threadId: runtime.threadId,
-      update,
+      update: stripToolPayloadFromSessionUpdate(update),
     };
 
-    this.emit(event);
+    const isActiveThread = runtime.threadId === this.activeThreadId;
+    // The renderer discards background session-update deltas. Do not pay IPC,
+    // structured-clone, and store-dispatch cost for events it cannot use.
+    if (isActiveThread) this.emit(event);
     // Message-chunk updates leave the tool-call record untouched; only
     // re-broadcast the full record when the reducer actually replaced it.
     // Resending it per chunk made live streaming O(total tool payload) per
     // update across IPC, structured clone, and renderer store spreads.
     if (runtime.slice.toolCalls !== runtime.emittedToolCalls) {
-      runtime.emittedToolCalls = runtime.slice.toolCalls;
-      this.emit({
-        type: "thread-tool-calls",
-        threadId: runtime.threadId,
-        toolCalls: runtime.slice.toolCalls,
-      });
+      if (isActiveThread) {
+        runtime.emittedToolCalls = runtime.slice.toolCalls;
+        const changedToolCall = updateToolCallId
+          ? runtime.slice.toolCalls[updateToolCallId]
+          : undefined;
+        this.emit({
+          type: "thread-tool-calls",
+          threadId: runtime.threadId,
+          toolCalls: changedToolCall
+            ? { [updateToolCallId]: changedToolCall }
+            : runtime.slice.toolCalls,
+          replace: !changedToolCall,
+        });
+      } else {
+        this.scheduleBackgroundToolCalls(runtime);
+      }
     }
     // The renderer applies the same pure reducer to session-update. Sending a
     // full session-state snapshot for every chunk needlessly rebuilds the panel
@@ -1011,6 +1336,7 @@ export class AgentConnectionManager {
     if (!runtime.promptInFlight && runtime.threadId === this.activeThreadId) {
       this.pushState(runtime.threadId);
     }
+    await this.yieldAfterBackgroundWork(runtime, false);
   }
 
   private handlePermissionRequest(
@@ -1069,7 +1395,7 @@ export class AgentConnectionManager {
 
     void this.requestPrompt(live, runtime, prompt.blocks, prompt.streamingBehavior)
       .then((result) => {
-        runtime.slice = applyTurnStop(runtime.slice);
+        this.settleRuntime(runtime);
         this.captureAnalytics?.("turn_completed", {
           ...agentProps,
           thread_id: runtime.threadId,
@@ -1099,7 +1425,7 @@ export class AgentConnectionManager {
         prompt.resolve(result);
       })
       .catch((error) => {
-        runtime.slice = applyTurnStop(runtime.slice);
+        this.settleRuntime(runtime);
         this.captureAnalytics?.("turn_failed", {
           ...agentProps,
           thread_id: runtime.threadId,
@@ -1596,75 +1922,161 @@ export class AgentConnectionManager {
     onPhase: (phase: MonitorSwitchPhase) => void,
     signal?: AbortSignal,
   ): Promise<OpenTabsState> {
+    const restoreStartedAt = performance.now();
+    let openAnalyticsCaptured = false;
     const thread = getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     const project = getProject(thread.project_id);
     if (!project) throw new Error(`Project not found: ${thread.project_id}`);
 
-    // Switch agent if needed. Cold spawns are the longest activation phase
-    // (up to the npx initialize timeout); abandoning an await is safe because
-    // ConnectionLifecycle dedups spawns — the next activation shares its result.
-    if (thread.agent_id && thread.agent_id !== this.lifecycle.active?.agentId) {
-      try {
-        await raceActivation(this.switchAgent(thread.agent_id), signal);
-      } catch (err) {
-        if (isActivationSuperseded(err)) throw err;
-        // Fall back to preferred / default if registered agent missing
-        await raceActivation(this.ensureConnection(this.preferredAgentId), signal);
-      }
-    } else {
-      await raceActivation(this.ensureConnection(thread.agent_id || this.preferredAgentId), signal);
-    }
-
-    const live = this.lifecycle.active!;
+    // Bind the session to its worktree (validated), else the project root.
+    const cwd = this.resolveThreadCwd(thread.worktree_path, project.path);
     const projectChanged = this.activeProjectId !== project.id;
     this.activeProjectId = project.id;
     this.activeThreadId = threadId;
-    this.publishActiveAgentContext(live.agentId);
     setActiveProjectId(project.id);
     if (projectChanged) this.broadcastActiveProject?.(project.id);
 
-    // Bind the session to its worktree (validated), else the project root.
-    const cwd = this.resolveThreadCwd(thread.worktree_path, project.path);
     const generation = ++this.activationGeneration;
     this.threadActivationGenerations.set(threadId, generation);
+    let runtime = this.sessions.get(threadId);
+    const runtimeWasResident = runtime?.agentReady !== false && runtime != null;
+    let restoredSnapshot: LoadedThreadSnapshot | null = null;
+
+    // The display cache is intentionally restored before spawning or switching
+    // an agent. Reading a thread must never wait for a CLI handshake.
+    if (!runtime) {
+      try {
+        restoredSnapshot = this.snapshotStore.load(thread);
+      } catch (error) {
+        console.warn(`[thread-snapshot] restore failed for ${threadId}:`, error);
+      }
+      if (restoredSnapshot) {
+        onPhase("snapshot_restore");
+        runtime = {
+          threadId,
+          agentSessionId: thread.agent_session_id,
+          agentId: thread.agent_id,
+          projectId: project.id,
+          cwd,
+          slice: restoredSnapshot.slice,
+          editorText: "",
+          promptInFlight: false,
+          activeTurnId: null,
+          monitorUpdateCount: 0,
+          toolPayloads: new Map(),
+          retention: new SessionRetentionTracker(),
+          emittedToolCalls: null,
+          agentReady: false,
+          snapshotRestored: true,
+          replaySlice: createEmptySessionSlice(),
+          replayToolPayloads: new Map(),
+          pendingLocalEntries: [],
+          payloadsReady: true,
+          snapshotPayloadSource: restoredSnapshot,
+          snapshotDirty: false,
+          payloadRevision: 0,
+        };
+        this.sessions.register(runtime);
+        this.beginThreadLoad(threadId);
+        this.monitorObserver?.onSessionCacheEvent?.({
+          timestamp: Date.now(),
+          action: "insert",
+          threadId,
+          agentSessionId: thread.agent_session_id,
+          agentId: thread.agent_id,
+          trigger: "switch_snapshot",
+          cachedSessionCount: this.sessions.size,
+          openTabCount: 0,
+          cachedThreadIds: [...this.sessions.keys()],
+        });
+        this.pushState(threadId);
+        this.captureAnalytics?.("thread_opened", {
+          project_id: project.id,
+          thread_id: threadId,
+          agent_id: thread.agent_id,
+          thread_open_source: "snapshot",
+          restore_duration_ms: performance.now() - restoreStartedAt,
+        });
+        openAnalyticsCaptured = true;
+        this.scheduleAdjacentSnapshotPreload(thread);
+      }
+    }
+
+    // Agent restoration is the non-paint-critical phase. Cold spawns can take
+    // seconds, but a snapshot-restored timeline above is already interactive.
+    try {
+      if (thread.agent_id && thread.agent_id !== this.lifecycle.active?.agentId) {
+        try {
+          await raceActivation(this.switchAgent(thread.agent_id), signal);
+        } catch (err) {
+          if (isActivationSuperseded(err)) throw err;
+          await raceActivation(this.ensureConnection(this.preferredAgentId), signal);
+        }
+      } else {
+        await raceActivation(
+          this.ensureConnection(thread.agent_id || this.preferredAgentId),
+          signal,
+        );
+      }
+    } catch (error) {
+      if (runtime?.agentReady === false) {
+        this.sessions.remove(threadId);
+        this.endThreadLoad(threadId);
+      }
+      throw error;
+    }
+
+    const live = this.lifecycle.active!;
+    this.publishActiveAgentContext(live.agentId);
 
     // Close previous session optionally — skip for rapid switches; load new
-    if (!this.sessions.has(threadId)) {
-      onPhase("session_load");
+    if (!runtime || runtime.agentReady === false) {
+      if (!restoredSnapshot) onPhase("session_load");
       // Register the runtime BEFORE awaiting session/load: agents stream the
       // conversation replay as session/update notifications while the load
       // request is still in flight, and handleSessionUpdate can only route
       // them into this slice if the sessionId is already known here. Without
       // this, a reloaded thread renders with an empty timeline.
-      const runtime = {
-        threadId,
-        agentSessionId: thread.agent_session_id,
-        agentId: live.agentId,
-        projectId: project.id,
-        cwd,
-        slice: createEmptySessionSlice(),
-        editorText: "",
-        promptInFlight: false,
-        activeTurnId: null,
-        monitorUpdateCount: 0,
-        toolPayloads: new Map(),
-        retention: new SessionRetentionTracker(),
-        emittedToolCalls: null,
-      };
-      this.sessions.register(runtime);
-      this.monitorObserver?.onSessionCacheEvent?.({
-        timestamp: Date.now(),
-        action: "insert",
-        threadId,
-        agentSessionId: thread.agent_session_id,
-        agentId: live.agentId,
-        trigger: "switch_load",
-        cachedSessionCount: this.sessions.size,
-        openTabCount: 0,
-        cachedThreadIds: [...this.sessions.keys()],
-      });
-      this.loadingSessionThreads.add(threadId);
+      if (!runtime) {
+        runtime = {
+          threadId,
+          agentSessionId: thread.agent_session_id,
+          agentId: live.agentId,
+          projectId: project.id,
+          cwd,
+          slice: createEmptySessionSlice(),
+          editorText: "",
+          promptInFlight: false,
+          activeTurnId: null,
+          monitorUpdateCount: 0,
+          toolPayloads: new Map(),
+          retention: new SessionRetentionTracker(),
+          emittedToolCalls: null,
+          agentReady: false,
+          snapshotRestored: false,
+          payloadsReady: true,
+          snapshotDirty: true,
+          payloadRevision: 0,
+        };
+        this.sessions.register(runtime);
+        this.beginThreadLoad(threadId);
+        this.monitorObserver?.onSessionCacheEvent?.({
+          timestamp: Date.now(),
+          action: "insert",
+          threadId,
+          agentSessionId: thread.agent_session_id,
+          agentId: live.agentId,
+          trigger: "switch_load",
+          cachedSessionCount: this.sessions.size,
+          openTabCount: 0,
+          cachedThreadIds: [...this.sessions.keys()],
+        });
+      } else if (!this.loadingSessionThreads.has(threadId)) {
+        runtime.replaySlice = createEmptySessionSlice();
+        runtime.replayToolPayloads = new Map();
+        this.beginThreadLoad(threadId);
+      }
 
       try {
         let sessionId = thread.agent_session_id;
@@ -1688,8 +2100,14 @@ export class AgentConnectionManager {
           // partial replay before erroring; drop it so the fallback path
           // doesn't append onto half a timeline.
           runtime.slice = createEmptySessionSlice();
+          runtime.snapshotRestored = false;
+          runtime.snapshotPayloadSource = undefined;
+          runtime.snapshotDirty = true;
+          runtime.replaySlice = undefined;
+          runtime.replayToolPayloads = undefined;
           this.retentionFor(runtime).reset();
           this.payloadsFor(runtime).clear();
+          if (runtime.threadId === this.activeThreadId) this.pushState(runtime.threadId);
           try {
             const resumed = await raceActivation(
               this.sessionResume(live, thread.agent_session_id, cwd),
@@ -1715,6 +2133,20 @@ export class AgentConnectionManager {
         // here under the session's NEW id.
         this.sessions.rebindSession(threadId, sessionId);
         this.registerWorkspaceRoot(sessionId, cwd);
+        if (runtime.replaySlice) {
+          runtime.slice = this.mergePendingLocalEntries(runtime, runtime.replaySlice);
+          for (const [id, payload] of runtime.replayToolPayloads ?? []) {
+            this.payloadsFor(runtime).set(id, payload);
+          }
+          runtime.replaySlice = undefined;
+          runtime.replayToolPayloads = undefined;
+          runtime.snapshotRestored = false;
+          runtime.payloadsReady = true;
+        } else {
+          // Resume/new fallback may also have accumulated a prompt locally
+          // while the agent was reconnecting. Preserve it across the swap.
+          runtime.slice = this.mergePendingLocalEntries(runtime, runtime.slice);
+        }
         if (configOptions.length > 0 || runtime.slice.configOptions.length === 0) {
           runtime.slice = { ...runtime.slice, configOptions };
         }
@@ -1722,9 +2154,10 @@ export class AgentConnectionManager {
         // Individual chunks set isStreaming while they are reduced; clear it
         // once the load request has delivered the complete replay. Trim was
         // deferred during replay so the cap still applies exactly once here.
-        runtime.slice = applyTurnStop(runtime.slice);
         this.evictOrphanToolPayloads(runtime);
         this.retentionFor(runtime).recompute(runtime.slice);
+        runtime.agentReady = true;
+        if (!runtime.slice.isStreaming) this.scheduleSnapshot(runtime);
       } catch (err) {
         // No session could be established — remove the placeholder so a
         // retry doesn't silently reuse a dead runtime.
@@ -1744,7 +2177,7 @@ export class AgentConnectionManager {
         this.threadActivationGenerations.delete(threadId);
         throw err;
       } finally {
-        this.loadingSessionThreads.delete(threadId);
+        this.endThreadLoad(threadId);
       }
     }
 
@@ -1755,6 +2188,16 @@ export class AgentConnectionManager {
     // open-tabs queues, and FIFO order across activations preserves the
     // single-writer selection invariant.
     this.pushState(threadId);
+    this.scheduleAdjacentSnapshotPreload(thread);
+    if (!openAnalyticsCaptured) {
+      this.captureAnalytics?.("thread_opened", {
+        project_id: project.id,
+        thread_id: threadId,
+        agent_id: runtime.agentId,
+        thread_open_source: runtimeWasResident ? "resident" : "replay",
+        restore_duration_ms: performance.now() - restoreStartedAt,
+      });
+    }
     // Every thread activation reconciles the persisted workspace to the
     // session's actual cwd — the main process is the single writer for the
     // canonical selection, and the renderer only mirrors it. This keeps
@@ -1842,6 +2285,9 @@ export class AgentConnectionManager {
       toolPayloads: new Map(),
       retention: new SessionRetentionTracker(),
       emittedToolCalls: null,
+      agentReady: true,
+      snapshotRestored: false,
+      payloadsReady: true,
     });
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),
@@ -1929,6 +2375,8 @@ export class AgentConnectionManager {
       }
     }
     this.releaseWorkspaceRoot(sessionId);
+    this.endThreadLoad(threadId);
+    await this.deletePersistedSnapshot(threadId);
     this.sessions.remove(threadId);
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),
@@ -1999,6 +2447,8 @@ export class AgentConnectionManager {
       }
     }
     this.releaseWorkspaceRoot(runtime.agentSessionId);
+    await this.flushRuntimeSnapshot(runtime);
+    this.endThreadLoad(threadId);
     this.sessions.remove(threadId);
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),
@@ -2047,9 +2497,29 @@ export class AgentConnectionManager {
         await this.switchThread(threadId);
       }
     }
-    const runtime = this.sessions.get(threadId);
-    const live = runtime ? this.connectionForAgent(runtime.agentId) : null;
-    if (!runtime || !live) throw new Error("No session for thread");
+    let runtime = this.sessions.get(threadId);
+    if (!runtime) throw new Error("No session for thread");
+    let appendedWhileLoading = false;
+    if (runtime.agentReady === false || this.loadingSessionThreads.has(threadId)) {
+      if (appendUserMessage && (input.message || input.images?.length)) {
+        const nextSlice = appendLocalUserMessage(
+          runtime.slice,
+          input.message ?? "",
+          undefined,
+          input.images,
+        );
+        const localEntry = nextSlice.entries.at(-1);
+        runtime.slice = nextSlice;
+        if (localEntry) (runtime.pendingLocalEntries ??= []).push(localEntry);
+        appendedWhileLoading = true;
+        this.pushState(threadId);
+      }
+      await this.waitForThreadReady(threadId);
+      runtime = this.sessions.get(threadId);
+      if (!runtime) throw new Error("No session for thread");
+    }
+    const live = this.connectionForAgent(runtime.agentId);
+    if (!live || runtime.agentReady === false) throw new Error("No ready agent session for thread");
 
     if (runtime.promptInFlight && !input.streamingBehavior) {
       throw new Error("A prompt is already in flight; choose follow-up or steer to queue it.");
@@ -2065,8 +2535,13 @@ export class AgentConnectionManager {
       allowEmbeddedContext: Boolean(caps?.embeddedContext),
     });
 
-    if (appendUserMessage && input.message) {
-      runtime.slice = appendLocalUserMessage(runtime.slice, input.message);
+    if (!appendedWhileLoading && appendUserMessage && (input.message || input.images?.length)) {
+      runtime.slice = appendLocalUserMessage(
+        runtime.slice,
+        input.message ?? "",
+        undefined,
+        input.images,
+      );
       this.pushState(threadId);
     }
 
@@ -2140,7 +2615,7 @@ export class AgentConnectionManager {
       );
       runtime.promptInFlight = false;
       runtime.activeTurnId = null;
-      runtime.slice = applyTurnStop(runtime.slice);
+      this.settleRuntime(runtime);
       this.pushState(threadId);
     } catch {
       runtime.promptInFlight = false;
@@ -2335,10 +2810,11 @@ export class AgentConnectionManager {
     await this.activateProject(state.projectId, state.threadId);
   }
 
-  dispose(): Promise<void> {
+  async dispose(): Promise<void> {
     this.terminalManager.killAll();
     this.subagents.dispose();
-    return this.closeConnection();
+    await this.flushAllSnapshots();
+    await this.closeConnection();
   }
 
   /** @deprecated Compact is agent-owned; no-op. */

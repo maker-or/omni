@@ -429,26 +429,26 @@ export function GlobalTabBar() {
       handleSelectTerminal(value.slice(TERMINAL_TAB_PREFIX.length));
       return;
     }
+    const highlightPaint = new Promise<number>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve(performance.now() - clickStartedAt));
+      });
+    });
     void handleSelectThread(value)
-      .then(() => {
+      .then(async () => {
         const clickToSwitchResolvedMs = performance.now() - clickStartedAt;
-        // Double rAF approximates the next committed paint of the newly
-        // highlighted tab. If the renderer main thread is starved (100% CPU),
-        // this number stays large even when the main-process switch was a fast
-        // cache hit — which is exactly the symptom we're trying to isolate.
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const clickToHighlightPaintMs = performance.now() - clickStartedAt;
-            void window.omni.monitor?.reportTabClickTiming({
-              timestamp: Date.now(),
-              threadId: value,
-              clickToHighlightPaintMs,
-              clickToSwitchResolvedMs,
-              switchDurationMs: null,
-              phase: null,
-              success: true,
-            });
-          });
+        // The selected tab changes optimistically, before the main-process
+        // activation promise settles. Start its double-rAF clock at click time
+        // so a background snapshot reconciliation is not misreported as paint.
+        const clickToHighlightPaintMs = await highlightPaint;
+        void window.omni.monitor?.reportTabClickTiming({
+          timestamp: Date.now(),
+          threadId: value,
+          clickToHighlightPaintMs,
+          clickToSwitchResolvedMs,
+          switchDurationMs: null,
+          phase: null,
+          success: true,
         });
       })
       .catch((err) => {

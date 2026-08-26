@@ -27,6 +27,7 @@
     "test:coverage": "node scripts/run-vitest.mjs run --coverage",
     "bench:fixture": "node benchmarks/generate-conversation-fixture.mjs",
     "bench:thread": "node benchmarks/run-thread-benchmark.mjs",
+    "bench:open": "node benchmarks/run-app-open-benchmark.mjs",
     "bench:query": "node benchmarks/query-thread-benchmark.mjs"
   },
   "dependencies": {

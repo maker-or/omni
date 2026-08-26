@@ -23,6 +23,7 @@ export type AnalyticsEventName =
   | "worktree_created"
   | "workspace_switched"
   | "thread_created"
+  | "thread_opened"
   | "agent_run_completed"
   // v2 — usage & duration
   | "app_closed"
@@ -54,6 +55,7 @@ export interface AnalyticsProperties {
   model_provider?: string;
   intent_category?: IntentCategory;
   source?: AnalyticsSource;
+  thread_open_source?: "resident" | "snapshot" | "replay";
   icon?: string;
   execution_duration_ms?: number;
   files_changed_count?: number;
@@ -91,6 +93,7 @@ export interface AnalyticsProperties {
   build_duration_ms?: number;
   download_duration_ms?: number;
   total_duration_ms?: number;
+  restore_duration_ms?: number;
   iterations?: number;
   depth?: number;
   heartbeat_seconds?: number;

@@ -594,6 +594,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     subagentRuns,
     connect,
     refresh,
+    hydrateToolCalls,
     sendPrompt,
     replacePrompt,
     abort,
@@ -2258,12 +2259,29 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                                   firstToolCallId ? diffSummaries[firstToolCallId] : undefined
                                 }
                                 traceDeckOpen={traceDeckOpenByKey[msgId] ?? false}
-                                onTraceDeckOpenChange={(open) =>
+                                onTraceDeckOpenChange={(open) => {
                                   setTraceDeckOpenByKey((current) => ({
                                     ...current,
                                     [msgId]: open,
-                                  }))
-                                }
+                                  }));
+                                  if (open && snapshot?.threadId) {
+                                    const toolCallIds = messages.flatMap((message) => {
+                                      const content = (message as { content?: unknown }).content;
+                                      if (!Array.isArray(content)) return [];
+                                      return content
+                                        .filter((part): part is { type: "toolCall"; id: string } =>
+                                          Boolean(
+                                            part &&
+                                            typeof part === "object" &&
+                                            (part as { type?: string }).type === "toolCall" &&
+                                            typeof (part as { id?: unknown }).id === "string",
+                                          ),
+                                        )
+                                        .map((part) => part.id);
+                                    });
+                                    void hydrateToolCalls(snapshot.threadId, toolCallIds);
+                                  }
+                                }}
                               />
                             ) : undefined}
                           </ChatMessage>

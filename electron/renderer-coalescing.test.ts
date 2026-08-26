@@ -110,15 +110,26 @@ describe("hidden-window delta coalescing", () => {
     expect(events.filter((event) => event.type === "session-update")).toEqual([]);
   });
 
-  test("session-updates flow normally when visible", async () => {
+  test("active session-updates flow normally when visible", async () => {
     const { manager, events } = makeManager({ initialVisible: true });
     seedSession(manager, "t1", "s1", true);
+    (manager as unknown as { activeThreadId: string | null }).activeThreadId = "t1";
 
     await sendChunk(manager, "s1", "hello");
 
     expect(
       events.filter((event) => event.type === "session-update" && event.threadId === "t1"),
     ).toHaveLength(1);
+  });
+
+  test("background session-updates stay off IPC even when visible", async () => {
+    const { manager, events } = makeManager({ initialVisible: true });
+    seedSession(manager, "t1", "s1", true);
+    (manager as unknown as { activeThreadId: string | null }).activeThreadId = "other";
+
+    await sendChunk(manager, "s1", "hello");
+
+    expect(events.filter((event) => event.type === "session-update")).toEqual([]);
   });
 
   test("becoming visible pushes one authoritative snapshot instead of replaying deltas", async () => {

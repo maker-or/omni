@@ -34,6 +34,7 @@ import { recordRendererEvent } from "../lib/monitor-runtime-observer";
 import { estimateJsonBytes } from "../lib/session-retention";
 import {
   forgetThreadToolPayloads,
+  rememberHydratedToolCalls,
   rememberToolPayloadFromUpdate,
   syncToolPayloadIds,
 } from "./tool-payload-store";
@@ -121,6 +122,7 @@ interface AgentState {
   error: string | null;
   connect: () => Promise<void>;
   refresh: () => Promise<void>;
+  hydrateToolCalls: (threadId: string, toolCallIds: string[]) => Promise<void>;
   respondToPermission: (response: {
     sessionId: string;
     requestId?: string | number;
@@ -486,11 +488,22 @@ function applyBridgeEvent(
   }
 
   if (payload.type === "thread-tool-calls") {
+    const toolCalls =
+      payload.replace === false
+        ? {
+            ...state.threadToolCalls[payload.threadId],
+            ...payload.toolCalls,
+          }
+        : payload.toolCalls;
+    const threadToolCalls = {
+      ...state.threadToolCalls,
+      [payload.threadId]: toolCalls,
+    };
+    if (state.state?.threadId !== payload.threadId) return { threadToolCalls };
     return {
-      threadToolCalls: {
-        ...state.threadToolCalls,
-        [payload.threadId]: payload.toolCalls,
-      },
+      threadToolCalls,
+      slice: { ...state.slice, toolCalls },
+      state: { ...state.state, toolCalls },
     };
   }
 
@@ -861,6 +874,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         });
       }
     }
+  },
+
+  hydrateToolCalls: async (threadId, toolCallIds) => {
+    if (toolCallIds.length === 0 || !window.omni?.agent?.getToolCalls) return;
+    const remote = await window.omni.agent.getToolCalls(threadId, toolCallIds);
+    if (Object.keys(remote).length === 0) return;
+    rememberHydratedToolCalls(threadId, remote);
+    set((current) => {
+      const threadToolCalls = {
+        ...current.threadToolCalls,
+        [threadId]: {
+          ...current.threadToolCalls[threadId],
+          ...remote,
+        },
+      };
+      if (current.state?.threadId !== threadId) return { threadToolCalls };
+      const toolCalls = { ...current.state.toolCalls, ...remote };
+      const nextState = { ...current.state, toolCalls };
+      return withSnapshot({
+        state: nextState,
+        slice: { ...current.slice, toolCalls },
+        threadToolCalls,
+      });
+    });
   },
 
   respondToPermission: async (response) => {

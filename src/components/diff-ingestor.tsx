@@ -23,7 +23,6 @@ export function DiffIngestor() {
   const isOpen = useDiffStore((state) => state.isOpen);
   const clear = useDiffStore((state) => state.clear);
   const baselineToolCallIds = useRef<Record<string, Set<string>>>({});
-  const hydratedThreadIds = useRef<Set<string>>(new Set());
   const previousActiveThreadId = useRef<string | null>(null);
   const previousRunningThreadIds = useRef<Set<string>>(new Set());
   const wasStreaming = useRef(false);
@@ -32,7 +31,6 @@ export function DiffIngestor() {
   useEffect(() => {
     if (!activeThreadId) {
       baselineToolCallIds.current = {};
-      hydratedThreadIds.current = new Set();
       previousActiveThreadId.current = null;
       previousRunningThreadIds.current = new Set();
       wasStreaming.current = false;
@@ -51,21 +49,11 @@ export function DiffIngestor() {
     const running = new Set(runningThreadIds);
 
     void (async () => {
-      const resolvedActive = await resolveToolCalls(activeThreadId, typedToolCalls);
-      if (cancelled) return;
-
       if (activeChanged) {
         activateThread(activeThreadId);
-        baselineToolCallIds.current[activeThreadId] = new Set(Object.keys(resolvedActive));
+        baselineToolCallIds.current[activeThreadId] = new Set(Object.keys(typedToolCalls));
         previousActiveThreadId.current = activeThreadId;
         wasStreaming.current = isStreaming;
-
-        if (!isStreaming && !hydratedThreadIds.current.has(activeThreadId)) {
-          for (const run of assistantToolCallRuns(activeEntries, resolvedActive)) {
-            recordTurnSummary(activeThreadId, run.key, run.toolCalls);
-          }
-          hydratedThreadIds.current.add(activeThreadId);
-        }
       }
 
       for (const threadId of running) {
@@ -79,9 +67,16 @@ export function DiffIngestor() {
         (threadId) => !running.has(threadId),
       );
       for (const threadId of completedThreadIds) {
-        const calls = await resolveToolCalls(threadId, threadToolCalls[threadId] ?? {});
-        if (cancelled) return;
+        const backgroundCalls = threadToolCalls[threadId] ?? {};
         const baseline = baselineToolCallIds.current[threadId] ?? new Set<string>();
+        const newCalls = Object.fromEntries(
+          Object.entries(backgroundCalls).filter(([id]) => !baseline.has(id)),
+        );
+        const diffIds = Object.values(newCalls)
+          .filter((toolCall) => toolCall.hasDiff)
+          .map((toolCall) => toolCall.toolCallId);
+        const calls = await resolveToolCalls(threadId, backgroundCalls, diffIds);
+        if (cancelled) return;
         const turnToolCalls = Object.fromEntries(
           Object.entries(calls).filter(([id]) => !baseline.has(id)),
         );
@@ -99,7 +94,20 @@ export function DiffIngestor() {
 
       const justSettled = wasStreaming.current && !isStreaming;
       if (justSettled) {
-        const currentTurnToolCalls = toolCallsAfterLastUserMessage(activeEntries, resolvedActive);
+        const leanCurrentTurn = toolCallsAfterLastUserMessage(activeEntries, typedToolCalls);
+        const currentDiffIds = Object.values(leanCurrentTurn)
+          .filter((toolCall) => toolCall.hasDiff)
+          .map((toolCall) => toolCall.toolCallId);
+        const resolvedCurrentTurn = await resolveToolCalls(
+          activeThreadId,
+          typedToolCalls,
+          currentDiffIds,
+        );
+        if (cancelled) return;
+        const currentTurnToolCalls = toolCallsAfterLastUserMessage(
+          activeEntries,
+          resolvedCurrentTurn,
+        );
         if (Object.keys(currentTurnToolCalls).length > 0) {
           recordTurnSummary(
             activeThreadId,
@@ -114,7 +122,12 @@ export function DiffIngestor() {
       // refresh an already-open panel once, but never on intermediate chunks.
       const shouldLoadLatest = isOpen && (!previousOpen.current || activeChanged || justSettled);
       if (shouldLoadLatest && !isStreaming) {
-        const metrics = ingestToolCalls(activeThreadId, resolvedActive, true);
+        const allDiffIds = Object.values(typedToolCalls)
+          .filter((toolCall) => toolCall.hasDiff)
+          .map((toolCall) => toolCall.toolCallId);
+        const resolvedForPanel = await resolveToolCalls(activeThreadId, typedToolCalls, allDiffIds);
+        if (cancelled) return;
+        const metrics = ingestToolCalls(activeThreadId, resolvedForPanel, true);
         if (metrics) {
           const threadCount = Object.keys(threadToolCalls).filter((id) => id !== "__none__").length;
           recordDiffIngestion({ ...metrics, threadCount, toolCallCount: metrics.toolCallCount });
@@ -170,33 +183,6 @@ function toolCallsAfterLastUserMessage(
     )
     .map((entry) => entry.toolCallId);
   return Object.fromEntries(ids.map((id) => [id, toolCalls[id]]).filter(([, call]) => call));
-}
-
-function assistantToolCallRuns(
-  entries: ReturnType<typeof useAgentStore.getState>["slice"]["entries"],
-  toolCalls: ReturnType<typeof useAgentStore.getState>["slice"]["toolCalls"],
-): Array<{ key: string; toolCalls: Record<string, (typeof toolCalls)[string]> }> {
-  const runs: Array<{ key: string; toolCalls: Record<string, (typeof toolCalls)[string]> }> = [];
-  let ids: string[] = [];
-
-  const flush = () => {
-    const calls = Object.fromEntries(
-      ids.map((id) => [id, toolCalls[id]]).filter(([, call]) => call),
-    ) as Record<string, (typeof toolCalls)[string]>;
-    const key = Object.keys(calls)[0];
-    if (key) runs.push({ key, toolCalls: calls });
-    ids = [];
-  };
-
-  for (const entry of entries) {
-    if (entry.type === "user_text") {
-      flush();
-    } else if (entry.type === "tool_call") {
-      ids.push(entry.toolCallId);
-    }
-  }
-  flush();
-  return runs;
 }
 
 function reportDiffIngestionAfterPaint(

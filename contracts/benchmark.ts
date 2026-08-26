@@ -11,21 +11,30 @@ export type ThreadBenchmarkMode = "cold" | "warm";
  * - `resident-hydrate`: conversation is already in the process session cache.
  *   Clock is click -> paint of the full resident timeline. Not a last-N-turn
  *   persistence window.
+ * - `snapshot-restore`: conversation is not resident, but its settled display
+ *   snapshot is persisted. Clock is click -> snapshot paint; ACP replay runs
+ *   afterward as background reconciliation.
  * - `live-turn-stream`: empty thread is already open. Clock includes every live
  *   `session/prompt` until the last turn paints. This is the streaming job.
  */
-export type ThreadBenchmarkJob = "native-open" | "resident-hydrate" | "live-turn-stream";
+export type ThreadBenchmarkJob =
+  | "native-open"
+  | "resident-hydrate"
+  | "snapshot-restore"
+  | "live-turn-stream";
 
 /**
  * Wire name for the timed path. Kept for existing result files and T3's dual-axis
  * vocabulary. Prefer `ThreadBenchmarkJob` when labeling output.
  * - `acp-session-load` → `native-open`
  * - `persisted-thread-hydrate` → `resident-hydrate`
+ * - `persisted-thread-snapshot` → `snapshot-restore`
  * - `live-turn-stream` → `live-turn-stream`
  */
 export type ThreadBenchmarkOpenPath =
   | "acp-session-load"
   | "persisted-thread-hydrate"
+  | "persisted-thread-snapshot"
   | "live-turn-stream";
 
 export const THREAD_BENCHMARK_CAPTURE_SCHEMA_VERSION = 3;
@@ -101,6 +110,7 @@ export interface ThreadBenchmarkInsights {
     clickToHighlightPaintMs: number | null;
     clickToSwitchResolvedMs: number | null;
     cacheHits: number;
+    snapshotRestores: number;
     sessionLoads: number;
     sessionResumes: number;
     sessionNews: number;

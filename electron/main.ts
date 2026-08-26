@@ -1683,8 +1683,8 @@ function registerIpc(): void {
   ipcMain.handle("agent:getCapabilities", () => requireAgentManager().getCapabilities());
   ipcMain.handle("agent:getStats", () => requireAgentManager().getStats());
   ipcMain.handle("agent:getRunningThreads", () => requireAgentManager().getRunningThreadIds());
-  ipcMain.handle("agent:getToolCalls", (_event, threadId: string) =>
-    requireAgentManager().getToolCalls(threadId),
+  ipcMain.handle("agent:getToolCalls", (_event, threadId: string, toolCallIds?: string[]) =>
+    requireAgentManager().getToolCalls(threadId, toolCallIds),
   );
   ipcMain.handle("agent:sendPrompt", (_event, input) => {
     try {

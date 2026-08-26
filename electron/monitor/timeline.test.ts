@@ -40,6 +40,7 @@ describe("buildSwitchTimeline", () => {
       ],
     );
     expect(timeline.summary.sessionLoads).toBe(1);
+    expect(timeline.summary.snapshotRestores).toBe(0);
     expect(timeline.summary.switchesAfterTabChange).toBe(1);
     const switchRow = timeline.rows.find((row) => row.kind === "switch");
     expect(switchRow?.openTabCount).toBe(2);

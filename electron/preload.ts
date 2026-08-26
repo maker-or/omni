@@ -278,8 +278,11 @@ const api = {
       cost?: { amount: number; currency: string };
     } | null> => ipcRenderer.invoke("agent:getStats"),
     getRunningThreads: (): Promise<string[]> => ipcRenderer.invoke("agent:getRunningThreads"),
-    getToolCalls: (threadId: string): Promise<Record<string, AcpToolCallState>> =>
-      ipcRenderer.invoke("agent:getToolCalls", threadId),
+    getToolCalls: (
+      threadId: string,
+      toolCallIds?: string[],
+    ): Promise<Record<string, AcpToolCallState>> =>
+      ipcRenderer.invoke("agent:getToolCalls", threadId, toolCallIds),
     sendPrompt: (input: AcpPromptInput): Promise<void> =>
       ipcRenderer.invoke("agent:sendPrompt", input),
     replacePrompt: (input: AcpReplacePromptInput): Promise<void> =>

@@ -7,6 +7,7 @@ import {
   mergeToolCallPayload,
   payloadFromSessionUpdate,
   previewFromToolBodies,
+  stripToolPayloadFromSessionUpdate,
   toLeanToolCall,
 } from "./tool-call-payload";
 
@@ -107,5 +108,27 @@ describe("tool-call-payload", () => {
     expect(previewFromToolBodies(undefined, huge)).toBe("{padding}");
     expect(extractTerminalIds([{ type: "terminal", terminalId: "t" }])).toEqual(["t"]);
     expect(contentHasDiff([{ type: "diff", path: "/a.ts", oldText: "", newText: "b" }])).toBe(true);
+  });
+
+  test("renderer session updates omit parked tool bodies", () => {
+    const lean = stripToolPayloadFromSessionUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tc6",
+      title: "Read",
+      status: "completed",
+      rawInput: { path: "/large" },
+      rawOutput: { padding: "x".repeat(100_000) },
+      content: [{ type: "content", content: { type: "text", text: "done" } }],
+    });
+
+    expect(lean).toMatchObject({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tc6",
+      title: "Read",
+      status: "completed",
+    });
+    expect("rawInput" in lean).toBe(false);
+    expect("rawOutput" in lean).toBe(false);
+    expect("content" in lean).toBe(false);
   });
 });

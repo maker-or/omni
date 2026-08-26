@@ -1,0 +1,48 @@
+{
+  "status": "DONE",
+  "generatedAt": "2026-08-26",
+  "snapshotRestore": {
+    "fixture": "conversation-v2-500turns-200mib.jsonl",
+    "baseline": {
+      "snapshotPaintMs": 135,
+      "reconciliationMs": 8225,
+      "peakRssMiB": 2285.1,
+      "averageRawCpuPercent": 80.53877551020408,
+      "freezeIncidents": 1,
+      "receivedUpdates": 8226,
+      "receivedMiB": 198.8
+    },
+    "current": {
+      "snapshotPaintMs": 151,
+      "reconciliationMs": 6989,
+      "peakRssMiB": 1971.4,
+      "averageRawCpuPercent": 72.80697674418606,
+      "freezeIncidents": 0,
+      "receivedUpdates": 8226,
+      "receivedMiB": 198.8
+    }
+  },
+  "liveStream": {
+    "fixture": "conversation-v2-100turns-40mib.jsonl",
+    "completionMs": 4662,
+    "peakRssMiB": 1141,
+    "freezeIncidents": 0,
+    "receivedUpdates": 1586,
+    "receivedMiB": 39.8,
+    "bridgeMiBBeforeToolCallDeltas": 75.51,
+    "bridgeMiBAfterToolCallDeltas": 50.71
+  },
+  "appOpenLabelValidation": {
+    "fixture": "conversation-v2-10turns-4mib.jsonl",
+    "launchToInteractiveMs": 729,
+    "firstContentfulPaintMs": 509.2,
+    "snapshotHighlightMs": 22.2,
+    "reconciliationMs": 281
+  },
+  "artifacts": {
+    "baselineSnapshot": "/tmp/pipper-bench-20260826/snapshot-200mib-clean-retry/latest.json",
+    "finalSnapshot": "/tmp/pipper-bench-optimized-20260826/snapshot-200mib-final/latest.json",
+    "liveStream": "/tmp/pipper-bench-optimized-20260826/live-40mib-v4-delta/latest.json",
+    "appOpenNaming": "/tmp/pipper-bench-optimized-20260826/app-open-label-v1/latest.json"
+  }
+}

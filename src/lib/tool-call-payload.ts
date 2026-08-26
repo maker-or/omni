@@ -150,6 +150,19 @@ export function payloadFromSessionUpdate(update: SessionUpdate): {
   return { toolCallId, payload };
 }
 
+/**
+ * Active renderers need tool ordering/status immediately, but not multi-MiB
+ * bodies. The authoritative lean tool-call map follows in the same bridge
+ * tick; full bodies remain parked in main until a trace/diff explicitly asks.
+ */
+export function stripToolPayloadFromSessionUpdate(update: SessionUpdate): SessionUpdate {
+  if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") {
+    return update;
+  }
+  const { content: _content, rawInput: _rawInput, rawOutput: _rawOutput, ...lean } = update;
+  return lean as SessionUpdate;
+}
+
 export function mergeToolCallPayload(
   existing: ToolCallPayload | undefined,
   patch: ToolCallPayload,

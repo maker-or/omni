@@ -268,7 +268,7 @@ function getToolActionCopy(
     name === "bash"
       ? getCommandSummary(command)
       : {
-          label: toolName ? `Used ${toolName}` : "Ran an agent action",
+          label: toolName ? `Used ${compactText(toolName, 48)}` : "Ran an agent action",
           description: Object.keys(args).length
             ? compactText(
                 Object.entries(args)

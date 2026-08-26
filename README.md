@@ -20,20 +20,31 @@ The renderer talks to the Electron main process through the preload bridge. Main
 
 ## Benchmarks
 
-Generate a deterministic conversation fixture with `bun run bench:fixture`. The Electron thread benchmark measures three **separate jobs**.
+Generate a deterministic conversation fixture with `bun run bench:fixture`. The Electron thread benchmark defines four **separate jobs**; its current CLI exposes the publishable streaming job and the snapshot opening-latency job.
 
 - `acp-session-load` / **native-open**: click a thread that is not resident. Clock includes `session/load` and full fixture replay.
 - `persisted-thread-hydrate` / **resident-hydrate**: conversation already in the process session cache. Clock is click to paint.
+- `persisted-thread-snapshot` / **snapshot-restore**: conversation is not resident, but a settled display snapshot is on disk. Clock is click to cached paint while ACP replay reconciles in the background.
 - `live-turn-stream`: empty thread is already open. Clock includes every live `session/prompt` until the last turn paints. This is the streaming job.
 
 ```bash
 bun run bench:thread -- \
-  --fixture benchmarks/fixtures/conversation-100turns-40mib.jsonl \
-  --axis all \
+  --fixture benchmarks/fixtures/conversation-v2-100turns-40mib.jsonl \
+  --axis live-turn-stream \
   --runs 1
 ```
 
-`--axis both` still runs the two click jobs. `--axis live-turn-stream` runs only the streaming job. Reports print job name, ready time, **row counts**, and resource use.
+To assert the persisted snapshot opening budget:
+
+```bash
+bun run bench:thread -- \
+  --fixture benchmarks/fixtures/conversation-v2-500turns-200mib.jsonl \
+  --runs 1 \
+  --axis persisted-thread-snapshot \
+  --expect-snapshot
+```
+
+Reports print job name, ready time, **row counts**, and resource use.
 
 To benchmark the conversation pipeline without opening Electron or Chromium, add `--node-only`. That report is not a UI comparison:
 

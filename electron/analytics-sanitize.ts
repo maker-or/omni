@@ -57,6 +57,9 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
   }
   if (properties.intent_category) sanitized.intent_category = properties.intent_category;
   if (properties.source) sanitized.source = properties.source;
+  if (properties.thread_open_source) {
+    sanitized.thread_open_source = properties.thread_open_source;
+  }
   if (properties.icon) sanitized.icon = sanitizeIdentifier(properties.icon);
   if (typeof properties.success === "boolean") sanitized.success = properties.success;
   if (typeof properties.execution_duration_ms === "number") {
@@ -104,6 +107,7 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties): An
   sanitized.build_duration_ms = sanitizeCount(properties.build_duration_ms);
   sanitized.download_duration_ms = sanitizeCount(properties.download_duration_ms);
   sanitized.total_duration_ms = sanitizeCount(properties.total_duration_ms);
+  sanitized.restore_duration_ms = sanitizeCount(properties.restore_duration_ms);
   sanitized.iterations = sanitizeCount(properties.iterations);
   sanitized.depth = sanitizeCount(properties.depth);
   sanitized.heartbeat_seconds = sanitizeCount(properties.heartbeat_seconds);

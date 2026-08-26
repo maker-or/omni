@@ -19,6 +19,7 @@ import {
 
 export function jobForOpenPath(openPath: ThreadBenchmarkOpenPath): ThreadBenchmarkJob {
   if (openPath === "persisted-thread-hydrate") return "resident-hydrate";
+  if (openPath === "persisted-thread-snapshot") return "snapshot-restore";
   if (openPath === "live-turn-stream") return "live-turn-stream";
   return "native-open";
 }
@@ -26,6 +27,9 @@ export function jobForOpenPath(openPath: ThreadBenchmarkOpenPath): ThreadBenchma
 export function jobTitle(job: ThreadBenchmarkJob): string {
   if (job === "resident-hydrate") {
     return "resident-hydrate (in-process session cache hit)";
+  }
+  if (job === "snapshot-restore") {
+    return "snapshot-restore (persisted display cache)";
   }
   if (job === "live-turn-stream") {
     return "live-turn-stream (session/prompt per fixture turn)";
@@ -36,6 +40,9 @@ export function jobTitle(job: ThreadBenchmarkJob): string {
 export function jobSummary(job: ThreadBenchmarkJob): string {
   if (job === "resident-hydrate") {
     return "Conversation is loaded during untimed prepare and left resident. The clock is click to paint of the full resident timeline. This is not T3's last-10-turn persistence window.";
+  }
+  if (job === "snapshot-restore") {
+    return "The thread is not resident. The clock is click to paint from its settled display snapshot; ACP session/load continues in the background and reconciles authoritatively.";
   }
   if (job === "live-turn-stream") {
     return "The thread is already open and empty. The clock includes every live session/prompt until the last turn paints. Comparable to T3 turn-by-turn ingest, not to Omni session/load.";
@@ -221,6 +228,7 @@ export function buildBenchmarkInsights(input: {
       clickToHighlightPaintMs: latestClick?.clickToHighlightPaintMs ?? null,
       clickToSwitchResolvedMs: latestClick?.clickToSwitchResolvedMs ?? null,
       cacheHits: timeline.cacheHits,
+      snapshotRestores: timeline.snapshotRestores,
       sessionLoads: timeline.sessionLoads,
       sessionResumes: timeline.sessionResumes,
       sessionNews: timeline.sessionNews,

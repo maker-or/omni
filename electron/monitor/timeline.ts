@@ -18,6 +18,7 @@ export function emptySwitchTimeline(): MonitorSwitchTimeline {
     summary: {
       totalSwitches: 0,
       cacheHits: 0,
+      snapshotRestores: 0,
       sessionLoads: 0,
       sessionResumes: 0,
       sessionNews: 0,
@@ -109,6 +110,8 @@ export function buildSwitchTimeline(
     summary: {
       totalSwitches: orderedSwitches.length,
       cacheHits: orderedSwitches.filter((entry) => entry.phase === "cache_hit").length,
+      snapshotRestores: orderedSwitches.filter((entry) => entry.phase === "snapshot_restore")
+        .length,
       sessionLoads: orderedSwitches.filter((entry) => entry.phase === "session_load").length,
       sessionResumes: orderedSwitches.filter((entry) => entry.phase === "session_resume").length,
       sessionNews: orderedSwitches.filter((entry) => entry.phase === "session_new").length,

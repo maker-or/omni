@@ -221,6 +221,7 @@ describe("thread benchmark capture", () => {
     );
     expect(jobForOpenPath("acp-session-load")).toBe("native-open");
     expect(jobForOpenPath("persisted-thread-hydrate")).toBe("resident-hydrate");
+    expect(jobForOpenPath("persisted-thread-snapshot")).toBe("snapshot-restore");
     expect(jobForOpenPath("live-turn-stream")).toBe("live-turn-stream");
     expect(jobTitle("native-open")).toContain("session/load");
   });

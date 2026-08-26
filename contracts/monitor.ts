@@ -325,7 +325,12 @@ export interface MonitorTabMismatchReport {
  * "adding a 5th tab made my warm tabs cold" hypothesis: if warm threads stop
  * being cache_hits after a tab is added, the cache is being invalidated.
  */
-export type MonitorSwitchPhase = "cache_hit" | "session_load" | "session_resume" | "session_new";
+export type MonitorSwitchPhase =
+  | "cache_hit"
+  | "snapshot_restore"
+  | "session_load"
+  | "session_resume"
+  | "session_new";
 
 /**
  * One thread activation (switch), recorded for EVERY activation regardless of
@@ -378,6 +383,7 @@ export interface MonitorSessionCacheEvent {
   trigger:
     | "thread_created"
     | "switch_load"
+    | "switch_snapshot"
     | "process_exit"
     | "transport_closed"
     | "tab_closed"
@@ -433,6 +439,7 @@ export type MonitorTimelineRow =
 export interface MonitorSwitchTimelineSummary {
   totalSwitches: number;
   cacheHits: number;
+  snapshotRestores: number;
   sessionLoads: number;
   sessionResumes: number;
   sessionNews: number;

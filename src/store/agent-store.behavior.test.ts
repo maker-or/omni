@@ -308,6 +308,46 @@ describe("agent store ACP bridge behavior", () => {
     });
   });
 
+  test("thread-tool-calls deltas merge without discarding earlier lean records", async () => {
+    let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
+    const agentApi = {
+      onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
+        bridgeHandler = handler;
+        return vi.fn();
+      }),
+      getState: vi.fn(async () => sessionState("thread-a")),
+      getCapabilities: vi.fn(async () => null),
+      switchThread: vi.fn(),
+      respondToPermission: vi.fn(),
+      sendPrompt: vi.fn(),
+      replacePrompt: vi.fn(),
+      abort: vi.fn(),
+      createThread: vi.fn(),
+      setConfigOption: vi.fn(),
+      setEditorText: vi.fn(),
+      pasteToEditor: vi.fn(),
+      reportEditorText: vi.fn(),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    await store.getState().connect();
+    bridgeHandler?.({
+      type: "thread-tool-calls",
+      threadId: "thread-a",
+      toolCalls: { t1: { toolCallId: "t1", title: "Edit", status: "completed" } },
+    });
+    bridgeHandler?.({
+      type: "thread-tool-calls",
+      threadId: "thread-a",
+      toolCalls: { t2: { toolCallId: "t2", title: "Test", status: "completed" } },
+      replace: false,
+    });
+
+    expect(Object.keys(store.getState().threadToolCalls["thread-a"] ?? {})).toEqual(["t1", "t2"]);
+    expect(Object.keys(store.getState().state?.toolCalls ?? {})).toEqual(["t1", "t2"]);
+  });
+
   test("session-state alone fills threadToolCalls for the active thread", async () => {
     let bridgeHandler: ((payload: AcpBridgeEvent) => void) | null = null;
     const agentApi = {
@@ -345,6 +385,50 @@ describe("agent store ACP bridge behavior", () => {
     expect(store.getState().state?.threadId).toBe("thread-b");
     expect(store.getState().threadToolCalls["thread-b"]?.t2?.title).toBe("Read");
     expect(store.getState().slice.toolCalls.t2?.content).toBeUndefined();
+  });
+
+  test("hydrates only explicitly requested tool calls into the active view", async () => {
+    const getToolCalls = vi.fn(async (_threadId: string, _ids?: string[]) => ({
+      t1: {
+        toolCallId: "t1",
+        title: "Read",
+        status: "completed" as const,
+        hasPayload: true,
+        rawOutput: "full output",
+      },
+    }));
+    const agentApi = {
+      onEvent: vi.fn(() => vi.fn()),
+      getState: vi.fn(async () =>
+        sessionState("thread-a", {
+          toolCalls: {
+            t1: { toolCallId: "t1", title: "Read", status: "completed", hasPayload: true },
+            t2: { toolCallId: "t2", title: "Search", status: "completed", hasPayload: true },
+          },
+        }),
+      ),
+      getCapabilities: vi.fn(async () => null),
+      getToolCalls,
+      switchThread: vi.fn(),
+      respondToPermission: vi.fn(),
+      sendPrompt: vi.fn(),
+      replacePrompt: vi.fn(),
+      abort: vi.fn(),
+      createThread: vi.fn(),
+      setConfigOption: vi.fn(),
+      setEditorText: vi.fn(),
+      pasteToEditor: vi.fn(),
+      reportEditorText: vi.fn(),
+    };
+    (globalThis as any).window = { omni: { agent: agentApi } };
+
+    const store = await loadStore();
+    await store.getState().connect();
+    await store.getState().hydrateToolCalls("thread-a", ["t1"]);
+
+    expect(getToolCalls).toHaveBeenCalledWith("thread-a", ["t1"]);
+    expect(store.getState().slice.toolCalls.t1?.rawOutput).toBe("full output");
+    expect(store.getState().slice.toolCalls.t2?.rawOutput).toBeUndefined();
   });
 
   test("tracks which threads are running across open tabs", async () => {

@@ -184,7 +184,10 @@ declare global {
           cost?: { amount: number; currency: string };
         } | null>;
         getRunningThreads: () => Promise<string[]>;
-        getToolCalls: (threadId: string) => Promise<Record<string, AcpToolCallState>>;
+        getToolCalls: (
+          threadId: string,
+          toolCallIds?: string[],
+        ) => Promise<Record<string, AcpToolCallState>>;
         sendPrompt: (input: AcpPromptInput) => Promise<void>;
         replacePrompt: (input: AcpReplacePromptInput) => Promise<void>;
         abort: () => Promise<void>;

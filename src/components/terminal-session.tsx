@@ -1,23 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Terminal, useTerminal, type WTerm } from "@wterm/react";
-import { GhosttyCore } from "@wterm/ghostty";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Terminal, useTerminal } from "@wterm/react";
+import type { GhosttyCore } from "@wterm/ghostty";
 import "@wterm/dom/css";
 import { useTerminalStore } from "@/store/terminal-store";
+import { loadGhosttyCore } from "@/lib/ghostty-core";
+import { subscribeToTerminalEvents } from "@/lib/terminal-event-router";
 
-interface TerminalSessionProps {
+export interface TerminalSessionProps {
   sessionId: string;
   cwd?: string;
   isActive: boolean;
 }
 
 const RECOVERY_CHUNK_SIZE = 8_192;
-const GHOSTTY_SCROLLBACK_LIMIT_BYTES = 1024 * 1024;
 const MIN_TERMINAL_COLS = 2;
 const MIN_TERMINAL_ROWS = 2;
 const MAX_TERMINAL_COLS = 1000;
 const MAX_TERMINAL_ROWS = 1000;
 
-function normalizeTerminalSize(cols: number, rows: number): { cols: number; rows: number } | null {
+interface TerminalGridSize {
+  cols: number;
+  rows: number;
+}
+
+export function normalizeTerminalSize(cols: number, rows: number): TerminalGridSize | null {
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return null;
   return {
     cols: Math.max(MIN_TERMINAL_COLS, Math.min(Math.floor(cols), MAX_TERMINAL_COLS)),
@@ -25,51 +31,63 @@ function normalizeTerminalSize(cols: number, rows: number): { cols: number; rows
   };
 }
 
+export function calculateTerminalGridSize(
+  width: number,
+  height: number,
+  charWidth: number,
+  rowHeight: number,
+): TerminalGridSize | null {
+  if (width <= 0 || height <= 0 || charWidth <= 0 || rowHeight <= 0) return null;
+  return normalizeTerminalSize(width / charWidth, height / rowHeight);
+}
+
+function sameTerminalSize(left: TerminalGridSize | null, right: TerminalGridSize): boolean {
+  return left?.cols === right.cols && left.rows === right.rows;
+}
+
 function measureCellSize(element: HTMLElement): { charWidth: number; rowHeight: number } | null {
+  const terminal = document.createElement("div");
+  terminal.className = "wterm";
+  terminal.style.position = "absolute";
+  terminal.style.visibility = "hidden";
+  terminal.style.pointerEvents = "none";
   const row = document.createElement("div");
   row.className = "term-row";
-  row.style.position = "absolute";
-  row.style.visibility = "hidden";
   const probe = document.createElement("span");
   probe.textContent = "W";
   row.appendChild(probe);
-  element.appendChild(row);
+  terminal.appendChild(row);
+  element.appendChild(terminal);
   const charWidth = probe.getBoundingClientRect().width;
   const rowHeight = row.getBoundingClientRect().height;
-  row.remove();
+  terminal.remove();
   if (charWidth <= 0 || rowHeight <= 0) return null;
   return { charWidth, rowHeight };
 }
 
-async function loadGhosttyCore(): Promise<GhosttyCore> {
-  try {
-    const wasmPath = new URL("ghostty-vt.wasm", window.location.href).href;
-    return await GhosttyCore.load({
-      wasmPath,
-      scrollbackLimit: GHOSTTY_SCROLLBACK_LIMIT_BYTES,
-    });
-  } catch (primaryError) {
-    // Package-relative loading is useful in preview/test packaging where the
-    // public asset URL is not rooted beside the HTML entry point.
-    try {
-      return await GhosttyCore.load({ scrollbackLimit: GHOSTTY_SCROLLBACK_LIMIT_BYTES });
-    } catch {
-      throw primaryError;
-    }
-  }
+export function areTerminalSessionPropsEqual(
+  previous: TerminalSessionProps,
+  next: TerminalSessionProps,
+): boolean {
+  return (
+    previous.sessionId === next.sessionId &&
+    previous.cwd === next.cwd &&
+    previous.isActive === next.isActive
+  );
 }
 
-export function TerminalSession({ sessionId, cwd, isActive }: TerminalSessionProps) {
+export const TerminalSession = memo(function TerminalSession({
+  sessionId,
+  cwd,
+  isActive,
+}: TerminalSessionProps) {
   const [retryKey, setRetryKey] = useState(0);
-  const [hasBeenActive, setHasBeenActive] = useState(isActive);
-
-  useEffect(() => {
-    if (isActive) setHasBeenActive(true);
-  }, [isActive]);
+  const hasBeenActiveRef = useRef(isActive);
+  if (isActive) hasBeenActiveRef.current = true;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden">
-      {hasBeenActive && (
+      {hasBeenActiveRef.current && (
         <TerminalInner
           key={retryKey}
           sessionId={sessionId}
@@ -80,7 +98,9 @@ export function TerminalSession({ sessionId, cwd, isActive }: TerminalSessionPro
       )}
     </div>
   );
-}
+}, areTerminalSessionPropsEqual);
+
+TerminalSession.displayName = "TerminalSession";
 
 interface TerminalInnerProps extends TerminalSessionProps {
   onRetry: () => void;
@@ -90,12 +110,11 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   const { ref, write } = useTerminal();
   const [core, setCore] = useState<GhosttyCore | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [readyTerminal, setReadyTerminal] = useState<WTerm | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isRecoveryComplete, setIsRecoveryComplete] = useState(false);
-  const [initialSize, setInitialSize] = useState({ cols: 80, rows: 24 });
+  const [gridSize, setGridSize] = useState<TerminalGridSize | null>(null);
+  const mountedRef = useRef(true);
   const createdRef = useRef(false);
-  const terminalMountStartedRef = useRef(false);
   const ptyReadyRef = useRef(false);
   const queuedInputRef = useRef("");
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -108,6 +127,13 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   );
   const markRunning = useTerminalStore((state) => state.markRunning);
   const markError = useTerminalStore((state) => state.markError);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -124,9 +150,7 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     };
   }, []);
 
-  const handleReady = useCallback((terminal: WTerm) => {
-    setReadyTerminal(terminal);
-  }, []);
+  const handleReady = useCallback(() => setIsReady(true), []);
 
   const handleData = useCallback(
     (data: string) => {
@@ -154,27 +178,24 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     [sessionId],
   );
 
-  // WTerm's documented onResize callback runs after WTerm has already resized
-  // its core. Keep autoResize off and own the measurement here so zero-sized
-  // layout observations never reach Ghostty.
-  useEffect(() => {
+  // Measure before WTerm mounts so the first rendered grid already matches the
+  // panel. Visibility-hidden sessions retain layout, keeping this geometry
+  // stable across switches without accepting zero-sized observations.
+  useLayoutEffect(() => {
     const host = terminalHostRef.current;
-    if (!readyTerminal || !host) return;
+    if (!host) return;
 
     let active = true;
+    let cell = measureCellSize(host);
     const measure = (width: number, height: number) => {
       if (!active || width <= 0 || height <= 0) return;
-      const cell = measureCellSize(readyTerminal.element);
+      cell ??= measureCellSize(host);
       if (!cell) return;
-      const safeSize = normalizeTerminalSize(width / cell.charWidth, height / cell.rowHeight);
+      const safeSize = calculateTerminalGridSize(width, height, cell.charWidth, cell.rowHeight);
       if (!safeSize) return;
 
       pendingSizeRef.current = safeSize;
-      setInitialSize(safeSize);
-      setIsReady(true);
-      if (readyTerminal.cols !== safeSize.cols || readyTerminal.rows !== safeSize.rows) {
-        readyTerminal.resize(safeSize.cols, safeSize.rows);
-      }
+      setGridSize((current) => (sameTerminalSize(current, safeSize) ? current : safeSize));
     };
 
     const observer = new ResizeObserver((entries) => {
@@ -182,17 +203,21 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
       if (entry) measure(entry.contentRect.width, entry.contentRect.height);
     });
     observer.observe(host);
-    const frameId = window.requestAnimationFrame(() => {
-      const rect = host.getBoundingClientRect();
-      measure(rect.width, rect.height);
+    const rect = host.getBoundingClientRect();
+    measure(rect.width, rect.height);
+
+    void document.fonts?.ready.then(() => {
+      if (!active) return;
+      cell = measureCellSize(host);
+      const nextRect = host.getBoundingClientRect();
+      measure(nextRect.width, nextRect.height);
     });
 
     return () => {
       active = false;
       observer.disconnect();
-      window.cancelAnimationFrame(frameId);
     };
-  }, [readyTerminal]);
+  }, []);
 
   // Store scrollback is deliberately plain recovery text. Replay it in small
   // animation-frame chunks once, then make live IPC the only rendering source.
@@ -234,24 +259,20 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     };
   }, [isReady, write]);
 
-  // Keep this subscription for the lifetime of the emulator. App renders all
-  // sessions continuously, including when an agent or another terminal is on
-  // top, so VT state advances live without history replay.
+  // One shared IPC listener pair routes directly by session id. Keep each core
+  // live while hidden so terminal protocol responses are never delayed.
   useEffect(() => {
     if (!isReady) return;
-    return window.omni.terminal.onData((payload) => {
-      if (payload.sessionId !== sessionId) return;
-      if (recoveryCompleteRef.current) write(payload.data);
-      else queuedLiveDataRef.current += payload.data;
-    });
-  }, [isReady, sessionId, write]);
-
-  useEffect(() => {
-    if (!isReady) return;
-    return window.omni.terminal.onExit((payload) => {
-      if (payload.sessionId !== sessionId || exitDisplayedRef.current) return;
-      exitDisplayedRef.current = true;
-      write(`\r\n[Process completed (exit ${payload.exitCode})]\r\n`);
+    return subscribeToTerminalEvents(sessionId, {
+      onData(data) {
+        if (recoveryCompleteRef.current) write(data);
+        else queuedLiveDataRef.current += data;
+      },
+      onExit(payload) {
+        if (exitDisplayedRef.current) return;
+        exitDisplayedRef.current = true;
+        write(`\r\n[Process completed (exit ${payload.exitCode})]\r\n`);
+      },
     });
   }, [isReady, sessionId, write]);
 
@@ -259,21 +280,21 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   // interleave with recovered scrollback. The measured WTerm grid is sent as
   // part of creation, avoiding the old 80x24 spawn window.
   useEffect(() => {
-    if (!core || !isReady || !isRecoveryComplete || createdRef.current) return;
+    if (!core || !gridSize || !isReady || !isRecoveryComplete || createdRef.current) return;
 
-    let active = true;
     createdRef.current = true;
+    const creationSize = gridSize;
 
     void window.omni.terminal
-      .create(sessionId, cwd, initialSize.cols, initialSize.rows)
+      .create(sessionId, cwd, creationSize.cols, creationSize.rows)
       .then(() => {
-        if (!active) return;
+        if (!mountedRef.current) return;
         ptyReadyRef.current = true;
         markRunning(sessionId);
         const pendingSize = pendingSizeRef.current;
         if (
           pendingSize &&
-          (pendingSize.cols !== initialSize.cols || pendingSize.rows !== initialSize.rows)
+          (pendingSize.cols !== creationSize.cols || pendingSize.rows !== creationSize.rows)
         ) {
           void window.omni.terminal
             .resize(sessionId, pendingSize.cols, pendingSize.rows)
@@ -290,29 +311,14 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
         }
       })
       .catch((err) => {
-        if (!active) return;
+        if (!mountedRef.current) return;
         console.error("[Terminal Session] Failed to create backend PTY:", err);
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
         markError(sessionId);
         write(`\r\nError: Failed to connect to shell backend. ${message}\r\n`);
       });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    core,
-    cwd,
-    initialSize.cols,
-    initialSize.rows,
-    isReady,
-    isRecoveryComplete,
-    markError,
-    markRunning,
-    sessionId,
-    write,
-  ]);
+  }, [core, cwd, gridSize, isReady, isRecoveryComplete, markError, markRunning, sessionId, write]);
 
   useEffect(() => {
     if (!isReady || !isActive) return;
@@ -325,47 +331,45 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     ref.current?.instance?.element.querySelector("textarea")?.blur();
   }, [isActive, ref]);
 
-  if (error) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-4 font-mono text-sm text-red-500">
-        <span>Error loading terminal: {error}</span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded border border-current px-3 py-1 text-xs hover:bg-red-500/10"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (!core) {
-    return <div className="h-full w-full bg-surface-1" aria-label="Initializing terminal" />;
-  }
-
-  if (!isActive && !terminalMountStartedRef.current) {
-    return <div className="h-full w-full bg-surface-1" />;
-  }
-  terminalMountStartedRef.current = true;
-
   return (
-    <div ref={terminalHostRef} className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      <Terminal
-        ref={ref}
-        core={core}
-        autoResize={false}
-        onData={handleData}
-        onResize={handleResize}
-        onReady={handleReady}
-        onError={(err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          setError(message);
-          markError(sessionId);
-        }}
-        style={{ height: "auto", width: "100%" }}
-        className="min-h-0 min-w-0 flex-1 outline-none"
-      />
+    <div
+      ref={terminalHostRef}
+      className="relative flex h-full w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+    >
+      {error ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-4 font-mono text-sm text-red-500">
+          <span>Error loading terminal: {error}</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded border border-current px-3 py-1 text-xs hover:bg-red-500/10"
+          >
+            Retry
+          </button>
+        </div>
+      ) : !core || !gridSize ? (
+        <div className="h-full w-full bg-surface-1" aria-label="Initializing terminal" />
+      ) : (
+        <Terminal
+          ref={ref}
+          cols={gridSize.cols}
+          rows={gridSize.rows}
+          core={core}
+          autoResize={false}
+          onData={handleData}
+          onResize={handleResize}
+          onReady={handleReady}
+          onError={(err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            setError(message);
+            markError(sessionId);
+          }}
+          data-terminal-cols={gridSize.cols}
+          data-terminal-rows={gridSize.rows}
+          style={{ height: "auto", width: "100%" }}
+          className="min-h-0 min-w-0 flex-1 outline-none"
+        />
+      )}
     </div>
   );
 }
