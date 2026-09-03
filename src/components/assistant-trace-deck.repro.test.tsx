@@ -46,6 +46,8 @@ test("streaming state renders single compact active row with live tool title and
   // Zero historical step items or heavy accordion structures rendered during streaming
   expect(html).not.toContain('data-pipper-id="assistant-tool-step"');
   expect(html).not.toContain('data-pipper-id="assistant-thinking-step"');
+  // The surrounding assistant turn owns the identity and abort affordance.
+  expect(html).not.toContain("<svg");
 });
 
 test("closed settled state renders default thought process header with zero unexpanded children", () => {
@@ -66,6 +68,7 @@ test("closed settled state renders default thought process header with zero unex
   );
   expect(html).toContain("Thought process");
   expect(html).toContain('data-state="closed"');
+  expect(html).toContain("px-0");
   // Child step details are lazily not rendered when closed
   expect(html).not.toContain('data-pipper-id="assistant-tool-step"');
 });

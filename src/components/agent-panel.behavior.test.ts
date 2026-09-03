@@ -3,6 +3,7 @@ import {
   formatProviderName,
   getRuntimeStatusItems,
   groupConversationMessages,
+  shouldPreserveComposerLiveEdge,
 } from "./agent-panel";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
 
@@ -84,5 +85,11 @@ describe("agent-panel conversation grouping", () => {
 
   test("formatProviderName title-cases providers", () => {
     expect(formatProviderName("openai-codex")).toBe("Openai Codex");
+  });
+
+  test("composer growth keeps an existing live-edge reader at the bottom", () => {
+    expect(shouldPreserveComposerLiveEdge("reading", 104, 100)).toBe(true);
+    expect(shouldPreserveComposerLiveEdge("reading", 300, 100)).toBe(false);
+    expect(shouldPreserveComposerLiveEdge("following", 300, 0)).toBe(true);
   });
 });

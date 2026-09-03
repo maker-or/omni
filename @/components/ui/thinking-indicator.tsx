@@ -20,10 +20,11 @@ interface ThinkingIndicatorProps extends HTMLAttributes<HTMLDivElement> {
   pipperId?: string;
   isStreaming?: boolean;
   label?: string;
+  showIcon?: boolean;
 }
 
 const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
-  ({ className, pipperId, isStreaming = true, label, ...props }, ref) => {
+  ({ className, pipperId, isStreaming = true, label, showIcon = true, ...props }, ref) => {
     const [index, setIndex] = useState(0);
 
     useEffect(() => {
@@ -46,36 +47,38 @@ const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
           className={cn("flex items-center gap-2 px-3 py-2", className)}
           {...props}
         >
-          <motion.svg
-            aria-hidden
-            width={20}
-            height={20}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-muted-foreground shrink-0"
-          >
-            {isStreaming ? (
-              <motion.path
-                animate={{
-                  d: [circleA, infinity, circleB, infinity, circleA],
-                }}
-                transition={{
-                  d: {
-                    duration: 6,
-                    ease: "easeInOut",
-                    repeat: Infinity,
-                    times: [0, 0.25, 0.5, 0.75, 1.0],
-                  },
-                }}
-              />
-            ) : (
-              <path d={infinity} />
-            )}
-          </motion.svg>
+          {showIcon && (
+            <motion.svg
+              aria-hidden
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-muted-foreground shrink-0"
+            >
+              {isStreaming ? (
+                <motion.path
+                  animate={{
+                    d: [circleA, infinity, circleB, infinity, circleA],
+                  }}
+                  transition={{
+                    d: {
+                      duration: 6,
+                      ease: "easeInOut",
+                      repeat: Infinity,
+                      times: [0, 0.25, 0.5, 0.75, 1.0],
+                    },
+                  }}
+                />
+              ) : (
+                <path d={infinity} />
+              )}
+            </motion.svg>
+          )}
           <span
             className="inline-grid text-[13px] overflow-hidden"
             style={{ fontVariationSettings: fontWeights.medium }}

@@ -15,6 +15,7 @@ interface ChatMessageProps extends Omit<HTMLMotionProps<"div">, "children"> {
   thumbnailSize?: number;
   time?: ReactNode;
   actions?: ReactNode;
+  identity?: ReactNode;
   children?: ReactNode;
   /** Optional pipper-id to enable visual edit beam on this message */
   pipperId?: string;
@@ -30,6 +31,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
       thumbnailSize = 64,
       time,
       actions,
+      identity,
       children,
       className,
       pipperId,
@@ -70,93 +72,102 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           initial={{ opacity: 0, y: 8, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={springs.moderate}
-          style={{ transformOrigin: isUser ? "bottom right" : "bottom left" }}
+          style={{ transformOrigin: "bottom left" }}
           data-pipper-id={pipperId}
           className={cn(
-            "group flex min-w-0 flex-col gap-1.5",
-            isUser ? "max-w-[92%] items-end self-end" : "w-full max-w-full items-start self-start",
+            "group flex min-w-0 items-start gap-3",
+            isUser
+              ? "max-w-[92%] items-start self-start"
+              : "w-full max-w-full items-start self-start",
             className,
           )}
           {...props}
         >
-          {files && files.length > 0 && (
-            <div className={cn("flex flex-wrap gap-1.5", isUser ? "justify-end" : "justify-start")}>
-              {files.map((file, i) => (
-                <FileThumbnail
-                  key={`${file.name}-${file.size}-${file.lastModified}-${i}`}
-                  file={file}
-                  size={thumbnailSize}
-                />
-              ))}
+          {identity != null && !isUser && (
+            <div className="flex h-9 shrink-0 items-center" data-pipper-id="message-identity">
+              {identity}
             </div>
           )}
-          {images && images.length > 0 && (
-            <div className={cn("flex flex-wrap gap-2", isUser ? "justify-end" : "justify-start")}>
-              {images.map((image) => (
-                <button
-                  key={image.id}
-                  type="button"
-                  className="block overflow-hidden rounded-md border border-border outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  onClick={() => onImageClick?.(image)}
-                  aria-label={`Open ${image.name ?? "attached image"}`}
-                >
-                  <img
-                    src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={image.name ?? "Attached image"}
-                    className="size-24 object-cover"
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+            {files && files.length > 0 && (
+              <div className="flex flex-wrap justify-start gap-1.5">
+                {files.map((file, i) => (
+                  <FileThumbnail
+                    key={`${file.name}-${file.size}-${file.lastModified}-${i}`}
+                    file={file}
+                    size={thumbnailSize}
                   />
-                </button>
-              ))}
-            </div>
-          )}
-          {children != null && children !== "" && (
-            <div
-              ref={isUser ? bodyRef : undefined}
-              className={cn(
-                "max-w-full py-2 text-[14px] whitespace-pre-wrap break-words text-pretty",
-                isUser
-                  ? cn(
-                      shape.bg,
-                      "px-3.5 bg-[color-mix(in_oklab,var(--accent),var(--background)_45%)] text-accent-foreground",
-                      !expanded && "line-clamp-3",
-                    )
-                  : "text-foreground",
-              )}
-            >
-              {children}
-            </div>
-          )}
-          {isUser && clamped && !expanded && (
-            <button
-              type="button"
-              onClick={() => setExpanded(true)}
-              className="self-end rounded-md px-1 text-[12px] leading-none text-accent-foreground/70 transition-colors hover:text-accent-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
-            >
-              Show more
-            </button>
-          )}
-          {isUser && clamped && expanded && (
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="self-end rounded-md px-1 text-[12px] leading-none text-accent-foreground/70 transition-colors hover:text-accent-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
-            >
-              Show less
-            </button>
-          )}
-          {(showTime || actions != null) && (
-            <div
-              className={cn(
-                "flex items-center gap-2 px-1 text-[12px] leading-none text-muted-foreground select-none",
-                "opacity-0 pointer-events-none transition-opacity duration-150",
-                "group-hover:opacity-100 group-hover:pointer-events-auto",
-                "group-focus-within:opacity-100 group-focus-within:pointer-events-auto",
-              )}
-            >
-              {showTime && <span className="tabular-nums">{time}</span>}
-              {actions != null && <span className="flex items-center gap-0.5">{actions}</span>}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+            {images && images.length > 0 && (
+              <div className="flex flex-wrap justify-start gap-2">
+                {images.map((image) => (
+                  <button
+                    key={image.id}
+                    type="button"
+                    className="block overflow-hidden rounded-md border border-border outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    onClick={() => onImageClick?.(image)}
+                    aria-label={`Open ${image.name ?? "attached image"}`}
+                  >
+                    <img
+                      src={`data:${image.mimeType};base64,${image.data}`}
+                      alt={image.name ?? "Attached image"}
+                      className="size-24 object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+            {children != null && children !== "" && (
+              <div
+                ref={isUser ? bodyRef : undefined}
+                className={cn(
+                  "max-w-full py-2 text-[14px] whitespace-pre-wrap break-words text-pretty",
+                  isUser
+                    ? cn(
+                        shape.bg,
+                        "bg-[#26B25A] px-3.5 text-[#052E16] ring-1 ring-inset ring-[#088139]/70",
+                        !expanded && "line-clamp-3",
+                      )
+                    : "text-foreground",
+                )}
+              >
+                {children}
+              </div>
+            )}
+            {isUser && clamped && !expanded && (
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="self-end rounded-md px-1 text-[12px] leading-none text-accent-foreground/70 transition-colors hover:text-accent-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+              >
+                Show more
+              </button>
+            )}
+            {isUser && clamped && expanded && (
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="self-end rounded-md px-1 text-[12px] leading-none text-accent-foreground/70 transition-colors hover:text-accent-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+              >
+                Show less
+              </button>
+            )}
+            {(showTime || actions != null) && (
+              <div
+                className={cn(
+                  "flex items-center gap-2 px-1 text-[12px] leading-none text-muted-foreground select-none",
+                  "opacity-0 pointer-events-none transition-opacity duration-150",
+                  "group-hover:opacity-100 group-hover:pointer-events-auto",
+                  "group-focus-within:opacity-100 group-focus-within:pointer-events-auto",
+                )}
+              >
+                {showTime && <span className="tabular-nums">{time}</span>}
+                {actions != null && <span className="flex items-center gap-0.5">{actions}</span>}
+              </div>
+            )}
+          </div>
         </motion.div>
       </>
     );

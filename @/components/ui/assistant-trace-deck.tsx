@@ -396,10 +396,15 @@ function ActiveTraceRow({
   return (
     <div
       data-pipper-id="assistant-trace-deck-active"
-      className={cn("flex items-center py-1 select-none", className)}
+      className={cn("flex h-9 items-center select-none", className)}
       {...props}
     >
-      <ThinkingIndicator isStreaming={true} label={label} className="p-0 bg-transparent" />
+      <ThinkingIndicator
+        isStreaming={true}
+        label={label}
+        showIcon={false}
+        className="p-0 bg-transparent"
+      />
     </div>
   );
 }
@@ -674,8 +679,13 @@ function PassiveTraceDeck({
       {...props}
       data-pipper-id="assistant-trace-deck"
     >
-      <ThinkingStepsHeader>
-        <ThinkingIndicator isStreaming={false} label={headerLabel} className="p-0 bg-transparent" />
+      <ThinkingStepsHeader className="px-0">
+        <ThinkingIndicator
+          isStreaming={false}
+          label={headerLabel}
+          showIcon={false}
+          className="p-0 bg-transparent"
+        />
       </ThinkingStepsHeader>
       <ThinkingStepsContent>
         {open && (

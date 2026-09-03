@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDownIcon,
@@ -12,9 +11,10 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { SliderComfortable } from "@/components/ui/slider";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { ThreadComposer, initialDraftContent } from "@/components/thread-composer";
+import { ConversationTurnIdentity } from "@/components/conversation-turn-identity";
+import { AgentRuntimeControls } from "@/components/agent-runtime-controls";
 import type { MentionProvider } from "@/components/mention-popover";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
@@ -49,7 +49,6 @@ import { selectThread } from "@/lib/thread-actions";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
-import { ContextWindowRing } from "@/components/ui/context-window-ring";
 import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { AgentContinueMenu } from "@/components/agent-continue-menu";
@@ -94,6 +93,7 @@ const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
 });
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
+const COMPOSER_TURN_MARKER = <ConversationTurnIdentity role="user" emphasis="composer" />;
 
 type ConversationScrollMode = "reading" | "anchoring" | "following";
 type PendingScrollAction = {
@@ -450,6 +450,16 @@ export function buildConversationScrollKey(
   ].join(":");
 }
 
+export function shouldPreserveComposerLiveEdge(
+  mode: ConversationScrollMode,
+  distanceAfterResize: number,
+  composerGrowth: number,
+): boolean {
+  return (
+    mode === "following" || distanceAfterResize - Math.max(0, composerGrowth) <= SCROLL_LIVE_EDGE_PX
+  );
+}
+
 function MessageBody({
   messages,
   isStreaming = false,
@@ -602,9 +612,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     respondToUiRequest,
     setModel,
     setConfigOption,
-    canAttachImage,
   } = useAgentStore();
-  const showImageAttach = canAttachImage();
   const [projectsList, setProjectsList] = useState<
     Array<{ id: string; name: string; icon: string; path?: string }>
   >([]);
@@ -624,10 +632,11 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     images: ChatImageAttachment[];
   } | null>(null);
   const [previewImage, setPreviewImage] = useState<ChatImageAttachment | null>(null);
-  const [showThinkingSlider, setShowThinkingSlider] = useState(false);
   const [dismissedAgentError, setDismissedAgentError] = useState<string | null>(null);
   const [traceDeckOpenByKey, setTraceDeckOpenByKey] = useState<Record<string, boolean>>({});
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const composerRegionRef = useRef<HTMLDivElement>(null);
+  const composerResizeRafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const anchorRafRef = useRef<number | null>(null);
   const programmaticScrollRef = useRef(false);
@@ -644,24 +653,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const PencilIcon = useIcon("pencil");
   const RotateCcwIcon = useIcon("rotate-ccw");
-
-  useEffect(() => {
-    if (!showThinkingSlider) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (
-        target.closest(
-          '[data-pipper-id="reasoning-slider-toggle"], [data-pipper-id="reasoning-slider"]',
-        )
-      ) {
-        return;
-      }
-      setShowThinkingSlider(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [showThinkingSlider]);
 
   // Remotion (and other static previews) can supply a deterministic composer
   // value without adding a separate visual clone of this component.
@@ -1114,6 +1105,49 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       programmaticScrollClearRef.current = null;
     }, 120);
   };
+
+  useEffect(() => {
+    const composer = composerRegionRef.current;
+    const scrollContainer = messagesScrollRef.current;
+    if (!composer || !scrollContainer || typeof ResizeObserver === "undefined") return;
+
+    let previousHeight = composer.getBoundingClientRect().height;
+    let shouldKeepLiveEdge = false;
+    const resizeObserver = new ResizeObserver(() => {
+      const nextHeight = composer.getBoundingClientRect().height;
+      const growth = Math.max(0, nextHeight - previousHeight);
+      previousHeight = nextHeight;
+
+      const distanceAfterResize =
+        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+      shouldKeepLiveEdge ||= shouldPreserveComposerLiveEdge(
+        conversationScrollModeRef.current,
+        distanceAfterResize,
+        growth,
+      );
+
+      if (composerResizeRafRef.current !== null) return;
+      composerResizeRafRef.current = requestAnimationFrame(() => {
+        if (shouldKeepLiveEdge) {
+          markProgrammaticScroll();
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+          setIsAtConversationLiveEdge(true);
+          setHasUnreadConversationContent(false);
+        }
+        shouldKeepLiveEdge = false;
+        composerResizeRafRef.current = null;
+      });
+    });
+
+    resizeObserver.observe(composer);
+    return () => {
+      resizeObserver.disconnect();
+      if (composerResizeRafRef.current !== null) {
+        cancelAnimationFrame(composerResizeRafRef.current);
+        composerResizeRafRef.current = null;
+      }
+    };
+  }, []);
 
   const stopConversationFollowing = () => {
     programmaticScrollRef.current = false;
@@ -1851,14 +1885,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   };
 
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
-  const draftProjectName =
-    draft?.projectId != null
-      ? (projectsList.find((p) => p.id === draft.projectId)?.name ??
-        (activeProject?.id === draft.projectId ? activeProject.name : null))
-      : null;
-  const emptyStateSubject = isDraftMode
-    ? (draftProjectName ?? null)
-    : (currentProject?.name ?? "your project");
+  const emptyStateSubject = currentProject?.name ?? "your project";
   const visibleAgentError = agentError && agentError !== dismissedAgentError ? agentError : null;
   const runtimeControlsDisabled =
     isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
@@ -1868,6 +1895,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       isConnecting ||
       !snapshot ||
       isSubmitting ||
+      isAborting ||
       Boolean(editState && isStreaming);
 
   const draftProjectItems = useMemo(
@@ -2047,6 +2075,37 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     });
   }, [inputValue, isDraftMode]);
 
+  const handleReasoningChange = (value: string) => {
+    if (!thoughtLevelConfigId) return;
+    setConfigOption(thoughtLevelConfigId, value).catch((err) => {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Reasoning level failed",
+        description: err instanceof Error ? err.message : "The reasoning level was not changed.",
+      });
+    });
+  };
+
+  const handleRuntimeModelChange = async (modelId: string) => {
+    setIsRuntimeActionPending(true);
+    try {
+      const success = await setModel({ modelId });
+      toast({
+        ...(success ? {} : { icon: <WarningIcon className="size-5 text-red-500" /> }),
+        title: success ? "Model switched" : "Model change failed",
+        description: success ? modelId : "The selected model was not applied.",
+      });
+    } catch (err) {
+      toast({
+        icon: <WarningIcon className="size-5 text-red-500" />,
+        title: "Model change failed",
+        description: err instanceof Error ? err.message : "The selected model was not applied.",
+      });
+    } finally {
+      setIsRuntimeActionPending(false);
+    }
+  };
+
   return (
     <section
       data-pipper-id="agent-panel"
@@ -2073,7 +2132,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         <div className="relative flex-1 overflow-hidden mt-4  min-h-0 flex flex-col">
           {/* Full-bleed: the ambient field spans the whole panel, while the
               reading column below keeps the conversation and composer centred. */}
-          {(allMessages.length === 0 || isDraftMode) && (
+          {allMessages.length === 0 && !isDraftMode && (
             <AmbientPixelField
               pixelSize={6}
               gap={4}
@@ -2099,234 +2158,507 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           >
             <div
               ref={messagesScrollRef}
-              className="relative flex-1 overflow-y-auto min-h-0"
+              className="relative min-h-0 flex-1 overflow-y-auto"
               aria-busy={isSwitchingThread}
             >
-              <div className="min-h-full ">
-                {allMessages.length === 0 || isDraftMode ? (
+              <div className="flex min-h-full flex-col">
+                {isDraftMode ? null : allMessages.length === 0 ? (
                   <div
                     data-pipper-id="empty-state"
-                    className="h-full min-h-[280px] flex items-center justify-center p-6 select-none"
+                    className="flex min-h-[280px] flex-1 items-center justify-center p-6 select-none"
                   >
                     <h2 className="relative z-10 flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65 pointer-events-none">
-                      {isDraftMode ? (
-                        emptyStateSubject ? (
-                          <>
-                            <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                              What should we cook in
-                            </span>
-                            <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                              {emptyStateSubject}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                            Describe a task to start a thread
-                          </span>
-                        )
-                      ) : (
-                        <>
-                          <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                            What should we cook in
-                          </span>
-                          <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                            {emptyStateSubject}
-                          </span>
-                        </>
-                      )}
+                      <span className="text-2xl font-semibold tracking-tight text-foreground/55">
+                        What should we cook in
+                      </span>
+                      <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
+                        {emptyStateSubject}
+                      </span>
                     </h2>
                   </div>
                 ) : (
-                  <div
-                    data-pipper-id="messages-list"
-                    className="relative p-4"
-                    style={{
-                      height: `${conversationVirtualizer.getTotalSize()}px`,
-                    }}
-                  >
-                    {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
-                      const entry = allMessages[virtualRow.index];
-                      if (!entry) return null;
-                      const { key, role, messages, originalIndex, isStreaming } = entry;
-                      const from = role;
-                      const msgId = key;
-                      const firstToolCallId =
-                        from === "assistant"
-                          ? (messages
-                              .flatMap((message) =>
-                                "toolCallIds" in message && Array.isArray(message.toolCallIds)
-                                  ? message.toolCallIds
-                                  : [],
-                              )
-                              .at(0) ?? undefined)
-                          : undefined;
-                      const bodyText = messages
-                        .map((m) => stringifyMessageContent(m))
-                        .filter(Boolean)
-                        .join("\n\n");
-                      const groupedImages = extractGroupedMessageImages(messages);
-                      const timeStr = isStreaming
-                        ? undefined
-                        : formatMessageTime(messages[messages.length - 1]);
-                      const hasContent =
-                        bodyText.trim() !== "" ||
-                        groupedImages.length > 0 ||
-                        (from === "assistant" && messages.some((m) => getToolSummary(m) !== null));
+                  <>
+                    <div
+                      data-pipper-id="messages-list"
+                      className="relative p-4"
+                      style={{
+                        height: `${conversationVirtualizer.getTotalSize()}px`,
+                      }}
+                    >
+                      {conversationVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const entry = allMessages[virtualRow.index];
+                        if (!entry) return null;
+                        const { key, role, messages, originalIndex, isStreaming } = entry;
+                        const from = role;
+                        const msgId = key;
+                        const firstToolCallId =
+                          from === "assistant"
+                            ? (messages
+                                .flatMap((message) =>
+                                  "toolCallIds" in message && Array.isArray(message.toolCallIds)
+                                    ? message.toolCallIds
+                                    : [],
+                                )
+                                .at(0) ?? undefined)
+                            : undefined;
+                        const bodyText = messages
+                          .map((m) => stringifyMessageContent(m))
+                          .filter(Boolean)
+                          .join("\n\n");
+                        const groupedImages = extractGroupedMessageImages(messages);
+                        const timeStr = isStreaming
+                          ? undefined
+                          : formatMessageTime(messages[messages.length - 1]);
+                        const hasContent =
+                          bodyText.trim() !== "" ||
+                          groupedImages.length > 0 ||
+                          (from === "assistant" &&
+                            messages.some((m) => getToolSummary(m) !== null));
 
-                      const actions =
-                        from === "user" ? (
-                          <div data-pipper-id="user-actions-buttons">
-                            <CopyButton
-                              isCopied={copiedMessageId === msgId}
-                              onCopy={() => void handleCopy(msgId, bodyText)}
-                            />
-                            <button
-                              type="button"
-                              aria-label="Edit message"
-                              title={
-                                messages.length > 1
-                                  ? "Grouped messages cannot be edited together"
-                                  : "Edit message"
-                              }
-                              className={iconButtonClass}
-                              disabled={
-                                isStreaming ||
-                                isSubmitting ||
-                                messages.length > 1 ||
-                                !snapshot?.messageEntryRefs[originalIndex]
-                              }
-                              onClick={() => {
-                                setInputValue(bodyText);
-                                setAttachedFiles([]);
-                                setEditState({
-                                  targetEntryId: snapshot!.messageEntryRefs[originalIndex]!.entryId,
-                                  images: groupedImages,
-                                });
-                                if (composerTextareaRef.current) {
-                                  composerTextareaRef.current.focus();
-                                }
-                              }}
-                            >
-                              <PencilIcon size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <div data-pipper-id="agent-actions-buttons">
-                            <CopyButton
-                              isCopied={copiedMessageId === msgId}
-                              onCopy={() => void handleCopy(msgId, bodyText)}
-                            />
-                            {!isStreaming && (
+                        const actions =
+                          from === "user" ? (
+                            <div data-pipper-id="user-actions-buttons">
+                              <CopyButton
+                                isCopied={copiedMessageId === msgId}
+                                onCopy={() => void handleCopy(msgId, bodyText)}
+                              />
                               <button
                                 type="button"
-                                aria-label="Regenerate response"
+                                aria-label="Edit message"
+                                title={
+                                  messages.length > 1
+                                    ? "Grouped messages cannot be edited together"
+                                    : "Edit message"
+                                }
                                 className={iconButtonClass}
                                 disabled={
-                                  isSubmitting || snapshot?.isCompacting || snapshot?.isRetrying
+                                  isStreaming ||
+                                  isSubmitting ||
+                                  messages.length > 1 ||
+                                  !snapshot?.messageEntryRefs[originalIndex]
                                 }
-                                onClick={() => handleRegenerate(originalIndex)}
-                              >
-                                <RotateCcwIcon size={13} />
-                              </button>
-                            )}
-                          </div>
-                        );
-
-                      return (
-                        <div
-                          key={virtualRow.key}
-                          ref={conversationVirtualizer.measureElement}
-                          data-index={virtualRow.index}
-                          className="absolute left-0 top-0 w-full px-4 pb-3"
-                          style={{
-                            transform: `translateY(${virtualRow.start}px)`,
-                          }}
-                        >
-                          <ChatMessage
-                            from={from}
-                            pipperId={from === "assistant" ? "assistant-message" : "user-message"}
-                            time={timeStr}
-                            actions={actions}
-                            images={groupedImages}
-                            onImageClick={setPreviewImage}
-                          >
-                            {hasContent ? (
-                              <MessageBody
-                                messages={messages}
-                                isStreaming={isStreaming}
-                                activeMessages={activeMessages}
-                                diffSummary={
-                                  firstToolCallId ? diffSummaries[firstToolCallId] : undefined
-                                }
-                                traceDeckOpen={traceDeckOpenByKey[msgId] ?? false}
-                                onTraceDeckOpenChange={(open) => {
-                                  setTraceDeckOpenByKey((current) => ({
-                                    ...current,
-                                    [msgId]: open,
-                                  }));
-                                  if (open && snapshot?.threadId) {
-                                    const toolCallIds = messages.flatMap((message) => {
-                                      const content = (message as { content?: unknown }).content;
-                                      if (!Array.isArray(content)) return [];
-                                      return content
-                                        .filter((part): part is { type: "toolCall"; id: string } =>
-                                          Boolean(
-                                            part &&
-                                            typeof part === "object" &&
-                                            (part as { type?: string }).type === "toolCall" &&
-                                            typeof (part as { id?: unknown }).id === "string",
-                                          ),
-                                        )
-                                        .map((part) => part.id);
-                                    });
-                                    void hydrateToolCalls(snapshot.threadId, toolCallIds);
+                                onClick={() => {
+                                  setInputValue(bodyText);
+                                  setAttachedFiles([]);
+                                  setEditState({
+                                    targetEntryId:
+                                      snapshot!.messageEntryRefs[originalIndex]!.entryId,
+                                    images: groupedImages,
+                                  });
+                                  if (composerTextareaRef.current) {
+                                    composerTextareaRef.current.focus();
                                   }
                                 }}
+                              >
+                                <PencilIcon size={13} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div data-pipper-id="agent-actions-buttons">
+                              <CopyButton
+                                isCopied={copiedMessageId === msgId}
+                                onCopy={() => void handleCopy(msgId, bodyText)}
                               />
-                            ) : undefined}
-                          </ChatMessage>
-                        </div>
-                      );
-                    })}
+                              {!isStreaming && (
+                                <button
+                                  type="button"
+                                  aria-label="Regenerate response"
+                                  className={iconButtonClass}
+                                  disabled={
+                                    isSubmitting || snapshot?.isCompacting || snapshot?.isRetrying
+                                  }
+                                  onClick={() => handleRegenerate(originalIndex)}
+                                >
+                                  <RotateCcwIcon size={13} />
+                                </button>
+                              )}
+                            </div>
+                          );
 
+                        return (
+                          <div
+                            key={virtualRow.key}
+                            ref={conversationVirtualizer.measureElement}
+                            data-index={virtualRow.index}
+                            className="absolute left-0 top-0 w-full px-4 pb-3"
+                            style={{
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            <ChatMessage
+                              from={from}
+                              pipperId={from === "assistant" ? "assistant-message" : "user-message"}
+                              identity={
+                                from === "assistant" ? (
+                                  <ConversationTurnIdentity
+                                    role="assistant"
+                                    isStreaming={isStreaming}
+                                    isStopping={isAborting}
+                                    onStop={isStreaming ? handleAbort : undefined}
+                                  />
+                                ) : undefined
+                              }
+                              time={timeStr}
+                              actions={actions}
+                              images={groupedImages}
+                              onImageClick={setPreviewImage}
+                            >
+                              {hasContent ? (
+                                <MessageBody
+                                  messages={messages}
+                                  isStreaming={isStreaming}
+                                  activeMessages={activeMessages}
+                                  diffSummary={
+                                    firstToolCallId ? diffSummaries[firstToolCallId] : undefined
+                                  }
+                                  traceDeckOpen={traceDeckOpenByKey[msgId] ?? false}
+                                  onTraceDeckOpenChange={(open) => {
+                                    setTraceDeckOpenByKey((current) => ({
+                                      ...current,
+                                      [msgId]: open,
+                                    }));
+                                    if (open && snapshot?.threadId) {
+                                      const toolCallIds = messages.flatMap((message) => {
+                                        const content = (message as { content?: unknown }).content;
+                                        if (!Array.isArray(content)) return [];
+                                        return content
+                                          .filter(
+                                            (part): part is { type: "toolCall"; id: string } =>
+                                              Boolean(
+                                                part &&
+                                                typeof part === "object" &&
+                                                (part as { type?: string }).type === "toolCall" &&
+                                                typeof (part as { id?: unknown }).id === "string",
+                                              ),
+                                          )
+                                          .map((part) => part.id);
+                                      });
+                                      void hydrateToolCalls(snapshot.threadId, toolCallIds);
+                                    }
+                                  }}
+                                />
+                              ) : undefined}
+                            </ChatMessage>
+                          </div>
+                        );
+                      })}
+                    </div>
                     {isStreaming && !streamingMessage && (
                       <div
-                        className="absolute left-0 flex justify-start px-8 py-2"
-                        style={{
-                          top: `${conversationVirtualizer.getTotalSize()}px`,
-                        }}
+                        className="flex shrink-0 items-start gap-3 px-4 py-2"
                         data-pipper-id="Thinking-indicator"
                       >
-                        <ThinkingIndicator />
+                        <div className="flex h-9 shrink-0 items-center">
+                          <ConversationTurnIdentity
+                            role="assistant"
+                            isStreaming
+                            isStopping={isAborting}
+                            onStop={handleAbort}
+                          />
+                        </div>
+                        <ThinkingIndicator showIcon={false} className="h-9 p-0" />
                       </div>
                     )}
                     <div ref={messagesEndRef} aria-hidden="true" />
+                  </>
+                )}
+
+                {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&
+                  isStreaming && (
+                    <div className="sr-only" aria-live="polite">
+                      A response is still streaming. Jump to latest to follow it.
+                    </div>
+                  )}
+
+                <div
+                  ref={composerRegionRef}
+                  data-pipper-id="input-area"
+                  className={cn(
+                    "relative z-10 px-3 pb-5 transition-colors duration-300",
+                    isDraftMode ? "mt-2 pt-0" : allMessages.length > 0 ? "pt-6" : "mt-auto pt-6",
+                  )}
+                >
+                  <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+                    {visibleAgentError && (
+                      <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
+                        <WarningIcon className="mt-0.5 size-4 shrink-0" />
+                        <span className="min-w-0 flex-1">{visibleAgentError}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-red-500/80 hover:text-red-500"
+                          onClick={() => setDismissedAgentError(visibleAgentError)}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                    {isConnecting && (
+                      <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[12px] text-muted-foreground">
+                        Connecting to agent runtime...
+                      </div>
+                    )}
+                    {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
+                      <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
+                        {snapshot.queue.steering.length > 0 && (
+                          <div>
+                            <span className="font-medium">Steering</span>
+                            {snapshot.queue.steering.map((item, index) => (
+                              <div
+                                key={index}
+                                className="line-clamp-2 text-muted-foreground"
+                                title={item}
+                              >
+                                {item}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {snapshot.queue.followUp.length > 0 && (
+                          <div className="mt-1">
+                            <span className="font-medium">Next</span>
+                            {snapshot.queue.followUp.map((item, index) => (
+                              <div
+                                key={index}
+                                className="line-clamp-2 text-muted-foreground"
+                                title={item}
+                              >
+                                {item}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                    {editState && (
+                      <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
+                        <span>Editing message · {editState.images.length} retained image(s)</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditState(null);
+                            setInputValue("");
+                            setAttachedFiles([]);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                    <div className="relative isolate">
+                      {snapshot?.plan && snapshot.plan.length > 0 && isStreaming ? (
+                        <div
+                          data-pipper-id="plan-popover"
+                          className="absolute right-0 bottom-full mb-1.5 z-[240] w-[280px]"
+                        >
+                          <Elevated
+                            offset={2}
+                            shadowLevel={4}
+                            className="rounded-xl border border-border/80 p-2"
+                          >
+                            <div className="px-1.5 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                              Plan
+                            </div>
+                            <ul className="flex flex-col gap-1">
+                              {snapshot.plan.map((entry, index) => (
+                                <li
+                                  key={`${entry.content}-${index}`}
+                                  className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-foreground"
+                                >
+                                  <span className="mt-0.5 size-3.5 shrink-0 text-muted-foreground">
+                                    {entry.status === "completed" ? (
+                                      <ModelCheckIcon size={14} className="text-emerald-500" />
+                                    ) : (
+                                      <span className="inline-block size-2.5 rounded-full border border-border" />
+                                    )}
+                                  </span>
+                                  <span
+                                    className={
+                                      entry.status === "completed"
+                                        ? "text-muted-foreground line-through"
+                                        : undefined
+                                    }
+                                  >
+                                    {entry.content}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </Elevated>
+                        </div>
+                      ) : null}
+                      <AgentSlashCommandMenu
+                        anchorRef={composerTextareaRef}
+                        commands={slashMatches}
+                        selectedIndex={selectedCommandIndex}
+                        onSelect={applyCommand}
+                      />
+
+                      {continuePickerOpen ? (
+                        <AgentContinueMenu
+                          agents={continuableAgents}
+                          selectedIndex={continueSelectedIndex}
+                          onSelect={(agentId) => void handleContinueWithAgent(agentId)}
+                        />
+                      ) : null}
+
+                      <SubagentActivity
+                        runs={subagentRuns}
+                        agents={registryAgents}
+                        activeSessionId={activeSessionId}
+                        className="relative z-10 mb-1.5"
+                      />
+
+                      {isDraftMode ? (
+                        <ThreadComposer
+                          mode="draft"
+                          className="relative z-10"
+                          turnMarker={COMPOSER_TURN_MARKER}
+                          content={draftContent}
+                          onContentChange={handleDraftContentChange}
+                          onSend={(content, files) => void handleDraftSend(content, files)}
+                          disabled={composerDisabled}
+                          isSubmitting={isSubmitting}
+                          projects={draftProjectItems}
+                          agents={[]}
+                          models={modelMentionItems}
+                          modelProviders={modelProviderItems}
+                          projectFiles={projectFileItems}
+                          files={attachedFiles}
+                          onFilesChange={handleFilesChange}
+                          onFilesRejected={handleFilesRejected}
+                          maxFiles={MAX_AGENT_IMAGES}
+                          showImageAttach={false}
+                          appearance="plain"
+                          hideSendButton
+                          textareaRef={composerTextareaRef}
+                          onTextareaKeyDown={handleComposerKeyDown}
+                        />
+                      ) : inlineRequest ? (
+                        <AgentQuestionCard request={inlineRequest} className="relative z-10" />
+                      ) : orchestrationOpen ? (
+                        <SubagentComposer
+                          className="relative z-10"
+                          agents={registryAgents}
+                          defaultOrchestratorId={snapshot?.agentId ?? null}
+                          initialGoal={orchestrationSeed}
+                          isSubmitting={isSubmitting}
+                          onSubmit={(payload) => void handleOrchestrationSubmit(payload)}
+                          onCancel={() => {
+                            setOrchestrationOpen(false);
+                            setOrchestrationSeed("");
+                          }}
+                        />
+                      ) : (
+                        <>
+                          {pendingContinuation ? (
+                            <div
+                              className="relative z-10 mb-1.5 flex flex-wrap items-center gap-1.5"
+                              data-pipper-id="continuation-chip"
+                            >
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 py-1 pl-2.5 pr-1.5 text-xs text-muted-foreground">
+                                <ChatCircleTextIcon size={13} />
+                                Transcript from previous conversation
+                                <button
+                                  type="button"
+                                  aria-label="Remove transcript"
+                                  data-pipper-id="continuation-chip-remove"
+                                  className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
+                                  onClick={() => {
+                                    if (snapshot?.threadId) {
+                                      useContinuationStore
+                                        .getState()
+                                        .clearPending(snapshot.threadId);
+                                    }
+                                  }}
+                                >
+                                  <XIcon size={11} />
+                                </button>
+                              </span>
+                            </div>
+                          ) : null}
+                          <ThreadComposer
+                            mode="live"
+                            className="relative z-10"
+                            turnMarker={COMPOSER_TURN_MARKER}
+                            content={liveContent}
+                            onContentChange={handleLiveContentChange}
+                            onSend={(content, sendFiles) =>
+                              void handleLiveComposerSend(content, sendFiles)
+                            }
+                            disabled={composerDisabled}
+                            isSubmitting={isSubmitting}
+                            isStreaming={isStreaming}
+                            models={modelMentionItems}
+                            modelProviders={modelProviderItems}
+                            projectFiles={projectFileItems}
+                            files={attachedFiles}
+                            onFilesChange={handleFilesChange}
+                            onFilesRejected={handleFilesRejected}
+                            maxFiles={Math.max(
+                              0,
+                              MAX_AGENT_IMAGES - (editState?.images.length ?? 0),
+                            )}
+                            showImageAttach={false}
+                            appearance="plain"
+                            hideSendButton
+                            textareaRef={composerTextareaRef}
+                            placeholder={
+                              isConnecting ? "Connecting to agent runtime..." : undefined
+                            }
+                            onTextareaKeyDown={handleComposerKeyDown}
+                          />
+                        </>
+                      )}
+                    </div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div data-pipper-id="composer-rail" className="relative z-20 shrink-0 px-3 py-2">
+              <div className="mx-auto flex min-h-9 w-full max-w-4xl items-center">
+                {!isDraftMode && (
+                  <AgentRuntimeControls
+                    reasoningLevels={thoughtLevelValues}
+                    currentReasoningIndex={currentThoughtIndex}
+                    currentReasoningLabel={snapshot?.thinkingLevel ?? undefined}
+                    disabled={runtimeControlsDisabled}
+                    onReasoningChange={handleReasoningChange}
+                    contextUsage={
+                      snapshot?.stats && snapshot.stats.size > 0
+                        ? {
+                            tokens: snapshot.stats.used,
+                            contextWindow: snapshot.stats.size,
+                            percent: (snapshot.stats.used / snapshot.stats.size) * 100,
+                          }
+                        : undefined
+                    }
+                    modelName={snapshot?.model?.name}
+                    modelId={snapshot?.model?.modelId}
+                    modelItems={modelMentionItems}
+                    modelProviders={modelProviderItems}
+                    onModelChange={(modelId) => void handleRuntimeModelChange(modelId)}
+                    autoCompactionEnabled={snapshot?.autoCompactionEnabled}
+                    sessionTokens={snapshot?.stats?.used}
+                    sessionCost={snapshot?.stats?.cost?.amount}
+                    rateLimit={snapshot?.usage?.rateLimit}
+                  />
                 )}
               </div>
             </div>
 
             {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&
-              isStreaming && (
-                <div className="sr-only" aria-live="polite">
-                  A response is still streaming. Jump to latest to follow it.
-                </div>
-              )}
-
-            <div
-              data-pipper-id="input-area"
-              className={cn("relative z-10 p-3 transition-colors duration-300")}
-            >
-              {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&
-                !isAtConversationLiveEdge &&
-                allMessages.length > 0 &&
-                (hasUnreadConversationContent || isStreaming) && (
-                  <div className="pointer-events-none absolute left-1/2 top-0 z-30 -mt-3 -translate-x-1/2 -translate-y-1/2">
+              !isAtConversationLiveEdge &&
+              allMessages.length > 0 &&
+              (hasUnreadConversationContent || isStreaming) && (
+                <div className="pointer-events-none absolute bottom-16 left-1/2 z-30 -translate-x-1/2">
+                  <Elevated offset={2} shadowLevel={3} className="pointer-events-auto rounded-full">
                     <Button
                       type="button"
                       variant="secondary"
                       size="icon-sm"
-                      className="pointer-events-auto rounded-full border border-border/80 bg-surface-2/95 shadow-lg backdrop-blur-sm"
+                      className="rounded-full border border-border/80"
                       data-pipper-id="jump-to-latest"
                       aria-label="Jump to latest reply and resume following"
                       title="Jump to latest reply"
@@ -2334,333 +2666,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                     >
                       <ArrowDownIcon size={16} />
                     </Button>
-                  </div>
-                )}
-              <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
-                {visibleAgentError && (
-                  <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
-                    <WarningIcon className="mt-0.5 size-4 shrink-0" />
-                    <span className="min-w-0 flex-1">{visibleAgentError}</span>
-                    <button
-                      type="button"
-                      className="shrink-0 text-red-500/80 hover:text-red-500"
-                      onClick={() => setDismissedAgentError(visibleAgentError)}
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-                {isConnecting && (
-                  <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[12px] text-muted-foreground">
-                    Connecting to agent runtime...
-                  </div>
-                )}
-                {snapshot?.queue.steering.length || snapshot?.queue.followUp.length ? (
-                  <div className="rounded-lg border border-border bg-surface-2 p-2 text-xs">
-                    {snapshot.queue.steering.length > 0 && (
-                      <div>
-                        <span className="font-medium">Steering</span>
-                        {snapshot.queue.steering.map((item, index) => (
-                          <div
-                            key={index}
-                            className="line-clamp-2 text-muted-foreground"
-                            title={item}
-                          >
-                            {item}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {snapshot.queue.followUp.length > 0 && (
-                      <div className="mt-1">
-                        <span className="font-medium">Next</span>
-                        {snapshot.queue.followUp.map((item, index) => (
-                          <div
-                            key={index}
-                            className="line-clamp-2 text-muted-foreground"
-                            title={item}
-                          >
-                            {item}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-                {editState && (
-                  <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
-                    <span>Editing message · {editState.images.length} retained image(s)</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditState(null);
-                        setInputValue("");
-                        setAttachedFiles([]);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                )}
-                <div className="relative isolate">
-                  {snapshot?.plan && snapshot.plan.length > 0 && isStreaming ? (
-                    <div
-                      data-pipper-id="plan-popover"
-                      className="absolute right-0 bottom-full mb-1.5 z-[240] w-[280px]"
-                    >
-                      <Elevated
-                        offset={2}
-                        shadowLevel={4}
-                        className="rounded-xl border border-border/80 p-2"
-                      >
-                        <div className="px-1.5 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                          Plan
-                        </div>
-                        <ul className="flex flex-col gap-1">
-                          {snapshot.plan.map((entry, index) => (
-                            <li
-                              key={`${entry.content}-${index}`}
-                              className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-foreground"
-                            >
-                              <span className="mt-0.5 size-3.5 shrink-0 text-muted-foreground">
-                                {entry.status === "completed" ? (
-                                  <ModelCheckIcon size={14} className="text-emerald-500" />
-                                ) : (
-                                  <span className="inline-block size-2.5 rounded-full border border-border" />
-                                )}
-                              </span>
-                              <span
-                                className={
-                                  entry.status === "completed"
-                                    ? "text-muted-foreground line-through"
-                                    : undefined
-                                }
-                              >
-                                {entry.content}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </Elevated>
-                    </div>
-                  ) : null}
-                  <AgentSlashCommandMenu
-                    commands={slashMatches}
-                    selectedIndex={selectedCommandIndex}
-                    onSelect={applyCommand}
-                  />
-
-                  {continuePickerOpen ? (
-                    <AgentContinueMenu
-                      agents={continuableAgents}
-                      selectedIndex={continueSelectedIndex}
-                      onSelect={(agentId) => void handleContinueWithAgent(agentId)}
-                    />
-                  ) : null}
-
-                  <SubagentActivity
-                    runs={subagentRuns}
-                    agents={registryAgents}
-                    activeSessionId={activeSessionId}
-                    className="relative z-10 mb-1.5"
-                  />
-
-                  {isDraftMode ? (
-                    <ThreadComposer
-                      mode="draft"
-                      className="relative z-10"
-                      content={draftContent}
-                      onContentChange={handleDraftContentChange}
-                      onSend={(content, files) => void handleDraftSend(content, files)}
-                      disabled={composerDisabled}
-                      isSubmitting={isSubmitting}
-                      projects={draftProjectItems}
-                      agents={[]}
-                      models={modelMentionItems}
-                      modelProviders={modelProviderItems}
-                      projectFiles={projectFileItems}
-                      files={attachedFiles}
-                      onFilesChange={handleFilesChange}
-                      onFilesRejected={handleFilesRejected}
-                      maxFiles={MAX_AGENT_IMAGES}
-                      showImageAttach={true}
-                      textareaRef={composerTextareaRef}
-                      onTextareaKeyDown={handleComposerKeyDown}
-                    />
-                  ) : inlineRequest ? (
-                    <AgentQuestionCard request={inlineRequest} className="relative z-10" />
-                  ) : orchestrationOpen ? (
-                    <SubagentComposer
-                      className="relative z-10"
-                      agents={registryAgents}
-                      defaultOrchestratorId={snapshot?.agentId ?? null}
-                      initialGoal={orchestrationSeed}
-                      isSubmitting={isSubmitting}
-                      onSubmit={(payload) => void handleOrchestrationSubmit(payload)}
-                      onCancel={() => {
-                        setOrchestrationOpen(false);
-                        setOrchestrationSeed("");
-                      }}
-                    />
-                  ) : (
-                    <>
-                      {pendingContinuation ? (
-                        <div
-                          className="relative z-10 mb-1.5 flex flex-wrap items-center gap-1.5"
-                          data-pipper-id="continuation-chip"
-                        >
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 py-1 pl-2.5 pr-1.5 text-xs text-muted-foreground">
-                            <ChatCircleTextIcon size={13} />
-                            Transcript from previous conversation
-                            <button
-                              type="button"
-                              aria-label="Remove transcript"
-                              data-pipper-id="continuation-chip-remove"
-                              className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
-                              onClick={() => {
-                                if (snapshot?.threadId) {
-                                  useContinuationStore.getState().clearPending(snapshot.threadId);
-                                }
-                              }}
-                            >
-                              <XIcon size={11} />
-                            </button>
-                          </span>
-                        </div>
-                      ) : null}
-                      <ThreadComposer
-                        mode="live"
-                        className="relative z-10"
-                        content={liveContent}
-                        onContentChange={handleLiveContentChange}
-                        onSend={(content, sendFiles) =>
-                          void handleLiveComposerSend(content, sendFiles)
-                        }
-                        disabled={composerDisabled}
-                        isSubmitting={isSubmitting}
-                        isStreaming={isStreaming}
-                        onStop={() => void handleAbort()}
-                        isStopping={isAborting}
-                        models={modelMentionItems}
-                        modelProviders={modelProviderItems}
-                        projectFiles={projectFileItems}
-                        files={attachedFiles}
-                        onFilesChange={handleFilesChange}
-                        onFilesRejected={handleFilesRejected}
-                        maxFiles={Math.max(0, MAX_AGENT_IMAGES - (editState?.images.length ?? 0))}
-                        showImageAttach={showImageAttach}
-                        textareaRef={composerTextareaRef}
-                        placeholder={isConnecting ? "Connecting to agent runtime..." : undefined}
-                        onTextareaKeyDown={handleComposerKeyDown}
-                        rightSlotExtra={
-                          <div className="flex items-center gap-1.5">
-                            {thoughtLevelValues.length > 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={runtimeControlsDisabled}
-                                data-pipper-id="reasoning-slider-toggle"
-                                onClick={() => setShowThinkingSlider((v) => !v)}
-                              >
-                                {thoughtLevelValues[currentThoughtIndex]?.name ??
-                                  snapshot?.thinkingLevel ??
-                                  "Reasoning"}
-                              </Button>
-                            )}
-                          </div>
-                        }
-                      />
-                      <AnimatePresence>
-                        {showThinkingSlider && thoughtLevelValues.length > 0 && (
-                          <motion.div
-                            data-pipper-id="reasoning-slider"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.15 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="pt-1">
-                              <SliderComfortable
-                                value={currentThoughtIndex}
-                                onChange={(index) => {
-                                  const val = thoughtLevelValues[index];
-                                  if (val && thoughtLevelConfigId) {
-                                    setConfigOption(thoughtLevelConfigId, val.value).catch(
-                                      (err) => {
-                                        toast({
-                                          icon: <WarningIcon className="size-5 text-red-500" />,
-                                          title: "Reasoning level failed",
-                                          description:
-                                            err instanceof Error
-                                              ? err.message
-                                              : "The reasoning level was not changed.",
-                                        });
-                                      },
-                                    );
-                                  }
-                                }}
-                                min={0}
-                                max={thoughtLevelValues.length - 1}
-                                step={1}
-                                variant="pips"
-                                label="Reasoning"
-                                formatValue={(v) => thoughtLevelValues[v]?.name ?? String(v)}
-                                disabled={runtimeControlsDisabled}
-                              />
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </>
-                  )}
+                  </Elevated>
                 </div>
-
-                {!isDraftMode ? (
-                  <div
-                    data-pipper-id="stats-bar"
-                    className="flex w-full flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground"
-                  >
-                    {snapshot?.stats && (
-                      <div className="ml-auto flex w-full items-center justify-between gap-2">
-                        <ContextWindowRing
-                          contextUsage={
-                            snapshot.stats.size > 0
-                              ? {
-                                  tokens: snapshot.stats.used,
-                                  contextWindow: snapshot.stats.size,
-                                  percent: (snapshot.stats.used / snapshot.stats.size) * 100,
-                                }
-                              : undefined
-                          }
-                          modelName={snapshot.model?.name}
-                          autoCompactionEnabled={snapshot.autoCompactionEnabled}
-                          sessionTokens={snapshot.stats.used}
-                          sessionCost={snapshot.stats.cost?.amount}
-                          rateLimit={snapshot.usage?.rateLimit}
-                        />
-                        <div className="ml-auto flex min-w-0 items-center gap-2">
-                          {snapshot.model?.name && (
-                            <span
-                              className="min-w-0 max-w-[220px] truncate text-[12px] text-muted-foreground"
-                              title={snapshot.model.name}
-                            >
-                              {snapshot.model.name}
-                            </span>
-                          )}
-                          {snapshot.stats.cost && snapshot.stats.cost.amount > 0 && (
-                            <span className="shrink-0 tabular-nums opacity-70">
-                              (${snapshot.stats.cost.amount.toFixed(4)})
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </div>
+              )}
           </div>
         </div>
       </div>

@@ -24,7 +24,7 @@ import { spring } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
 import { useIcon } from "@/lib/icon-context";
 import { surfaceClasses } from "@/lib/surface-classes";
-import { SurfaceProvider } from "@/lib/surface-context";
+import { SurfaceProvider, useSurface } from "@/lib/surface-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -146,6 +146,8 @@ interface InputMessageProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChan
   customInput?: ReactNode;
   /** Compact single-row composer treatment used by the agent composer. */
   compact?: boolean;
+  /** Visual treatment. Plain inputs inherit their surrounding conversation surface. */
+  appearance?: "surface" | "plain";
   /** Disables the textarea, send button, and drag-and-drop. */
   disabled?: boolean;
   /** Allows submission when value/files are empty because the caller retained content. */
@@ -386,6 +388,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       topSlot,
       customInput,
       compact = false,
+      appearance = "surface",
       disabled,
       canSendWhenEmpty = false,
       minRows = 1,
@@ -419,6 +422,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     ref,
   ) => {
     const shape = useShape();
+    const parentSurface = useSurface();
     const ArrowUpIcon = useIcon("arrow-up");
     const reduceMotion = useReducedMotion() ?? false;
     const isTouch = useIsTouch();
@@ -518,13 +522,16 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     // precedence drag > focus > hover; when none are active, the className's
     // `shadow-surface-2` supplies the resting edge.
     const EDGE_DROP = "0 1px 1px -0.5px var(--shadow-color)";
-    const edgeShadow = dragOver
-      ? `0 0 0 1px #6B97FF, ${EDGE_DROP}`
-      : focusVisible
-        ? `0 0 0 1px color-mix(in oklab, var(--foreground) 20%, transparent), ${EDGE_DROP}`
-        : hovered && clickToFocus && !disabled
-          ? `0 0 0 1px var(--border), ${EDGE_DROP}`
-          : undefined;
+    const edgeShadow =
+      appearance === "surface"
+        ? dragOver
+          ? `0 0 0 1px #6B97FF, ${EDGE_DROP}`
+          : focusVisible
+            ? `0 0 0 1px color-mix(in oklab, var(--foreground) 20%, transparent), ${EDGE_DROP}`
+            : hovered && clickToFocus && !disabled
+              ? `0 0 0 1px var(--border), ${EDGE_DROP}`
+              : undefined
+        : undefined;
 
     const handleSend = useCallback(
       (inputValue?: string, inputFiles?: File[]) => {
@@ -1055,6 +1062,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       <div
         ref={ref}
         data-pipper-id={pipperId}
+        data-appearance={appearance}
         onMouseDown={handleContainerMouseDown}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -1064,9 +1072,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
           // border. State changes recolor that same 1px ring in place rather
           // than layering a second colored border beside it — so hover / focus
           // bump *contrast* without ever appearing to thicken the stroke.
-          "flex flex-col gap-1 p-2 transition-[box-shadow,color] duration-80",
-          surfaceClasses(2, 2),
-          shape.container,
+          "flex flex-col gap-1 transition-[box-shadow,color] duration-80",
+          appearance === "surface"
+            ? cn("p-2", surfaceClasses(2, 2), shape.container)
+            : "bg-transparent py-1",
           clickToFocus && !disabled && "cursor-text",
           disabled && "opacity-50 pointer-events-none",
           className,
@@ -1076,7 +1085,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
         onMouseLeave={() => setHovered(false)}
         {...props}
       >
-        <SurfaceProvider value={2}>
+        <SurfaceProvider value={appearance === "surface" ? 2 : parentSurface}>
           {supportsFiles && (
             <input
               ref={fileInputRef}

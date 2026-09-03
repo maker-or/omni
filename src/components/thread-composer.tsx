@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { PlusIcon, XIcon } from "@phosphor-icons/react";
+import { PaperclipIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { InputMessage } from "@/components/ui/input-message";
 import {
@@ -68,10 +68,16 @@ export type ThreadComposerProps = {
   /** Project file paths for `@file` (inserted as text, not chips). */
   projectFiles?: MentionItem[];
   className?: string;
+  /** Decorative identity marker for the next user turn. */
+  turnMarker?: React.ReactNode;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   leftSlotExtra?: React.ReactNode;
   /** Additional bottom-right controls before send. */
   rightSlotExtra?: React.ReactNode;
+  /** Inherit the conversation background instead of drawing a composer surface. */
+  appearance?: "surface" | "plain";
+  /** Hide the built-in button when submission is owned by an external composer rail. */
+  hideSendButton?: boolean;
   /** Extra key handling after mention keys are processed. */
   onTextareaKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
 };
@@ -98,9 +104,12 @@ export function ThreadComposer({
   modelProviders: providedModelProviders = [],
   projectFiles = [],
   className,
+  turnMarker,
   textareaRef: externalTextareaRef,
   leftSlotExtra,
   rightSlotExtra,
+  appearance = "surface",
+  hideSendButton = false,
   onTextareaKeyDown,
 }: ThreadComposerProps) {
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
@@ -144,7 +153,6 @@ export function ThreadComposer({
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const [selectedModelProviderId, setSelectedModelProviderId] = useState<string | null>(null);
   const inferredModelProviders = useMemo<MentionProvider[]>(() => {
     const seen = new Set<string>();
@@ -206,19 +214,9 @@ export function ThreadComposer({
     setMentionIndex(0);
   }, [mentionQuery, mentionKind, filteredItems.length]);
 
-  const updateAnchor = useCallback(() => {
-    const el = textareaRef.current ?? inlineEditorRef.current;
-    if (!el) {
-      setAnchorRect(null);
-      return;
-    }
-    setAnchorRect(el.getBoundingClientRect());
-  }, [textareaRef]);
-
   const closeMention = useCallback(() => {
     setMentionOpen(false);
     setMentionQuery("");
-    setAnchorRect(null);
     setSelectedModelProviderId(null);
   }, []);
 
@@ -282,9 +280,8 @@ export function ThreadComposer({
       setMentionKind(nextKind);
       setMentionOpen(true);
       setMentionQuery(mention.query);
-      updateAnchor();
     },
-    [closeMention, resolveKindForQuery, updateAnchor],
+    [closeMention, resolveKindForQuery],
   );
 
   const handleValueChange = useCallback(
@@ -376,15 +373,6 @@ export function ThreadComposer({
     [closeMention, mentionKind, onContentChange, placeInlineCaret, textareaRef],
   );
 
-  const removeChip = useCallback(
-    (kind: ComposerEntityToken["kind"]) => {
-      const nextContent = removeEntityKind(contentRef.current, kind);
-      contentRef.current = nextContent;
-      onContentChange(nextContent);
-    },
-    [onContentChange],
-  );
-
   const handleSend = useCallback(
     (_value: string, sendFiles: File[]) => {
       if (disabled || isSubmitting) return;
@@ -447,7 +435,7 @@ export function ThreadComposer({
   const inlineEditor = (
     <div
       ref={inlineEditorRef}
-      className="block h-11 min-h-11 max-h-11 min-w-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
+      className="block min-h-11 max-h-[76px] min-w-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
@@ -524,20 +512,12 @@ export function ThreadComposer({
               contentEditable={false}
               title={`@${entity.label}`}
               className={cn(
-                "mr-1.5 inline-flex min-w-0 max-w-[min(100%,28rem)] shrink items-center gap-1.5 rounded-full py-0.5 pl-2 pr-1 align-middle text-[12px] leading-none font-medium",
+                "mr-1.5 inline-flex h-7 min-w-0 max-w-[min(100%,22rem)] shrink items-center gap-1.5 rounded-full px-2.5 align-middle text-[14px] leading-none font-semibold",
                 mentionChipClass(entity.kind),
               )}
             >
               {iconNode}
               <span className="min-w-0 truncate leading-none">@{entity.label}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${entity.kind} ${entity.label}`}
-                className="inline-flex size-4 items-center justify-center rounded-full opacity-70 hover:opacity-100"
-                onClick={() => removeChip(entity.kind)}
-              >
-                <XIcon size={11} />
-              </button>
             </span>
           );
         })}
@@ -547,81 +527,90 @@ export function ThreadComposer({
         contentEditable={!disabled}
         tabIndex={0}
         className="inline-block min-w-[2px] cursor-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none align-middle empty:before:inline-block empty:before:align-middle empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:pointer-events-none empty:before:content-[attr(data-placeholder)]"
-        style={{ caretColor: "currentColor" }}
+        style={{ caretColor: "#26B25A" }}
         data-placeholder={resolvedPlaceholder}
       />
     </div>
   );
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)} data-pipper-id="thread-composer">
-      <InputMessage
-        className="relative z-10"
-        textareaRef={textareaRef}
-        value={freeText}
-        onValueChange={handleValueChange}
-        placeholder={resolvedPlaceholder}
-        onSend={handleSend}
-        customInput={inlineEditor}
-        compact
-        disabled={disabled}
-        canSendWhenEmpty={files.length > 0}
-        files={onFilesChange ? files : undefined}
-        onFilesChange={onFilesChange}
-        onFilesRejected={onFilesRejected}
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        maxFiles={maxFiles}
-        isStreaming={isStreaming}
-        onStop={onStop}
-        isStopping={isStopping}
-        sendLabel={isSubmitting ? "Sending" : "Send"}
-        disableFileMentions
-        leftSlot={
-          showImageAttach && onFilesChange
-            ? ({ openFilePicker }) => (
-                <>
-                  {leftSlotExtra}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    data-pipper-id="attach-image-button"
-                    aria-label="Attach images"
-                    onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
-                  >
-                    <PlusIcon size={17} />
-                  </Button>
-                </>
-              )
-            : leftSlotExtra
-              ? () => <>{leftSlotExtra}</>
-              : undefined
-        }
-        rightSlot={rightSlotExtra ? () => <>{rightSlotExtra}</> : undefined}
-        textareaProps={{
-          onKeyDown,
-          "aria-label": mode === "draft" ? "New thread composer" : "Message composer",
-        }}
-      />
-
-      {mentionOpen ? (
-        <MentionPopover
-          anchorRect={anchorRect}
-          kind={mentionKind}
-          items={filteredItems}
-          selectedIndex={mentionIndex}
-          onSelectedIndexChange={setMentionIndex}
-          onPick={pickItem}
-          onClose={closeMention}
-          providers={modelProviders}
-          selectedProviderId={activeModelProviderId}
-          onProviderChange={handleProviderChange}
-        />
+    <div className={cn("flex items-center gap-3", className)} data-pipper-id="thread-composer">
+      {turnMarker ? (
+        <div className="flex shrink-0 items-center" data-pipper-id="composer-turn-marker">
+          {turnMarker}
+        </div>
       ) : null}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <InputMessage
+          className="relative z-10"
+          textareaRef={textareaRef}
+          value={freeText}
+          onValueChange={handleValueChange}
+          placeholder={resolvedPlaceholder}
+          onSend={handleSend}
+          customInput={inlineEditor}
+          compact
+          appearance={appearance}
+          disabled={disabled}
+          canSendWhenEmpty={files.length > 0}
+          files={onFilesChange ? files : undefined}
+          onFilesChange={onFilesChange}
+          onFilesRejected={onFilesRejected}
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          maxFiles={maxFiles}
+          isStreaming={isStreaming}
+          onStop={onStop}
+          isStopping={isStopping}
+          sendLabel={isSubmitting ? "Sending" : "Send"}
+          hideSendButton={hideSendButton}
+          disableFileMentions
+          leftSlot={
+            showImageAttach && onFilesChange
+              ? ({ openFilePicker }) => (
+                  <>
+                    {leftSlotExtra}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      data-pipper-id="attach-image-button"
+                      aria-label="Attach images"
+                      onClick={() => openFilePicker("image/png,image/jpeg,image/gif,image/webp")}
+                    >
+                      <PaperclipIcon size={17} />
+                    </Button>
+                  </>
+                )
+              : leftSlotExtra
+                ? () => <>{leftSlotExtra}</>
+                : undefined
+          }
+          rightSlot={rightSlotExtra ? () => <>{rightSlotExtra}</> : undefined}
+          textareaProps={{
+            onKeyDown,
+            "aria-label": mode === "draft" ? "New thread composer" : "Message composer",
+          }}
+        />
 
-      <span className="sr-only" aria-hidden>
-        {canSend ? "ready" : "empty"}
-      </span>
+        {mentionOpen ? (
+          <MentionPopover
+            anchorRef={inlineEditorRef}
+            kind={mentionKind}
+            items={filteredItems}
+            selectedIndex={mentionIndex}
+            onSelectedIndexChange={setMentionIndex}
+            onPick={pickItem}
+            onClose={closeMention}
+            providers={modelProviders}
+            selectedProviderId={activeModelProviderId}
+            onProviderChange={handleProviderChange}
+          />
+        ) : null}
+
+        <span className="sr-only" aria-hidden>
+          {canSend ? "ready" : "empty"}
+        </span>
+      </div>
     </div>
   );
 }

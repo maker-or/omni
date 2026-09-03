@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { Dropdown } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { createProviderLogoIcon } from "@/components/provider-logos";
+import { Elevated } from "@/lib/elevated";
+import { useAnchoredPopoverPosition } from "@/lib/anchored-popover";
 import type { ComposerMentionKind } from "../../contracts/composer.ts";
 
 export type MentionItem = {
@@ -28,7 +30,8 @@ export type MentionProvider = {
 };
 
 export type MentionPopoverProps = {
-  anchorRect: DOMRect | null;
+  anchorRef: RefObject<HTMLElement | null>;
+  pipperId?: string;
   kind: ComposerMentionKind;
   items: MentionItem[];
   selectedIndex: number;
@@ -49,11 +52,9 @@ const KIND_LABEL: Record<ComposerMentionKind, string> = {
 };
 
 const KIND_CHIP: Record<ComposerMentionKind, string> = {
-  project: "bg-teal-500/15 text-teal-800 dark:text-teal-200 ring-1 ring-inset ring-teal-500/25",
-  agent:
-    "bg-violet-500/15 text-violet-800 dark:text-violet-200 ring-1 ring-inset ring-violet-500/25",
-  model:
-    "bg-violet-500/15 text-violet-800 dark:text-violet-200 ring-1 ring-inset ring-violet-500/25",
+  project: "bg-[#FFAA4F] text-[#B1620D] dark:text-[#B1620D] ring-2 ring-inset ring-[#B1620D]",
+  agent: "bg-[#8BB8FF] text-[#5F92FE] dark:text-[#5F92FE] ring-1 ring-inset ring-[#5F92FE]/25",
+  model: "bg-[#8BB8FF] text-[#2C59B8] dark:text-[#2C59B8] ring-2 ring-inset ring-[#2C59B8]",
   file: "bg-sky-500/15 text-sky-800 dark:text-sky-200 ring-1 ring-inset ring-sky-500/25",
 };
 
@@ -62,7 +63,8 @@ export function mentionChipClass(kind: ComposerMentionKind): string {
 }
 
 export function MentionPopover({
-  anchorRect,
+  anchorRef,
+  pipperId = "mention-popover",
   kind,
   items,
   selectedIndex,
@@ -74,6 +76,7 @@ export function MentionPopover({
   onProviderChange,
 }: MentionPopoverProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const position = useAnchoredPopoverPosition(anchorRef, true, 360);
 
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(
@@ -93,20 +96,26 @@ export function MentionPopover({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  if (!anchorRect || typeof document === "undefined") return null;
+  if (!position || typeof document === "undefined") return null;
 
-  // Open above the composer so the list never covers the input while typing.
-  const gap = 6;
-  const width = 360;
-  const left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - width - 8));
-  const bottom = Math.max(gap, window.innerHeight - anchorRect.top + gap);
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
+  const providerHeaderHeight = kind === "model" && providers.length > 0 ? 76 : 8;
+  const listMaxHeight = Math.max(0, Math.min(256, position.maxHeight - providerHeaderHeight));
 
   return createPortal(
-    <div
-      className="fixed z-[250] w-[min(22.5rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-border/80 bg-surface-3 shadow-surface-4"
-      style={{ bottom, left }}
-      data-pipper-id="mention-popover"
+    <Elevated
+      offset={2}
+      shadowLevel={4}
+      className="fixed z-[250] overflow-hidden rounded-2xl border border-border/80"
+      style={{
+        left: position.left,
+        width: position.width,
+        maxHeight: position.maxHeight,
+        top: position.top,
+        bottom: position.bottom,
+      }}
+      data-pipper-id={pipperId}
+      data-placement={position.placement}
       role="listbox"
       aria-label={`${KIND_LABEL[kind]} mentions`}
     >
@@ -155,6 +164,7 @@ export function MentionPopover({
         <Dropdown
           checkedIndex={selectedIndex}
           className="w-full max-h-64 overflow-y-auto rounded-none bg-transparent shadow-none"
+          style={{ maxHeight: listMaxHeight }}
           role="listbox"
           aria-label={`${KIND_LABEL[kind]} mentions`}
         >
@@ -182,7 +192,7 @@ export function MentionPopover({
           )}
         </Dropdown>
       </div>
-    </div>,
+    </Elevated>,
     document.body,
   );
 }
