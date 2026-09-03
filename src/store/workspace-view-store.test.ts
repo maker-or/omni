@@ -8,6 +8,7 @@ describe("workspace-view-store draft", () => {
       activeTerminalId: null,
       requestedThreadId: "stale-thread",
       draft: null,
+      draftCompletionThreadId: null,
     });
   });
 
@@ -44,6 +45,17 @@ describe("workspace-view-store draft", () => {
     expect(useWorkspaceViewStore.getState().draft?.dirty).toBe(true);
     useWorkspaceViewStore.getState().endDraft();
     expect(useWorkspaceViewStore.getState().draft).toBeNull();
+  });
+
+  test("completed draft carries the created thread to the tab bar", () => {
+    useWorkspaceViewStore.getState().beginDraft({ projectId: "p1" });
+    useWorkspaceViewStore.getState().completeDraft("new-thread");
+
+    expect(useWorkspaceViewStore.getState().draft).toBeNull();
+    expect(useWorkspaceViewStore.getState().draftCompletionThreadId).toBe("new-thread");
+
+    useWorkspaceViewStore.getState().clearDraftCompletion();
+    expect(useWorkspaceViewStore.getState().draftCompletionThreadId).toBeNull();
   });
 
   test("changing project without worktree clears stale worktree path", () => {

@@ -3,9 +3,11 @@
  * Testable without Electron or a live agent process.
  *
  * State is an ordered entry timeline (`AcpEntry[]`) mirroring ACP's flat
- * stream of updates, plus a `toolCalls` record for by-id tool state. Text
- * chunks accumulate into the tail entry; tool calls append entries and are
- * updated in place via the record, so settled entries keep referential
+ * stream of updates, plus a `toolCalls` record for by-id tool state. Assistant
+ * text chunks remain separate timeline entries so the renderer can display
+ * each streamed chunk as its own markdown block. Thought and user chunks may
+ * accumulate into the tail entry; tool calls append entries and are updated in
+ * place via the record, so settled entries keep referential
  * identity while a turn streams (memoized views skip re-rendering them).
  * Tool records in the slice are lean (title/status/preview). Full content
  * and rawOutput are parked by the connection manager / renderer payload map.
@@ -103,13 +105,15 @@ function nextEntryId(): string {
 type TextEntryType = "user_text" | "agent_text" | "agent_thought";
 
 /**
- * Accumulate a content chunk into the timeline.
+ * Append a content chunk into the timeline, accumulating only chunk types that
+ * represent one logical message stream. Assistant text chunks intentionally
+ * stay separate: the chat projection places a blank line between them.
  *
- * ACP's `messageId` on chunks is optional. Agent text/thought chunks without
- * one continue the tail entry of the same type (a turn streams as one
- * message); an intervening tool call breaks continuation, starting a new
- * segment so interleaving order is preserved. A changed `messageId` starts a
- * new message per spec. User chunks only merge on an explicit matching
+ * ACP's `messageId` on chunks is optional. Thought chunks without one continue
+ * the tail entry of the same type; an intervening tool call breaks
+ * continuation, starting a new segment so interleaving order is preserved.
+ * Assistant text chunks always start a new entry. A changed `messageId` starts
+ * a new message per spec. User chunks only merge on an explicit matching
  * `messageId` — replayed history commonly arrives as one id-less chunk per
  * historical message, which must stay separate bubbles.
  */
@@ -122,6 +126,7 @@ function appendTextEntry(
   const chunk = contentText((update as { content?: { type?: string; text?: string } }).content);
   const last = entries[entries.length - 1];
   const continuesLast =
+    type !== "agent_text" &&
     last?.type === type &&
     (type === "user_text"
       ? messageId != null && last.messageId === messageId
@@ -371,6 +376,7 @@ function appendTextEntryInPlace(
   const chunk = contentText((update as { content?: { type?: string; text?: string } }).content);
   const last = entries[entries.length - 1];
   const continuesLast =
+    type !== "agent_text" &&
     last?.type === type &&
     (type === "user_text"
       ? messageId != null && last.messageId === messageId

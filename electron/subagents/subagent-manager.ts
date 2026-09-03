@@ -485,10 +485,14 @@ export class SubagentManager {
       );
 
       run.slice = applyTurnStop(run.slice);
+      // ACP assistant chunks are separate for the renderer's markdown layout,
+      // but they are still transport fragments for the subagent protocol.
+      // Recombine them without adding presentation whitespace to the report
+      // returned to the orchestrator.
       const text = run.slice.entries
         .filter((entry) => entry.type === "agent_text")
         .map((entry) => entry.text)
-        .join("\n\n")
+        .join("")
         .trim();
 
       if (run.cancelled && !run.timedOut) throw new Error("subagent run was cancelled");

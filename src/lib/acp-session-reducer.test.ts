@@ -36,7 +36,7 @@ describe("acp-session-reducer", () => {
     expect(Object.keys(state.toolCalls).length).toBeLessThanOrEqual(MAX_SESSION_TOOL_CALLS);
   });
 
-  test("accumulates agent message and thought chunks into tail entries", () => {
+  test("keeps assistant text chunks separate while accumulating thought chunks", () => {
     let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
       sessionUpdate: "agent_thought_chunk",
@@ -54,15 +54,14 @@ describe("acp-session-reducer", () => {
       content: { type: "text", text: " world" },
     });
 
-    expect(state.entries).toHaveLength(2);
+    expect(state.entries).toHaveLength(3);
     expect(state.entries[0]).toMatchObject({ type: "agent_thought", text: "thinking… " });
-    expect(state.entries[1]).toMatchObject({ type: "agent_text", text: "Hello world" });
+    expect(state.entries[1]).toMatchObject({ type: "agent_text", text: "Hello" });
+    expect(state.entries[2]).toMatchObject({ type: "agent_text", text: " world" });
     expect(state.isStreaming).toBe(true);
   });
 
-  test("chunks without a messageId accumulate into the tail entry", () => {
-    // Standard ACP streaming updates carry no messageId; consecutive chunks of
-    // one kind must stay a single segment instead of fragmenting.
+  test("chunks without a messageId render as separate assistant text parts", () => {
     let state = createEmptySessionSlice();
     state = applySessionUpdate(state, {
       sessionUpdate: "agent_message_chunk",
@@ -73,8 +72,12 @@ describe("acp-session-reducer", () => {
       content: { type: "text", text: "the answer." },
     });
 
-    expect(state.entries).toHaveLength(1);
-    expect(state.entries[0]).toMatchObject({ type: "agent_text", text: "Here is the answer." });
+    expect(state.entries).toHaveLength(2);
+    expect(state.entries[0]).toMatchObject({ type: "agent_text", text: "Here is " });
+    expect(state.entries[1]).toMatchObject({ type: "agent_text", text: "the answer." });
+
+    const messages = projectChatMessages(state.entries, state.toolCalls, false);
+    expect(messages[0]?.text).toBe("Here is \n\nthe answer.");
   });
 
   test("a changed messageId starts a new message per ACP spec", () => {

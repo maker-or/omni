@@ -667,7 +667,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const requestedThreadId = useWorkspaceViewStore((state) => state.requestedThreadId);
   const draft = useWorkspaceViewStore((state) => state.draft);
   const beginDraft = useWorkspaceViewStore((state) => state.beginDraft);
-  const endDraft = useWorkspaceViewStore((state) => state.endDraft);
+  const completeDraft = useWorkspaceViewStore((state) => state.completeDraft);
   const setDraftProject = useWorkspaceViewStore((state) => state.setDraftProject);
   const setDraftAgent = useWorkspaceViewStore((state) => state.setDraftAgent);
   const setDraftModel = useWorkspaceViewStore((state) => state.setDraftModel);
@@ -1486,7 +1486,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       );
       await loadProjectThreads(check.projectId, { reset: true });
       await selectThread(thread.id);
-      endDraft();
+      completeDraft(thread.id);
       setDraftContent(blankContent());
 
       const newImages = await Promise.all(files.map(fileToPromptImage));

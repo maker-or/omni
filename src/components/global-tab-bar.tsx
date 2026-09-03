@@ -87,8 +87,10 @@ export function GlobalTabBar() {
   const showAgent = useWorkspaceViewStore((state) => state.showAgent);
   const showTerminal = useWorkspaceViewStore((state) => state.showTerminal);
   const draft = useWorkspaceViewStore((state) => state.draft);
+  const draftCompletionThreadId = useWorkspaceViewStore((state) => state.draftCompletionThreadId);
   const beginDraft = useWorkspaceViewStore((state) => state.beginDraft);
   const endDraft = useWorkspaceViewStore((state) => state.endDraft);
+  const clearDraftCompletion = useWorkspaceViewStore((state) => state.clearDraftCompletion);
 
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalTabs = useMemo(
@@ -117,6 +119,7 @@ export function GlobalTabBar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const closingTabIdsRef = useRef<Set<string>>(new Set());
+  const openedDraftCompletionRef = useRef<string | null>(null);
 
   const openTabsQuery = useOpenTabsQuery();
   const openTabsState = openTabsQuery.data;
@@ -193,7 +196,28 @@ export function GlobalTabBar() {
     // While composing a draft, the snapshot can still belong to the previous
     // live thread (or to an unrelated background activation). Do not turn that
     // snapshot into an open tab until the draft has become a real thread.
-    if (!snapshotThreadId || draft) return;
+    if (draft) return;
+    // Draft submission provides the authoritative new thread id. Keep using
+    // it until the agent snapshot catches up; otherwise a stale snapshot can
+    // reopen the thread that was visible before the draft started.
+    if (draftCompletionThreadId) {
+      const targetThreadId = draftCompletionThreadId;
+      if (openedDraftCompletionRef.current !== targetThreadId) {
+        openedDraftCompletionRef.current = targetThreadId;
+        void window.omni.tabs
+          .open(targetThreadId)
+          .then(() => {
+            void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
+          })
+          .catch(() => {});
+      }
+      if (snapshotThreadId === targetThreadId) {
+        openedDraftCompletionRef.current = null;
+        clearDraftCompletion();
+      }
+      return;
+    }
+    if (!snapshotThreadId) return;
     // While a user switch is pending, snapshotThreadId is intentionally still
     // the previous thread. Persisting it here races the target activation and
     // makes the tab highlight jump back to the old thread.
@@ -205,7 +229,14 @@ export function GlobalTabBar() {
         void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       })
       .catch(() => {});
-  }, [snapshotThreadId, pendingThreadTarget, draft, queryClient]);
+  }, [
+    snapshotThreadId,
+    pendingThreadTarget,
+    draft,
+    draftCompletionThreadId,
+    clearDraftCompletion,
+    queryClient,
+  ]);
 
   useEffect(() => {
     if (!requestedThreadId) return;

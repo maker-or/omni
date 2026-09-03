@@ -3,7 +3,7 @@
  *
  * Caching contract: a derived message keeps referential identity as long as
  * its underlying entries and referenced tool-call states are identical. The
- * reducer only replaces the tail text entry while streaming and replaces a
+ * reducer appends each assistant text chunk while streaming and replaces a
  * tool-call state object on update, so settled messages come back as the same
  * object every projection — memoized components (React Compiler) skip
  * re-rendering settled history on every streamed chunk.
@@ -136,7 +136,7 @@ function projectAssistantRun(
 }
 
 // Outer-walk cache: `entries` is append-only within a session (the reducer
-// only ever concatenates onto it or replaces its tail entry in place — see
+// only ever appends entries or replaces a tool-call record in place — see
 // appendTextEntry/ensureToolCallEntry in acp-session-reducer.ts), so once a
 // message (a user_text entry, or an assistant run) is superseded by a later
 // one, the entries backing it are referentially frozen forever. We remember

@@ -43,12 +43,20 @@ interface WorkspaceViewState {
    * Mutually exclusive with a selected tab highlight in the tab strip.
    */
   draft: DraftState | null;
+  /**
+   * Thread created from the most recent draft. The global tab bar consumes
+   * this one-shot handoff so a stale agent snapshot cannot reopen the prior
+   * thread when the draft disappears.
+   */
+  draftCompletionThreadId: string | null;
   showAgent: () => void;
   showTerminal: (sessionId: string) => void;
   setActiveTerminalId: (sessionId: string | null) => void;
   requestThread: (threadId: string | null) => void;
   beginDraft: (options?: BeginDraftOptions) => void;
   endDraft: () => void;
+  completeDraft: (threadId: string) => void;
+  clearDraftCompletion: () => void;
   setDraftProject: (projectId: string | null, worktreePath?: string | null) => void;
   setDraftAgent: (agentId: string | null) => void;
   setDraftModel: (modelId: string | null) => void;
@@ -62,6 +70,7 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set, get) => ({
   activeTerminalId: null,
   requestedThreadId: null,
   draft: null,
+  draftCompletionThreadId: null,
 
   showAgent: () => set({ mode: "agent" }),
   showTerminal: (sessionId) => set({ mode: "terminal", activeTerminalId: sessionId }),
@@ -73,6 +82,7 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set, get) => ({
     set({
       mode: "agent",
       requestedThreadId: null,
+      draftCompletionThreadId: null,
       draft: {
         projectId,
         agentId: null,
@@ -85,7 +95,10 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set, get) => ({
     });
   },
 
-  endDraft: () => set({ draft: null }),
+  endDraft: () => set({ draft: null, draftCompletionThreadId: null }),
+
+  completeDraft: (threadId) => set({ draft: null, draftCompletionThreadId: threadId }),
+  clearDraftCompletion: () => set({ draftCompletionThreadId: null }),
 
   setDraftProject: (projectId, worktreePath) => {
     const draft = get().draft;
