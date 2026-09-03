@@ -499,7 +499,7 @@ function MessageBody({
         const textBody = textParts
           .map((part) => part.text)
           .filter(Boolean)
-          .join("\n");
+          .join("\n\n");
         if (textBody.trim()) allTextParts.push(textBody);
       }
     }
@@ -815,7 +815,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     setDraftModel(extractModelId(content));
     if (nextProject !== prevProject) {
       markDraftUserEditedProject();
-      if (nextProject && window.omni?.projects?.setActive) {
+      // A draft project chip is only a creation target. Activating the project
+      // in main would restore its last thread while this draft is still open.
+      if (!isDraftMode && nextProject && window.omni?.projects?.setActive) {
         void window.omni.projects.setActive(nextProject).catch(() => {
           /* soft-sync is best-effort */
         });

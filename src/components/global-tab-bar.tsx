@@ -190,7 +190,10 @@ export function GlobalTabBar() {
   }, [loadProjectThreads, pagesByProject, recentProjectsQuery.data]);
 
   useEffect(() => {
-    if (!snapshotThreadId) return;
+    // While composing a draft, the snapshot can still belong to the previous
+    // live thread (or to an unrelated background activation). Do not turn that
+    // snapshot into an open tab until the draft has become a real thread.
+    if (!snapshotThreadId || draft) return;
     // While a user switch is pending, snapshotThreadId is intentionally still
     // the previous thread. Persisting it here races the target activation and
     // makes the tab highlight jump back to the old thread.
@@ -202,7 +205,7 @@ export function GlobalTabBar() {
         void queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       })
       .catch(() => {});
-  }, [snapshotThreadId, pendingThreadTarget, queryClient]);
+  }, [snapshotThreadId, pendingThreadTarget, draft, queryClient]);
 
   useEffect(() => {
     if (!requestedThreadId) return;

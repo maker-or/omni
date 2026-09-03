@@ -261,8 +261,19 @@ export default function App() {
     if (!currentProject || !workspaceName.trim() || isCreatingWorktree) return;
     const worktree = await createWorktree(currentProject.id, workspaceName.trim());
     if (!worktree) return;
-    if (draft && draft.projectId === currentProject.id) {
+    if (draft) {
       useWorkspaceViewStore.getState().setDraftProject(currentProject.id, worktree.path);
+      // A draft has no thread to activate yet. Switching the worktree through
+      // the main process would restore that workspace's last thread and race
+      // the eventual thread created by the draft's first send.
+      setWorkspaceName("");
+      setIsWorkspaceFormOpen(false);
+      toast({
+        icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
+        title: "Worktree created",
+        description: `${worktree.branch ?? "New branch"} is ready for the new thread.`,
+      });
+      return;
     }
     // Terminals follow via the workspace-bucket effect below once the
     // selection map updates.
@@ -279,8 +290,10 @@ export default function App() {
 
   const handleSwitchWorktree = async (path: string) => {
     if (!currentProject || isSwitchingWorktree) return;
-    if (draft && draft.projectId === currentProject.id) {
+    if (draft) {
       useWorkspaceViewStore.getState().setDraftProject(currentProject.id, path);
+      closeWorkspaceDropdown();
+      return;
     }
     const thread = await switchWorktree(currentProject.id, path);
     if (!thread) return;
@@ -585,7 +598,7 @@ export default function App() {
                       index={idx}
                       label={project.name}
                       icon={ProjectIconItem}
-                      checked={activeProject?.id === project.id}
+                      checked={chromeProject?.id === project.id}
                       onSelect={async () => {
                         setIsDropdownOpen(false);
                         // While drafting, the project switcher owns the draft's
@@ -600,7 +613,10 @@ export default function App() {
                             .setDraftProject(project.id, worktreePath);
                           useWorkspaceViewStore.getState().markDraftUserEditedProject();
                         }
-                        if (window.omni?.projects?.setActive) {
+                        // Draft project selection is local context. Activating
+                        // the project here would also restore its last thread,
+                        // which must not happen until the draft is submitted.
+                        if (!draft && window.omni?.projects?.setActive) {
                           try {
                             await window.omni.projects.setActive(project.id);
                           } catch (err) {
