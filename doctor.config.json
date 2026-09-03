@@ -10,6 +10,7 @@
       "contracts/**",
       "marketing/**",
       "scripts/**",
+      ".delta/**",
       "@/lib/shape-context.tsx",
       "@/lib/utils.ts"
     ],

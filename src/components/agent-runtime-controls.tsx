@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { StopIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ContextWindowRing } from "@/components/ui/context-window-ring";
@@ -36,6 +37,9 @@ interface AgentRuntimeControlsProps {
   modelItems?: MentionItem[];
   modelProviders?: MentionProvider[];
   onModelChange?: (modelId: string) => void;
+  isStreaming?: boolean;
+  isStopping?: boolean;
+  onStop?: () => void;
 }
 
 export function AgentRuntimeControls({
@@ -54,6 +58,9 @@ export function AgentRuntimeControls({
   modelItems = [],
   modelProviders = [],
   onModelChange,
+  isStreaming = false,
+  isStopping = false,
+  onStop,
 }: AgentRuntimeControlsProps) {
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -82,11 +89,20 @@ export function AgentRuntimeControls({
 
   const hasReasoningLevels = reasoningLevels.length > 0;
   const hasModelPicker = Boolean(modelName && modelId && modelItems.length > 0 && onModelChange);
-  if (!hasReasoningLevels && !contextUsage && !modelName) return null;
+  if (!hasReasoningLevels && !contextUsage && !modelName && !isStreaming) return null;
 
   return (
     <div ref={rootRef} className="relative flex w-full items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-4">
+        <ContextWindowRing
+          contextUsage={contextUsage}
+          modelName={modelName}
+          autoCompactionEnabled={autoCompactionEnabled}
+          sessionTokens={sessionTokens}
+          sessionCost={sessionCost}
+          rateLimit={rateLimit}
+        />
+
         {modelName && (
           <Button
             ref={modelButtonRef}
@@ -99,20 +115,11 @@ export function AgentRuntimeControls({
             aria-label={hasModelPicker ? `Change model, currently ${modelName}` : modelName}
             title={hasModelPicker ? "Change model" : modelName}
             onClick={() => setModelOpen((open) => !open)}
-            className="max-w-44 min-w-0 text-[12px] text-muted-foreground"
+            className="text-[12px] text-muted-foreground"
           >
             <span className="truncate">{modelName}</span>
           </Button>
         )}
-
-        <ContextWindowRing
-          contextUsage={contextUsage}
-          modelName={modelName}
-          autoCompactionEnabled={autoCompactionEnabled}
-          sessionTokens={sessionTokens}
-          sessionCost={sessionCost}
-          rateLimit={rateLimit}
-        />
       </div>
 
       <AnimatePresence>
@@ -153,6 +160,24 @@ export function AgentRuntimeControls({
             {reasoningLevels[currentReasoningIndex]?.name ?? currentReasoningLabel ?? "Reasoning"}
           </Button>
         )}
+
+        {isStreaming && onStop ? (
+          <Elevated offset={1} shadowLevel={1} className="rounded-full">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled || isStopping}
+              data-pipper-id="runtime-stop-button"
+              aria-label={isStopping ? "Stopping response" : "Stop response"}
+              title={isStopping ? "Stopping response" : "Stop response"}
+              onClick={onStop}
+              className="size-7 p-0 rounded-full border border-border/80 text-destructive hover:text-destructive hover:bg-hover"
+            >
+              <StopIcon size={13} weight="fill" />
+            </Button>
+          </Elevated>
+        ) : null}
 
         <AnimatePresence>
           {reasoningOpen && hasReasoningLevels && (

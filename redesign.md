@@ -86,23 +86,20 @@ The rail is a sibling of the scroll container, not its child. It remains visible
 
 `AgentRuntimeControls` uses a full-width `justify-between` layout:
 
-- left group: model picker and context ring;
+- left group: context ring and model picker;
 - right group: reasoning picker;
 
 The model label is deliberately text-only. It opens the same model source used by composer model mentions. The reasoning picker applies the existing ACP configuration option rather than maintaining separate presentation state.
 
-The rail has no send or stop button. Enter submits the in-flow composer, while Shift+Enter remains available to add a line break. During streaming, the animated assistant profile owns the stop action.
+The rail has no send button. Enter submits the in-flow composer, while Shift+Enter remains available to add a line break. During streaming, the bottom rail displays an accessible Stop response button in an elevated surface pill (hidden during idle mode). With the scroll-past-the-end behavior, the floating jump-to-latest down arrow button is removed.
 
 ## Conversation turns
 
 ### Shared alignment
 
-Both user and assistant turns are left-aligned by `ChatMessage`. Assistant turns have:
+Both user and assistant turns are left-aligned by `ChatMessage`.
 
-1. a fixed identity column;
-2. a flexible content column containing attachments, message text, and actions.
-
-User bubbles use the full row without a profile column. The assistant identity wrapper and trace header use the same height so the assistant mark, thought-process label, and message body share a stable baseline.
+User bubbles use the full row without a profile column. Assistant messages are clean and text-first without a profile icon, avoiding layout shift upon completion of streaming.
 
 ### User turns
 
@@ -122,16 +119,9 @@ User text remains clamped to three lines until expanded. The clamp applies only 
 
 ### Assistant turns
 
-The orange profile mark is `ASSISTANT_IDENTITY_MARK`. Assistant, composer, and streaming profiles render at full opacity and saturation so the supplied artwork retains its intended palette. User message bubbles intentionally do not render an identity mark.
+Assistant turns render directly without an avatar icon, keeping message text and code blocks stable and avoiding layout shift between streaming and settled states.
 
-While streaming, the assistant profile:
-
-- gently animates unless reduced motion is enabled;
-- has an accessible `Stop response` button label;
-- reveals a stop glyph on hover or keyboard focus;
-- becomes disabled and reports `Stopping response` while abort is in flight.
-
-The bottom rail must not add a second stop button. `AgentPanel` supplies `handleAbort` to the identity attached to the active assistant turn and to the fallback thinking row.
+While streaming, the stop action is owned by the fixed bottom rail (`runtime-stop-button`). In the fallback thinking row before tokens stream, `ThinkingIndicator` displays its animated liveness indicator.
 
 ### Assistant trace deck
 

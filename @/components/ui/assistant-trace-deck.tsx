@@ -280,7 +280,7 @@ function getToolActionCopy(
 
   if (name.includes("read") || name.includes("grep") || name.includes("search")) {
     copy = {
-      label: "Gathered context",
+      label: "Gathering context",
       description: copy.description,
     };
   } else if (name.includes("write") || name.includes("replace") || name.includes("edit")) {

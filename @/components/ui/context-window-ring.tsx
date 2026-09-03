@@ -336,7 +336,7 @@ export function ContextWindowRing({
         <TooltipPrimitive.Trigger asChild>
           <button
             type="button"
-            className="inline-flex cursor-default items-center gap-1.5 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="inline-flex shrink-0 cursor-default items-center gap-1.5 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring"
             aria-label="Context window usage"
           >
             {ring}

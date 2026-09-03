@@ -168,15 +168,25 @@ const defaultMarkdownComponents = {
   },
   ul: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"ul">>) => {
     const rest = omitNode(props);
-    return <ul className={cn("list-inside list-disc", className)} {...rest} />;
+    return <ul className={cn("list-outside list-disc pl-5 space-y-1 my-2", className)} {...rest} />;
   },
   ol: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"ol">>) => {
     const rest = omitNode(props);
-    return <ol className={cn("list-inside list-decimal", className)} {...rest} />;
+    return (
+      <ol className={cn("list-outside list-decimal pl-5 space-y-1 my-2", className)} {...rest} />
+    );
   },
   li: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"li">>) => {
     const rest = omitNode(props);
-    return <li className={cn("py-1 break-words [overflow-wrap:anywhere]", className)} {...rest} />;
+    return (
+      <li
+        className={cn(
+          "py-0.5 break-words [overflow-wrap:anywhere] [&>p]:inline [&>p:not(:first-child)]:block [&>p:not(:first-child)]:mt-2",
+          className,
+        )}
+        {...rest}
+      />
+    );
   },
   blockquote: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"blockquote">>) => {
     const rest = omitNode(props);

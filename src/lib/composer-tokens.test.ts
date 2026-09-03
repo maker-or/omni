@@ -207,7 +207,7 @@ describe("composer-tokens", () => {
 
   test("allowedMentionKinds differ by mode", () => {
     expect(allowedMentionKinds("draft")).toEqual(["project", "model", "file"]);
-    expect(allowedMentionKinds("live")).toEqual(["model", "file"]);
+    expect(allowedMentionKinds("live")).toEqual(["file", "model"]);
     expect(allowedMentionKinds("live", { filesAvailable: false })).toEqual(["model"]);
   });
 
@@ -228,10 +228,15 @@ describe("composer-tokens", () => {
     expect(resolveDefaultMentionKind({ mode: "draft", content: withModel })).toBe("file");
   });
 
-  test("smart @ cascade for live: model then file", () => {
+  test("smart @ cascade for live: file first, model when files unavailable", () => {
     const empty = blankContent();
-    expect(resolveDefaultMentionKind({ mode: "live", content: empty })).toBe("model");
+    expect(resolveDefaultMentionKind({ mode: "live", content: empty })).toBe("file");
     expect(isMentionSlotFilled("project", empty, "live")).toBe(true);
+
+    // When files are unavailable, falls back to model
+    expect(resolveDefaultMentionKind({ mode: "live", content: empty, filesAvailable: false })).toBe(
+      "model",
+    );
 
     const withModel = buildContent([{ kind: "model", id: "m1", label: "Sonnet" }], "hi");
     expect(resolveDefaultMentionKind({ mode: "live", content: withModel })).toBe("file");

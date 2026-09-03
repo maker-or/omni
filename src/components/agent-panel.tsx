@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  ArrowDownIcon,
   CheckIcon as ModelCheckIcon,
   ChatCircleTextIcon,
   WarningIcon,
@@ -648,6 +647,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     useState<ConversationScrollMode>("reading");
   const [hasUnreadConversationContent, setHasUnreadConversationContent] = useState(false);
   const [isAtConversationLiveEdge, setIsAtConversationLiveEdge] = useState(false);
+  const [scrollPastSpacerHeight, setScrollPastSpacerHeight] = useState(0);
+  const scrollPastSpacerHeightRef = useRef(0);
+  scrollPastSpacerHeightRef.current = scrollPastSpacerHeight;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -1111,17 +1113,59 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   useEffect(() => {
     const composer = composerRegionRef.current;
     const scrollContainer = messagesScrollRef.current;
+    if (!composer || !scrollContainer) return;
+
+    const updateSpacer = () => {
+      if (isDraftMode || allMessages.length === 0) {
+        if (scrollPastSpacerHeightRef.current !== 0) {
+          scrollPastSpacerHeightRef.current = 0;
+          setScrollPastSpacerHeight(0);
+        }
+        return;
+      }
+      const containerHeight = scrollContainer.clientHeight;
+      const composerHeight = composer.offsetHeight;
+      const targetTopOffset = 16;
+      const nextSpacer = Math.max(0, containerHeight - composerHeight - targetTopOffset);
+      if (Math.abs(scrollPastSpacerHeightRef.current - nextSpacer) > 1) {
+        scrollPastSpacerHeightRef.current = nextSpacer;
+        setScrollPastSpacerHeight(nextSpacer);
+      }
+    };
+
+    updateSpacer();
+  }, [allMessages.length, isDraftMode]);
+
+  useEffect(() => {
+    const composer = composerRegionRef.current;
+    const scrollContainer = messagesScrollRef.current;
     if (!composer || !scrollContainer || typeof ResizeObserver === "undefined") return;
 
     let previousHeight = composer.getBoundingClientRect().height;
     let shouldKeepLiveEdge = false;
     const resizeObserver = new ResizeObserver(() => {
+      if (!isDraftMode && allMessages.length > 0) {
+        const containerHeight = scrollContainer.clientHeight;
+        const composerHeight = composer.offsetHeight;
+        const targetTopOffset = 16;
+        const nextSpacer = Math.max(0, containerHeight - composerHeight - targetTopOffset);
+        if (Math.abs(scrollPastSpacerHeightRef.current - nextSpacer) > 1) {
+          scrollPastSpacerHeightRef.current = nextSpacer;
+          setScrollPastSpacerHeight(nextSpacer);
+        }
+      }
+
       const nextHeight = composer.getBoundingClientRect().height;
       const growth = Math.max(0, nextHeight - previousHeight);
       previousHeight = nextHeight;
 
-      const distanceAfterResize =
-        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+      const naturalBottom = Math.max(
+        0,
+        scrollContainer.scrollHeight -
+          scrollPastSpacerHeightRef.current -
+          scrollContainer.clientHeight,
+      );
+      const distanceAfterResize = Math.max(0, naturalBottom - scrollContainer.scrollTop);
       shouldKeepLiveEdge ||= shouldPreserveComposerLiveEdge(
         conversationScrollModeRef.current,
         distanceAfterResize,
@@ -1132,7 +1176,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       composerResizeRafRef.current = requestAnimationFrame(() => {
         if (shouldKeepLiveEdge) {
           markProgrammaticScroll();
-          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+          const targetBottom = Math.max(
+            0,
+            scrollContainer.scrollHeight -
+              scrollPastSpacerHeightRef.current -
+              scrollContainer.clientHeight,
+          );
+          scrollContainer.scrollTop = targetBottom;
           setIsAtConversationLiveEdge(true);
           setHasUnreadConversationContent(false);
         }
@@ -1142,6 +1192,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     });
 
     resizeObserver.observe(composer);
+    resizeObserver.observe(scrollContainer);
     return () => {
       resizeObserver.disconnect();
       if (composerResizeRafRef.current !== null) {
@@ -1149,7 +1200,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         composerResizeRafRef.current = null;
       }
     };
-  }, []);
+  }, [allMessages.length, isDraftMode]);
 
   const stopConversationFollowing = () => {
     programmaticScrollRef.current = false;
@@ -1165,19 +1216,28 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
 
-    const getDistanceFromBottom = () =>
-      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+    const getDistanceFromBottom = () => {
+      const naturalBottom = Math.max(
+        0,
+        scrollContainer.scrollHeight -
+          scrollPastSpacerHeightRef.current -
+          scrollContainer.clientHeight,
+      );
+      return naturalBottom - scrollContainer.scrollTop;
+    };
 
     const updateScrollModeFromPosition = () => {
       const distanceFromBottom = getDistanceFromBottom();
-      const atLiveEdge = distanceFromBottom <= SCROLL_LIVE_EDGE_PX;
+      const atLiveEdge = Math.abs(distanceFromBottom) <= SCROLL_LIVE_EDGE_PX;
       setIsAtConversationLiveEdge(atLiveEdge);
       if (atLiveEdge) {
         updateConversationScrollMode("following");
         setHasUnreadConversationContent(false);
       } else {
         updateConversationScrollMode("reading");
-        setHasUnreadConversationContent(true);
+        if (distanceFromBottom > SCROLL_LIVE_EDGE_PX) {
+          setHasUnreadConversationContent(true);
+        }
       }
     };
 
@@ -1312,7 +1372,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         const el = messagesScrollRef.current;
         if (el && conversationScrollModeRef.current === "following") {
           markProgrammaticScroll();
-          el.scrollTop = el.scrollHeight;
+          el.scrollTop = Math.max(
+            0,
+            el.scrollHeight - scrollPastSpacerHeightRef.current - el.clientHeight,
+          );
           setHasUnreadConversationContent(false);
         }
         scrollRafRef.current = null;
@@ -1329,7 +1392,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         return;
       }
 
-      const dest = el.scrollHeight - el.clientHeight;
+      const dest = Math.max(
+        0,
+        el.scrollHeight - scrollPastSpacerHeightRef.current - el.clientHeight,
+      );
       const delta = dest - el.scrollTop;
       if (Math.abs(delta) <= 0.5) {
         markProgrammaticScroll();
@@ -1357,9 +1423,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     const refreshLiveEdge = requestAnimationFrame(() => {
       const scrollContainer = messagesScrollRef.current;
       if (!scrollContainer) return;
-      const distanceFromBottom =
-        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
-      setIsAtConversationLiveEdge(distanceFromBottom <= SCROLL_LIVE_EDGE_PX);
+      const naturalBottom = Math.max(
+        0,
+        scrollContainer.scrollHeight -
+          scrollPastSpacerHeightRef.current -
+          scrollContainer.clientHeight,
+      );
+      const distanceFromBottom = naturalBottom - scrollContainer.scrollTop;
+      setIsAtConversationLiveEdge(Math.abs(distanceFromBottom) <= SCROLL_LIVE_EDGE_PX);
     });
     return () => cancelAnimationFrame(refreshLiveEdge);
   }, [latestConversationScrollKey, allMessages.length, threadId]);
@@ -1382,20 +1453,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     cancelConversationAnchor();
     updateConversationScrollMode("reading");
     setHasUnreadConversationContent(false);
-  };
-
-  const jumpToLatest = () => {
-    pendingScrollActionRef.current = null;
-    awaitingAssistantAfterUserRef.current = null;
-    cancelConversationAnchor();
-    updateConversationScrollMode("following");
-    setHasUnreadConversationContent(false);
-    setIsAtConversationLiveEdge(true);
-    const scrollContainer = messagesScrollRef.current;
-    if (scrollContainer) {
-      markProgrammaticScroll();
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-    }
   };
 
   const openOrchestration = (seed: string) => {
@@ -2290,16 +2347,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             <ChatMessage
                               from={from}
                               pipperId={from === "assistant" ? "assistant-message" : "user-message"}
-                              identity={
-                                from === "assistant" ? (
-                                  <ConversationTurnIdentity
-                                    role="assistant"
-                                    isStreaming={isStreaming}
-                                    isStopping={isAborting}
-                                    onStop={isStreaming ? handleAbort : undefined}
-                                  />
-                                ) : undefined
-                              }
                               time={timeStr}
                               actions={actions}
                               images={groupedImages}
@@ -2350,15 +2397,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                         className="flex shrink-0 items-start gap-3 px-4 py-2"
                         data-pipper-id="Thinking-indicator"
                       >
-                        <div className="flex h-9 shrink-0 items-center">
-                          <ConversationTurnIdentity
-                            role="assistant"
-                            isStreaming
-                            isStopping={isAborting}
-                            onStop={handleAbort}
-                          />
-                        </div>
-                        <ThinkingIndicator showIcon={false} className="h-9 p-0" />
+                        <ThinkingIndicator showIcon className="h-9 p-0" />
                       </div>
                     )}
                     <div ref={messagesEndRef} aria-hidden="true" />
@@ -2615,10 +2654,19 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                     </div>
                   </div>
                 </div>
+
+                {scrollPastSpacerHeight > 0 && (
+                  <div
+                    data-pipper-id="scroll-past-spacer"
+                    aria-hidden="true"
+                    style={{ height: `${scrollPastSpacerHeight}px` }}
+                    className="shrink-0 pointer-events-none"
+                  />
+                )}
               </div>
             </div>
 
-            <div data-pipper-id="composer-rail" className="relative z-20 shrink-0 px-3 py-2">
+            <div data-pipper-id="composer-rail" className="relative z-20 shrink-0 mt-6 px-3 py-2">
               <div className="mx-auto flex min-h-9 w-full max-w-4xl items-center">
                 {!isDraftMode && (
                   <AgentRuntimeControls
@@ -2627,6 +2675,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                     currentReasoningLabel={snapshot?.thinkingLevel ?? undefined}
                     disabled={runtimeControlsDisabled}
                     onReasoningChange={handleReasoningChange}
+                    isStreaming={isStreaming}
+                    isStopping={isAborting}
+                    onStop={handleAbort}
                     contextUsage={
                       snapshot?.stats && snapshot.stats.size > 0
                         ? {
@@ -2649,28 +2700,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                 )}
               </div>
             </div>
-
-            {(conversationScrollMode === "reading" || conversationScrollMode === "anchoring") &&
-              !isAtConversationLiveEdge &&
-              allMessages.length > 0 &&
-              (hasUnreadConversationContent || isStreaming) && (
-                <div className="pointer-events-none absolute bottom-16 left-1/2 z-30 -translate-x-1/2">
-                  <Elevated offset={2} shadowLevel={3} className="pointer-events-auto rounded-full">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon-sm"
-                      className="rounded-full border border-border/80"
-                      data-pipper-id="jump-to-latest"
-                      aria-label="Jump to latest reply and resume following"
-                      title="Jump to latest reply"
-                      onClick={jumpToLatest}
-                    >
-                      <ArrowDownIcon size={16} />
-                    </Button>
-                  </Elevated>
-                </div>
-              )}
           </div>
         </div>
       </div>

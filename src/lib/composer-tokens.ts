@@ -321,8 +321,8 @@ export type MentionContext = {
 export function mentionPriority(mode: "draft" | "live"): ComposerMentionKind[] {
   // Draft: project then model. Agent is inferred from the model (or soft default).
   if (mode === "draft") return ["project", "model", "file"];
-  // Live: model first, then files. Sequential presses fill model then file.
-  return ["model", "file"];
+  // Live: file first, then models.
+  return ["file", "model"];
 }
 
 /** Whether a control slot is already satisfied (file is never "filled"). */

@@ -48,7 +48,7 @@ describe("draft thread creation behavior", () => {
         content: bc([{ kind: "project", id: "p", label: "P" }], ""),
       }),
     ).toBe("model");
-    expect(resolveDefaultMentionKind({ mode: "live", content: blank() })).toBe("model");
+    expect(resolveDefaultMentionKind({ mode: "live", content: blank() })).toBe("file");
     expect(
       resolveDefaultMentionKind({
         mode: "live",
