@@ -634,6 +634,27 @@ export function listChildWorktrees(projectPath: string): Worktree[] {
   return listWorktrees(projectPath).filter((w) => !w.isProjectRoot);
 }
 
+/** Remove a linked worktree and its generated branch. The project root is
+ * intentionally protected because removing it would destroy the project. */
+export function removeWorktree(projectPath: string, worktreePath: string): Worktree {
+  const target = listWorktrees(projectPath).find(
+    (worktree) => !worktree.isProjectRoot && samePath(worktree.path, worktreePath),
+  );
+  if (!target) throw new Error("Workspace is no longer available");
+
+  git(projectPath, ["worktree", "remove", "--force", target.path]);
+  if (target.branch) {
+    try {
+      git(projectPath, ["branch", "-D", target.branch]);
+    } catch {
+      // A user-owned branch may be shared or protected; removing the worktree
+      // is still complete when Git refuses to delete that branch.
+    }
+  }
+  invalidateWorktreeCache(projectPath);
+  return target;
+}
+
 /**
  * True when a bound worktree path still points at a live worktree — used to
  * validate a thread's stored `worktree_path` before binding a session to it.

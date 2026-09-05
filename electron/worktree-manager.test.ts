@@ -21,6 +21,7 @@ import {
   listChildWorktrees,
   listWorktrees,
   parseWorktreePorcelain,
+  removeWorktree,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
@@ -257,6 +258,17 @@ describe("listWorktrees / isLiveWorktree", () => {
     expect(switched.branch).toBe("feature/header");
     expect(switched.isProjectRoot).toBe(true);
     expect(git(projectPath, ["branch", "--show-current"])).toBe("feature/header");
+  });
+
+  test("removes a linked worktree and its generated branch", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "remove-me" });
+
+    const removed = removeWorktree(projectPath, worktree.path);
+
+    expect(removed.path).toBe(worktree.path);
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(listChildWorktrees(projectPath)).toEqual([]);
+    expect(git(projectPath, ["branch", "--list", "pipper/remove-me"])).toBe("");
   });
 });
 

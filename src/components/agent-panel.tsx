@@ -48,7 +48,6 @@ import { selectThread } from "@/lib/thread-actions";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
-import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { AgentContinueMenu } from "@/components/agent-continue-menu";
 import { AgentQuestionCard, AgentQuestionDock } from "@/components/agent-question";
@@ -93,6 +92,23 @@ const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
 const iconButtonClass =
   "inline-flex size-6 items-center justify-center rounded-full  text-muted-foreground/60 hover:text-foreground hover:bg-hover transition-colors duration-100 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring";
 const COMPOSER_TURN_MARKER = <ConversationTurnIdentity role="user" emphasis="composer" />;
+
+type ComposerProjectContext = {
+  id: string;
+  name: string;
+  icon?: string | null;
+};
+
+function withProjectChip(
+  content: ComposerContent,
+  project: ComposerProjectContext,
+): ComposerContent {
+  const entities = getEntityTokens(content).filter((entity) => entity.kind !== "project");
+  return buildContent(
+    [{ kind: "project", id: project.id, label: project.name, icon: project.icon }, ...entities],
+    getFreeText(content),
+  );
+}
 
 type ConversationScrollMode = "reading" | "anchoring" | "following";
 type PendingScrollAction = {
@@ -678,6 +694,15 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     (state) => state.markDraftUserEditedProject,
   );
   const isDraftMode = draft != null;
+  const liveComposerProject = useMemo<ComposerProjectContext | null>(() => {
+    if (isDraftMode) return null;
+    const projectId = snapshot?.projectId ?? activeProject?.id ?? null;
+    if (!projectId) return null;
+    return (
+      projectsList.find((project) => project.id === projectId) ??
+      (activeProject?.id === projectId ? activeProject : null)
+    );
+  }, [activeProject, isDraftMode, projectsList, snapshot?.projectId]);
   const isDiffSplit = useIsDiffSplit();
   const selectedWorktreePathByProject = useWorktreeStore(
     (state) => state.selectedWorktreePathByProject,
@@ -695,7 +720,24 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   // automatically bootstrap into draft mode so the composer is always ready.
   useEffect(() => {
     if (window.omni?.benchmark?.enabled) return;
-    if (isDraftMode || requestedThreadId || snapshot?.threadId) return;
+    if (isDraftMode) {
+      // Project hydration can finish after the initial blank draft was
+      // created. Bind only untouched drafts so their project/CWD context is
+      // still auto-populated without overwriting user choices.
+      if (!draft?.projectId && !draft?.dirty && activeProject) {
+        const worktreePath = normalizeWorkspacePath(
+          selectedWorktreePathByProject[activeProject.id],
+          activeProject.path,
+        );
+        beginDraft({
+          projectId: activeProject.id,
+          previousActiveProjectId: activeProject.id,
+          worktreePath,
+        });
+      }
+      return;
+    }
+    if (requestedThreadId || snapshot?.threadId) return;
     const project = activeProject;
     const worktreePath = project
       ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
@@ -707,6 +749,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     });
   }, [
     isDraftMode,
+    draft?.projectId,
+    draft?.dirty,
     requestedThreadId,
     snapshot?.threadId,
     activeProject,
@@ -1496,13 +1540,16 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       if (!trimmed && !sendFiles.length && !editState?.images.length) return;
     }
     await handleSend(trimmed || getFreeText(textOnly), sendFiles);
-    setLiveContent(blankContent());
+    setLiveContent(
+      liveComposerProject ? withProjectChip(blankContent(), liveComposerProject) : blankContent(),
+    );
     setInputValue("");
   };
 
   const handleLiveContentChange = (next: ComposerContent) => {
-    setLiveContent(next);
-    setInputValue(getFreeText(next));
+    const content = liveComposerProject ? withProjectChip(next, liveComposerProject) : next;
+    setLiveContent(content);
+    setInputValue(getFreeText(content));
   };
 
   const handleDraftSend = async (content: ComposerContent, files: File[]) => {
@@ -1943,8 +1990,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
   };
 
-  const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
-  const emptyStateSubject = currentProject?.name ?? "your project";
   const visibleAgentError = agentError && agentError !== dismissedAgentError ? agentError : null;
   const runtimeControlsDisabled =
     isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
@@ -2134,6 +2179,16 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     });
   }, [inputValue, isDraftMode]);
 
+  // The active thread already knows its project context, so keep that context
+  // visible as a non-editable composer chip in both UI modes.
+  useEffect(() => {
+    if (isDraftMode || !liveComposerProject) return;
+    setLiveContent((prev) => {
+      if (extractProjectId(prev) === liveComposerProject.id) return prev;
+      return withProjectChip(prev, liveComposerProject);
+    });
+  }, [isDraftMode, liveComposerProject]);
+
   const handleReasoningChange = (value: string) => {
     if (!thoughtLevelConfigId) return;
     setConfigOption(thoughtLevelConfigId, value).catch((err) => {
@@ -2189,18 +2244,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
       <div className="flex-1 flex flex-col min-h-0">
         <div className="relative flex-1 overflow-hidden mt-4  min-h-0 flex flex-col">
-          {/* Full-bleed: the ambient field spans the whole panel, while the
-              reading column below keeps the conversation and composer centred. */}
-          {allMessages.length === 0 && !isDraftMode && (
-            <AmbientPixelField
-              pixelSize={6}
-              gap={4}
-              intensity={0.65}
-              fadeStart={0.5}
-              animated={true}
-              className="absolute inset-0 z-0 pointer-events-none"
-            />
-          )}
           <div
             data-pipper-id="reading-column"
             data-thread-id={threadId || undefined}
@@ -2222,19 +2265,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
             >
               <div className="flex min-h-full flex-col">
                 {isDraftMode ? null : allMessages.length === 0 ? (
-                  <div
-                    data-pipper-id="empty-state"
-                    className="flex min-h-[280px] flex-1 items-center justify-center p-6 select-none"
-                  >
-                    <h2 className="relative z-10 flex flex-wrap items-center justify-center gap-2 text-center text-foreground/65 pointer-events-none">
-                      <span className="text-2xl font-semibold tracking-tight text-foreground/55">
-                        What should we cook in
-                      </span>
-                      <span className="text-2xl font-semibold tracking-tight text-foreground underline underline-offset-4 decoration-border/60">
-                        {emptyStateSubject}
-                      </span>
-                    </h2>
-                  </div>
+                  <div aria-hidden="true" className="flex min-h-[280px] flex-1 p-6 select-none" />
                 ) : (
                   <>
                     <div
@@ -2630,6 +2661,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             disabled={composerDisabled}
                             isSubmitting={isSubmitting}
                             isStreaming={isStreaming}
+                            projects={projectsList}
                             models={modelMentionItems}
                             modelProviders={modelProviderItems}
                             projectFiles={projectFileItems}

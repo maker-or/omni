@@ -18,7 +18,14 @@ import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
-import { Bell, FolderPlus, GitBranch, GitDiffIcon, Plus , PlusMinusIcon} from "@phosphor-icons/react";
+import {
+  Bell,
+  FolderPlus,
+  GitBranch,
+  GitDiffIcon,
+  Plus,
+  PlusMinusIcon,
+} from "@phosphor-icons/react";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ProjectThreadsDropdown } from "@/components/project-threads-dropdown";
 
@@ -44,10 +51,13 @@ import {
   startMonitorRuntimeObserver,
 } from "@/lib/monitor-runtime-observer";
 import { useMonitorTabSync } from "@/lib/monitor-tab-sync";
+import { AdvancedShell } from "@/components/advanced-shell";
+import { useUiModeStore } from "@/store/ui-mode-store";
 
 const EMPTY_WORKTREES: Worktree[] = [];
 
 export default function App() {
+  const uiMode = useUiModeStore((state) => state.mode);
   const { activeProject, loadActiveProject, isLoading, error: projectError } = useProjectStore();
 
   // ── Workspace view routing ────────────────────────────────────────────
@@ -434,6 +444,7 @@ export default function App() {
   useEffect(() => {
     if (!window.omni?.worktrees?.onSetupProgress) return;
     return window.omni.worktrees.onSetupProgress((progress) => {
+      if (uiMode === "advanced") return;
       if (progress.status === "installing") {
         toast({
           icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
@@ -455,7 +466,7 @@ export default function App() {
       }
       // "skipped" (no package.json) is intentionally silent.
     });
-  }, []);
+  }, [uiMode]);
 
   // Terminals belong to their workspace: entering another workspace (picker
   // switch, project switch, cross-workspace activation) stashes the visible
@@ -516,6 +527,10 @@ export default function App() {
         Loading project context…
       </div>
     );
+  }
+
+  if (uiMode === "advanced") {
+    return <AdvancedShell />;
   }
 
   return (

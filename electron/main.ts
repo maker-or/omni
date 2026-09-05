@@ -20,6 +20,7 @@ import {
   createWorktree,
   listBranches,
   listWorktrees,
+  removeWorktree,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
@@ -1501,6 +1502,37 @@ function registerIpc(): void {
     return (
       listWorktrees(project.path).find((item) => samePath(item.path, worktree.path)) ?? worktree
     );
+  });
+
+  ipcMain.handle("worktrees:delete", async (_event, input: { projectId: string; path: string }) => {
+    const project = getProject(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+    const target = listWorktrees(project.path).find(
+      (worktree) => !worktree.isProjectRoot && samePath(worktree.path, input.path),
+    );
+    if (!target) throw new Error("Workspace is no longer available");
+    const threads = listThreads().filter(
+      (thread) =>
+        thread.project_id === input.projectId &&
+        thread.worktree_path != null &&
+        samePath(thread.worktree_path, target.path),
+    );
+    const manager = requireAgentManager();
+
+    // Remove tabs first so deleting the active session cannot select another
+    // chat from the workspace that is about to disappear.
+    let tabs = await readOpenTabsState();
+    for (const thread of threads) tabs = await closeThreadTab(thread.id);
+    for (const thread of threads) await manager.deleteThread(thread.id);
+
+    const removed = removeWorktree(project.path, target.path);
+    await updateWorkspaceSelection(project.id, project.path);
+    if (tabs.activeThreadId && manager.getState().threadId !== tabs.activeThreadId) {
+      await manager.switchThread(tabs.activeThreadId);
+    }
+    if (!tabs.activeThreadId) await manager.clearActiveThread();
+    broadcastOpenTabsChanged(mainWindow, tabs);
+    return removed;
   });
 
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {

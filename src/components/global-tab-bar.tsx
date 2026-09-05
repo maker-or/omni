@@ -22,6 +22,7 @@ import { useAgentStore } from "@/store/agent-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { useUiModeStore } from "@/store/ui-mode-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import {
@@ -64,8 +65,8 @@ function getProjectIconComponent(name: string) {
 }
 
 /**
- * The single, global tab strip that lives in the title bar. It merges the two
- * kinds of "global" views into one row:
+ * The shared tab strip that lives above the active workspace. It merges the
+ * two kinds of views into one row:
  *   - agent threads (persisted, backed by open-tabs)
  *   - terminals (ephemeral, backed by the in-memory terminal store)
  *
@@ -95,7 +96,9 @@ export function GlobalTabBar() {
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalTabs = useMemo(
     () =>
-      useTerminalStore.getState().sessions.map(({ id, title, status }) => ({ id, title, status })),
+      useTerminalStore
+        .getState()
+        .sessions.map(({ id, title, status, cwd }) => ({ id, title, status, cwd })),
     [terminalTabsRevision],
   );
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
@@ -107,6 +110,7 @@ export function GlobalTabBar() {
   const selectedWorktreePathByProject = useWorktreeStore(
     (state) => state.selectedWorktreePathByProject,
   );
+  const uiMode = useUiModeStore((state) => state.mode);
 
   const [projectsList, setProjectsList] = useState<
     Array<{ id: string; name: string; icon: string; path?: string }>
@@ -136,26 +140,31 @@ export function GlobalTabBar() {
   const optimisticRequestedThreadId =
     requestedThreadId && pendingThreadTarget === requestedThreadId ? requestedThreadId : null;
 
+  const activeWorkspacePath = useMemo(() => {
+    if (!activeProject) return null;
+    return normalizeWorkspacePath(
+      selectedWorktreePathByProject[activeProject.id],
+      activeProject.path,
+    );
+  }, [activeProject, selectedWorktreePathByProject]);
+
   const visibleOpenThreads = useMemo(() => {
-    const alwaysVisibleId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId;
+    if (uiMode !== "advanced") return orderedOpenThreads;
+    if (!activeProject) return [];
+
     return orderedOpenThreads.filter((thread) => {
-      if (thread.id === alwaysVisibleId) return true;
-      const project = projectsList.find((item) => item.id === thread.project_id);
-      if (!project?.path) return true;
-      const workspacePath = normalizeWorkspacePath(
-        selectedWorktreePathByProject[thread.project_id],
-        project.path,
-      );
-      return isThreadInWorkspace(thread, workspacePath);
+      if (thread.project_id !== activeProject.id) return false;
+      if (thread.id === optimisticRequestedThreadId) return true;
+      return isThreadInWorkspace(thread, activeWorkspacePath);
     });
-  }, [
-    orderedOpenThreads,
-    projectsList,
-    selectedWorktreePathByProject,
-    optimisticRequestedThreadId,
-    activeThreadId,
-    snapshotThreadId,
-  ]);
+  }, [orderedOpenThreads, uiMode, activeProject, activeWorkspacePath, optimisticRequestedThreadId]);
+
+  const visibleTerminalTabs = useMemo(() => {
+    if (uiMode !== "advanced" || !activeProject) return terminalTabs;
+    return terminalTabs.filter(
+      (session) => normalizeWorkspacePath(session.cwd, activeProject.path) === activeWorkspacePath,
+    );
+  }, [activeProject, activeWorkspacePath, terminalTabs, uiMode]);
 
   const recentProjectsQuery = useRecentProjectsQuery(
     activeProject?.id,
@@ -446,10 +455,10 @@ export function GlobalTabBar() {
     () =>
       tabValuesInBarOrder(
         visibleOpenThreads.map((thread) => thread.id),
-        terminalTabs.map((session) => session.id),
+        visibleTerminalTabs.map((session) => session.id),
         TERMINAL_TAB_PREFIX,
       ),
-    [visibleOpenThreads, terminalTabs],
+    [visibleOpenThreads, visibleTerminalTabs],
   );
 
   const handleTabChangeRef = useRef<(value: string) => void>(() => {});
@@ -610,7 +619,7 @@ export function GlobalTabBar() {
               />
             );
           })}
-          {terminalTabs.map((session, idx) => (
+          {visibleTerminalTabs.map((session, idx) => (
             <TabItem
               key={session.id}
               index={visibleOpenThreads.length + idx}
