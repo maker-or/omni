@@ -62,6 +62,25 @@ export function mentionChipClass(kind: ComposerMentionKind): string {
   return KIND_CHIP[kind];
 }
 
+export interface FileMentionPathParts {
+  fileName: string;
+  directory: string;
+}
+
+/** Split a repository-relative file path for the compact file picker row. */
+export function splitFileMentionPath(filePath: string): FileMentionPathParts {
+  const normalized = filePath.replaceAll("\\", "/").replace(/\/+$/, "");
+  const separatorIndex = normalized.lastIndexOf("/");
+  if (separatorIndex < 0) {
+    return { fileName: normalized || filePath, directory: "project root" };
+  }
+
+  return {
+    fileName: normalized.slice(separatorIndex + 1) || normalized,
+    directory: normalized.slice(0, separatorIndex) || "project root",
+  };
+}
+
 export function MentionPopover({
   anchorRef,
   pipperId = "mention-popover",
@@ -174,13 +193,17 @@ export function MentionPopover({
             </div>
           ) : (
             items.map((item, index) => {
+              const fileParts = kind === "file" ? splitFileMentionPath(item.label) : null;
               return (
                 <MenuItem
                   key={item.agentId ? `${item.agentId}:${item.id}` : item.id}
-                  label={item.label}
+                  label={fileParts?.fileName ?? item.label}
+                  secondaryLabel={fileParts?.directory}
                   description={item.description}
                   index={index}
                   className="w-full px-3 py-2.5"
+                  title={kind === "file" ? item.label : undefined}
+                  aria-label={kind === "file" ? item.label : undefined}
                   onMouseDown={(e) => {
                     e.preventDefault();
                   }}

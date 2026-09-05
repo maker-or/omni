@@ -189,26 +189,20 @@ export function AgentRuntimeControls({
               transition={springs.moderate}
               className="absolute right-0 bottom-full z-[240] mb-2 w-[min(22rem,calc(100vw-2rem))]"
             >
-              <Elevated
-                offset={2}
-                shadowLevel={4}
-                className="rounded-xl border border-border/80 p-3"
-              >
-                <SliderComfortable
-                  value={currentReasoningIndex}
-                  onChange={(index) => {
-                    const level = reasoningLevels[index];
-                    if (level) onReasoningChange(level.value);
-                  }}
-                  min={0}
-                  max={reasoningLevels.length - 1}
-                  step={1}
-                  variant="pips"
-                  label="Reasoning"
-                  formatValue={(index) => reasoningLevels[index]?.name ?? String(index)}
-                  disabled={disabled}
-                />
-              </Elevated>
+              <SliderComfortable
+                value={currentReasoningIndex}
+                onChange={(index) => {
+                  const level = reasoningLevels[index];
+                  if (level) onReasoningChange(level.value);
+                }}
+                min={0}
+                max={reasoningLevels.length - 1}
+                step={1}
+                variant="pips"
+                label="Reasoning"
+                formatValue={(index) => reasoningLevels[index]?.name ?? String(index)}
+                disabled={disabled}
+              />
             </motion.div>
           )}
         </AnimatePresence>

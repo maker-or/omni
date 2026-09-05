@@ -1,8 +1,7 @@
 name: Release Windows Launcher
 
-# Automatic Windows installer builds are paused. Mac is the only
-# GitHub-hosted launcher release. Keep workflow_dispatch so a Windows
-# build can be started by hand later without restoring the tag trigger.
+# Windows releases use their own tag namespace so pushing a Windows tag
+# does not trigger the macOS release workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +11,9 @@ on:
       release_repository:
         description: "Target repo for launcher releases (owner/repo)"
         required: false
+  push:
+    tags:
+      - "win/v*"
 
 permissions:
   contents: write

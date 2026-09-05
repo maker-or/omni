@@ -15,6 +15,7 @@ const shape = shapeMap.rounded;
 interface MenuItemProps extends HTMLAttributes<HTMLDivElement> {
   icon?: IconComponent;
   label: string;
+  secondaryLabel?: string;
   description?: string;
   index: number;
   checked?: boolean;
@@ -24,7 +25,18 @@ interface MenuItemProps extends HTMLAttributes<HTMLDivElement> {
 
 const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
   (
-    { icon: Icon, label, description, index, checked, onSelect, className, pipperId, ...props },
+    {
+      icon: Icon,
+      label,
+      secondaryLabel,
+      description,
+      index,
+      checked,
+      onSelect,
+      className,
+      pipperId,
+      ...props
+    },
     ref,
   ) => {
     const internalRef = useRef<HTMLDivElement>(null);
@@ -88,25 +100,45 @@ const MenuItem = forwardRef<HTMLDivElement, MenuItemProps>(
             </span>
           )}
           <span className="flex min-w-0 flex-1 flex-col text-[13px]">
-            <span className="inline-grid min-w-0">
-              <span
-                className="col-start-1 row-start-1 invisible truncate"
-                style={{ fontVariationSettings: fontWeights.semibold }}
-                aria-hidden="true"
-              >
-                {label}
-              </span>
+            <span className="flex min-w-0 items-baseline gap-2">
               <span
                 className={cn(
-                  "col-start-1 row-start-1 truncate transition-[color,font-variation-settings] duration-80",
-                  isHighlighted ? "text-foreground" : "text-muted-foreground",
+                  "inline-grid min-w-0",
+                  secondaryLabel ? "shrink-0 max-w-[55%]" : "flex-1",
                 )}
-                style={{
-                  fontVariationSettings: isHighlighted ? fontWeights.semibold : fontWeights.normal,
-                }}
               >
-                {label}
+                <span
+                  className="col-start-1 row-start-1 invisible truncate"
+                  style={{ fontVariationSettings: fontWeights.semibold }}
+                  aria-hidden="true"
+                >
+                  {label}
+                </span>
+                <span
+                  className={cn(
+                    "col-start-1 row-start-1 truncate transition-[color,font-variation-settings] duration-80",
+                    isHighlighted ? "text-foreground" : "text-muted-foreground",
+                  )}
+                  style={{
+                    fontVariationSettings: isHighlighted
+                      ? fontWeights.semibold
+                      : fontWeights.normal,
+                  }}
+                >
+                  {label}
+                </span>
               </span>
+              {secondaryLabel ? (
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-[12px] font-normal transition-colors duration-80",
+                    isHighlighted ? "text-muted-foreground" : "text-muted-foreground/70",
+                  )}
+                  title={secondaryLabel}
+                >
+                  {secondaryLabel}
+                </span>
+              ) : null}
             </span>
             {description ? (
               <span
