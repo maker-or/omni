@@ -38,11 +38,13 @@ import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 function WorkspaceNameDialog({
   project,
   isCreating,
+  error,
   onCancel,
   onSubmit,
 }: {
   project: Project;
   isCreating: boolean;
+  error: string | null;
   onCancel: () => void;
   onSubmit: (name: string) => void;
 }) {
@@ -73,6 +75,11 @@ function WorkspaceNameDialog({
             className="h-9 rounded-md border border-border bg-surface-2 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-foreground/50 focus:ring-1 focus:ring-ring"
           />
         </label>
+        {error && (
+          <p className="mt-3 text-xs leading-5 text-destructive" role="alert">
+            {error}
+          </p>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
             Cancel
@@ -157,6 +164,7 @@ export function AdvancedShell() {
   const {
     selectedWorktreePathByProject,
     isCreating,
+    error: worktreeError,
     loadWorktrees,
     createWorktree,
     switchWorktree,
@@ -237,8 +245,8 @@ export function AdvancedShell() {
     if (!dialogProject) return;
     const project = dialogProject;
     const worktree = await createWorktree(project.id, name);
-    setDialogProject(null);
     if (!worktree) return;
+    setDialogProject(null);
     const thread = await selectWorkspace(project, worktree.path);
     if (thread) {
       await window.omni.threads.rename(thread.id, name);
@@ -440,6 +448,7 @@ export function AdvancedShell() {
         <WorkspaceNameDialog
           project={dialogProject}
           isCreating={isCreating}
+          error={worktreeError}
           onCancel={() => setDialogProject(null)}
           onSubmit={(name) => void createWorkspace(name)}
         />

@@ -392,7 +392,12 @@ function runSetupScript(
  */
 export function createWorktree(options: CreateWorktreeOptions): Worktree {
   const { projectPath, projectId, name } = options;
-  if (!existsSync(join(projectPath, ".git"))) {
+  try {
+    // A project can be registered as a subdirectory of a repository, so the
+    // Git directory may live above projectPath (and may be a file for a
+    // linked worktree). Ask Git instead of inspecting only projectPath/.git.
+    git(projectPath, ["rev-parse", "--git-dir"]);
+  } catch {
     throw new Error(`Not a git repository: ${projectPath}`);
   }
 

@@ -198,6 +198,20 @@ describe("createWorktree", () => {
       createWorktree({ projectPath: notRepo, projectId: PROJECT_ID, name: "x" }),
     ).toThrow();
   });
+
+  test("creates from a project path nested inside a git repository", () => {
+    const nestedProject = join(projectPath, "packages", "app");
+    mkdirSync(nestedProject, { recursive: true });
+
+    const worktree = createWorktree({
+      projectPath: nestedProject,
+      projectId: PROJECT_ID,
+      name: "nested-project",
+    });
+
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(worktree.branch).toBe("pipper/nested-project");
+  });
 });
 
 describe("listWorktrees / isLiveWorktree", () => {
