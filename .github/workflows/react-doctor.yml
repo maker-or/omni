@@ -29,7 +29,12 @@ jobs:
   react-doctor:
     runs-on: ubuntu-latest
     steps:
+      # Full history: the scan derives the PR's changed files via merge-base.
+      # A shallow checkout leaves the base commit unreachable and the scan
+      # crashes before producing a report.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: millionco/react-doctor@v2
         # Advisory by default: React Doctor reports findings on every PR — a
