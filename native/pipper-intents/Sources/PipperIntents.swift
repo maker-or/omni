@@ -1,4 +1,5 @@
 import AppIntents
+import AppKit
 import Foundation
 
 // MARK: - Shared catalog (written by Electron, read by Siri)
@@ -24,15 +25,24 @@ struct SiriCatalog: Codable, Sendable {
 }
 
 enum SiriCatalogStore {
+  /// Base directory shared with Electron. Honors the same PIPPER_LIBRARY_PATH
+  /// override so both sides never diverge.
+  static func baseDir() -> URL {
+    if let overridePath = ProcessInfo.processInfo.environment["PIPPER_LIBRARY_PATH"],
+      !overridePath.isEmpty
+    {
+      return URL(fileURLWithPath: overridePath, isDirectory: true)
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/pipper", isDirectory: true)
+  }
+
   static func catalogURL() -> URL {
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    return home
-      .appendingPathComponent("Library/pipper/siri-catalog.json")
+    baseDir().appendingPathComponent("siri-catalog.json")
   }
 
   static func requestsDir() -> URL {
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    return home.appendingPathComponent("Library/pipper/siri-requests")
+    baseDir().appendingPathComponent("siri-requests", isDirectory: true)
   }
 
   static func load() -> SiriCatalog? {
@@ -96,9 +106,14 @@ struct AgentEntity: AppEntity {
 }
 
 struct AgentEntityQuery: EnumerableEntityQuery, EntityStringQuery {
+  /// Only usable agents are ever offered — staging a thread for a missing
+  /// CLI would fail later in Electron.
+  private func usableAgents() -> [SiriCatalogAgent] {
+    (SiriCatalogStore.load()?.agents ?? []).filter { $0.available }
+  }
+
   func entities(for identifiers: [String]) async throws -> [AgentEntity] {
-    let all = SiriCatalogStore.load()?.agents ?? []
-    return all.filter { identifiers.contains($0.id) }.map {
+    usableAgents().filter { identifiers.contains($0.id) }.map {
       AgentEntity(id: $0.id, name: $0.displayName, available: $0.available)
     }
   }
@@ -108,13 +123,13 @@ struct AgentEntityQuery: EnumerableEntityQuery, EntityStringQuery {
   }
 
   func allEntities() async throws -> [AgentEntity] {
-    let all = SiriCatalogStore.load()?.agents ?? []
-    return all.map { AgentEntity(id: $0.id, name: $0.displayName, available: $0.available) }
+    usableAgents().map {
+      AgentEntity(id: $0.id, name: $0.displayName, available: $0.available)
+    }
   }
 
   func entities(matching string: String) async throws -> [AgentEntity] {
-    let all = SiriCatalogStore.load()?.agents ?? []
-    return all.filter { $0.displayName.localizedCaseInsensitiveContains(string) }.map {
+    usableAgents().filter { $0.displayName.localizedCaseInsensitiveContains(string) }.map {
       AgentEntity(id: $0.id, name: $0.displayName, available: $0.available)
     }
   }
@@ -123,11 +138,16 @@ struct AgentEntityQuery: EnumerableEntityQuery, EntityStringQuery {
 enum SiriRequestError: Error, CustomLocalizedStringResourceConvertible {
   case encodingFailed
   case stagingFailed
+  case agentUnavailable(String)
+  case openFailed
 
   var localizedStringResource: LocalizedStringResource {
     switch self {
     case .encodingFailed: return "Couldn't prepare the thread request."
     case .stagingFailed: return "Couldn't save the thread request. Please try again."
+    case .agentUnavailable(let name):
+      return "The agent \(name) isn't available. Pick an installed agent."
+    case .openFailed: return "Couldn't open Pipper to create the thread."
     }
   }
 }
@@ -140,7 +160,7 @@ struct StartThreadIntent: AppIntent {
     "Starts a new thread in a Pipper project with a chosen agent.",
     categoryName: "Productivity"
   )
-  static var openAppWhenRun: Bool = true
+  static var openAppWhenRun: Bool = false
 
   @Parameter(title: "Project") var project: ProjectEntity
   @Parameter(title: "Agent") var agent: AgentEntity?
@@ -148,14 +168,26 @@ struct StartThreadIntent: AppIntent {
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     let catalog = SiriCatalogStore.load()
-    let agentId = agent?.id ?? catalog?.defaultAgentId
-    // Confirm-then-create: stage a pending request; Electron creates the
-    // thread when the app opens (user already confirmed the snippet card).
+    // Revalidate availability at run time: the catalog may have changed
+    // between entity resolution and perform().
+    let usableIds = Set((catalog?.agents ?? []).filter { $0.available }.map { $0.id })
+    let defaultId = catalog?.defaultAgentId
+    let resolvedAgentId: String?
+    if let chosen = agent {
+      guard usableIds.contains(chosen.id) else {
+        throw SiriRequestError.agentUnavailable(chosen.name)
+      }
+      resolvedAgentId = chosen.id
+    } else {
+      resolvedAgentId = defaultId.flatMap { usableIds.contains($0) ? $0 : nil }
+    }
+    // Confirm-then-create: stage a pending request, then open Pipper on the
+    // deep link so Electron consumes it and lands on the new thread.
     let requestId = UUID().uuidString
     let payload: [String: String] = [
       "requestId": requestId,
       "projectId": project.id,
-      "agentId": agentId ?? "",
+      "agentId": resolvedAgentId ?? "",
       "prompt": prompt ?? "",
     ]
     let dir = SiriCatalogStore.requestsDir()
@@ -166,8 +198,15 @@ struct StartThreadIntent: AppIntent {
         throw SiriRequestError.encodingFailed
       }
       try data.write(to: url, options: .atomic)
+    } catch let error as SiriRequestError {
+      throw error
     } catch {
       throw SiriRequestError.stagingFailed
+    }
+    guard let deepLink = URL(string: "pipper://siri/\(requestId)"),
+      NSWorkspace.shared.open(deepLink)
+    else {
+      throw SiriRequestError.openFailed
     }
     return .result(
       dialog: "Starting a thread in \(project.name). Confirm in Pipper to create it."

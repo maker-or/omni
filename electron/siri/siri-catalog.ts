@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { getPipperLibraryPath } from "../paths.ts";
 import { listProjects } from "../projects.ts";
 import { listRegisteredAgents, getDefaultAgentId } from "../agents/registry.ts";
@@ -24,14 +24,17 @@ export interface SiriCatalog {
   agents: SiriCatalogAgent[];
 }
 
+/** Absolute path of the shared catalog both Electron and Siri read. */
 export function getSiriCatalogPath(): string {
   return join(getPipperLibraryPath(), "siri-catalog.json");
 }
 
+/** Directory where the Swift intent stages pending thread requests. */
 export function getSiriRequestsDir(): string {
   return join(getPipperLibraryPath(), "siri-requests");
 }
 
+/** Snapshot the current projects and agents into the shared catalog shape. */
 export function buildSiriCatalog(): SiriCatalog {
   const projects = listProjects().map((p) => ({
     id: p.id,
@@ -52,12 +55,18 @@ export function buildSiriCatalog(): SiriCatalog {
   };
 }
 
-/** Write the shared catalog both Electron and the Swift intents read. */
+/**
+ * Write the shared catalog atomically (temp file + rename) so Siri never
+ * observes truncated JSON mid-refresh.
+ */
 export function refreshSiriCatalog(): SiriCatalog {
   const catalog = buildSiriCatalog();
   const dir = getPipperLibraryPath();
   mkdirSync(dir, { recursive: true });
   mkdirSync(getSiriRequestsDir(), { recursive: true });
-  writeFileSync(getSiriCatalogPath(), JSON.stringify(catalog, null, 2), "utf8");
+  const target = getSiriCatalogPath();
+  const tmp = join(dirname(target), `.siri-catalog.${process.pid}.tmp`);
+  writeFileSync(tmp, JSON.stringify(catalog, null, 2), "utf8");
+  renameSync(tmp, target);
   return catalog;
 }
