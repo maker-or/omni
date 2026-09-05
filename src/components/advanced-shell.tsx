@@ -296,7 +296,7 @@ export function AdvancedShell() {
 
   const selectWorkspace = async (project: Project, path: string) => {
     if (project.id !== activeProject?.id) await window.omni.projects.setActive(project.id);
-    await switchWorktree(project.id, path);
+    return switchWorktree(project.id, path);
   };
 
   return (

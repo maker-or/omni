@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, normalize, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import type { GitBranch, Worktree } from "../contracts/worktrees.ts";
 
 /**
@@ -34,6 +34,7 @@ const DEFAULT_INCLUDE_GLOBS = [".env*"];
  * these are the setup script's job (it may symlink them into the main checkout).
  */
 const SEED_EXCLUSIONS = new Set(["node_modules", "dist", "out", "build", ".git", ".cache"]);
+const GENERATED_BRANCH_PREFIX = "pipper/";
 
 /**
  * Git hooks export repository-local state for the repository being committed.
@@ -159,7 +160,7 @@ function branchExists(projectPath: string, branch: string): boolean {
  * on collision. The agent renames it on first chat.
  */
 function resolveBranchName(projectPath: string, name: string): string {
-  const base = `pipper/${slugify(name)}`;
+  const base = `${GENERATED_BRANCH_PREFIX}${slugify(name)}`;
   if (!branchExists(projectPath, base)) return base;
   for (let i = 2; i < 1000; i++) {
     const candidate = `${base}-${i}`;
@@ -634,16 +635,35 @@ export function listChildWorktrees(projectPath: string): Worktree[] {
   return listWorktrees(projectPath).filter((w) => !w.isProjectRoot);
 }
 
-/** Remove a linked worktree and its generated branch. The project root is
+/** Remove a linked worktree and its Omni-generated branch. The project root is
  * intentionally protected because removing it would destroy the project. */
-export function removeWorktree(projectPath: string, worktreePath: string): Worktree {
+export function removeWorktree(
+  projectPath: string,
+  worktreePath: string,
+  projectId: string,
+): Worktree {
   const target = listWorktrees(projectPath).find(
     (worktree) => !worktree.isProjectRoot && samePath(worktree.path, worktreePath),
   );
   if (!target) throw new Error("Workspace is no longer available");
 
+  // Git reports every linked worktree, including ones created outside Omni.
+  // Removing the checkout is explicit, but only delete branches that Omni
+  // generated from its managed worktree root; user-managed branches must
+  // remain recoverable.
+  const pathFromRoot = relative(
+    canonical(join(getWorktreesRoot(), projectId)),
+    canonical(target.path),
+  );
+  const managedPath =
+    pathFromRoot !== "" &&
+    pathFromRoot !== ".." &&
+    !pathFromRoot.startsWith(`..${normalize("/")}`) &&
+    !isAbsolute(pathFromRoot);
+  const shouldDeleteBranch = managedPath && target.branch?.startsWith(GENERATED_BRANCH_PREFIX);
+
   git(projectPath, ["worktree", "remove", "--force", target.path]);
-  if (target.branch) {
+  if (shouldDeleteBranch) {
     try {
       git(projectPath, ["branch", "-D", target.branch]);
     } catch {

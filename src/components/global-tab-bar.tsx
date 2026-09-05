@@ -20,7 +20,7 @@ import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { useWorktreeStore } from "@/store/worktree-store";
-import { useTerminalStore } from "@/store/terminal-store";
+import { makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { useUiModeStore } from "@/store/ui-mode-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
@@ -94,6 +94,7 @@ export function GlobalTabBar() {
   const clearDraftCompletion = useWorkspaceViewStore((state) => state.clearDraftCompletion);
 
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
+  const terminalWorkspaceKey = useTerminalStore((state) => state.workspaceKey);
   const terminalTabs = useMemo(
     () =>
       useTerminalStore
@@ -148,6 +149,12 @@ export function GlobalTabBar() {
     );
   }, [activeProject, selectedWorktreePathByProject]);
 
+  const activeTerminalWorkspaceKey = useMemo(() => {
+    if (!activeProject) return null;
+    const selectedPath = selectedWorktreePathByProject[activeProject.id] ?? activeProject.path;
+    return makeWorkspaceKey(activeProject.id, selectedPath);
+  }, [activeProject, selectedWorktreePathByProject]);
+
   const visibleOpenThreads = useMemo(() => {
     if (uiMode !== "advanced") return orderedOpenThreads;
     if (!activeProject) return [];
@@ -161,10 +168,11 @@ export function GlobalTabBar() {
 
   const visibleTerminalTabs = useMemo(() => {
     if (uiMode !== "advanced" || !activeProject) return terminalTabs;
-    return terminalTabs.filter(
-      (session) => normalizeWorkspacePath(session.cwd, activeProject.path) === activeWorkspacePath,
-    );
-  }, [activeProject, activeWorkspacePath, terminalTabs, uiMode]);
+    // TerminalStore already buckets sessions using the canonical workspace
+    // selected by the main process. Compare that bucket identity instead of
+    // raw cwd strings, which may differ through symlinks or Git realpaths.
+    return terminalWorkspaceKey === activeTerminalWorkspaceKey ? terminalTabs : [];
+  }, [activeProject, activeTerminalWorkspaceKey, terminalTabs, terminalWorkspaceKey, uiMode]);
 
   const recentProjectsQuery = useRecentProjectsQuery(
     activeProject?.id,

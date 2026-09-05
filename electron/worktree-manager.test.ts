@@ -263,12 +263,27 @@ describe("listWorktrees / isLiveWorktree", () => {
   test("removes a linked worktree and its generated branch", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "remove-me" });
 
-    const removed = removeWorktree(projectPath, worktree.path);
+    const removed = removeWorktree(projectPath, worktree.path, PROJECT_ID);
 
     expect(removed.path).toBe(worktree.path);
     expect(existsSync(worktree.path)).toBe(false);
     expect(listChildWorktrees(projectPath)).toEqual([]);
     expect(git(projectPath, ["branch", "--list", "pipper/remove-me"])).toBe("");
+  });
+
+  test("preserves a user-managed branch when removing its worktree", () => {
+    const branch = "feature/preserve-me";
+    const worktree = createWorktree({
+      projectPath,
+      projectId: PROJECT_ID,
+      name: "external-worktree",
+      branch,
+    });
+
+    removeWorktree(projectPath, worktree.path, PROJECT_ID);
+
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(git(projectPath, ["branch", "--list", branch])).toBe(branch);
   });
 });
 

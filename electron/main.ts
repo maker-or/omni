@@ -1519,13 +1519,16 @@ function registerIpc(): void {
     );
     const manager = requireAgentManager();
 
-    // Remove tabs first so deleting the active session cannot select another
-    // chat from the workspace that is about to disappear.
+    // Remove the Git worktree first. If Git refuses because of a lock,
+    // permissions, or a concurrent change, no chats have been deleted yet.
+    const removed = removeWorktree(project.path, target.path, project.id);
+
+    // Remove tabs after Git succeeds so the thread records remain recoverable
+    // when worktree deletion fails.
     let tabs = await readOpenTabsState();
     for (const thread of threads) tabs = await closeThreadTab(thread.id);
     for (const thread of threads) await manager.deleteThread(thread.id);
 
-    const removed = removeWorktree(project.path, target.path);
     await updateWorkspaceSelection(project.id, project.path);
     if (tabs.activeThreadId && manager.getState().threadId !== tabs.activeThreadId) {
       await manager.switchThread(tabs.activeThreadId);
