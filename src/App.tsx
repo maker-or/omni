@@ -18,7 +18,14 @@ import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
-import { Bell, FolderPlus, GitBranch, GitDiffIcon, Plus , PlusMinusIcon} from "@phosphor-icons/react";
+import {
+  Bell,
+  FolderPlus,
+  GitBranch,
+  GitDiffIcon,
+  Plus,
+  PlusMinusIcon,
+} from "@phosphor-icons/react";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ProjectThreadsDropdown } from "@/components/project-threads-dropdown";
 
