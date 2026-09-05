@@ -42,6 +42,7 @@ import {
   setSelectedAgentIds,
 } from "./db";
 import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
+import type { OpenTabsState } from "../contracts/threads.ts";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
 import { createElectronOsNotifier } from "./os-notifications";
@@ -1518,23 +1519,96 @@ function registerIpc(): void {
         samePath(thread.worktree_path, target.path),
     );
     const manager = requireAgentManager();
+    const deletedThreadIds = new Set(threads.map((thread) => thread.id));
+    const cleanupErrors: unknown[] = [];
 
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = removeWorktree(project.path, target.path, project.id);
 
-    // Remove tabs after Git succeeds so the thread records remain recoverable
-    // when worktree deletion fails.
-    let tabs = await readOpenTabsState();
-    for (const thread of threads) tabs = await closeThreadTab(thread.id);
-    for (const thread of threads) await manager.deleteThread(thread.id);
+    // Run every cleanup operation even if one fails. Git has already removed
+    // the workspace, so leaving the remaining tabs or threads untouched would
+    // strand them against a path that no longer exists.
+    const tabResults = await Promise.allSettled(threads.map((thread) => closeThreadTab(thread.id)));
+    tabResults.forEach((result, index) => {
+      if (result.status === "rejected") {
+        const threadId = threads[index]?.id ?? "unknown";
+        console.error(
+          `[IPC] Failed to close tab for deleted workspace thread ${threadId}:`,
+          result.reason,
+        );
+        cleanupErrors.push(result.reason);
+      }
+    });
 
-    await updateWorkspaceSelection(project.id, project.path);
-    if (tabs.activeThreadId && manager.getState().threadId !== tabs.activeThreadId) {
-      await manager.switchThread(tabs.activeThreadId);
+    const threadResults = await Promise.allSettled(
+      threads.map((thread) => manager.deleteThread(thread.id)),
+    );
+    threadResults.forEach((result, index) => {
+      if (result.status === "rejected") {
+        const threadId = threads[index]?.id ?? "unknown";
+        console.error(
+          `[IPC] Failed to delete thread ${threadId} after worktree removal:`,
+          result.reason,
+        );
+        cleanupErrors.push(result.reason);
+      }
+    });
+
+    try {
+      await updateWorkspaceSelection(project.id, project.path);
+    } catch (error) {
+      console.error(
+        `[IPC] Failed to reconcile workspace selection after deleting ${target.path}:`,
+        error,
+      );
+      cleanupErrors.push(error);
     }
-    if (!tabs.activeThreadId) await manager.clearActiveThread();
-    broadcastOpenTabsChanged(mainWindow, tabs);
+
+    let tabs: OpenTabsState | null = null;
+    try {
+      tabs = await readOpenTabsState();
+    } catch (error) {
+      console.error("[IPC] Failed to read tabs after worktree cleanup:", error);
+      cleanupErrors.push(error);
+    }
+
+    // A failed tab write can leave stale IDs on disk. Do not broadcast those
+    // IDs back to the renderer, and do not reactivate a thread whose workspace
+    // has already been removed.
+    const reconciledTabs = tabs
+      ? (() => {
+          const openThreadIds = tabs.openThreadIds.filter((id) => !deletedThreadIds.has(id));
+          return {
+            ...tabs,
+            openThreadIds,
+            activeThreadId:
+              tabs.activeThreadId && !deletedThreadIds.has(tabs.activeThreadId)
+                ? tabs.activeThreadId
+                : (openThreadIds[0] ?? null),
+            threadSwitchHistory: tabs.threadSwitchHistory.filter((id) => !deletedThreadIds.has(id)),
+          };
+        })()
+      : null;
+
+    try {
+      const activeThreadId = reconciledTabs?.activeThreadId ?? manager.getState().threadId ?? null;
+      if (activeThreadId && !deletedThreadIds.has(activeThreadId)) {
+        if (manager.getState().threadId !== activeThreadId) {
+          await manager.switchThread(activeThreadId);
+        }
+      } else {
+        await manager.clearActiveThread();
+      }
+    } catch (error) {
+      console.error("[IPC] Failed to reconcile active thread after worktree cleanup:", error);
+      cleanupErrors.push(error);
+    }
+
+    if (reconciledTabs) broadcastOpenTabsChanged(mainWindow, reconciledTabs);
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Workspace removed, but some chat cleanup failed");
+    }
     return removed;
   });
 
