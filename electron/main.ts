@@ -1368,6 +1368,46 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:list", () => listProjects());
 
+  ipcMain.handle("siri:getCatalog", async () => {
+    const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+    return refreshSiriCatalog();
+  });
+
+  ipcMain.handle("siri:consumeRequest", async (_event, requestId: string) => {
+    if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(requestId)) {
+      return null;
+    }
+    const { getSiriRequestsDir } = await import("./siri/siri-catalog.ts");
+    const dir = getSiriRequestsDir();
+    const file = join(dir, `${requestId}.json`);
+    if (!file.startsWith(dir + "/")) return null;
+    if (!fs.existsSync(file)) return null;
+    const raw = fs.readFileSync(file, "utf8");
+    fs.rmSync(file, { force: true });
+    let parsed: { projectId: string; agentId?: string; prompt?: string };
+    try {
+      parsed = JSON.parse(raw) as typeof parsed;
+    } catch {
+      return null;
+    }
+    if (!parsed || typeof parsed.projectId !== "string" || !parsed.projectId) {
+      return null;
+    }
+    const manager = requireAgentManager();
+    const thread = await manager.createThread(
+      parsed.projectId,
+      typeof parsed.prompt === "string" && parsed.prompt ? parsed.prompt.slice(0, 80) : null,
+      null,
+      parsed.agentId || null,
+      null,
+    );
+    if (typeof parsed.prompt === "string" && parsed.prompt) {
+      const threadId = (thread as { id?: string })?.id ?? null;
+      await manager.sendPrompt({ threadId, message: parsed.prompt });
+    }
+    return thread;
+  });
+
   ipcMain.handle("projects:getActive", () => {
     const id = getActiveProjectId();
     return id ? getProject(id) : null;

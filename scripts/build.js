@@ -66,5 +66,23 @@ function buildMacSleeplessHelpers() {
   }
 }
 
+function buildPipperIntents() {
+  if (process.platform !== "darwin") return;
+  const intentsDir = join(root, "native", "pipper-intents");
+  if (!existsSync(join(intentsDir, "Package.swift"))) return;
+  const result = spawnSync("swift", ["build", "--disable-sandbox"], {
+    cwd: intentsDir,
+    stdio: "inherit",
+  });
+  if (result.error) {
+    console.warn("[build] swift not available, skipping PipperIntents:", result.error.message);
+    return;
+  }
+  if (result.status !== 0) {
+    throw new Error(`[build] PipperIntents swift build failed with exit code ${result.status}`);
+  }
+}
+
 buildMacSleeplessHelpers();
+buildPipperIntents();
 run(["electron-vite", "build"]);
