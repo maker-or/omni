@@ -440,10 +440,17 @@ function requireAgentManager(): AgentManager {
 }
 
 /**
- * Consume a Siri-staged thread request: validate, create the thread, deliver
- * the prompt, and only then delete the request file. Invalid payloads are
- * discarded (retrying them can never succeed); processing failures leave the
- * file in place so a later attempt can retry the same request idempotently.
+ * Deep links that arrived before the agent manager was ready (cold launch).
+ * Drained once initialization completes in `app.whenReady()`.
+ */
+const pendingDeepLinks: string[] = [];
+
+/**
+ * Consume a Siri-staged thread request: validate, create the thread (once —
+ * a `.done-<id>.json` marker records the created thread so retries never
+ * spawn duplicates), deliver the prompt, and only then delete the request
+ * file. Invalid payloads are discarded (retrying them can never succeed);
+ * processing failures leave the file in place for idempotent retry.
  */
 async function consumeSiriRequest(requestId: string): Promise<unknown> {
   if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(requestId)) {
@@ -468,18 +475,40 @@ async function consumeSiriRequest(requestId: string): Promise<unknown> {
     return null;
   }
   const manager = requireAgentManager();
+  const markerFile = resolve(join(dir, `.done-${requestId}.json`));
+  const hasPrompt = typeof parsed.prompt === "string" && parsed.prompt.length > 0;
+  const markerRel = relative(dir, markerFile);
+  if (!markerRel.startsWith("..") && !isAbsolute(markerRel) && fs.existsSync(markerFile)) {
+    // Retry path: the thread already exists, so resume delivery instead of
+    // creating a duplicate.
+    try {
+      const marker = JSON.parse(fs.readFileSync(markerFile, "utf8")) as { threadId?: string };
+      if (marker?.threadId && hasPrompt) {
+        await manager.sendPrompt({ threadId: marker.threadId, message: parsed.prompt });
+      }
+      fs.rmSync(file, { force: true });
+      fs.rmSync(markerFile, { force: true });
+      return marker?.threadId ? getThread(marker.threadId) : null;
+    } catch {
+      return null;
+    }
+  }
   const thread = await manager.createThread(
     parsed.projectId,
-    typeof parsed.prompt === "string" && parsed.prompt ? parsed.prompt.slice(0, 80) : null,
+    hasPrompt ? (parsed.prompt as string).slice(0, 80) : null,
     null,
     parsed.agentId || null,
     null,
   );
-  if (typeof parsed.prompt === "string" && parsed.prompt) {
-    const threadId = (thread as { id?: string })?.id ?? null;
+  const threadId = (thread as { id?: string })?.id ?? null;
+  if (threadId) {
+    fs.writeFileSync(markerFile, JSON.stringify({ threadId }), "utf8");
+  }
+  if (hasPrompt) {
     await manager.sendPrompt({ threadId, message: parsed.prompt });
   }
   fs.rmSync(file, { force: true });
+  if (threadId) fs.rmSync(markerFile, { force: true });
   return thread;
 }
 
@@ -498,6 +527,12 @@ async function handlePipperDeepLink(url: string): Promise<boolean> {
   if (parsed.protocol !== "pipper:") return false;
   const match = /^siri\/([A-Za-z0-9-]{1,128})\/?$/.exec(`${parsed.host}${parsed.pathname}`);
   if (!match?.[1]) return false;
+  if (!agentManager) {
+    // Cold launch: the open-url/second-instance event can arrive before
+    // initialization. Queue it; it drains once the manager is ready.
+    if (!pendingDeepLinks.includes(url)) pendingDeepLinks.push(url);
+    return true;
+  }
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
@@ -2301,6 +2336,11 @@ app.whenReady().then(async () => {
     attention: { isFocused: () => mainWindowFocused },
     notify: osNotifier,
   });
+  for (const queued of pendingDeepLinks.splice(0)) {
+    await handlePipperDeepLink(queued).catch((err) => {
+      console.error("[Main] Failed to handle queued deep link:", err);
+    });
+  }
   sleeplessController = new SleeplessController({
     platform: process.platform,
     settingsPath: join(app.getPath("userData"), "sleepless.json"),
