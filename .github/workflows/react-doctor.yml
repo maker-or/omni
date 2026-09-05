@@ -37,6 +37,10 @@ jobs:
           fetch-depth: 0
 
       - uses: millionco/react-doctor@v2
+        # Advisory gate (see header): the scanner must never red-X a PR.
+        # Its PR-mode baseline derivation currently crashes repo-wide before
+        # producing a report, so an infra failure here must not fail the job.
+        continue-on-error: true
         # Advisory by default: React Doctor reports findings on every PR — a
         # sticky summary comment, inline review comments, and a commit status
         # with the health score — but never fails the check, so it won't red-X
