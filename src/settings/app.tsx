@@ -1,7 +1,9 @@
 import { Keyboard, Monitor, Moon, Sun } from "lucide-react";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 import { useTheme, type Theme } from "@/lib/theme";
+import { useUiModeStore } from "@/store/ui-mode-store";
 
 function modifierSymbol(): string {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform)
@@ -48,6 +50,7 @@ function SettingRow({
 
 export function SettingsApp() {
   const { theme } = useTheme();
+  const { mode, setMode } = useUiModeStore();
   const ThemeIcon = THEME_ICONS[theme];
 
   return (
@@ -96,6 +99,31 @@ export function SettingsApp() {
                 description={`${THEME_LABELS[theme]} appearance · click to cycle`}
               >
                 <ThemeToggle className="size-9 rounded-lg bg-surface-3 shadow-surface-1" />
+              </SettingRow>
+            </div>
+          </section>
+
+          <section aria-labelledby="workspace-heading" className="mt-7">
+            <h2
+              id="workspace-heading"
+              className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70"
+            >
+              Workspace
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-surface-2 shadow-surface-2">
+              <SettingRow
+                icon={Monitor}
+                title="Workspace mode"
+                description={`${mode === "advanced" ? "Advanced" : "Basic"} layout · click to switch`}
+              >
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setMode(mode === "advanced" ? "basic" : "advanced")}
+                >
+                  Switch to {mode === "advanced" ? "Basic" : "Advanced"}
+                </Button>
               </SettingRow>
             </div>
           </section>

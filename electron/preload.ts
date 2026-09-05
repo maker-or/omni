@@ -176,6 +176,8 @@ const api = {
       ipcRenderer.invoke("worktrees:list", projectId),
     create: (input: { projectId: string; name: string }): Promise<Worktree> =>
       ipcRenderer.invoke("worktrees:create", input),
+    delete: (input: { projectId: string; path: string }): Promise<Worktree> =>
+      ipcRenderer.invoke("worktrees:delete", input),
     switch: (input: { projectId: string; path: string }): Promise<Thread> =>
       ipcRenderer.invoke("worktrees:switch", input),
     getSelections: (): Promise<Record<string, string>> =>

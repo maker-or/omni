@@ -32,6 +32,11 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: millionco/react-doctor@v2
+        # The action resolves and runs React Doctor through npm. This repo
+        # intentionally declares Bun in devEngines, which npm 11 otherwise
+        # treats as a fatal mismatch before the scanner starts.
+        env:
+          NPM_CONFIG_FORCE: "true"
         # Advisory by default: React Doctor reports findings on every PR — a
         # sticky summary comment, inline review comments, and a commit status
         # with the health score — but never fails the check, so it won't red-X
