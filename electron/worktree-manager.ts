@@ -477,6 +477,36 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   return { path: canonical(worktreePath), branch, head };
 }
 
+/**
+ * Best-effort removal of a worktree created for a request that later failed
+ * (e.g. agent spawn/prompt error). Never throws — cleanup must not mask the
+ * original failure.
+ */
+export function removeWorktree(
+  projectPath: string,
+  worktreePath: string,
+  branch: string | null,
+): void {
+  try {
+    git(projectPath, ["worktree", "remove", worktreePath, "--force"]);
+  } catch {
+    // Best effort cleanup of worktree registration
+  }
+  if (branch) {
+    try {
+      git(projectPath, ["branch", "-D", branch]);
+    } catch {
+      // Best effort cleanup of branch
+    }
+  }
+  try {
+    rmSync(worktreePath, { recursive: true, force: true });
+  } catch {
+    // Best effort cleanup of directory
+  }
+  invalidateWorktreeCache(projectPath);
+}
+
 /** Parse `git worktree list --porcelain` into structured entries. */
 export function parseWorktreePorcelain(stdout: string): Worktree[] {
   const worktrees: Worktree[] = [];

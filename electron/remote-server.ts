@@ -9,7 +9,7 @@ import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
 import { getThread, listThreads } from "./threads.ts";
-import { createWorktree } from "./worktree-manager.ts";
+import { createWorktree, removeWorktree } from "./worktree-manager.ts";
 import type {
   RemoteModel,
   RemoteProject,
@@ -83,12 +83,16 @@ async function filesTouched(cwd: string | null): Promise<string[]> {
   }
 }
 
+/** How long after the last authed phone request an idle phone keeps standby. */
+const REMOTE_LEASE_MS = 10 * 60_000;
+
 export class RemoteServer {
-  private server: http.Server | null = null;
+  private servers: http.Server[] = [];
   private token: string;
   readonly port: number;
   private readonly deps: RemoteServerDeps;
   private readonly isolationNotes = new Map<string, string>();
+  private lastAuthedAt = 0;
 
   constructor(deps: RemoteServerDeps, opts?: { port?: number; token?: string }) {
     this.deps = deps;
@@ -126,27 +130,53 @@ export class RemoteServer {
     return [...ips];
   }
 
+  /** Tailscale IPv4s (100.x) — the only non-loopback interfaces we serve. */
+  getTailscaleIps(): string[] {
+    return this.getLanIps().filter((ip) => ip.startsWith("100."));
+  }
+
   /** Pairing URL baked into the QR: phone auto-saves the token from the hash. */
   pairingUrl(host: string): string {
     return `http://${host}:${this.port}/remote#token=${this.token}`;
   }
 
+  /** Last time an authed phone request arrived (0 = never). Drives standby. */
+  getLastAuthedAt(): number {
+    return this.lastAuthedAt;
+  }
+
+  /** True when an idle paired phone should still keep the laptop awake. */
+  hasLiveLease(now = Date.now()): boolean {
+    return this.lastAuthedAt > 0 && now - this.lastAuthedAt < REMOTE_LEASE_MS;
+  }
+
   start(): void {
-    if (this.server) return;
-    this.server = http.createServer((req, res) => void this.handle(req, res));
-    // Bind loopback + Tailscale interface: 0.0.0.0 would expose to LAN, so we
-    // listen on all but rely on token auth; Tailscale Serve can front it.
-    this.server.listen(this.port, "0.0.0.0", () => {
-      console.log(`[Remote] PWA server on :${this.port}`);
-    });
+    if (this.servers.length > 0) return;
+    const handler = (req: http.IncomingMessage, res: http.ServerResponse) =>
+      void this.handle(req, res);
+    // Never 0.0.0.0: the bearer token travels over plain HTTP, so bind only
+    // loopback + Tailscale. Override with PIPPER_REMOTE_HOST if needed.
+    const override = process.env.PIPPER_REMOTE_HOST?.trim();
+    const hosts = override ? [override] : ["127.0.0.1", ...this.getTailscaleIps()];
+    for (const host of new Set(hosts)) {
+      const server = http.createServer(handler);
+      server.listen(this.port, host, () => {
+        console.log(`[Remote] PWA server on http://${host}:${this.port}/remote`);
+      });
+      this.servers.push(server);
+    }
   }
 
   stop(): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.server) return resolve();
-      this.server.close(() => resolve());
-      this.server = null;
-    });
+    const closing = this.servers.splice(0);
+    return Promise.all(
+      closing.map(
+        (server) =>
+          new Promise<void>((resolve) => {
+            server.close(() => resolve());
+          }),
+      ),
+    ).then(() => undefined);
   }
 
   private authed(req: http.IncomingMessage): boolean {
@@ -164,8 +194,29 @@ export class RemoteServer {
       return this.serveFile(res, "remote.html", "text/html");
     }
     // Built remote.html references ./assets/* (resolves to /assets/*).
-    if (req.method === "GET" && (path.startsWith("/assets/") || path === "/favicon.svg")) {
+    if (
+      req.method === "GET" &&
+      (path.startsWith("/assets/") || path === "/favicon.svg" || path === "/icon.png")
+    ) {
       return this.serveFile(res, path.slice(1), undefined);
+    }
+    // Installability metadata for "Add to Home Screen". No service worker:
+    // plain HTTP on a tailnet IP is not a secure context, so a worker could
+    // never activate — the manifest alone gives the standalone shell.
+    if (req.method === "GET" && path === "/remote-manifest.json") {
+      return send(res, 200, {
+        name: "Omni Remote",
+        short_name: "Omni",
+        start_url: "/remote",
+        scope: "/",
+        display: "standalone",
+        background_color: "#171717",
+        theme_color: "#171717",
+        icons: [
+          { src: "/icon.png", sizes: "512x512", type: "image/png" },
+          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml" },
+        ],
+      });
     }
     if (req.method === "GET" && path === "/api/remote/health") {
       return send(res, 200, { ok: true, time: Date.now() });
@@ -189,6 +240,10 @@ export class RemoteServer {
       send(res, 401, { error: "Unauthorized" });
       return;
     }
+    // Any authed call proves a live paired phone — renews the standby lease
+    // so an idle phone keeps the laptop awake between tasks.
+    this.lastAuthedAt = Date.now();
+    this.deps.onRemoteActiveChanged?.(true);
 
     const am = this.deps.agentManager();
     try {
@@ -219,7 +274,7 @@ export class RemoteServer {
             running: running.has(t.id),
             lastUsedAt: t.last_used_at,
           }));
-        this.deps.onRemoteActiveChanged?.(running.size > 0);
+        this.deps.onRemoteActiveChanged?.(running.size > 0 || this.hasLiveLease());
         return send(res, 200, { threads: summaries });
       }
       if (req.method === "POST" && path === "/api/remote/threads") {
@@ -238,6 +293,7 @@ export class RemoteServer {
         // If the repo can't take a worktree (e.g. no commits yet), fall back
         // to the project root so the task still runs.
         let worktreePath: string | null = null;
+        let worktreeBranch: string | null = null;
         let isolationNote: string | null = null;
         try {
           const base =
@@ -248,11 +304,13 @@ export class RemoteServer {
               .replace(/^-+|-+$/g, "")}`.slice(0, 36) || "phone-task";
           // Unique per request: same prompt sent twice must not collide.
           const slug = `${base}-${Date.now().toString(36)}`;
-          worktreePath = createWorktree({
+          const created = createWorktree({
             projectPath: project.path,
             projectId: project.id,
             name: slug,
-          }).path;
+          });
+          worktreePath = created.path;
+          worktreeBranch = created.branch;
           console.log(`[Remote] worktree created: ${worktreePath}`);
         } catch (err) {
           isolationNote = err instanceof Error ? err.message : String(err);
@@ -265,27 +323,37 @@ export class RemoteServer {
         // Use it to pick the connection, but never as a model name — the
         // agent's own default model applies (e.g. antigravity has no implicit
         // default; the user's desktop default is used).
-        const thread = await am.createThread(
-          project.id,
-          body.prompt.slice(0, 80),
-          null,
-          body.modelId ?? null,
-          worktreePath,
-          null,
-        );
-        await am.sendPrompt({ threadId: thread.id, message: body.prompt });
-        if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
-        console.log(`[Remote] prompt sent thread=${thread.id}`);
-        return send(res, 201, {
-          thread: {
-            id: thread.id,
-            projectId: thread.project_id,
-            worktreePath: thread.worktree_path ?? null,
-            title: thread.title,
-            running: true,
-            lastUsedAt: thread.last_used_at,
-          },
-        });
+        try {
+          const thread = await am.createThread(
+            project.id,
+            body.prompt.slice(0, 80),
+            null,
+            body.modelId ?? null,
+            worktreePath,
+            null,
+          );
+          await am.sendPrompt({ threadId: thread.id, message: body.prompt });
+          if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
+          console.log(`[Remote] prompt sent thread=${thread.id}`);
+          return send(res, 201, {
+            thread: {
+              id: thread.id,
+              projectId: thread.project_id,
+              worktreePath: thread.worktree_path ?? null,
+              title: thread.title,
+              running: true,
+              lastUsedAt: thread.last_used_at,
+            },
+          });
+        } catch (error) {
+          // Roll back the worktree this request created so failed phone
+          // requests don't accumulate worktrees + branches on disk.
+          if (worktreePath) {
+            console.warn(`[Remote] rolling back worktree: ${worktreePath}`);
+            removeWorktree(project.path, worktreePath, worktreeBranch);
+          }
+          throw error;
+        }
       }
       const promptMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/prompt$/);
       if (req.method === "POST" && promptMatch) {

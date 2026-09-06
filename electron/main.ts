@@ -2216,6 +2216,16 @@ app.whenReady().then(async () => {
       onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
     });
     remoteServer.start();
+    // Standby lease: an idle paired phone (authed request within the window)
+    // keeps Sleepless armed even with zero running threads, so the laptop is
+    // awake when the next phone task arrives.
+    const leaseTimer = setInterval(() => {
+      const running = agentManager?.getRunningThreadIds() ?? [];
+      sleeplessController?.setRemoteActive(
+        running.length > 0 || (remoteServer?.hasLiveLease() ?? false),
+      );
+    }, 60_000);
+    leaseTimer.unref?.();
     {
       const ips = remoteServer.getLanIps();
       const tailscale = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? "<mac-ip>";
