@@ -135,6 +135,16 @@ export class RemoteServer {
     return this.getLanIps().filter((ip) => ip.startsWith("100."));
   }
 
+  /**
+   * Address safe to advertise in QR/Settings: only what start() actually
+   * binds. Null when Tailscale is down — callers must show "unavailable"
+   * instead of a LAN address we don't serve.
+   */
+  getAdvertisedHost(): string | null {
+    if (process.env.PIPPER_REMOTE_HOST?.trim()) return process.env.PIPPER_REMOTE_HOST.trim();
+    return this.getTailscaleIps()[0] ?? null;
+  }
+
   /** Pairing URL baked into the QR: phone auto-saves the token from the hash. */
   pairingUrl(host: string): string {
     return `http://${host}:${this.port}/remote#token=${this.token}`;
@@ -160,6 +170,12 @@ export class RemoteServer {
     const hosts = override ? [override] : ["127.0.0.1", ...this.getTailscaleIps()];
     for (const host of new Set(hosts)) {
       const server = http.createServer(handler);
+      // A failed bind (port taken, interface gone) must not poison start():
+      // drop it so a later start() can retry.
+      server.on("error", (err) => {
+        console.error(`[Remote] listen failed on ${host}:${this.port}:`, err);
+        this.servers = this.servers.filter((s) => s !== server);
+      });
       server.listen(this.port, host, () => {
         console.log(`[Remote] PWA server on http://${host}:${this.port}/remote`);
       });
@@ -177,6 +193,15 @@ export class RemoteServer {
           }),
       ),
     ).then(() => undefined);
+  }
+
+  /** True when a thread row already binds this worktree (keep it for retry). */
+  private threadExistsForWorktree(worktreePath: string): boolean {
+    try {
+      return listThreads().some((t) => t.worktree_path === worktreePath);
+    } catch {
+      return true;
+    }
   }
 
   private authed(req: http.IncomingMessage): boolean {
@@ -332,7 +357,14 @@ export class RemoteServer {
             worktreePath,
             null,
           );
-          await am.sendPrompt({ threadId: thread.id, message: body.prompt });
+          try {
+            await am.sendPrompt({ threadId: thread.id, message: body.prompt });
+          } catch (promptError) {
+            // Thread + worktree both exist: keep them so the chat is retryable
+            // from the phone instead of dangling. Only report the failure.
+            console.error(`[Remote] prompt failed, keeping thread=${thread.id}:`, promptError);
+            throw promptError;
+          }
           if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
           console.log(`[Remote] prompt sent thread=${thread.id}`);
           return send(res, 201, {
@@ -346,9 +378,9 @@ export class RemoteServer {
             },
           });
         } catch (error) {
-          // Roll back the worktree this request created so failed phone
-          // requests don't accumulate worktrees + branches on disk.
-          if (worktreePath) {
+          // Roll back the worktree only when thread creation itself failed —
+          // once the thread row exists the worktree is retained for retry.
+          if (worktreePath && !this.threadExistsForWorktree(worktreePath)) {
             console.warn(`[Remote] rolling back worktree: ${worktreePath}`);
             removeWorktree(project.path, worktreePath, worktreeBranch);
           }

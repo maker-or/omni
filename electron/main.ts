@@ -1789,8 +1789,7 @@ function registerIpc(): void {
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
   ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
   ipcMain.handle("remote:getInfo", () => {
-    const ips = remoteServer?.getLanIps() ?? [];
-    const host = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? null;
+    const host = remoteServer?.getAdvertisedHost() ?? null;
     return {
       enabled: Boolean(remoteServer),
       port: remoteServer?.port ?? null,
@@ -1798,16 +1797,13 @@ function registerIpc(): void {
       pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
     };
   });
-  ipcMain.handle("remote:regenerateToken", () => ({
-    token: remoteServer?.regenerateToken() ?? null,
-    pairingUrl: remoteServer
-      ? (() => {
-          const ips = remoteServer.getLanIps();
-          const host = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? null;
-          return host ? remoteServer.pairingUrl(host) : null;
-        })()
-      : null,
-  }));
+  ipcMain.handle("remote:regenerateToken", () => {
+    const host = remoteServer?.getAdvertisedHost() ?? null;
+    return {
+      token: remoteServer?.regenerateToken() ?? null,
+      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
+    };
+  });
   ipcMain.handle("remote:setStandby", (_event, active: boolean) =>
     sleeplessController?.setRemoteActive(Boolean(active)),
   );
@@ -2227,20 +2223,26 @@ app.whenReady().then(async () => {
     }, 60_000);
     leaseTimer.unref?.();
     {
-      const ips = remoteServer.getLanIps();
-      const tailscale = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? "<mac-ip>";
-      const url = remoteServer.pairingUrl(tailscale);
-      console.log(
-        `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
-      );
-      console.log(`[Remote] PATH=${process.env.PATH}`);
-      try {
-        const { default: qrcode } = await import("qrcode-terminal");
-        console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
-        qrcode.generate(url, { small: true });
-      } catch (err) {
-        console.warn("[Remote] QR render failed:", err);
+      const tailscale = remoteServer.getAdvertisedHost();
+      if (!tailscale) {
+        console.warn(
+          "[Remote] No Tailscale address — pairing QR unavailable. Token only:",
+          `\x1b[32m${remoteServer.getPairingToken()}\x1b[0m`,
+        );
+      } else {
+        const url = remoteServer.pairingUrl(tailscale);
+        console.log(
+          `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
+        );
+        try {
+          const { default: qrcode } = await import("qrcode-terminal");
+          console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
+          qrcode.generate(url, { small: true });
+        } catch (err) {
+          console.warn("[Remote] QR render failed:", err);
+        }
       }
+      console.log(`[Remote] PATH=${process.env.PATH}`);
     }
   }
   threadBenchmarkController = new ThreadBenchmarkController({
