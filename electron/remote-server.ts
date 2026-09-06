@@ -9,7 +9,7 @@ import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
 import { getThread, listThreads } from "./threads.ts";
-import { createWorktree, removeWorktree } from "./worktree-manager.ts";
+import { createWorktree, gitBinary, removeWorktree } from "./worktree-manager.ts";
 import type {
   RemoteModel,
   RemoteProject,
@@ -50,6 +50,9 @@ function send(
 }
 
 function loadOrCreateToken(deps: RemoteServerDeps): string {
+  // Precedence: persisted file (incl. rotated via regenerateToken) > env >
+  // fresh. The file wins over the env so a rotation is never undone by a
+  // restart while PIPPER_REMOTE_TOKEN is still set.
   try {
     const dir = deps.getUserDataPath();
     mkdirSync(dir, { recursive: true });
@@ -58,26 +61,38 @@ function loadOrCreateToken(deps: RemoteServerDeps): string {
       const saved = readFileSync(file, "utf8").trim();
       if (saved) return saved;
     }
+    if (process.env.PIPPER_REMOTE_TOKEN?.trim()) {
+      return process.env.PIPPER_REMOTE_TOKEN.trim();
+    }
     const fresh = randomBytes(24).toString("hex");
     writeFileSync(file, `${fresh}\n`, { mode: 0o600 });
     return fresh;
   } catch {
-    return randomBytes(24).toString("hex");
+    return process.env.PIPPER_REMOTE_TOKEN?.trim() || randomBytes(24).toString("hex");
   }
 }
 
 async function filesTouched(cwd: string | null): Promise<string[]> {
   if (!cwd || !existsSync(cwd)) return [];
   try {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "-z"], {
+    const { stdout } = await execFileAsync(gitBinary(), ["status", "--porcelain=v1", "-z"], {
       cwd,
       maxBuffer: 1024 * 1024,
     });
-    return String(stdout)
-      .split("\0")
-      .map((r) => r.slice(3).trim())
-      .filter(Boolean)
-      .slice(0, 50);
+    // -z: NUL-delimited records; rename/copy records carry the source path as
+    // a second bare field (no XY prefix) right after the destination record.
+    const out: string[] = [];
+    const fields = String(stdout).split("\0");
+    for (let i = 0; i < fields.length && out.length < 50; i++) {
+      const field = fields[i] ?? "";
+      if (!field) continue;
+      const code = field.slice(0, 2);
+      const path = field.slice(3);
+      if (!path) continue;
+      out.push(path);
+      if (code.includes("R") || code.includes("C")) i++; // skip paired source path
+    }
+    return out;
   } catch {
     return [];
   }
@@ -99,7 +114,7 @@ export class RemoteServer {
     this.port = opts?.port ?? Number(process.env.PIPPER_REMOTE_PORT ?? 4173);
     // Stable pairing token: env override, else persisted per userData dir so a
     // relaunch doesn't invalidate the phone's saved token.
-    this.token = opts?.token ?? process.env.PIPPER_REMOTE_TOKEN ?? loadOrCreateToken(deps);
+    this.token = opts?.token ?? loadOrCreateToken(deps);
   }
 
   getPairingToken(): string {
@@ -164,8 +179,10 @@ export class RemoteServer {
     if (this.servers.length > 0) return;
     const handler = (req: http.IncomingMessage, res: http.ServerResponse) =>
       void this.handle(req, res);
-    // Never 0.0.0.0: the bearer token travels over plain HTTP, so bind only
-    // loopback + Tailscale. Override with PIPPER_REMOTE_HOST if needed.
+    // Threat model: plain HTTP is intentional here. Listeners bind loopback +
+    // Tailscale only, so bearer credentials traverse either localhost or the
+    // WireGuard-encrypted tailnet — never LAN/Wi-Fi in cleartext. TLS would
+    // add self-signed cert friction on the phone with no transport gain.
     const override = process.env.PIPPER_REMOTE_HOST?.trim();
     const hosts = override ? [override] : ["127.0.0.1", ...this.getTailscaleIps()];
     for (const host of new Set(hosts)) {
@@ -193,6 +210,11 @@ export class RemoteServer {
           }),
       ),
     ).then(() => undefined);
+  }
+
+  /** True when at least one listener survived startup (bind may have failed). */
+  isServing(): boolean {
+    return this.servers.length > 0;
   }
 
   /** True when a thread row already binds this worktree (keep it for retry). */

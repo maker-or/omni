@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
 import type {
@@ -41,6 +41,9 @@ export function RemoteApp() {
   const [tokenInput, setTokenInput] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const refreshInflight = useRef(false);
 
   // Scanned QR opens /remote#token=… — auto-save so scan = paired.
   useEffect(() => {
@@ -55,6 +58,9 @@ export function RemoteApp() {
 
   const refresh = useCallback(async () => {
     if (!paired) return;
+    // Poll overlap guard: a slow laptop must not stack concurrent refreshes.
+    if (refreshInflight.current) return;
+    refreshInflight.current = true;
     try {
       const [p, m, t] = await Promise.all([
         api<{ projects: RemoteProject[] }>("/api/remote/projects"),
@@ -71,6 +77,8 @@ export function RemoteApp() {
       );
     } catch (err) {
       setLoadError(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      refreshInflight.current = false;
     }
   }, [paired]);
 
@@ -82,9 +90,20 @@ export function RemoteApp() {
 
   useEffect(() => {
     if (!activeId || !paired) return;
-    api<{ report: RemoteReport }>(`/api/remote/threads/${activeId}/report`)
-      .then((r) => setReport(r.report))
-      .catch(() => setReport(null));
+    // Stale guard: ignore a report that resolves after switching chats.
+    const wanted = activeId;
+    let cancelled = false;
+    setReport(null);
+    api<{ report: RemoteReport }>(`/api/remote/threads/${wanted}/report`)
+      .then((r) => {
+        if (!cancelled) setReport(r.report);
+      })
+      .catch(() => {
+        if (!cancelled) setReport(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeId, paired, threads]);
 
   const scanQr = async () => {
@@ -104,24 +123,27 @@ export function RemoteApp() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
-      const video = document.createElement("video");
-      video.srcObject = stream;
-      await video.play();
-      const detector = new Detector({ formats: ["qr_code"] });
-      const deadline = Date.now() + 30_000;
-      let found: string | null = null;
-      while (Date.now() < deadline && !found) {
-        const codes = await detector.detect(video).catch(() => []);
-        found = codes[0]?.rawValue ?? null;
-        if (!found) await new Promise((r) => setTimeout(r, 300));
-      }
-      stream.getTracks().forEach((t) => t.stop());
-      const token = found?.match(/token=([A-Za-z0-9]+)/)?.[1];
-      if (token) {
-        localStorage.setItem(TOKEN_KEY, token);
-        setPaired(true);
-      } else {
-        setScanError("No QR found in 30s — try again or paste the token.");
+      try {
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        await video.play();
+        const detector = new Detector({ formats: ["qr_code"] });
+        const deadline = Date.now() + 30_000;
+        let found: string | null = null;
+        while (Date.now() < deadline && !found) {
+          const codes = await detector.detect(video).catch(() => []);
+          found = codes[0]?.rawValue ?? null;
+          if (!found) await new Promise((r) => setTimeout(r, 300));
+        }
+        const token = found?.match(/token=([A-Za-z0-9]+)/)?.[1];
+        if (token) {
+          localStorage.setItem(TOKEN_KEY, token);
+          setPaired(true);
+        } else {
+          setScanError("No QR found in 30s — try again or paste the token.");
+        }
+      } finally {
+        stream.getTracks().forEach((t) => t.stop());
       }
     } catch {
       setScanError("Camera unavailable — paste the token instead.");
@@ -130,22 +152,31 @@ export function RemoteApp() {
 
   const send = async () => {
     const text = draft.trim();
-    if (!text) return;
-    setDraft("");
-    if (!activeId) {
-      if (!projectId || !modelId) return;
-      const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
-        method: "POST",
-        body: JSON.stringify({ projectId, modelId, prompt: text }),
-      });
-      setActiveId(created.thread.id);
-    } else {
-      await api(`/api/remote/threads/${activeId}/prompt`, {
-        method: "POST",
-        body: JSON.stringify({ prompt: text }),
-      });
+    if (!text || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      if (!activeId) {
+        if (!projectId || !modelId) return;
+        const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
+          method: "POST",
+          body: JSON.stringify({ projectId, modelId, prompt: text }),
+        });
+        setActiveId(created.thread.id);
+      } else {
+        await api(`/api/remote/threads/${activeId}/prompt`, {
+          method: "POST",
+          body: JSON.stringify({ prompt: text }),
+        });
+      }
+      // Clear only on success so a failed send keeps the draft for retry.
+      setDraft("");
+      void refresh();
+    } catch (err) {
+      setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSending(false);
     }
-    void refresh();
   };
 
   const newChat = () => {
@@ -282,25 +313,36 @@ export function RemoteApp() {
           </>
         ) : (
           <div className="remote-card">
-            <p className="report-status">{report?.running ? "Running on laptop…" : "Done"}</p>
-            {report?.summary && <p className="report-summary">{report.summary}</p>}
-            {report && !report.isolated && (
-              <p className="notice warn">
-                Ran in project root — no isolated workspace.
-                {report.isolationNote ? ` Reason: ${report.isolationNote}` : ""}
-              </p>
-            )}
-            {report?.worktreePath && <p className="ws-path">workspace: {report.worktreePath}</p>}
-            {report && report.filesTouched.length > 0 && (
-              <ul className="file-list">
-                {report.filesTouched.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
+            {!report ? (
+              <p className="report-status">Loading…</p>
+            ) : (
+              <>
+                <p className="report-status">{report.running ? "Running on laptop…" : "Done"}</p>
+                {report.summary && <p className="report-summary">{report.summary}</p>}
+                {!report.isolated && (
+                  <p className="notice warn">
+                    Ran in project root — no isolated workspace.
+                    {report.isolationNote ? ` Reason: ${report.isolationNote}` : ""}
+                  </p>
+                )}
+                {report.worktreePath && <p className="ws-path">workspace: {report.worktreePath}</p>}
+                {report.filesTouched.length > 0 && (
+                  <ul className="file-list">
+                    {report.filesTouched.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </div>
         )}
       </div>
+      {sendError && (
+        <p className="notice bad" style={{ margin: "0 16px 8px" }}>
+          {sendError}
+        </p>
+      )}
 
       <footer className="remote-composer">
         <input

@@ -1789,11 +1789,12 @@ function registerIpc(): void {
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
   ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
   ipcMain.handle("remote:getInfo", () => {
-    const host = remoteServer?.getAdvertisedHost() ?? null;
+    const serving = remoteServer?.isServing() ?? false;
+    const host = serving ? (remoteServer?.getAdvertisedHost() ?? null) : null;
     return {
-      enabled: Boolean(remoteServer),
-      port: remoteServer?.port ?? null,
-      token: remoteServer?.getPairingToken() ?? null,
+      enabled: serving,
+      port: serving ? (remoteServer?.port ?? null) : null,
+      token: serving ? (remoteServer?.getPairingToken() ?? null) : null,
       pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
     };
   });
@@ -2224,7 +2225,9 @@ app.whenReady().then(async () => {
     leaseTimer.unref?.();
     {
       const tailscale = remoteServer.getAdvertisedHost();
-      if (!tailscale) {
+      if (!remoteServer.isServing()) {
+        console.warn("[Remote] Server failed to bind — remote access unavailable.");
+      } else if (!tailscale) {
         console.warn(
           "[Remote] No Tailscale address — pairing QR unavailable. Token only:",
           `\x1b[32m${remoteServer.getPairingToken()}\x1b[0m`,

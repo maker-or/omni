@@ -111,14 +111,22 @@ export function worktreePathFor(projectId: string, name: string): string {
   return join(getWorktreesRoot(), projectId, slugify(name));
 }
 
-const GIT_CANDIDATES = ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git", "/bin/git"];
+const GIT_CANDIDATES =
+  process.platform === "win32"
+    ? [
+        join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Git", "cmd", "git.exe"),
+        join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Git", "bin", "git.exe"),
+        join(process.env["LOCALAPPDATA"] ?? "", "Programs", "Git", "cmd", "git.exe"),
+      ]
+    : ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git", "/bin/git"];
 
 /** Absolute git binary: PATH-independent so GUI launches work too. */
-function gitBinary(): string {
+export function gitBinary(): string {
   const pathEnv = process.env.PATH ?? "";
   const delimiter = process.platform === "win32" ? ";" : ":";
+  const exe = process.platform === "win32" ? "git.exe" : "git";
   for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
-    const candidate = join(normalize(dir), "git");
+    const candidate = join(normalize(dir), exe);
     try {
       if (existsSync(candidate)) return candidate;
     } catch {

@@ -49,6 +49,7 @@ export function RemoteAccessSettings() {
   }, [info?.pairingUrl]);
 
   const regenerate = async () => {
+    if (spinning) return;
     setSpinning(true);
     try {
       const next = await window.omni.remote.regenerateToken();
@@ -107,8 +108,9 @@ export function RemoteAccessSettings() {
       <div className="flex shrink-0 items-center">
         <button
           onClick={() => void regenerate()}
+          disabled={spinning}
           title="Generate a new token (unpairs phones)"
-          className="flex size-9 items-center justify-center rounded-lg bg-surface-3 text-muted-foreground shadow-surface-1 hover:text-foreground"
+          className="flex size-9 items-center justify-center rounded-lg bg-surface-3 text-muted-foreground shadow-surface-1 hover:text-foreground disabled:opacity-50"
         >
           <RefreshCw className={`size-4 ${spinning ? "animate-spin" : ""}`} />
         </button>
