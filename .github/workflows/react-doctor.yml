@@ -32,6 +32,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: millionco/react-doctor@v2
+        with:
+          # Pinned: `version: latest` resolves via an npm call issued from the
+          # repo checkout, and npm 11 hard-fails there because package.json
+          # mandates bun via devEngines (EBADDEVENGINES). A concrete version
+          # skips resolution, restores the cached toolchain, and runs the
+          # prebuilt bin without touching npm in the repo dir.
+          version: "0.9.13"
         # Advisory by default: React Doctor reports findings on every PR — a
         # sticky summary comment, inline review comments, and a commit status
         # with the health score — but never fails the check, so it won't red-X
