@@ -101,6 +101,17 @@ const api = {
       return () => ipcRenderer.removeListener("sleepless:statusChanged", listener);
     },
   },
+  remote: {
+    getInfo: (): Promise<{
+      enabled: boolean;
+      port: number | null;
+      token: string | null;
+      pairingUrl: string | null;
+    }> => ipcRenderer.invoke("remote:getInfo"),
+    regenerateToken: (): Promise<{ token: string | null; pairingUrl: string | null }> =>
+      ipcRenderer.invoke("remote:regenerateToken"),
+    setStandby: (active: boolean): Promise<void> => ipcRenderer.invoke("remote:setStandby", active),
+  },
   launcherUpdate: {
     check: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:check"),
     getState: (): Promise<LauncherUpdateState> => ipcRenderer.invoke("launcher-update:getState"),

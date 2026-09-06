@@ -1,4 +1,5 @@
 import { Keyboard, Monitor, Moon, Sun } from "lucide-react";
+import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useTheme, type Theme } from "@/lib/theme";
@@ -142,6 +143,21 @@ export function SettingsApp() {
             </div>
             <p className="mt-2 px-1 text-[10px] leading-4 text-muted-foreground/70">
               Requires the Sleepless helper and Login Items permission on macOS.
+            </p>
+          </section>
+
+          <section aria-labelledby="remote-heading" className="mt-7">
+            <h2
+              id="remote-heading"
+              className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70"
+            >
+              Remote access
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-surface-2 shadow-surface-2">
+              <RemoteAccessSettings />
+            </div>
+            <p className="mt-2 px-1 text-[10px] leading-4 text-muted-foreground/70">
+              Regenerating the token unpairs all phones — scan the new code to re-link.
             </p>
           </section>
         </main>

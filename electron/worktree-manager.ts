@@ -111,10 +111,43 @@ export function worktreePathFor(projectId: string, name: string): string {
   return join(getWorktreesRoot(), projectId, slugify(name));
 }
 
+const GIT_CANDIDATES =
+  process.platform === "win32"
+    ? [
+        join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Git", "cmd", "git.exe"),
+        join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Git", "bin", "git.exe"),
+        join(process.env["LOCALAPPDATA"] ?? "", "Programs", "Git", "cmd", "git.exe"),
+      ]
+    : ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git", "/bin/git"];
+
+/** Absolute git binary: PATH-independent so GUI launches work too. */
+export function gitBinary(): string {
+  const pathEnv = process.env.PATH ?? "";
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  const exe = process.platform === "win32" ? "git.exe" : "git";
+  for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
+    const candidate = join(normalize(dir), exe);
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      /* keep probing */
+    }
+  }
+  for (const candidate of GIT_CANDIDATES) {
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      /* keep probing */
+    }
+  }
+  // Last resort: let the OS resolve it (throws ENOENT with a clear message).
+  return "git";
+}
+
 function git(projectPath: string, args: string[]): string {
   // Capture (don't inherit) stderr: several probes below expect failure and
   // catch it — inheriting would spam the app log with `fatal:` noise.
-  return execFileSync("git", args, {
+  return execFileSync(gitBinary(), args, {
     cwd: projectPath,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -452,6 +485,36 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   return { path: canonical(worktreePath), branch, head };
 }
 
+/**
+ * Best-effort removal of a worktree created for a request that later failed
+ * (e.g. agent spawn/prompt error). Never throws — cleanup must not mask the
+ * original failure.
+ */
+export function removeWorktree(
+  projectPath: string,
+  worktreePath: string,
+  branch: string | null,
+): void {
+  try {
+    git(projectPath, ["worktree", "remove", worktreePath, "--force"]);
+  } catch {
+    // Best effort cleanup of worktree registration
+  }
+  if (branch) {
+    try {
+      git(projectPath, ["branch", "-D", branch]);
+    } catch {
+      // Best effort cleanup of branch
+    }
+  }
+  try {
+    rmSync(worktreePath, { recursive: true, force: true });
+  } catch {
+    // Best effort cleanup of directory
+  }
+  invalidateWorktreeCache(projectPath);
+}
+
 /** Parse `git worktree list --porcelain` into structured entries. */
 export function parseWorktreePorcelain(stdout: string): Worktree[] {
   const worktrees: Worktree[] = [];
@@ -495,7 +558,7 @@ export function listWorktrees(projectPath: string): Worktree[] {
   const cached = worktreeCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
+  const stdout = execFileSync(gitBinary(), ["worktree", "list", "--porcelain"], {
     cwd: projectPath,
     encoding: "utf8",
     env: foreignGitEnv(),
