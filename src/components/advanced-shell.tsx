@@ -115,10 +115,12 @@ function WorkspaceRow({
     <div className="relative">
       <button
         type="button"
+        data-active={selected ? "true" : undefined}
+        aria-current={selected ? "page" : undefined}
         className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition-colors",
+          "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition-colors duration-80",
           selected
-            ? "bg-accent text-foreground"
+            ? "bg-active font-medium text-foreground"
             : "text-muted-foreground hover:bg-hover hover:text-foreground",
         )}
         onClick={onSelect}
@@ -127,8 +129,18 @@ function WorkspaceRow({
           setMenuOpen((open) => !open);
         }}
       >
-        <GitBranch size={14} weight="duotone" />
-        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <GitBranch
+          size={14}
+          weight="duotone"
+          className={cn(
+            "shrink-0 transition-colors duration-80",
+            selected ? "text-foreground" : undefined,
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate">
+          {name}
+          {selected && <span className="sr-only"> (active workspace)</span>}
+        </span>
       </button>
       {menuOpen && (
         <div className="absolute left-2 top-full z-50 mt-1 w-44 rounded-lg border border-border bg-surface-1 p-1 shadow-surface-5">
@@ -214,7 +226,15 @@ export function AdvancedShell() {
       }),
     ).then((entries) => {
       if (cancelled) return;
-      setWorktreesByProject(Object.fromEntries(entries));
+      // Newest-first for linked worktrees (git returns oldest-first).
+      const ordered = Object.fromEntries(
+        entries.map(([id, list]) => {
+          const root = list.filter((item) => item.isProjectRoot);
+          const rest = list.filter((item) => !item.isProjectRoot).reverse();
+          return [id, [...root, ...rest]];
+        }),
+      );
+      setWorktreesByProject(ordered);
     });
     return () => {
       cancelled = true;
@@ -252,10 +272,21 @@ export function AdvancedShell() {
       await window.omni.threads.rename(thread.id, name);
       void queryClient.invalidateQueries({ queryKey: ["open-tabs"] });
     }
-    setWorktreesByProject((current) => ({
-      ...current,
-      [project.id]: [...(current[project.id] ?? []), worktree],
-    }));
+    setWorktreesByProject((current) => {
+      const existing = current[project.id] ?? [];
+      const withoutDup = existing.filter((item) => item.path !== worktree.path);
+      const adjustedRootIndex = withoutDup.findIndex((item) => item.isProjectRoot);
+      // New workspace goes to the top (right after the project root).
+      const next =
+        adjustedRootIndex === -1
+          ? [worktree, ...withoutDup]
+          : [
+              ...withoutDup.slice(0, adjustedRootIndex + 1),
+              worktree,
+              ...withoutDup.slice(adjustedRootIndex + 1),
+            ];
+      return { ...current, [project.id]: next };
+    });
     await loadWorktrees(project.id);
   };
 
@@ -318,6 +349,11 @@ export function AdvancedShell() {
               <SidebarMenu>
                 {projects.map((project) => {
                   const active = activeProject?.id === project.id;
+                  // Canonical workspace identity per project: null means the
+                  // project root ("main"). Only the active project can have a
+                  // selected worktree; other projects show none highlighted.
+                  const projectSelectedPath =
+                    project.id === activeProject?.id ? selectedPath : null;
                   return (
                     <SidebarMenuItem key={project.id}>
                       <div className="flex items-center gap-1">
@@ -351,7 +387,7 @@ export function AdvancedShell() {
                             <WorkspaceRow
                               key={worktree.path}
                               worktree={worktree}
-                              selected={worktree.path === selectedPath}
+                              selected={worktree.path === projectSelectedPath}
                               onSelect={() => void selectWorkspace(project, worktree.path)}
                               onArchive={() => void archiveWorkspace(project, worktree)}
                               onDelete={() => void deleteWorkspace(project, worktree)}
