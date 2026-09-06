@@ -25,7 +25,7 @@ export default defineConfig({
       outDir: "out/main",
       rollupOptions: {
         input: { index: resolve(__dirname, "electron/main.ts") },
-        external: ["electron", "better-sqlite3", "node-pty"],
+        external: ["electron", "better-sqlite3", "node-pty", "qrcode-terminal"],
       },
     },
   },
@@ -72,6 +72,7 @@ export default defineConfig({
           launch: resolve(__dirname, "launch.html"),
           monitor: resolve(__dirname, "monitor.html"),
           settings: resolve(__dirname, "settings.html"),
+          remote: resolve(__dirname, "remote.html"),
         },
       },
     },

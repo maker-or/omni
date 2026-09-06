@@ -111,10 +111,35 @@ export function worktreePathFor(projectId: string, name: string): string {
   return join(getWorktreesRoot(), projectId, slugify(name));
 }
 
+const GIT_CANDIDATES = ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git", "/bin/git"];
+
+/** Absolute git binary: PATH-independent so GUI launches work too. */
+function gitBinary(): string {
+  const pathEnv = process.env.PATH ?? "";
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
+    const candidate = join(normalize(dir), "git");
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      /* keep probing */
+    }
+  }
+  for (const candidate of GIT_CANDIDATES) {
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      /* keep probing */
+    }
+  }
+  // Last resort: let the OS resolve it (throws ENOENT with a clear message).
+  return "git";
+}
+
 function git(projectPath: string, args: string[]): string {
   // Capture (don't inherit) stderr: several probes below expect failure and
   // catch it — inheriting would spam the app log with `fatal:` noise.
-  return execFileSync("git", args, {
+  return execFileSync(gitBinary(), args, {
     cwd: projectPath,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -495,7 +520,7 @@ export function listWorktrees(projectPath: string): Worktree[] {
   const cached = worktreeCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
+  const stdout = execFileSync(gitBinary(), ["worktree", "list", "--porcelain"], {
     cwd: projectPath,
     encoding: "utf8",
     env: foreignGitEnv(),

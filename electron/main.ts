@@ -76,6 +76,7 @@ import {
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
+import { RemoteServer } from "./remote-server.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
 import type {
   ThreadBenchmarkMode,
@@ -370,6 +371,7 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
+let remoteServer: RemoteServer | null = null;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -1786,6 +1788,29 @@ function registerIpc(): void {
   );
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
   ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
+  ipcMain.handle("remote:getInfo", () => {
+    const ips = remoteServer?.getLanIps() ?? [];
+    const host = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? null;
+    return {
+      enabled: Boolean(remoteServer),
+      port: remoteServer?.port ?? null,
+      token: remoteServer?.getPairingToken() ?? null,
+      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
+    };
+  });
+  ipcMain.handle("remote:regenerateToken", () => ({
+    token: remoteServer?.regenerateToken() ?? null,
+    pairingUrl: remoteServer
+      ? (() => {
+          const ips = remoteServer.getLanIps();
+          const host = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? null;
+          return host ? remoteServer.pairingUrl(host) : null;
+        })()
+      : null,
+  }));
+  ipcMain.handle("remote:setStandby", (_event, active: boolean) =>
+    sleeplessController?.setRemoteActive(Boolean(active)),
+  );
   ipcMain.handle("agent:pasteToEditor", (_event, text: string) =>
     requireAgentManager().pasteToEditor(text),
   );
@@ -2183,6 +2208,31 @@ app.whenReady().then(async () => {
     broadcast: (status) => broadcastToWindows("sleepless:statusChanged", status),
   });
   sleeplessController.setRunningThreadIds(agentManager.getRunningThreadIds());
+  if (process.env.PIPPER_REMOTE_ENABLED !== "0") {
+    remoteServer = new RemoteServer({
+      agentManager: () => agentManager,
+      getUserDataPath: () => app.getPath("userData"),
+      getRendererDir: () => join(mainDir, "../renderer"),
+      onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+    });
+    remoteServer.start();
+    {
+      const ips = remoteServer.getLanIps();
+      const tailscale = ips.find((ip) => ip.startsWith("100.")) ?? ips[0] ?? "<mac-ip>";
+      const url = remoteServer.pairingUrl(tailscale);
+      console.log(
+        `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
+      );
+      console.log(`[Remote] PATH=${process.env.PATH}`);
+      try {
+        const { default: qrcode } = await import("qrcode-terminal");
+        console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
+        qrcode.generate(url, { small: true });
+      } catch (err) {
+        console.warn("[Remote] QR render failed:", err);
+      }
+    }
+  }
   threadBenchmarkController = new ThreadBenchmarkController({
     enabled: benchmarkEnabled,
     fixturePath: process.env.PIPPER_BENCHMARK_FIXTURE ?? null,

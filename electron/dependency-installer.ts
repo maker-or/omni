@@ -27,7 +27,9 @@ function getStandardPaths(): string[] {
       ...shared,
     ];
   }
-  return ["/opt/homebrew/bin", "/usr/local/bin", ...shared];
+  // /usr/bin + /bin last: GUI launches (Finder/dock) can strip PATH down to
+  // almost nothing, and without these even system git won't resolve.
+  return ["/opt/homebrew/bin", "/usr/local/bin", ...shared, "/usr/bin", "/bin"];
 }
 
 /** Add GUI-visible locations for Git and user project tools to PATH. */
