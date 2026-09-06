@@ -30,6 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history so the action can diff against the merge base and
+          # report only PR-introduced issues instead of every pre-existing one.
+          fetch-depth: 0
 
       - uses: millionco/react-doctor@v2
         env:
