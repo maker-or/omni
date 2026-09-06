@@ -180,6 +180,7 @@ export class SleeplessController {
   private serviceStatus: SleeplessServiceStatus;
   private phase: SleeplessStatus["phase"] = "disabled";
   private runningTaskCount = 0;
+  private remoteActive = false;
   private armedAt: number | null = null;
   private lidClosed: boolean | null = null;
   private onBattery: boolean | null = null;
@@ -310,8 +311,16 @@ export class SleeplessController {
 
   setRunningThreadIds(threadIds: readonly string[]): void {
     const count = new Set(threadIds).size;
-    if (count === this.runningTaskCount) return;
+    if (count === this.runningTaskCount && !this.remoteActive) return;
     this.runningTaskCount = count;
+    void this.queueReconcile();
+    this.publish();
+  }
+
+  /** Phone paired / remote standby: stay armed on AC even with no tasks. */
+  setRemoteActive(active: boolean): void {
+    if (active === this.remoteActive) return;
+    this.remoteActive = active;
     void this.queueReconcile();
     this.publish();
   }
@@ -410,9 +419,9 @@ export class SleeplessController {
     if (
       !this.preferences.enabled ||
       this.serviceStatus !== "enabled" ||
-      this.runningTaskCount === 0
+      (this.runningTaskCount === 0 && !this.remoteActive)
     ) {
-      await this.disarm(this.runningTaskCount === 0);
+      await this.disarm(this.runningTaskCount === 0 && !this.remoteActive);
       this.phase = this.idlePhase();
       this.publish();
       return;
