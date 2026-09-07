@@ -87,6 +87,16 @@ declare global {
         openSystemSettings: () => Promise<void>;
         onStatusChanged: (callback: (status: SleeplessStatus) => void) => () => void;
       };
+      remote: {
+        getInfo: () => Promise<{
+          enabled: boolean;
+          port: number | null;
+          token: string | null;
+          pairingUrl: string | null;
+        }>;
+        regenerateToken: () => Promise<{ token: string | null; pairingUrl: string | null }>;
+        setStandby: (active: boolean) => Promise<void>;
+      };
       launcherUpdate: {
         check: () => Promise<LauncherUpdateState>;
         getState: () => Promise<LauncherUpdateState>;

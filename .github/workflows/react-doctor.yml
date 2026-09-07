@@ -30,13 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history so the action can diff against the merge base and
+          # report only PR-introduced issues instead of every pre-existing one.
+          fetch-depth: 0
 
       - uses: millionco/react-doctor@v2
-        # The action resolves and runs React Doctor through npm. This repo
-        # intentionally declares Bun in devEngines, which npm 11 otherwise
-        # treats as a fatal mismatch before the scanner starts.
         env:
-          NPM_CONFIG_FORCE: "true"
+          # The action shells out to npm from the repo checkout, and npm 11
+          # hard-fails there because package.json mandates bun via devEngines
+          # (EBADDEVENGINES). --force demotes that to the warning npm already
+          # emits on healthy runs; the scan itself never installs repo deps.
+          npm_config_force: "true"
         # Advisory by default: React Doctor reports findings on every PR — a
         # sticky summary comment, inline review comments, and a commit status
         # with the health score — but never fails the check, so it won't red-X

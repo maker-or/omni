@@ -1,0 +1,486 @@
+/* Remote PWA — Fluid Functionalism (see design.md), mobile-first.
+   Own token layer; desktop tokens untouched. Dark-first: stepped charcoal. */
+:root {
+  color-scheme: dark;
+  --surface-1: #171717;
+  --surface-2: #1f1f1f;
+  --surface-3: #262626;
+  --surface-4: #2e2e2e;
+  --surface-5: #363636;
+  --ink: #f5f5f5;
+  --ink-dim: #a3a3a3;
+  --ink-faint: #737373;
+  --accent: #7dd3fc;
+  --good: #86efac;
+  --warn-bg: #3a2a00;
+  --warn-ink: #ffd98a;
+  --bad-bg: #3a0000;
+  --bad-ink: #ffb4b4;
+  --radius-pill: 999px;
+  --radius-card: 20px;
+  --shadow-4: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-1);
+  color: var(--ink);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.remote-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--surface-1);
+}
+
+.remote-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  /* No bar background: two floating buttons only. */
+  background: transparent;
+  border-bottom: 0;
+}
+
+.header-spacer {
+  flex: 1;
+}
+
+/* Floating header buttons: each owns its background + rounded corners. */
+.header-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgb(255 255 255 / 0.05);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: var(--shadow-4);
+  cursor: pointer;
+}
+.header-btn:active {
+  background: var(--surface-4);
+}
+
+.remote-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.remote-card {
+  background: var(--surface-2);
+  border: 1px solid rgb(255 255 255 / 0.05);
+  border-radius: var(--radius-card);
+  padding: 14px;
+  box-shadow: var(--shadow-4);
+}
+
+.remote-card label {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-dim);
+  margin-bottom: 6px;
+}
+
+.remote-select {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--surface-3);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: var(--radius-pill);
+  appearance: none;
+}
+
+.picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.remote-hint {
+  color: var(--ink-faint);
+  font-size: 14px;
+  text-align: center;
+  margin: 8px 0;
+}
+
+.report-status {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+.report-summary {
+  margin: 0 0 8px;
+}
+.report-final {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Chat view: user right, agent left, pending + working states. */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.thread-meta {
+  margin-bottom: 4px;
+}
+.thread-meta summary {
+  font-size: 13px;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.bubble {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-4);
+}
+.bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble.me {
+  align-self: flex-end;
+  background: var(--ink);
+  color: #171717;
+  border-bottom-right-radius: 6px;
+}
+.bubble.agent {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 4px;
+  /* No bubble background: plain report text. */
+  background: none;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+}
+.bubble.pending {
+  opacity: 0.75;
+}
+.bubble-state {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.bubble.working {
+  padding: 14px 16px;
+}
+.dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  animation: dot-pulse 1.2s infinite ease-in-out;
+}
+.dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.file-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.file-list li {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  background: var(--surface-3);
+  border-radius: 12px;
+  padding: 8px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice {
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+.notice.warn {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.notice.bad {
+  background: var(--bad-bg);
+  color: var(--bad-ink);
+}
+.ws-path {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.remote-composer {
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--surface-2);
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+}
+/* Pill composer bar: [+] input [mic/send] — one rounded unit. */
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-3);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 28px;
+  padding: 6px 6px 6px 18px;
+}
+.composer-bar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  padding: 10px 6px;
+}
+.composer-bar input::placeholder {
+  color: var(--ink-faint);
+}
+.composer-send {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #171717;
+  cursor: pointer;
+}
+.composer-send:disabled {
+  opacity: 0.4;
+}
+
+/* Phone markdown: compact, bubble-safe. Code blocks scroll horizontally. */
+.md {
+  overflow-wrap: anywhere;
+}
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.md ul,
+.md ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.md li {
+  margin: 2px 0;
+}
+.md li > p {
+  margin: 0;
+  display: inline;
+}
+.md blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid rgb(255 255 255 / 0.2);
+  color: var(--ink-dim);
+}
+.md a {
+  color: var(--accent);
+}
+.md-code {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  background: rgb(0 0 0 / 0.3);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+.md-pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: rgb(0 0 0 / 0.35);
+  border-radius: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.md-pre code {
+  font-family: ui-monospace, monospace;
+  white-space: pre;
+}
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.md th,
+.md td {
+  border: 1px solid rgb(255 255 255 / 0.12);
+  padding: 6px 8px;
+  text-align: left;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 10px 0 6px;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 18px;
+}
+.md h2 {
+  font-size: 16px;
+}
+.md h3,
+.md h4 {
+  font-size: 15px;
+}
+.remote-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.55);
+  z-index: 10;
+}
+.remote-sheet {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 82%;
+  max-width: 320px;
+  background: var(--surface-2);
+  z-index: 11;
+  padding: 16px;
+  overflow-y: auto;
+  border-radius: 0 24px 24px 0;
+  box-shadow: var(--shadow-4);
+}
+.remote-sheet h3 {
+  margin: 4px 0 12px;
+  font-size: 15px;
+  color: var(--ink-dim);
+}
+.thread-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface-3);
+  color: var(--ink);
+  border: 0;
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 8px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.thread-row.active {
+  outline: 1px solid rgb(125 211 252 / 0.5);
+}
+.thread-row.running {
+  color: var(--good);
+}
+.unpair-btn {
+  margin-top: 16px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: var(--bad-ink);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 12px;
+}
+
+.pair-wrap {
+  padding: 32px 24px;
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pair-wrap h1 {
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.pair-wrap p {
+  color: var(--ink-dim);
+}
+.pair-input {
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: var(--radius-pill);
+}
+.pair-btn {
+  padding: 14px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--ink);
+  color: #171717;
+  font-size: 16px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.pair-btn.ghost {
+  background: var(--surface-3);
+  color: var(--ink);
+}

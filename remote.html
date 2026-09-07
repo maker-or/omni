@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#171717" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/remote-manifest.json" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <title>Omni Remote</title>
+  </head>
+  <body>
+    <pre
+      id="remote-debug"
+      style="
+        display: none;
+        background: #3a0000;
+        color: #ffb4b4;
+        padding: 12px;
+        margin: 0;
+        white-space: pre-wrap;
+        font-size: 12px;
+      "
+    >
+debug:
+</pre
+    >
+    <div id="remote-root"></div>
+    <script type="module" src="/src/remote/main.tsx"></script>
+  </body>
+</html>
