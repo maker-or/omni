@@ -10,7 +10,11 @@
   <true/>
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
-  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
-  <true/>
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.maker-or.omni.pipper</string>
+	</array>
 </dict>
 </plist>

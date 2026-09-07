@@ -1,6 +1,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getPipperLibraryPath } from "../paths.ts";
+import os from "node:os";
+import { getPipperLibraryPath, PIPPER_APP_GROUP_IDENTIFIER } from "../paths.ts";
 import { listProjects } from "../projects.ts";
 import { listRegisteredAgents, getDefaultAgentId } from "../agents/registry.ts";
 
@@ -24,7 +25,17 @@ export interface SiriCatalog {
   agents: SiriCatalogAgent[];
 }
 
-/** Absolute path of the shared catalog both Electron and Siri read. */
+/** Every location the Swift extension may read from (App Group + legacy). */
+export function getSiriLibraryDirs(): string[] {
+  const dirs = [getPipperLibraryPath()];
+  if (process.env.PIPPER_LIBRARY_PATH) return dirs;
+  if (process.platform === "darwin") {
+    const legacy = join(os.homedir(), "Library", "pipper");
+    if (legacy !== dirs[0]) dirs.push(legacy);
+    void PIPPER_APP_GROUP_IDENTIFIER;
+  }
+  return [...new Set(dirs)];
+}
 export function getSiriCatalogPath(): string {
   return join(getPipperLibraryPath(), "siri-catalog.json");
 }
@@ -32,6 +43,11 @@ export function getSiriCatalogPath(): string {
 /** Directory where the Swift intent stages pending thread requests. */
 export function getSiriRequestsDir(): string {
   return join(getPipperLibraryPath(), "siri-requests");
+}
+
+/** All request dirs the extension may stage into (dual-write targets). */
+export function getSiriRequestsDirs(): string[] {
+  return getSiriLibraryDirs().map((d) => join(d, "siri-requests"));
 }
 
 /** Snapshot the current projects and agents into the shared catalog shape. */
@@ -61,12 +77,22 @@ export function buildSiriCatalog(): SiriCatalog {
  */
 export function refreshSiriCatalog(): SiriCatalog {
   const catalog = buildSiriCatalog();
-  const dir = getPipperLibraryPath();
-  mkdirSync(dir, { recursive: true });
-  mkdirSync(getSiriRequestsDir(), { recursive: true });
-  const target = getSiriCatalogPath();
-  const tmp = join(dirname(target), `.siri-catalog.${process.pid}.tmp`);
-  writeFileSync(tmp, JSON.stringify(catalog, null, 2), "utf8");
-  renameSync(tmp, target);
+  const payload = JSON.stringify(catalog, null, 2);
+  // Dual-write so the ad-hoc-signed extension finds the catalog whether it
+  // resolves the App Group container or falls back to ~/Library/pipper.
+  for (const dir of getSiriLibraryDirs()) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      mkdirSync(join(dir, "siri-requests"), { recursive: true });
+      const target = join(dir, "siri-catalog.json");
+      const tmp = join(dirname(target), `.siri-catalog.${process.pid}.tmp`);
+      writeFileSync(tmp, payload, "utf8");
+      renameSync(tmp, target);
+    } catch (err) {
+      // Ad-hoc-signed builds cannot create the App Group container; the
+      // legacy ~/Library/pipper location must still be updated.
+      console.warn(`[Siri] Catalog write failed for ${dir}:`, err);
+    }
+  }
   return catalog;
 }

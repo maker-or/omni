@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -69,17 +70,45 @@ function buildMacSleeplessHelpers() {
 function buildPipperIntents() {
   if (process.platform !== "darwin") return;
   const intentsDir = join(root, "native", "pipper-intents");
-  if (!existsSync(join(intentsDir, "Package.swift"))) return;
-  const result = spawnSync("swift", ["build", "--disable-sandbox"], {
-    cwd: intentsDir,
-    stdio: "inherit",
-  });
+  const project = join(intentsDir, "PreviewApp", "PipperIntentsPreview.xcodeproj");
+  if (!existsSync(project)) return;
+  const output = join(intentsDir, "dist");
+  mkdirSync(output, { recursive: true });
+  const developerCandidates = [
+    join(os.homedir(), "Downloads", "Xcode-beta.app", "Contents", "Developer"),
+    "/Applications/Xcode-beta.app/Contents/Developer",
+  ];
+  const developerDir = developerCandidates.find((candidate) => existsSync(candidate));
+  const env = developerDir ? { ...process.env, DEVELOPER_DIR: developerDir } : process.env;
+  const result = spawnSync(
+    "xcodebuild",
+    [
+      "-project",
+      project,
+      "-target",
+      "PipperIntents",
+      "-configuration",
+      "Release",
+      `CONFIGURATION_BUILD_DIR=${output}`,
+      "PRODUCT_BUNDLE_IDENTIFIER=com.maker-or.omni.PipperIntents",
+      "CODE_SIGNING_ALLOWED=NO",
+      "build",
+    ],
+    {
+      cwd: root,
+      env,
+      stdio: "inherit",
+    },
+  );
   if (result.error) {
-    console.warn("[build] swift not available, skipping PipperIntents:", result.error.message);
-    return;
+    throw new Error(`[build] xcodebuild is required for PipperIntents: ${result.error.message}`);
   }
   if (result.status !== 0) {
-    throw new Error(`[build] PipperIntents swift build failed with exit code ${result.status}`);
+    throw new Error(`[build] PipperIntents extension build failed with exit code ${result.status}`);
+  }
+  const extension = join(output, "PipperIntents.appex");
+  if (!existsSync(extension)) {
+    throw new Error(`[build] PipperIntents extension build did not produce ${extension}`);
   }
 }
 

@@ -50,6 +50,10 @@ benchmarks
 DerivedData/
 *.xcuserdata/
 *.xcworkspace/xcuserdata/
+**/xcuserdata/
+native/pipper-intents/PreviewApp/build/
+native/pipper-intents/preview-dist/
+native/pipper-intents/PreviewApp/native/
 .swiftpm/
 
 # Local script output

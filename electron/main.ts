@@ -294,7 +294,7 @@ app.on("second-instance", (_event, argv) => {
       console.error("[Main] Failed to handle deep link:", err);
     });
   }
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
@@ -514,6 +514,55 @@ async function consumeSiriRequest(requestId: string): Promise<unknown> {
   return thread;
 }
 
+async function openSiriThread(thread: unknown): Promise<void> {
+  const threadId = (thread as { id?: string })?.id;
+  if (!threadId) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  const next = await openThreadTab(threadId);
+  broadcastOpenTabsChanged(mainWindow, next);
+  await requireAgentManager().switchThread(threadId);
+}
+
+/**
+ * App Intents extensions cannot launch Electron directly. They leave a
+ * request in the shared directory and macOS opens the containing app because
+ * StartThreadIntent.openAppWhenRun is true. Consume the newest pending files
+ * whenever Pipper starts or is activated from Shortcuts.
+ */
+async function consumePendingSiriRequests(): Promise<void> {
+  if (!agentManager) return;
+  const { getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  const seen = new Map<string, number>();
+  for (const rawDir of getSiriRequestsDirs()) {
+    const dir = resolve(rawDir);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/^[A-Za-z0-9-]{1,128}\.json$/.test(entry.name)) continue;
+      const requestId = entry.name.slice(0, -5);
+      const mtimeMs = fs.statSync(join(dir, entry.name)).mtimeMs;
+      if (!seen.has(requestId) || mtimeMs < (seen.get(requestId) ?? 0))
+        seen.set(requestId, mtimeMs);
+    }
+  }
+  const requests = [...seen.entries()]
+    .map(([requestId, mtimeMs]) => ({ requestId, mtimeMs }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  for (const { requestId } of requests) {
+    try {
+      const thread = await consumeSiriRequest(requestId);
+      if (thread) await openSiriThread(thread);
+    } catch (error) {
+      // Leave failed requests on disk so a later app activation can retry.
+      console.error(`[Main] Failed to consume pending Siri request ${requestId}:`, error);
+    }
+  }
+}
+
 /**
  * Route a `pipper://siri/<requestId>` deep link (opened by the Swift
  * StartThreadIntent): focus the main window, consume the staged request, and
@@ -540,14 +589,7 @@ async function handlePipperDeepLink(url: string): Promise<boolean> {
     mainWindow.focus();
   }
   const thread = await consumeSiriRequest(match[1]);
-  if (thread) {
-    const threadId = (thread as { id?: string })?.id;
-    if (threadId) {
-      const next = await openThreadTab(threadId);
-      broadcastOpenTabsChanged(mainWindow, next);
-      await requireAgentManager().switchThread(threadId);
-    }
-  }
+  if (thread) await openSiriThread(thread);
   return true;
 }
 
@@ -2358,6 +2400,7 @@ app.whenReady().then(async () => {
     attention: { isFocused: () => mainWindowFocused },
     notify: osNotifier,
   });
+  await consumePendingSiriRequests();
   for (const queued of pendingDeepLinks.splice(0)) {
     await handlePipperDeepLink(queued).catch((err) => {
       console.error("[Main] Failed to handle queued deep link:", err);
@@ -2482,6 +2525,9 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", async () => {
+    await consumePendingSiriRequests().catch((err) => {
+      console.error("[Main] Failed to consume pending Siri requests on activation:", err);
+    });
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
     if (!hasMain && !hasLaunch) {

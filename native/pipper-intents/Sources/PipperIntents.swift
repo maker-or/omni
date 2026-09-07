@@ -1,5 +1,4 @@
 import AppIntents
-import AppKit
 import Foundation
 
 // MARK: - Shared catalog (written by Electron, read by Siri)
@@ -25,16 +24,43 @@ struct SiriCatalog: Codable, Sendable {
 }
 
 enum SiriCatalogStore {
+  /// App Intents extensions must run in the App Sandbox. The containing
+  /// Electron app and this extension share the catalog through this group.
+  static let appGroupIdentifier = "group.com.maker-or.omni.pipper"
+
+  /// The Xcode preview host has no Electron process to populate the live
+  /// catalog. Keep its metadata/action preview useful without exposing these
+  /// sample entities in the packaged app.
+  static var isPreviewExtension: Bool {
+    Bundle.main.bundleIdentifier?.hasPrefix("dev.pipper.PipperIntentsPreview") == true
+  }
+
   /// Base directory shared with Electron. Honors the same PIPPER_LIBRARY_PATH
-  /// override so both sides never diverge.
-  static func baseDir() -> URL {
+  /// override so both sides never diverge. Ad-hoc-signed production builds
+  /// cannot resolve the App Group container, so fall back to ~/Library/pipper
+  /// (covered by the temporary-exception entitlement) and probe both.
+  static func candidateDirs() -> [URL] {
     if let overridePath = ProcessInfo.processInfo.environment["PIPPER_LIBRARY_PATH"],
       !overridePath.isEmpty
     {
-      return URL(fileURLWithPath: overridePath, isDirectory: true)
+      return [URL(fileURLWithPath: overridePath, isDirectory: true)]
     }
-    return FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/pipper", isDirectory: true)
+    var dirs: [URL] = []
+    if let groupURL = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) {
+      dirs.append(groupURL)
+    }
+    dirs.append(
+      FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/pipper", isDirectory: true))
+    // Deduplicate while preserving order.
+    var seen = Set<String>()
+    return dirs.filter { seen.insert($0.path).inserted }
+  }
+
+  static func baseDir() -> URL {
+    candidateDirs()[0]
   }
 
   static func catalogURL() -> URL {
@@ -46,8 +72,34 @@ enum SiriCatalogStore {
   }
 
   static func load() -> SiriCatalog? {
-    guard let data = try? Data(contentsOf: catalogURL()) else { return nil }
-    return try? JSONDecoder().decode(SiriCatalog.self, from: data)
+    for dir in candidateDirs() {
+      let url = dir.appendingPathComponent("siri-catalog.json")
+      if let data = try? Data(contentsOf: url),
+        let catalog = try? JSONDecoder().decode(SiriCatalog.self, from: data)
+      {
+        return catalog
+      }
+    }
+    guard isPreviewExtension else { return nil }
+    return SiriCatalog(
+      version: 1,
+      updatedAt: "preview",
+      defaultAgentId: "preview-agent",
+      projects: [
+        SiriCatalogProject(
+          id: "preview-project",
+          name: "Demo Project",
+          path: "/tmp/pipper-preview-project"
+        )
+      ],
+      agents: [
+        SiriCatalogAgent(
+          id: "preview-agent",
+          displayName: "Preview Agent",
+          available: true
+        )
+      ]
+    )
   }
 }
 
@@ -139,7 +191,6 @@ enum SiriRequestError: Error, CustomLocalizedStringResourceConvertible {
   case encodingFailed
   case stagingFailed
   case agentUnavailable(String)
-  case openFailed
 
   var localizedStringResource: LocalizedStringResource {
     switch self {
@@ -147,7 +198,6 @@ enum SiriRequestError: Error, CustomLocalizedStringResourceConvertible {
     case .stagingFailed: return "Couldn't save the thread request. Please try again."
     case .agentUnavailable(let name):
       return "The agent \(name) isn't available. Pick an installed agent."
-    case .openFailed: return "Couldn't open Pipper to create the thread."
     }
   }
 }
@@ -160,7 +210,10 @@ struct StartThreadIntent: AppIntent {
     "Starts a new thread in a Pipper project with a chosen agent.",
     categoryName: "Productivity"
   )
-  static var openAppWhenRun: Bool = false
+  // App Intents extensions cannot use NSWorkspace to launch their containing
+  // app. macOS opens the host app after perform() returns when this is true;
+  // Electron then consumes the staged request during activation/startup.
+  static var openAppWhenRun: Bool = true
 
   @Parameter(title: "Project") var project: ProjectEntity
   @Parameter(title: "Agent") var agent: AgentEntity?
@@ -181,8 +234,13 @@ struct StartThreadIntent: AppIntent {
     } else {
       resolvedAgentId = defaultId.flatMap { usableIds.contains($0) ? $0 : nil }
     }
-    // Confirm-then-create: stage a pending request, then open Pipper on the
-    // deep link so Electron consumes it and lands on the new thread.
+    if SiriCatalogStore.isPreviewExtension {
+      return .result(
+        dialog: "Preview: would start a thread in \(project.name)."
+      )
+    }
+    // Stage a pending request. The host app is opened automatically after the
+    // intent completes and Electron consumes this file during activation.
     let requestId = UUID().uuidString
     let payload: [String: String] = [
       "requestId": requestId,
@@ -190,26 +248,35 @@ struct StartThreadIntent: AppIntent {
       "agentId": resolvedAgentId ?? "",
       "prompt": prompt ?? "",
     ]
-    let dir = SiriCatalogStore.requestsDir()
-    do {
-      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-      let url = dir.appendingPathComponent("\(requestId).json")
-      guard let data = try? JSONSerialization.data(withJSONObject: payload) else {
-        throw SiriRequestError.encodingFailed
+    let dir = SiriCatalogStore.baseDir().appendingPathComponent("siri-requests", isDirectory: true)
+    // Stage into every candidate dir so Electron finds the request no
+    // matter which location it consumes from. One location failing (e.g.
+    //Sandbox denying the group container) must not fail the whole intent.
+    var stagedCount = 0
+    var lastError: Error?
+    for base in SiriCatalogStore.candidateDirs() {
+      do {
+        let target = base.appendingPathComponent("siri-requests", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let url = target.appendingPathComponent("\(requestId).json")
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else {
+          throw SiriRequestError.encodingFailed
+        }
+        try data.write(to: url, options: .atomic)
+        stagedCount += 1
+      } catch {
+        lastError = error
       }
-      try data.write(to: url, options: .atomic)
-    } catch let error as SiriRequestError {
-      throw error
-    } catch {
+    }
+    _ = dir
+    if stagedCount == 0 {
+      if let siriError = lastError as? SiriRequestError {
+        throw siriError
+      }
       throw SiriRequestError.stagingFailed
     }
-    guard let deepLink = URL(string: "pipper://siri/\(requestId)"),
-      NSWorkspace.shared.open(deepLink)
-    else {
-      throw SiriRequestError.openFailed
-    }
     return .result(
-      dialog: "Starting a thread in \(project.name). Confirm in Pipper to create it."
+      dialog: "Starting a thread in \(project.name)."
     )
   }
 }
