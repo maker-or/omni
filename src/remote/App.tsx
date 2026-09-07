@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
+import { PhoneMarkdown } from "./markdown.tsx";
 import type {
   RemoteModel,
   RemoteProject,
@@ -43,6 +44,19 @@ export function RemoteApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // Optimistic follow-up, scoped to its thread: `known` counts how many
+  // identical user messages the report already had at send time, so a repeat
+  // of an earlier message can't be "confirmed" by the old entry, and a fast
+  // agent reply after the user entry still confirms (match anywhere, not tail).
+  const [pending, setPending] = useState<{ text: string; threadId: string; known: number } | null>(
+    null,
+  );
+  const [reportError, setReportError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // Signature of the visible chat: scroll only when this actually changes,
+  // and only when the user is already near the bottom (sticky-bottom).
+  const chatSig = useRef("");
   const refreshInflight = useRef(false);
 
   // Scanned QR opens /remote#token=… — auto-save so scan = paired.
@@ -90,21 +104,44 @@ export function RemoteApp() {
 
   useEffect(() => {
     if (!activeId || !paired) return;
-    // Stale guard: ignore a report that resolves after switching chats.
+    // Poll while open so Running → Done + final text arrives with no stream.
+    // Single-flight + generation: overlapping polls (each waits on a git
+    // subprocess) must not regress the UI — only the newest wins, and a
+    // failed poll keeps the last good report instead of blanking to Loading.
     const wanted = activeId;
     let cancelled = false;
+    let generation = 0;
+    let inflight = false;
+    const load = async () => {
+      if (inflight) return;
+      inflight = true;
+      const gen = ++generation;
+      try {
+        const r = await api<{ report: RemoteReport }>(`/api/remote/threads/${wanted}/report`);
+        if (!cancelled && gen === generation) {
+          setReport(r.report);
+          setReportError(null);
+        }
+      } catch (err) {
+        if (!cancelled && gen === generation) {
+          setReportError(`Update failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } finally {
+        inflight = false;
+      }
+    };
     setReport(null);
-    api<{ report: RemoteReport }>(`/api/remote/threads/${wanted}/report`)
-      .then((r) => {
-        if (!cancelled) setReport(r.report);
-      })
-      .catch(() => {
-        if (!cancelled) setReport(null);
-      });
+    setReportError(null);
+    void load();
+    const timer = setInterval(() => {
+      void load();
+      void refresh();
+    }, 3000);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, [activeId, paired, threads]);
+  }, [activeId, paired, refresh]);
 
   const scanQr = async () => {
     setScanError(null);
@@ -155,24 +192,36 @@ export function RemoteApp() {
     if (!text || sending) return;
     setSending(true);
     setSendError(null);
+    // Move the draft into the optimistic bubble immediately; on failure it
+    // is restored below so nothing the user typed is ever lost.
+    setDraft("");
     try {
       if (!activeId) {
-        if (!projectId || !modelId) return;
+        if (!projectId || !modelId) {
+          setDraft(text);
+          return;
+        }
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
           body: JSON.stringify({ projectId, modelId, prompt: text }),
         });
         setActiveId(created.thread.id);
+        setPending({ text, threadId: created.thread.id, known: 0 });
       } else {
+        // Optimistic: show the bubble instantly; poll confirms delivery.
+        const known = (report?.messages ?? []).filter(
+          (m) => m.role === "user" && m.text === text,
+        ).length;
+        setPending({ text, threadId: activeId, known });
         await api(`/api/remote/threads/${activeId}/prompt`, {
           method: "POST",
           body: JSON.stringify({ prompt: text }),
         });
       }
-      // Clear only on success so a failed send keeps the draft for retry.
-      setDraft("");
       void refresh();
     } catch (err) {
+      setDraft(text);
+      setPending(null);
       setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSending(false);
@@ -182,8 +231,46 @@ export function RemoteApp() {
   const newChat = () => {
     setActiveId(null);
     setReport(null);
+    setPending(null);
     setSidebar(false);
   };
+
+  // Drop the optimistic bubble once the server transcript incorporates the
+  // send: a matching user entry beyond the pre-send count proves delivery.
+  // Scoped to the destination thread so switching chats can't confirm it.
+  const confirmedTail = report?.messages.at(-1);
+  const pendingConfirmed =
+    pending &&
+    report &&
+    pending.threadId === report.threadId &&
+    report.messages.filter((m) => m.role === "user" && m.text === pending.text).length >
+      pending.known;
+  useEffect(() => {
+    if (pendingConfirmed) setPending(null);
+  }, [pendingConfirmed]);
+  const pendingVisible =
+    pending && !pendingConfirmed && pending.threadId === activeId ? pending.text : null;
+  useEffect(() => {
+    // Sticky-bottom: never yank a user who scrolled up to read. Only scroll
+    // when the chat actually grew AND the user was already near the bottom
+    // (or just switched chats / sent a message).
+    const sig = [
+      activeId,
+      report?.messages.length ?? 0,
+      confirmedTail?.text.length ?? 0,
+      pendingVisible ?? "",
+      report?.running ? "run" : "idle",
+    ].join("|");
+    if (sig === chatSig.current) return;
+    const wasNewChat = chatSig.current.split("|")[0] !== String(activeId);
+    chatSig.current = sig;
+    const el = bodyRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom || wasNewChat || pendingVisible) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [confirmedTail, pendingVisible, report?.running, report?.messages.length, activeId]);
 
   if (!paired) {
     return (
@@ -217,11 +304,11 @@ export function RemoteApp() {
   return (
     <div className="remote-shell">
       <header className="remote-header">
-        <button className="icon-btn" aria-label="History" onClick={() => setSidebar(true)}>
+        <button className="header-btn" aria-label="History" onClick={() => setSidebar(true)}>
           <List size={22} />
         </button>
-        <h1>Omni Remote</h1>
-        <button className="icon-btn" aria-label="New chat" onClick={newChat}>
+        <span className="header-spacer" />
+        <button className="header-btn" aria-label="New chat" onClick={newChat}>
           <Plus size={22} />
         </button>
       </header>
@@ -275,7 +362,7 @@ export function RemoteApp() {
         )}
       </AnimatePresence>
 
-      <div className="remote-body">
+      <div className="remote-body" ref={bodyRef}>
         {loadError && <p className="notice bad">{loadError}</p>}
         {!activeId ? (
           <>
@@ -312,27 +399,70 @@ export function RemoteApp() {
             </p>
           </>
         ) : (
-          <div className="remote-card">
+          <div className="chat">
             {!report ? (
-              <p className="report-status">Loading…</p>
+              <p className="report-status">{reportError ?? "Loading…"}</p>
             ) : (
               <>
-                <p className="report-status">{report.running ? "Running on laptop…" : "Done"}</p>
-                {report.summary && <p className="report-summary">{report.summary}</p>}
-                {!report.isolated && (
-                  <p className="notice warn">
-                    Ran in project root — no isolated workspace.
-                    {report.isolationNote ? ` Reason: ${report.isolationNote}` : ""}
-                  </p>
+                {reportError && (
+                  <p className="notice warn">Couldn't refresh — showing last update.</p>
                 )}
-                {report.worktreePath && <p className="ws-path">workspace: {report.worktreePath}</p>}
-                {report.filesTouched.length > 0 && (
-                  <ul className="file-list">
-                    {report.filesTouched.map((f) => (
-                      <li key={f}>{f}</li>
-                    ))}
-                  </ul>
+                <details className="remote-card thread-meta">
+                  <summary>
+                    {report.running ? "Running on laptop…" : "Done"}
+                    {report.projectName ? ` · ${report.projectName}` : ""}
+                  </summary>
+                  {report.summary && <p className="report-summary">{report.summary}</p>}
+                  {!report.isolated && (
+                    <p className="notice warn">
+                      Ran in project root — no isolated workspace.
+                      {report.isolationNote ? ` Reason: ${report.isolationNote}` : ""}
+                    </p>
+                  )}
+                  {report.worktreePath && (
+                    <p className="ws-path">workspace: {report.worktreePath}</p>
+                  )}
+                  {report.filesTouched.length > 0 && (
+                    <ul className="file-list">
+                      {report.filesTouched.map((f) => (
+                        <li key={f}>{f}</li>
+                      ))}
+                    </ul>
+                  )}
+                </details>
+                {report.messages.length === 0 && !pendingVisible && (
+                  <p className="remote-hint">Waiting for the first reply…</p>
                 )}
+                {report.messages.map((m, i) => (
+                  <div
+                    // eslint-disable-next-line react/no-array-index-key
+                    key={`${i}-${m.role}-${m.text.slice(0, 24)}`}
+                    className={`bubble ${m.role === "user" ? "me" : "agent"}`}
+                  >
+                    {m.role === "user" ? <p>{m.text}</p> : <PhoneMarkdown text={m.text} />}
+                  </div>
+                ))}
+                {pendingVisible && (
+                  <div className="bubble me pending">
+                    <p>{pendingVisible}</p>
+                    <span className="bubble-state">
+                      {sending ? "Sending…" : "Sent · waiting for laptop…"}
+                    </span>
+                  </div>
+                )}
+                {report.running && (
+                  <div className="bubble agent working">
+                    <span className="dots" aria-label="Working">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  </div>
+                )}
+                {!report.running && !report.finalText && report.messages.length > 0 && (
+                  <p className="report-status">Done</p>
+                )}
+                <div ref={bottomRef} />
               </>
             )}
           </div>
@@ -345,25 +475,27 @@ export function RemoteApp() {
       )}
 
       <footer className="remote-composer">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={!activeId ? "Pick project + model first…" : "Follow up…"}
-          disabled={!activeId && (!projectId || !modelId)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void send();
-          }}
-        />
-        <motion.button
-          className="send-btn"
-          onClick={() => void send()}
-          aria-label="Send"
-          disabled={!draft.trim()}
-          whileTap={{ scale: 0.9 }}
-          transition={{ duration: 0.08 }}
-        >
-          <PaperPlaneTilt size={22} weight="fill" />
-        </motion.button>
+        <div className="composer-bar">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={!activeId ? "Pick project + model first…" : "Follow up…"}
+            disabled={!activeId && (!projectId || !modelId)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void send();
+            }}
+          />
+          <motion.button
+            className="composer-send"
+            onClick={() => void send()}
+            aria-label="Send"
+            disabled={!draft.trim() || sending}
+            whileTap={{ scale: 0.9 }}
+            transition={{ duration: 0.08 }}
+          >
+            <PaperPlaneTilt size={20} weight="fill" />
+          </motion.button>
+        </div>
       </footer>
     </div>
   );
