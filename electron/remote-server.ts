@@ -343,19 +343,25 @@ export class RemoteServer {
         let worktreeBranch: string | null = null;
         let isolationNote: string | null = null;
         try {
-          const base =
-            `phone-${body.prompt
-              .slice(0, 24)
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-+|-+$/g, "")}`.slice(0, 36) || "phone-task";
-          // Unique per request: same prompt sent twice must not collide.
-          const slug = `${base}-${Date.now().toString(36)}`;
-          const created = createWorktree({
-            projectPath: project.path,
-            projectId: project.id,
-            name: slug,
-          });
+          // Fixed-length random name: never derived from the prompt text, so
+          // long/unicode/identical prompts can't produce ugly, colliding, or
+          // confusing worktree + branch names. `phone-` prefix keeps the
+          // origin identifiable in `git worktree list`.
+          let created = null;
+          let lastError: unknown = null;
+          for (let attempt = 0; attempt < 5 && !created; attempt++) {
+            const slug = `phone-${randomBytes(4).toString("hex")}`;
+            try {
+              created = createWorktree({
+                projectPath: project.path,
+                projectId: project.id,
+                name: slug,
+              });
+            } catch (err) {
+              lastError = err;
+            }
+          }
+          if (!created) throw lastError ?? new Error("worktree creation failed");
           worktreePath = created.path;
           worktreeBranch = created.branch;
           console.log(`[Remote] worktree created: ${worktreePath}`);
@@ -378,6 +384,7 @@ export class RemoteServer {
             body.modelId ?? null,
             worktreePath,
             null,
+            { background: true },
           );
           try {
             await am.sendPrompt({ threadId: thread.id, message: body.prompt });
@@ -388,7 +395,15 @@ export class RemoteServer {
             throw promptError;
           }
           if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
-          console.log(`[Remote] prompt sent thread=${thread.id}`);
+          console.log(
+            `[Remote] prompt sent thread=${thread.id} boundWorktree=${thread.worktree_path ?? "<root-fallback>"}`,
+          );
+          if (!thread.worktree_path) {
+            console.warn(
+              `[Remote] thread=${thread.id} running on PROJECT ROOT (no isolated workspace). ` +
+                `requested=${worktreePath ?? "<none: create failed>"} reason=${isolationNote ?? "worktree rejected as not-live"}`,
+            );
+          }
           return send(res, 201, {
             thread: {
               id: thread.id,
@@ -425,10 +440,14 @@ export class RemoteServer {
         if (!thread) return send(res, 404, { error: "Thread not found" });
         const running = (am?.getRunningThreadIds() ?? []).includes(thread.id);
         const cwd = thread.worktree_path ?? getProject(thread.project_id)?.path ?? null;
+        const transcript = am?.getThreadTranscript(thread.id) ?? { finalText: null, messages: [] };
         const report: RemoteReport = {
           threadId: thread.id,
           running,
           summary: thread.title,
+          finalText: transcript.finalText,
+          messages: transcript.messages,
+          projectName: getProject(thread.project_id)?.name ?? thread.project_id,
           filesTouched: await filesTouched(cwd),
           worktreePath: thread.worktree_path ?? null,
           isolated: Boolean(thread.worktree_path),

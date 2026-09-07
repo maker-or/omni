@@ -26,6 +26,11 @@ export interface RemoteReport {
   threadId: string;
   running: boolean;
   summary: string | null;
+  /** Accumulated agent reply text (no tool calls) — shown whole at the end. */
+  finalText: string | null;
+  messages: Array<{ role: "user" | "agent"; text: string }>;
+  /** Project display name, so a wrong-project thread is obvious on the phone. */
+  projectName: string | null;
   filesTouched: string[];
   worktreePath: string | null;
   /** False when worktree creation failed and the task ran in project root. */
