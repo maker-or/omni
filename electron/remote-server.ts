@@ -43,10 +43,16 @@ function send(
   status: number,
   body: unknown,
   contentType = "application/json",
+  headers: Record<string, string> = {},
 ): void {
   const text = typeof body === "string" ? body : JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": contentType });
+  res.writeHead(status, { "Content-Type": contentType, ...headers });
   res.end(text);
+}
+
+/** Transcripts must never sit in a browser/proxy cache: always no-store. */
+function sendReport(res: http.ServerResponse, body: unknown): void {
+  send(res, 200, body, "application/json", { "Cache-Control": "no-store" });
 }
 
 function loadOrCreateToken(deps: RemoteServerDeps): string {
@@ -96,6 +102,18 @@ async function filesTouched(cwd: string | null): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** True for loopback or Tailscale (100.64/10) hosts — the only cleartext-safe binds. */
+function isTrustedRemoteHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h === "localhost" ||
+    h === "127.0.0.1" ||
+    h === "::1" ||
+    h === "[::1]" ||
+    /^100\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(h)
+  );
 }
 
 /** How long after the last authed phone request an idle phone keeps standby. */
@@ -156,7 +174,8 @@ export class RemoteServer {
    * instead of a LAN address we don't serve.
    */
   getAdvertisedHost(): string | null {
-    if (process.env.PIPPER_REMOTE_HOST?.trim()) return process.env.PIPPER_REMOTE_HOST.trim();
+    const override = process.env.PIPPER_REMOTE_HOST?.trim();
+    if (override) return isTrustedRemoteHost(override) ? override : null;
     return this.getTailscaleIps()[0] ?? null;
   }
 
@@ -183,8 +202,17 @@ export class RemoteServer {
     // Tailscale only, so bearer credentials traverse either localhost or the
     // WireGuard-encrypted tailnet — never LAN/Wi-Fi in cleartext. TLS would
     // add self-signed cert friction on the phone with no transport gain.
+    // A PIPPER_REMOTE_HOST override is honored only for loopback/Tailscale —
+    // a LAN address would leak the bearer token + transcripts in cleartext.
     const override = process.env.PIPPER_REMOTE_HOST?.trim();
-    const hosts = override ? [override] : ["127.0.0.1", ...this.getTailscaleIps()];
+    const hosts = override
+      ? isTrustedRemoteHost(override)
+        ? [override]
+        : (() => {
+            console.warn(`[Remote] ignoring untrusted PIPPER_REMOTE_HOST=${override}`);
+            return ["127.0.0.1", ...this.getTailscaleIps()];
+          })()
+      : ["127.0.0.1", ...this.getTailscaleIps()];
     for (const host of new Set(hosts)) {
       const server = http.createServer(handler);
       // A failed bind (port taken, interface gone) must not poison start():
@@ -370,7 +398,7 @@ export class RemoteServer {
           console.warn(`[Remote] worktree fallback to project root: ${isolationNote}`);
         }
         console.log(
-          `[Remote] new phone thread project=${project.id} worktree=${worktreePath ?? "<root>"} prompt=${body.prompt.slice(0, 120)}`,
+          `[Remote] new phone thread project=${project.id} worktree=${worktreePath ?? "<root>"} promptLen=${body.prompt.length}`,
         );
         // modelId from the phone is an *agent* id (listRegisteredAgents).
         // Use it to pick the connection, but never as a model name — the
@@ -386,17 +414,9 @@ export class RemoteServer {
             null,
             { background: true },
           );
-          try {
-            await am.sendPrompt({ threadId: thread.id, message: body.prompt });
-          } catch (promptError) {
-            // Thread + worktree both exist: keep them so the chat is retryable
-            // from the phone instead of dangling. Only report the failure.
-            console.error(`[Remote] prompt failed, keeping thread=${thread.id}:`, promptError);
-            throw promptError;
-          }
           if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
           console.log(
-            `[Remote] prompt sent thread=${thread.id} boundWorktree=${thread.worktree_path ?? "<root-fallback>"}`,
+            `[Remote] prompt accepted thread=${thread.id} boundWorktree=${thread.worktree_path ?? "<root-fallback>"}`,
           );
           if (!thread.worktree_path) {
             console.warn(
@@ -404,6 +424,17 @@ export class RemoteServer {
                 `requested=${worktreePath ?? "<none: create failed>"} reason=${isolationNote ?? "worktree rejected as not-live"}`,
             );
           }
+          // Respond before the turn runs so the phone shows progress
+          // immediately; the turn streams into the thread in the background
+          // and the report poll picks it up. A prompt failure is logged
+          // server-side — the phone sees an idle thread with no reply.
+          const prompt = body.prompt;
+          void am
+            .sendPrompt({ threadId: thread.id, message: prompt }, { background: true })
+            .then(() => console.log(`[Remote] turn completed thread=${thread.id}`))
+            .catch((promptError) => {
+              console.error(`[Remote] prompt failed, keeping thread=${thread.id}:`, promptError);
+            });
           return send(res, 201, {
             thread: {
               id: thread.id,
@@ -431,7 +462,7 @@ export class RemoteServer {
         if (!thread) return send(res, 404, { error: "Thread not found" });
         const body = JSON.parse((await readBody(req)) || "{}") as { prompt?: string };
         if (!body.prompt?.trim()) return send(res, 400, { error: "prompt is required" });
-        await am.sendPrompt({ threadId: thread.id, message: body.prompt });
+        await am.sendPrompt({ threadId: thread.id, message: body.prompt }, { background: true });
         return send(res, 200, { ok: true });
       }
       const reportMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/report$/);
@@ -453,7 +484,7 @@ export class RemoteServer {
           isolated: Boolean(thread.worktree_path),
           isolationNote: this.isolationNotes.get(thread.id) ?? null,
         };
-        return send(res, 200, { report });
+        return sendReport(res, { report });
       }
       send(res, 404, { error: "Not found" });
     } catch (error) {

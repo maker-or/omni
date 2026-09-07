@@ -44,9 +44,14 @@ export function RemoteApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  // Optimistic follow-up: shown instantly as "Sending…" until the next
-  // report poll confirms it (server messages include it once appended).
-  const [pending, setPending] = useState<string | null>(null);
+  // Optimistic follow-up, scoped to its thread: `known` counts how many
+  // identical user messages the report already had at send time, so a repeat
+  // of an earlier message can't be "confirmed" by the old entry, and a fast
+  // agent reply after the user entry still confirms (match anywhere, not tail).
+  const [pending, setPending] = useState<{ text: string; threadId: string; known: number } | null>(
+    null,
+  );
+  const [reportError, setReportError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Signature of the visible chat: scroll only when this actually changes,
@@ -100,17 +105,33 @@ export function RemoteApp() {
   useEffect(() => {
     if (!activeId || !paired) return;
     // Poll while open so Running → Done + final text arrives with no stream.
+    // Single-flight + generation: overlapping polls (each waits on a git
+    // subprocess) must not regress the UI — only the newest wins, and a
+    // failed poll keeps the last good report instead of blanking to Loading.
     const wanted = activeId;
     let cancelled = false;
+    let generation = 0;
+    let inflight = false;
     const load = async () => {
+      if (inflight) return;
+      inflight = true;
+      const gen = ++generation;
       try {
         const r = await api<{ report: RemoteReport }>(`/api/remote/threads/${wanted}/report`);
-        if (!cancelled) setReport(r.report);
-      } catch {
-        if (!cancelled) setReport(null);
+        if (!cancelled && gen === generation) {
+          setReport(r.report);
+          setReportError(null);
+        }
+      } catch (err) {
+        if (!cancelled && gen === generation) {
+          setReportError(`Update failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } finally {
+        inflight = false;
       }
     };
     setReport(null);
+    setReportError(null);
     void load();
     const timer = setInterval(() => {
       void load();
@@ -171,28 +192,35 @@ export function RemoteApp() {
     if (!text || sending) return;
     setSending(true);
     setSendError(null);
+    // Move the draft into the optimistic bubble immediately; on failure it
+    // is restored below so nothing the user typed is ever lost.
+    setDraft("");
     try {
       if (!activeId) {
-        if (!projectId || !modelId) return;
-        setPending(text);
+        if (!projectId || !modelId) {
+          setDraft(text);
+          return;
+        }
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
           body: JSON.stringify({ projectId, modelId, prompt: text }),
         });
         setActiveId(created.thread.id);
+        setPending({ text, threadId: created.thread.id, known: 0 });
       } else {
         // Optimistic: show the bubble instantly; poll confirms delivery.
-        setPending(text);
-        setDraft("");
+        const known = (report?.messages ?? []).filter(
+          (m) => m.role === "user" && m.text === text,
+        ).length;
+        setPending({ text, threadId: activeId, known });
         await api(`/api/remote/threads/${activeId}/prompt`, {
           method: "POST",
           body: JSON.stringify({ prompt: text }),
         });
       }
-      // Clear only on success so a failed send keeps the draft for retry.
-      setDraft("");
       void refresh();
     } catch (err) {
+      setDraft(text);
       setPending(null);
       setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -207,13 +235,21 @@ export function RemoteApp() {
     setSidebar(false);
   };
 
-  // Drop the optimistic bubble once the server echo arrives.
+  // Drop the optimistic bubble once the server transcript incorporates the
+  // send: a matching user entry beyond the pre-send count proves delivery.
+  // Scoped to the destination thread so switching chats can't confirm it.
   const confirmedTail = report?.messages.at(-1);
+  const pendingConfirmed =
+    pending &&
+    report &&
+    pending.threadId === report.threadId &&
+    report.messages.filter((m) => m.role === "user" && m.text === pending.text).length >
+      pending.known;
   useEffect(() => {
-    if (pending && confirmedTail?.role === "user" && confirmedTail.text === pending) {
-      setPending(null);
-    }
-  }, [pending, confirmedTail]);
+    if (pendingConfirmed) setPending(null);
+  }, [pendingConfirmed]);
+  const pendingVisible =
+    pending && !pendingConfirmed && pending.threadId === activeId ? pending.text : null;
   useEffect(() => {
     // Sticky-bottom: never yank a user who scrolled up to read. Only scroll
     // when the chat actually grew AND the user was already near the bottom
@@ -222,7 +258,7 @@ export function RemoteApp() {
       activeId,
       report?.messages.length ?? 0,
       confirmedTail?.text.length ?? 0,
-      pending ?? "",
+      pendingVisible ?? "",
       report?.running ? "run" : "idle",
     ].join("|");
     if (sig === chatSig.current) return;
@@ -231,10 +267,10 @@ export function RemoteApp() {
     const el = bodyRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom || wasNewChat || pending) {
+    if (nearBottom || wasNewChat || pendingVisible) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [confirmedTail, pending, report?.running, report?.messages.length, activeId]);
+  }, [confirmedTail, pendingVisible, report?.running, report?.messages.length, activeId]);
 
   if (!paired) {
     return (
@@ -365,9 +401,12 @@ export function RemoteApp() {
         ) : (
           <div className="chat">
             {!report ? (
-              <p className="report-status">Loading…</p>
+              <p className="report-status">{reportError ?? "Loading…"}</p>
             ) : (
               <>
+                {reportError && (
+                  <p className="notice warn">Couldn't refresh — showing last update.</p>
+                )}
                 <details className="remote-card thread-meta">
                   <summary>
                     {report.running ? "Running on laptop…" : "Done"}
@@ -391,7 +430,7 @@ export function RemoteApp() {
                     </ul>
                   )}
                 </details>
-                {report.messages.length === 0 && !pending && (
+                {report.messages.length === 0 && !pendingVisible && (
                   <p className="remote-hint">Waiting for the first reply…</p>
                 )}
                 {report.messages.map((m, i) => (
@@ -403,9 +442,9 @@ export function RemoteApp() {
                     {m.role === "user" ? <p>{m.text}</p> : <PhoneMarkdown text={m.text} />}
                   </div>
                 ))}
-                {pending && !(confirmedTail?.role === "user" && confirmedTail.text === pending) && (
+                {pendingVisible && (
                   <div className="bubble me pending">
-                    <p>{pending}</p>
+                    <p>{pendingVisible}</p>
                     <span className="bubble-state">
                       {sending ? "Sending…" : "Sent · waiting for laptop…"}
                     </span>
