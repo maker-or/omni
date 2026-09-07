@@ -867,6 +867,66 @@ export class AgentConnectionManager {
     return this.resolveThreadCwd(thread.worktree_path, project.path);
   }
 
+  /** Text-only transcript for the phone PWA: no tool calls, no streaming.
+   * Returns accumulated agent_text + user_text so the phone can show the
+   * entire final message at once when the turn ends. Falls back to the
+   * persisted snapshot when the thread is not resident in memory. */
+  getThreadTranscript(threadId: string): {
+    finalText: string | null;
+    messages: Array<{ role: "user" | "agent"; text: string }>;
+  } {
+    const runtime = this.sessions.get(threadId);
+    const entries =
+      runtime?.slice.entries ??
+      (() => {
+        try {
+          const thread = getThread(threadId);
+          if (!thread) return [];
+          return this.snapshotStore.load(thread)?.slice.entries ?? [];
+        } catch {
+          return [];
+        }
+      })();
+    const streaming = runtime?.slice.isStreaming ?? false;
+    const messages: Array<{ role: "user" | "agent"; text: string }> = [];
+    for (const e of entries) {
+      if (e.type === "agent_text" && e.text.trim()) messages.push({ role: "agent", text: e.text });
+      else if (e.type === "user_text" && e.text.trim())
+        messages.push({ role: "user", text: e.text });
+    }
+    if (streaming) {
+      // No-stream contract: agent text after the last user message belongs to
+      // the in-progress turn — hold it back until the turn settles. Completed
+      // turns (agent text followed by a later user message) still show.
+      const lastUser = messages.map((m) => m.role).lastIndexOf("user");
+      if (lastUser >= 0) {
+        for (let i = messages.length - 1; i > lastUser; i--) {
+          if (messages[i]?.role === "agent") messages.splice(i, 1);
+        }
+      } else {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i]?.role === "agent") messages.splice(i, 1);
+        }
+      }
+    }
+    // Total character budget across messages (not just entry count — one
+    // agent entry can hold a whole concatenated reply). Trim oldest first,
+    // always keeping the tail so recent context survives.
+    const MESSAGE_BUDGET = 16000;
+    let total = messages.reduce((n, m) => n + m.text.length, 0);
+    while (messages.length > 1 && total > MESSAGE_BUDGET) {
+      total -= messages.shift()?.text.length ?? 0;
+    }
+    if (messages[0] && total > MESSAGE_BUDGET) {
+      messages[0] = { ...messages[0], text: `…${messages[0].text.slice(-MESSAGE_BUDGET)}` };
+    }
+    const agentTexts = messages.filter((m) => m.role === "agent").map((m) => m.text);
+    const joined = agentTexts.join("\n\n").trim();
+    // Cap payload for the phone poll; desktop keeps full history.
+    const finalText = joined ? joined.slice(-8000) : null;
+    return { finalText, messages: messages.slice(-50) };
+  }
+
   /** Clear the live view when the user closes the last open thread tab. */
   async clearActiveThread(): Promise<void> {
     this.activeThreadId = null;
@@ -2222,6 +2282,7 @@ export class AgentConnectionManager {
     agentId?: string | null,
     worktreePath?: string | null,
     initialModelId?: string | null,
+    opts?: { background?: boolean },
   ): Promise<Thread> {
     return this.enqueueThreadActivation(() =>
       this.createThreadInternal(
@@ -2231,6 +2292,7 @@ export class AgentConnectionManager {
         agentId,
         worktreePath,
         initialModelId,
+        opts,
       ),
     );
   }
@@ -2242,6 +2304,7 @@ export class AgentConnectionManager {
     agentId?: string | null,
     worktreePath?: string | null,
     initialModelId?: string | null,
+    opts?: { background?: boolean },
   ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -2252,7 +2315,12 @@ export class AgentConnectionManager {
     const boundWorktree = cwd === project.path ? null : cwd;
 
     const targetAgentId = agentId ?? this.preferredAgentId;
-    const live = await this.ensureConnection(targetAgentId);
+    // Background creation must not flip the desktop-active agent: spawning
+    // via ensureConnection would switchAgent + preferredAgentId when the
+    // phone picks a different agent. acquireConnection spawns detached.
+    const live = opts?.background
+      ? await this.acquireConnection(targetAgentId)
+      : await this.ensureConnection(targetAgentId);
     const created = await this.sessionNew(live, cwd);
     this.registerWorkspaceRoot(created.sessionId, cwd);
 
@@ -2302,37 +2370,56 @@ export class AgentConnectionManager {
     });
 
     const projectChanged = this.activeProjectId !== projectId;
-    this.activeProjectId = projectId;
-    this.activeThreadId = thread.id;
-    this.publishActiveAgentContext(live.agentId);
-    setActiveProjectId(projectId);
-    // Creating a thread for another project (tab-bar dropdown) is a project
-    // switch: without this broadcast the renderer's project store — and with
-    // it the header's project name, workspace, and branch — keeps showing
-    // the previous project while the agent panel already follows the new one.
-    if (projectChanged) this.broadcastActiveProject?.(projectId);
-    touchThread(thread.id);
+    // Background (phone) threads must never steal desktop focus: skip the
+    // active-thread switch, workspace mirror, and launch selection so the
+    // desktop keeps showing whatever the user already had open.
+    if (opts?.background) {
+      this.emitRunningThreads();
+    } else {
+      this.activeProjectId = projectId;
+      this.activeThreadId = thread.id;
+      this.publishActiveAgentContext(live.agentId);
+      setActiveProjectId(projectId);
+      // Creating a thread for another project (tab-bar dropdown) is a project
+      // switch: without this broadcast the renderer's project store — and with
+      // it the header's project name, workspace, and branch — keeps showing
+      // the previous project while the agent panel already follows the new one.
+      if (projectChanged) this.broadcastActiveProject?.(projectId);
+      touchThread(thread.id);
 
-    this.captureAnalytics?.("thread_created", {
-      project_id: projectId,
-      thread_id: thread.id,
-      agent_id: live.agentId,
-      agent_name: getAgentDescriptor(live.agentId)?.name,
-      is_main: boundWorktree === null,
-    } as AnalyticsProperties);
+      this.captureAnalytics?.("thread_created", {
+        project_id: projectId,
+        thread_id: thread.id,
+        agent_id: live.agentId,
+        agent_name: getAgentDescriptor(live.agentId)?.name,
+        is_main: boundWorktree === null,
+      } as AnalyticsProperties);
 
-    // Same publish-before-persist ordering as switches: the new thread's view
-    // renders immediately while the durable selections settle below.
-    this.pushState(thread.id);
-    const selectionsSettled = Promise.all([
-      updateWorkspaceSelection(projectId, cwd),
-      updateLaunchSelection({ projectId, threadId: thread.id }),
-    ]);
-    await selectionsSettled;
+      // Same publish-before-persist ordering as switches: the new thread's view
+      // renders immediately while the durable selections settle below.
+      this.pushState(thread.id);
+      const selectionsSettled = Promise.all([
+        updateWorkspaceSelection(projectId, cwd),
+        updateLaunchSelection({ projectId, threadId: thread.id }),
+      ]);
+      await selectionsSettled;
+    }
+    if (opts?.background) {
+      touchThread(thread.id);
+      this.captureAnalytics?.("thread_created", {
+        project_id: projectId,
+        thread_id: thread.id,
+        agent_id: live.agentId,
+        agent_name: getAgentDescriptor(live.agentId)?.name,
+        is_main: boundWorktree === null,
+      } as AnalyticsProperties);
+    }
 
     // Seed model after the session exists so the first prompt lands on the
     // user's chosen model. Best-effort: a failed seed still leaves a usable thread.
-    if (initialModelId) {
+    // Skipped for background threads: setConfigOption targets the active
+    // thread, so seeding here would hit the desktop's thread, not this one.
+    if (initialModelId && !opts?.background) {
       try {
         const modelOpt = created.configOptions.find(
           (option) => option.id === "model" || option.category === "model",
@@ -2477,17 +2564,22 @@ export class AgentConnectionManager {
     return thread;
   }
 
-  async sendPrompt(input: AcpPromptInput): Promise<void> {
-    return this.sendPromptInternal(input, true);
+  async sendPrompt(input: AcpPromptInput, opts?: { background?: boolean }): Promise<void> {
+    return this.sendPromptInternal(input, true, opts);
   }
 
   private async sendPromptInternal(
     input: AcpPromptInput,
     appendUserMessage: boolean,
+    opts?: { background?: boolean },
   ): Promise<void> {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
     if (!this.sessions.has(threadId)) {
+      // Background senders (phone) must not leave desktop focus behind on a
+      // restored thread: remember the active thread and put it back after.
+      const prevThreadId = opts?.background ? this.activeThreadId : null;
+      const prevProjectId = opts?.background ? this.activeProjectId : null;
       try {
         await this.switchThread(threadId);
       } catch (err) {
@@ -2495,6 +2587,20 @@ export class AgentConnectionManager {
         // winner has finished by now, so one retry runs unqueued and fast.
         if (!isActivationSuperseded(err)) throw err;
         await this.switchThread(threadId);
+      } finally {
+        if (opts?.background && prevThreadId !== threadId) {
+          this.activeThreadId = prevThreadId;
+          this.activeProjectId = prevProjectId;
+          if (prevProjectId) setActiveProjectId(prevProjectId);
+          if (prevThreadId) {
+            await updateLaunchSelection({
+              projectId: prevProjectId!,
+              threadId: prevThreadId,
+            }).catch(() => undefined);
+            this.pushState(prevThreadId);
+          }
+          this.emitRunningThreads();
+        }
       }
     }
     let runtime = this.sessions.get(threadId);
@@ -2555,6 +2661,9 @@ export class AgentConnectionManager {
       blocks,
       streamingBehavior: input.streamingBehavior,
     });
+    console.log(
+      `[sendPrompt] thread=${threadId} project=${runtime.projectId} cwd=${runtime.cwd} session=${runtime.agentSessionId.slice(0, 8)} msgLen=${(input.message ?? "").length} images=${input.images?.length ?? 0}`,
+    );
     this.drainPromptQueue(runtime, live);
     await queued;
   }

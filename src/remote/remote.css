@@ -46,33 +46,30 @@ body {
 .remote-header {
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 10px 12px;
-  background: var(--surface-2);
-  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+  /* No bar background: two floating buttons only. */
+  background: transparent;
+  border-bottom: 0;
 }
 
-.remote-header h1 {
+.header-spacer {
   flex: 1;
-  font-size: 17px;
-  font-weight: 650;
-  margin: 0;
-  text-align: center;
-  letter-spacing: -0.01em;
 }
 
-.icon-btn {
+/* Floating header buttons: each owns its background + rounded corners. */
+.header-btn {
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
+  border: 1px solid rgb(255 255 255 / 0.05);
+  border-radius: 14px;
+  background: var(--surface-2);
   color: var(--ink);
+  box-shadow: var(--shadow-4);
   cursor: pointer;
 }
-.icon-btn:active {
+.header-btn:active {
   background: var(--surface-4);
 }
 
@@ -130,7 +127,97 @@ body {
   color: var(--ink-dim);
 }
 .report-summary {
+  margin: 0 0 8px;
+}
+.report-final {
   margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Chat view: user right, agent left, pending + working states. */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.thread-meta {
+  margin-bottom: 4px;
+}
+.thread-meta summary {
+  font-size: 13px;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.bubble {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-4);
+}
+.bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble.me {
+  align-self: flex-end;
+  background: var(--ink);
+  color: #171717;
+  border-bottom-right-radius: 6px;
+}
+.bubble.agent {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 4px;
+  /* No bubble background: plain report text. */
+  background: none;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+}
+.bubble.pending {
+  opacity: 0.75;
+}
+.bubble-state {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.bubble.working {
+  padding: 14px 16px;
+}
+.dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  animation: dot-pulse 1.2s infinite ease-in-out;
+}
+.dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 .file-list {
@@ -173,41 +260,134 @@ body {
 }
 
 .remote-composer {
-  display: flex;
-  gap: 8px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   background: var(--surface-2);
   border-top: 1px solid rgb(255 255 255 / 0.06);
 }
-.remote-composer input {
-  flex: 1;
-  padding: 13px 18px;
-  font-size: 16px;
-  color: var(--ink);
+/* Pill composer bar: [+] input [mic/send] — one rounded unit. */
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   background: var(--surface-3);
   border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: var(--radius-pill);
+  border-radius: 28px;
+  padding: 6px 6px 6px 18px;
+}
+.composer-bar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
   outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  padding: 10px 6px;
 }
-.remote-composer input:focus {
-  border-color: rgb(125 211 252 / 0.5);
+.composer-bar input::placeholder {
+  color: var(--ink-faint);
 }
-.send-btn {
+.composer-send {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
   border: 0;
   border-radius: 50%;
   background: var(--ink);
   color: #171717;
   cursor: pointer;
-  flex-shrink: 0;
 }
-.send-btn:disabled {
-  opacity: 0.3;
+.composer-send:disabled {
+  opacity: 0.4;
 }
 
+/* Phone markdown: compact, bubble-safe. Code blocks scroll horizontally. */
+.md {
+  overflow-wrap: anywhere;
+}
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.md ul,
+.md ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.md li {
+  margin: 2px 0;
+}
+.md li > p {
+  margin: 0;
+  display: inline;
+}
+.md blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid rgb(255 255 255 / 0.2);
+  color: var(--ink-dim);
+}
+.md a {
+  color: var(--accent);
+}
+.md-code {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  background: rgb(0 0 0 / 0.3);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+.md-pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: rgb(0 0 0 / 0.35);
+  border-radius: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.md-pre code {
+  font-family: ui-monospace, monospace;
+  white-space: pre;
+}
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.md th,
+.md td {
+  border: 1px solid rgb(255 255 255 / 0.12);
+  padding: 6px 8px;
+  text-align: left;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 10px 0 6px;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 18px;
+}
+.md h2 {
+  font-size: 16px;
+}
+.md h3,
+.md h4 {
+  font-size: 15px;
+}
 .remote-sheet-scrim {
   position: fixed;
   inset: 0;
