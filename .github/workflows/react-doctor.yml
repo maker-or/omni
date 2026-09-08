@@ -34,6 +34,7 @@ jobs:
       # crashes before producing a report.
       - uses: actions/checkout@v5
         with:
+          persist-credentials: false
           # Full history so the action can diff against the merge base and
           # report only PR-introduced issues instead of every pre-existing one.
           fetch-depth: 0

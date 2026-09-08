@@ -448,6 +448,12 @@ function requireAgentManager(): AgentManager {
 const pendingDeepLinks: string[] = [];
 
 /**
+ * Single-flight guard: concurrent deliveries of the same staged request
+ * (startup scan, activation, deep link, renderer, IPC) share one promise.
+ */
+const inFlightSiriRequests = new Map<string, Promise<unknown>>();
+
+/**
  * Consume a Siri-staged thread request: validate, create the thread (once —
  * a `.done-<id>.json` marker records the created thread so retries never
  * spawn duplicates), deliver the prompt, and only then delete the request
@@ -458,12 +464,33 @@ async function consumeSiriRequest(requestId: string): Promise<unknown> {
   if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(requestId)) {
     return null;
   }
-  const { getSiriRequestsDir } = await import("./siri/siri-catalog.ts");
-  const dir = resolve(getSiriRequestsDir());
-  const file = resolve(join(dir, `${requestId}.json`));
-  const rel = relative(dir, file);
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return null;
-  if (!fs.existsSync(file)) return null;
+  const existing = inFlightSiriRequests.get(requestId);
+  if (existing) return existing;
+  const task = consumeSiriRequestInner(requestId).finally(() => {
+    if (inFlightSiriRequests.get(requestId) === task) inFlightSiriRequests.delete(requestId);
+  });
+  inFlightSiriRequests.set(requestId, task);
+  return task;
+}
+
+async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
+  const { getSiriRequestsDir, getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  // Resolve the request from every supported directory so legacy-only
+  // staged requests are delivered, not orphaned.
+  let dir = resolve(getSiriRequestsDir());
+  let file: string | null = null;
+  for (const rawDir of getSiriRequestsDirs()) {
+    const candidateDir = resolve(rawDir);
+    const candidate = resolve(join(candidateDir, `${requestId}.json`));
+    const rel = relative(candidateDir, candidate);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    if (fs.existsSync(candidate)) {
+      dir = candidateDir;
+      file = candidate;
+      break;
+    }
+  }
+  if (!file) return null;
   const raw = fs.readFileSync(file, "utf8");
   let parsed: { projectId: string; agentId?: string; prompt?: string };
   try {
@@ -510,6 +537,18 @@ async function consumeSiriRequest(requestId: string): Promise<unknown> {
     await manager.sendPrompt({ threadId, message: parsed.prompt });
   }
   fs.rmSync(file, { force: true });
+  // Remove stale replicas in other dirs only after full success.
+  const { getSiriRequestsDirs: getDirs } = await import("./siri/siri-catalog.ts");
+  for (const rawDir of getDirs()) {
+    const otherDir = resolve(rawDir);
+    if (otherDir === dir) continue;
+    try {
+      fs.rmSync(resolve(join(otherDir, `${requestId}.json`)), { force: true });
+      fs.rmSync(resolve(join(otherDir, `.done-${requestId}.json`)), { force: true });
+    } catch {
+      // Best-effort replica cleanup.
+    }
+  }
   if (threadId) fs.rmSync(markerFile, { force: true });
   return thread;
 }
@@ -544,7 +583,7 @@ async function consumePendingSiriRequests(): Promise<void> {
       if (!entry.isFile() || !/^[A-Za-z0-9-]{1,128}\.json$/.test(entry.name)) continue;
       const requestId = entry.name.slice(0, -5);
       const mtimeMs = fs.statSync(join(dir, entry.name)).mtimeMs;
-      if (!seen.has(requestId) || mtimeMs < (seen.get(requestId) ?? 0))
+      if (!seen.has(requestId) || mtimeMs > (seen.get(requestId) ?? 0))
         seen.set(requestId, mtimeMs);
     }
   }
@@ -2485,10 +2524,29 @@ app.whenReady().then(async () => {
     (process.env.PIPPER_ENABLE_LAUNCHER_UPDATES_IN_DEV === "1" && launcherManifestUrl != null);
   if (!launcherManifestUrl)
     console.info("[LauncherUpdate] Disabled: manifest URL is not configured.");
+  // One-time migration: previous releases stored launcher-update state
+  // under ~/Library/pipper; the App Group relocation must reuse it instead
+  // of stranding completed downloads.
+  let launcherRoot = join(getPipperLibraryPath(), "launcher-updates");
+  if (process.platform === "darwin" && !process.env.PIPPER_LIBRARY_PATH) {
+    try {
+      const legacyRoot = join(os.homedir(), "Library", "pipper", "launcher-updates");
+      if (
+        legacyRoot !== launcherRoot &&
+        fs.existsSync(legacyRoot) &&
+        !fs.existsSync(join(launcherRoot, "state.json"))
+      ) {
+        fs.mkdirSync(launcherRoot, { recursive: true });
+        fs.cpSync(legacyRoot, launcherRoot, { recursive: true, force: false });
+      }
+    } catch (err) {
+      console.warn("[LauncherUpdate] Legacy migration failed:", err);
+    }
+  }
   launcherUpdateManager = new LauncherUpdateManager({
     currentVersion: app.getVersion(),
     manifestUrl: launcherManifestUrl,
-    rootPath: join(getPipperLibraryPath(), "launcher-updates"),
+    rootPath: launcherRoot,
     enabled: launcherUpdatesEnabled,
     broadcastState: (state) => broadcastToWindows("launcher-update:stateChanged", state),
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
