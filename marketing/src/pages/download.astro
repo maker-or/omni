@@ -42,6 +42,11 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     Download pipper code
                 </h1>
                 <p
+                    class="max-w-[42rem] text-[1rem] leading-[1.5] text-page-fg opacity-0 animate-fade-in [animation-delay:80ms]"
+                >
+                    One-time setup before first launch.
+                </p>
+                <p
                     class="text-[0.9rem] text-page-fg opacity-0 animate-fade-in [animation-delay:100ms] flex flex-wrap items-center justify-center gap-3"
                 >
                     <span id="version-label" aria-live="polite"></span>
@@ -65,18 +70,46 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                 aria-label="Unsigned macOS and Windows launch notes"
             >
                 <div id="mac-launch-note">
-                    <strong class="font-medium">macOS note:</strong> Make sure that you
-                    have mise installed, then run the following command in the terminal:
+                    <strong class="font-medium">macOS setup — complete these steps first</strong>
+                    <ol class="mt-[0.75rem] grid gap-[0.55rem]">
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">1</span>
+                            <span><strong>Download</strong> the app below.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">2</span>
+                            <span><strong>Move</strong> Pipper Code (Alpha).app to Applications.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">3</span>
+                            <span><strong>Open</strong> Terminal.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">4</span>
+                            <span><strong>Run this command (before opening the app):</strong></span>
+                        </li>
+                    </ol>
                     <code
-                        class="block mt-[0.6rem] p-[0.75rem_0.9rem] border border-[rgba(12,58,143,0.15)] rounded-[0.85rem] bg-[rgba(12,58,143,0.04)] whitespace-pre-wrap [overflow-wrap:anywhere] font-geist text-[0.84rem] break-words"
+                        class="block mt-[0.65rem] p-[0.75rem_0.9rem] border border-[rgba(12,58,143,0.15)] rounded-[0.85rem] bg-[rgba(12,58,143,0.04)] whitespace-pre-wrap [overflow-wrap:anywhere] font-geist text-[0.84rem] break-words"
                         >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
                     >
                 </div>
                 <div id="windows-launch-note" class="mt-4" style="display: none !important;">
-                    <strong class="font-medium">Windows note:</strong> This build is unsigned.
-                    If SmartScreen warns you, choose <strong>More info</strong> and then
-                    <strong>Run anyway</strong>, or right-click the installer and choose
-                    <strong>Run as administrator</strong> if installation is blocked.
+                    <strong class="font-medium">Windows setup</strong>
+                    <ol class="mt-[0.75rem] grid gap-[0.55rem]">
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">1</span>
+                            <span><strong>Download</strong> the installer below.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">2</span>
+                            <span><strong>Install</strong> and open pipper code.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="download-step-number">3</span>
+                            <span>For SmartScreen, choose <strong>More info → Run anyway</strong>.</span>
+                        </li>
+                    </ol>
                 </div>
             </aside>
 
@@ -250,6 +283,21 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
         border-radius: 0 !important;
         background: rgb(255 255 255 / 0.45) !important;
         color: var(--download-ink);
+    }
+
+    .download-step-number {
+        display: inline-flex;
+        flex: 0 0 1.35rem;
+        width: 1.35rem;
+        height: 1.35rem;
+        align-items: center;
+        justify-content: center;
+        margin-top: 0.05rem;
+        border: 1px solid var(--download-blue);
+        color: var(--download-blue);
+        font-size: 0.72rem;
+        font-weight: 650;
+        line-height: 1;
     }
 
     .download-platforms {
