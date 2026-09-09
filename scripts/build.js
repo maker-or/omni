@@ -79,4 +79,7 @@ if (!process.env.VITE_POSTHOG_KEY && !process.env.PIPPER_POSTHOG_KEY) {
 } else {
   console.log("[build] PostHog key present; analytics will be baked in.");
 }
+console.log(
+  `[build] PostHog host: ${process.env.VITE_POSTHOG_HOST ?? process.env.PIPPER_POSTHOG_HOST ?? "https://us.i.posthog.com (default)"}`,
+);
 run(["electron-vite", "build"]);
