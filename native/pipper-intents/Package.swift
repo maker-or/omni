@@ -9,5 +9,6 @@ let package = Package(
   ],
   targets: [
     .target(name: "PipperIntents", path: "Sources"),
+    .testTarget(name: "PipperIntentsTests", dependencies: ["PipperIntents"], path: "Tests/PipperIntentsTests"),
   ]
 )

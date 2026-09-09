@@ -4,13 +4,10 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.com.maker-or.omni.pipper</string>
-	</array>
 	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
 	<array>
 		<string>/Library/pipper/</string>
+		<string>/Library/Application Support/Pipper/</string>
 	</array>
 </dict>
 </plist>

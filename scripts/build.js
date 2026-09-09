@@ -91,7 +91,10 @@ function buildPipperIntents() {
       "Release",
       `CONFIGURATION_BUILD_DIR=${output}`,
       "PRODUCT_BUNDLE_IDENTIFIER=com.maker-or.omni.PipperIntents",
-      "CODE_SIGNING_ALLOWED=NO",
+      "CODE_SIGNING_ALLOWED=YES",
+      "CODE_SIGN_IDENTITY=-",
+      "CODE_SIGN_STYLE=Manual",
+      "CODE_SIGN_ENTITLEMENTS=../Extension/PipperIntents.entitlements",
       "build",
     ],
     {

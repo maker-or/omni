@@ -35,25 +35,36 @@ enum SiriCatalogStore {
     Bundle.main.bundleIdentifier?.hasPrefix("dev.pipper.PipperIntentsPreview") == true
   }
 
-  /// Base directory shared with Electron. Honors the same PIPPER_LIBRARY_PATH
-  /// override so both sides never diverge. Ad-hoc-signed production builds
-  /// cannot resolve the App Group container, so fall back to ~/Library/pipper
-  /// (covered by the temporary-exception entitlement) and probe both.
+  /// Real user home. homeDirectoryForCurrentUser returns the sandbox
+  /// container inside an App Intents extension, not /Users/<name>.
+  static func realHomeDirectory() -> URL {
+    if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+      let path = String(cString: dir)
+      if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
+  }
+
+  /// Ad-hoc builds have no Team ID, so App Group containers are denied.
+  /// Primary is ~/Library/pipper (temporary-exception), with Group Container
+  /// as legacy fallback for users migrating from signed builds.
   static func candidateDirs() -> [URL] {
     if let overridePath = ProcessInfo.processInfo.environment["PIPPER_LIBRARY_PATH"],
       !overridePath.isEmpty
     {
       return [URL(fileURLWithPath: overridePath, isDirectory: true)]
     }
+    let home = realHomeDirectory()
     var dirs: [URL] = []
+    dirs.append(
+      home.appendingPathComponent("Library/pipper", isDirectory: true))
+    dirs.append(
+      home.appendingPathComponent("Library/Application Support/Pipper", isDirectory: true))
     if let groupURL = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupIdentifier
     ) {
       dirs.append(groupURL)
     }
-    dirs.append(
-      FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/pipper", isDirectory: true))
     // Deduplicate while preserving order.
     var seen = Set<String>()
     return dirs.filter { seen.insert($0.path).inserted }
@@ -105,16 +116,22 @@ enum SiriCatalogStore {
 
 // MARK: - Entities (both dynamic -> AppEntity, not AppEnum)
 
-struct ProjectEntity: AppEntity {
+struct ProjectEntity: AppEntity, Sendable {
   var id: String
-  var name: String
-  var path: String
+  @Property(title: "Name") var name: String
+  @Property(title: "Path") var path: String
 
   static var typeDisplayRepresentation: TypeDisplayRepresentation = "Project"
   static var defaultQuery = ProjectEntityQuery()
 
   var displayRepresentation: DisplayRepresentation {
     DisplayRepresentation(title: "\(name)", subtitle: "\(path)")
+  }
+
+  init(id: String, name: String, path: String) {
+    self.id = id
+    self.name = name
+    self.path = path
   }
 }
 
@@ -144,16 +161,22 @@ struct ProjectEntityQuery: EnumerableEntityQuery, EntityStringQuery {
   }
 }
 
-struct AgentEntity: AppEntity {
+struct AgentEntity: AppEntity, Sendable {
   var id: String
-  var name: String
-  var available: Bool
+  @Property(title: "Name") var name: String
+  @Property(title: "Available") var available: Bool
 
   static var typeDisplayRepresentation: TypeDisplayRepresentation = "Agent"
   static var defaultQuery = AgentEntityQuery()
 
   var displayRepresentation: DisplayRepresentation {
     DisplayRepresentation(title: "\(name)")
+  }
+
+  init(id: String, name: String, available: Bool) {
+    self.id = id
+    self.name = name
+    self.available = available
   }
 }
 
@@ -210,17 +233,36 @@ struct StartThreadIntent: AppIntent {
     "Starts a new thread in a Pipper project with a chosen agent.",
     categoryName: "Productivity"
   )
-  // App Intents extensions cannot use NSWorkspace to launch their containing
-  // app. macOS opens the host app after perform() returns when this is true;
+static var isDiscoverable: Bool = true
+  // macOS opens the host app after perform() returns when this is true;
   // Electron then consumes the staged request during activation/startup.
   static var openAppWhenRun: Bool = true
 
-  @Parameter(title: "Project") var project: ProjectEntity
-  @Parameter(title: "Agent") var agent: AgentEntity?
-  @Parameter(title: "Task", requestValueDialog: "What should the thread work on?") var prompt: String?
+  private static func debugLog(_ message: String) {
+    let line = "[PipperIntents] \(message)\n"
+    if let data = line.data(using: .utf8) {
+      let url = URL(fileURLWithPath: "/tmp/pipper-intents-debug.log")
+      if FileManager.default.fileExists(atPath: url.path) {
+        if let handle = try? FileHandle(forWritingTo: url) {
+          handle.seekToEndOfFile()
+          handle.write(data)
+          try? handle.close()
+        }
+      } else {
+        try? data.write(to: url, options: .atomic)
+      }
+    }
+  }
+
+  @Parameter(title: "Project" , description: "name of the project to run the agent in") var project: ProjectEntity
+  @Parameter(title: "Agent" , description: "the agent to run") var agent: AgentEntity?
+  @Parameter(title: "Task",description: "what action or a task in perform in a project with an agent", requestValueDialog: "What should the thread work on?") var prompt: String?
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
+    Self.debugLog("perform start projectId=\(project.id) agentId=\(agent?.id ?? "nil") promptLen=\(prompt?.count ?? 0)")
+    Self.debugLog("candidateDirs=\(SiriCatalogStore.candidateDirs().map { $0.path })")
     let catalog = SiriCatalogStore.load()
+    Self.debugLog("catalog loaded: projects=\(catalog?.projects.count ?? -1) agents=\(catalog?.agents.count ?? -1)")
     // Revalidate availability at run time: the catalog may have changed
     // between entity resolution and perform().
     let usableIds = Set((catalog?.agents ?? []).filter { $0.available }.map { $0.id })
@@ -265,9 +307,11 @@ struct StartThreadIntent: AppIntent {
         try data.write(to: url, options: .atomic)
         stagedCount += 1
       } catch {
+        Self.debugLog("stage failed dir=\(base.path) error=\(error)")
         lastError = error
       }
     }
+    Self.debugLog("stagedCount=\(stagedCount) lastError=\(String(describing: lastError))")
     _ = dir
     if stagedCount == 0 {
       if let siriError = lastError as? SiriRequestError {

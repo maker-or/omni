@@ -25,14 +25,17 @@ export interface SiriCatalog {
   agents: SiriCatalogAgent[];
 }
 
-/** Every location the Swift extension may read from (App Group + legacy). */
+/** Every location the Swift extension may read from (ad-hoc: ~/Library/pipper). */
 export function getSiriLibraryDirs(): string[] {
   const dirs = [getPipperLibraryPath()];
   if (process.env.PIPPER_LIBRARY_PATH) return dirs;
+  // Legacy Group Container fallback for users migrating from signed builds
   if (process.platform === "darwin") {
-    const legacy = join(os.homedir(), "Library", "pipper");
+    const legacy = join(os.homedir(), "Library/Group Containers", PIPPER_APP_GROUP_IDENTIFIER);
     if (legacy !== dirs[0]) dirs.push(legacy);
-    void PIPPER_APP_GROUP_IDENTIFIER;
+    // Also probe Application Support/Pipper for future share
+    const appSupport = join(os.homedir(), "Library/Application Support/Pipper");
+    if (appSupport !== dirs[0]) dirs.push(appSupport);
   }
   return [...new Set(dirs)];
 }
