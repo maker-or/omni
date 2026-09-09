@@ -51,10 +51,23 @@ function resolvePostHogHost(): string {
   );
 }
 
+let warnedMissingKey = false;
+
 function getClient(): PostHog | null {
   if (client) return client;
   const apiKey = resolvePostHogKey();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    // Fail loud: a missing key means every capture/identify is a silent no-op.
+    // In release builds this happens when VITE_POSTHOG_KEY wasn't set at build time.
+    if (!warnedMissingKey) {
+      warnedMissingKey = true;
+      console.error(
+        "[Analytics] No PostHog key (PIPPER_POSTHOG_KEY/POSTHOG_KEY/VITE_POSTHOG_KEY). " +
+          "Analytics events will be dropped.",
+      );
+    }
+    return null;
+  }
   client = new PostHog(apiKey, {
     host: resolvePostHogHost(),
     flushAt: 10,
