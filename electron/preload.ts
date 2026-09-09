@@ -404,6 +404,8 @@ const api = {
   analytics: {
     captureException: (input: { name: string; message: string; stack?: string }): Promise<void> =>
       ipcRenderer.invoke("analytics:captureException", input),
+    trackOnboarding: (step: string, status: string, success?: boolean): Promise<void> =>
+      ipcRenderer.invoke("analytics:trackOnboarding", step, status, success),
   },
   startup: {
     reportRendererMilestone: (label: string, rendererElapsedMs: number): void =>

@@ -42,6 +42,11 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                     Download pipper code
                 </h1>
                 <p
+                    class="download-sub text-[0.9rem] opacity-0 animate-fade-in [animation-delay:100ms]"
+                >
+                    One-time setup before first launch.
+                </p>
+                <p
                     class="text-[0.9rem] text-page-fg opacity-0 animate-fade-in [animation-delay:100ms] flex flex-wrap items-center justify-center gap-3"
                 >
                     <span id="version-label" aria-live="polite"></span>
@@ -65,8 +70,25 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
                 aria-label="Unsigned macOS and Windows launch notes"
             >
                 <div id="mac-launch-note">
-                    <strong class="font-medium">macOS note:</strong> Make sure that you
-                    have mise installed, then run the following command in the terminal:
+                    <p class="download-note-title">macOS setup — complete these steps first</p>
+                    <ol class="download-steps">
+                        <li>
+                            <span class="download-step-num" aria-hidden="true">1</span>
+                            <span><strong>Download</strong> the app below.</span>
+                        </li>
+                        <li>
+                            <span class="download-step-num" aria-hidden="true">2</span>
+                            <span><strong>Move</strong> Pipper Code (Alpha).app to Applications.</span>
+                        </li>
+                        <li>
+                            <span class="download-step-num" aria-hidden="true">3</span>
+                            <span><strong>Open</strong> Terminal.</span>
+                        </li>
+                        <li>
+                            <span class="download-step-num" aria-hidden="true">4</span>
+                            <span><strong>Run this command (before opening the app):</strong></span>
+                        </li>
+                    </ol>
                     <code
                         class="block mt-[0.6rem] p-[0.75rem_0.9rem] border border-[rgba(12,58,143,0.15)] rounded-[0.85rem] bg-[rgba(12,58,143,0.04)] whitespace-pre-wrap [overflow-wrap:anywhere] font-geist text-[0.84rem] break-words"
                         >xattr -cr "/Applications/Pipper Code (Alpha).app"</code
@@ -224,6 +246,44 @@ const windowsLauncherManifestUrl = "/api/launcher/latest-windows.json";
     .download-heading h1::first-line { color: var(--download-blue); }
     .download-heading p { margin: 0; color: var(--download-muted) !important; }
     .download-heading a { color: var(--download-blue) !important; }
+    .download-sub { color: var(--download-muted) !important; }
+
+    .download-note-title {
+        margin: 0 0 0.9rem !important;
+        color: var(--download-blue);
+        font-weight: 500;
+    }
+
+    .download-steps {
+        list-style: none;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+
+    .download-steps li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.7rem;
+    }
+
+    .download-step-num {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        border: 1.5px solid color-mix(in srgb, var(--download-blue) 55%, transparent);
+        color: var(--download-blue);
+        font-size: 0.8rem;
+        font-weight: 600;
+        align-self: center;
+    }
+
+    .download-steps strong { color: var(--download-blue); }
 
     .download-note {
         position: relative;
