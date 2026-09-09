@@ -91,8 +91,10 @@ export function LaunchApp() {
     setIsOpening(true);
     try {
       await window.omni.launch.complete(projectId);
+      trackOnboarding("project_opened", "complete", true);
     } catch (err) {
       console.error("Failed to complete launch:", err);
+      trackOnboarding("project_open_failed", "failed", false);
       if (err instanceof Error && err.message.includes("Sign in is required")) {
         setAuthUser(null);
       }

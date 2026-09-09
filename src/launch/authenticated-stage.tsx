@@ -264,10 +264,7 @@ export function AuthenticatedStage({
                       <button
                         key={project.id}
                         type="button"
-                        onClick={() => {
-                          trackOnboarding("project_opened", "complete", true);
-                          handleOpen(project.id);
-                        }}
+                        onClick={() => handleOpen(project.id)}
                         disabled={isOpening}
                         className={cn(
                           "group flex items-center gap-3 w-full",

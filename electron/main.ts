@@ -1526,11 +1526,19 @@ function registerIpc(): void {
           : url;
 
     const authStep = url === "clerk:sign-up" ? "sign_up_initiated" : "sign_in_initiated";
+    try {
+      await shell.openExternal(assertAllowedExternalUrl(resolvedUrl));
+    } catch (error) {
+      captureAnalytics("onboarding_step", {
+        windowType: "launch",
+        properties: { step: authStep, status: "failed", success: false },
+      });
+      throw error;
+    }
     captureAnalytics("onboarding_step", {
       windowType: "launch",
       properties: { step: authStep, status: "running", success: true },
     });
-    await shell.openExternal(assertAllowedExternalUrl(resolvedUrl));
   });
 
   // Allowlist: renderer can only emit these funnel steps. Anything else is
@@ -1554,11 +1562,14 @@ function registerIpc(): void {
     "add_project_completed",
     "add_project_abandoned",
     "project_opened",
+    "project_open_failed",
   ]);
   const ONBOARDING_STATUSES = new Set(["viewed", "running", "complete", "skipped", "failed"]);
   ipcMain.handle(
     "analytics:trackOnboarding",
-    (_event, step: string, status: string, success?: boolean) => {
+    (event, step: string, status: string, success?: boolean) => {
+      // Only the launch window may emit launch-funnel events.
+      if (event.sender !== launchWindow?.webContents) return;
       const cleanStep = String(step ?? "").slice(0, 80);
       const cleanStatus = String(status ?? "").slice(0, 24);
       if (!ONBOARDING_STEPS.has(cleanStep) || !ONBOARDING_STATUSES.has(cleanStatus)) return;
@@ -1592,16 +1603,28 @@ function registerIpc(): void {
       mainWindow.show();
       mainWindow.focus();
       broadcastToWindows("projects:listChanged", project);
+      captureAnalytics("onboarding_step", {
+        windowType: "launch",
+        properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
+      });
       return;
     }
 
-    setActiveProjectId(projectId);
-    await markLaunchComplete(projectId);
+    try {
+      setActiveProjectId(projectId);
+      await markLaunchComplete(projectId);
+      await requireAgentManager().activateProject(projectId);
+    } catch (error) {
+      captureAnalytics("onboarding_step", {
+        windowType: "launch",
+        properties: { step: "launch_failed", status: "failed", success: false, project_id: projectId },
+      });
+      throw error;
+    }
     captureAnalytics("onboarding_step", {
       windowType: "launch",
       properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
     });
-    await requireAgentManager().activateProject(projectId);
 
     if (launchWindow && !launchWindow.isDestroyed()) {
       launchWindow.close();
