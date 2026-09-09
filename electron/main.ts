@@ -651,7 +651,9 @@ async function handleAuthCallback(url: string): Promise<void> {
     throw new Error("Auth callback missing provider user id.");
   }
   if (!payload.email) {
-    throw new Error("Auth callback missing email.");
+    // OAuth/phone signups may carry no email. Identify by provider user id;
+    // person-profile email is attached later when known.
+    console.warn("[Main] Auth callback missing email; continuing without it.");
   }
 
   const record = upsertAuthUser({
@@ -683,7 +685,7 @@ async function handleAuthCallback(url: string): Promise<void> {
 
 function getAuthenticatedUserForLaunch() {
   const user = getMostRecentAuthUser();
-  if (!user?.provider_user_id || !user.email) return null;
+  if (!user?.provider_user_id) return null;
   return user;
 }
 

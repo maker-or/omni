@@ -5,6 +5,9 @@ import { SignUp } from "@clerk/astro/components";
 const returnTo = Astro.url.searchParams.get("return_to") ?? "";
 const callbackUrl = new URL("/auth/complete", Astro.url);
 if (returnTo) callbackUrl.searchParams.set("return_to", returnTo);
+// Preserve the app callback when an existing user detours to sign-in.
+const signInUrl = new URL("/sign-in", Astro.url);
+if (returnTo) signInUrl.searchParams.set("return_to", returnTo);
 
 const appearance = {
     variables: {
@@ -34,7 +37,7 @@ const appearance = {
                 <SignUp
                     routing="path"
                     path="/sign-up"
-                    signInUrl="/sign-in"
+                    signInUrl={signInUrl.toString()}
                     forceRedirectUrl={callbackUrl.toString()}
                     fallbackRedirectUrl={callbackUrl.toString()}
                     appearance={appearance}

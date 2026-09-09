@@ -14,6 +14,8 @@ if (returnTo) callbackUrl.searchParams.set("return_to", returnTo);
             mode="redirect"
             forceRedirectUrl={callbackUrl.toString()}
             fallbackRedirectUrl={callbackUrl.toString()}
+            signUpForceRedirectUrl={callbackUrl.toString()}
+            signUpFallbackRedirectUrl={callbackUrl.toString()}
         >
             <button type="button" class="auth-button">Sign in</button>
         </SignInButton>
