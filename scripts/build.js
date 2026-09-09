@@ -67,4 +67,19 @@ function buildMacSleeplessHelpers() {
 }
 
 buildMacSleeplessHelpers();
+
+// Fail loud: the PostHog key must be present in the build environment
+// (VITE_POSTHOG_KEY secret in CI, .env locally) or the shipped app will
+// silently capture zero analytics events.
+if (!process.env.VITE_POSTHOG_KEY && !process.env.PIPPER_POSTHOG_KEY) {
+  console.warn(
+    "[build] WARNING: no VITE_POSTHOG_KEY/PIPPER_POSTHOG_KEY in the build environment. " +
+      "The packaged app will not report analytics.",
+  );
+} else {
+  console.log("[build] PostHog key present; analytics will be baked in.");
+}
+console.log(
+  `[build] PostHog host: ${process.env.VITE_POSTHOG_HOST ?? process.env.PIPPER_POSTHOG_HOST ?? "https://us.i.posthog.com (default)"}`,
+);
 run(["electron-vite", "build"]);
