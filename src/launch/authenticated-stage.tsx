@@ -9,6 +9,7 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSelector } from "@/components/agent-selector";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { SleeplessOnboarding } from "@/components/sleepless-onboarding";
+import { trackOnboarding } from "./onboarding-analytics";
 
 interface AuthenticatedStageProps {
   authUser: { name: string | null; email: string | null };
@@ -26,6 +27,20 @@ type LaunchStage = "agent" | "sleepless" | "shortcuts" | "list" | "add";
 const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
 const SLEEPLESS_ONBOARDING_STORAGE_KEY = "pipper.launch.sleeplessConfigured";
 const SHORTCUTS_ONBOARDING_STORAGE_KEY = "pipper.launch.shortcutsShown";
+
+function isOnboardingFlagSet(key: string): boolean {
+  try {
+    return sessionStorage.getItem(key) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function modifierSymbol(): string {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform)
+    ? "⌘"
+    : "Ctrl";
+}
 
 export function AuthenticatedStage({
   authUser,
@@ -56,13 +71,16 @@ export function AuthenticatedStage({
       if (stageParam === "shortcuts") {
         return "shortcuts";
       }
-      // First-run / explicit agent re-pick: show registry before projects.
-      try {
-        if (sessionStorage.getItem(AGENT_PICK_STORAGE_KEY) !== "1") {
-          return "agent";
-        }
-      } catch {
+      // First-run funnel: agent → sleepless → shortcuts → list. Returning
+      // users who completed an earlier step resume at the next unfinished one.
+      if (!isOnboardingFlagSet(AGENT_PICK_STORAGE_KEY)) {
         return "agent";
+      }
+      if (!isOnboardingFlagSet(SLEEPLESS_ONBOARDING_STORAGE_KEY)) {
+        return "sleepless";
+      }
+      if (!isOnboardingFlagSet(SHORTCUTS_ONBOARDING_STORAGE_KEY)) {
+        return "shortcuts";
       }
     }
     return "list";
@@ -71,6 +89,10 @@ export function AuthenticatedStage({
   useEffect(() => {
     void loadAgents();
   }, [loadAgents]);
+
+  useEffect(() => {
+    trackOnboarding(`stage_${stage}_viewed`, "viewed", true);
+  }, [stage]);
 
   return (
     <div className="h-screen w-screen relative overflow-hidden bg-[#171717] text-foreground flex items-center justify-center p-6">
@@ -96,6 +118,7 @@ export function AuthenticatedStage({
             <AgentSelector
               showContinue
               onContinue={() => {
+                trackOnboarding("agent_pick_completed", "complete", true);
                 try {
                   sessionStorage.setItem(AGENT_PICK_STORAGE_KEY, "1");
                   if (sessionStorage.getItem(SLEEPLESS_ONBOARDING_STORAGE_KEY) !== "1") {
@@ -115,7 +138,16 @@ export function AuthenticatedStage({
           </>
         ) : stage === "sleepless" ? (
           <SleeplessOnboarding
-            onComplete={() => {
+            onComplete={(action = "continued") => {
+              trackOnboarding(
+                action === "enabled"
+                  ? "sleepless_enabled"
+                  : action === "skipped"
+                    ? "sleepless_skipped"
+                    : "sleepless_completed",
+                action === "skipped" ? "skipped" : "complete",
+                action !== "skipped",
+              );
               try {
                 sessionStorage.setItem(SLEEPLESS_ONBOARDING_STORAGE_KEY, "1");
               } catch {
@@ -128,6 +160,35 @@ export function AuthenticatedStage({
               setStage("list");
             }}
           />
+        ) : stage === "shortcuts" ? (
+          <div className="flex flex-col gap-4">
+            <header className="flex flex-col gap-1">
+              <h1 className="text-xl font-bold tracking-tight">Keyboard shortcuts</h1>
+              <p className="text-xs text-muted-foreground">
+                Press <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
+                <kbd className="rounded border border-border px-1">T</kbd> for a new thread,{" "}
+                <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
+                <kbd className="rounded border border-border px-1">W</kbd> to close a tab,{" "}
+                <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
+                <kbd className="rounded border border-border px-1">1–9</kbd> to switch tabs.
+              </p>
+            </header>
+            <Button
+              type="button"
+              size="md"
+              onClick={() => {
+                trackOnboarding("shortcuts_completed", "complete", true);
+                try {
+                  sessionStorage.setItem(SHORTCUTS_ONBOARDING_STORAGE_KEY, "1");
+                } catch {
+                  // ignore
+                }
+                setStage("list");
+              }}
+            >
+              Continue
+            </Button>
+          </div>
         ) : stage === "list" ? (
           <>
             <header className="flex flex-col gap-1 pb-2 border-b border-border">
@@ -144,7 +205,10 @@ export function AuthenticatedStage({
                   size="sm"
                   className="h-8 shrink-0 text-[11px]"
                   data-pipper-id="change-agent-button"
-                  onClick={() => setStage("agent")}
+                  onClick={() => {
+                    trackOnboarding("agent_repick_started", "viewed", true);
+                    setStage("agent");
+                  }}
                 >
                   {selectedAgentIds.length > 0
                     ? `Change agents (${selectedAgentIds.length})`
@@ -161,7 +225,10 @@ export function AuthenticatedStage({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setStage("add")}
+                  onClick={() => {
+                    trackOnboarding("add_project_started", "viewed", true);
+                    setStage("add");
+                  }}
                   leadingIcon={FolderIcon}
                   className="h-8 text-xs"
                 >
@@ -197,7 +264,10 @@ export function AuthenticatedStage({
                       <button
                         key={project.id}
                         type="button"
-                        onClick={() => handleOpen(project.id)}
+                        onClick={() => {
+                          trackOnboarding("project_opened", "complete", true);
+                          handleOpen(project.id);
+                        }}
                         disabled={isOpening}
                         className={cn(
                           "group flex items-center gap-3 w-full",
@@ -227,7 +297,16 @@ export function AuthenticatedStage({
           </>
         ) : (
           <>
-            <AddProjectForm onBack={() => setStage("list")} onCreated={handleProjectCreated} />
+            <AddProjectForm
+              onBack={() => {
+                trackOnboarding("add_project_abandoned", "skipped", false);
+                setStage("list");
+              }}
+              onCreated={(project) => {
+                trackOnboarding("add_project_completed", "complete", true);
+                handleProjectCreated(project);
+              }}
+            />
           </>
         )}
       </div>

@@ -22,7 +22,7 @@ const DEFAULT_PREFERENCES: SleeplessPreferences = {
 };
 
 interface SleeplessOnboardingProps {
-  onComplete: () => void;
+  onComplete: (action?: "enabled" | "skipped" | "continued") => void;
 }
 
 export function SleeplessOnboarding({ onComplete }: SleeplessOnboardingProps) {
@@ -69,7 +69,7 @@ export function SleeplessOnboarding({ onComplete }: SleeplessOnboardingProps) {
   const enable = async () => {
     if (!status || busy) return;
     if (status.preferences.enabled && status.serviceStatus === "enabled") {
-      onComplete();
+      onComplete("continued");
       return;
     }
     setBusy(true);
@@ -86,7 +86,7 @@ export function SleeplessOnboarding({ onComplete }: SleeplessOnboardingProps) {
         setStatus(result);
         setPreferences(result.preferences);
         if (result.serviceStatus === "enabled" && result.preferences.enabled) {
-          onComplete();
+          onComplete("enabled");
           return;
         }
         setError(result.error ?? "The helper could not be installed.");
@@ -98,7 +98,7 @@ export function SleeplessOnboarding({ onComplete }: SleeplessOnboardingProps) {
     }
   };
 
-  const skip = () => onComplete();
+  const skip = () => onComplete("skipped");
   const supported = status?.supported !== false;
   const configured = status?.preferences.enabled && status.serviceStatus === "enabled";
   const displayedError = error ?? status?.error;

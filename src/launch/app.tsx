@@ -4,6 +4,7 @@ import type { Project } from "../../contracts/projects.ts";
 import { toast } from "@/components/ui/toast";
 import { UnauthenticatedStage } from "./unauthenticated-stage";
 import { AuthenticatedStage } from "./authenticated-stage";
+import { trackOnboarding } from "./onboarding-analytics";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { LauncherUpdateDialog, LauncherUpdateNotice } from "@/components/launcher-update";
 
@@ -75,6 +76,7 @@ export function LaunchApp() {
     const cleanupAuth = window.omni.launch.onAuthComplete
       ? window.omni.launch.onAuthComplete((user) => {
           setAuthUser(user);
+          trackOnboarding("auth_completed", "complete", true);
         })
       : () => {};
 
@@ -109,6 +111,7 @@ export function LaunchApp() {
 
   const handleAuthRedirect = useCallback(async (kind: "sign-in" | "sign-up") => {
     if (!window.omni?.shell?.openExternal) return;
+    trackOnboarding(kind === "sign-in" ? "sign_in_clicked" : "sign_up_clicked", "viewed", true);
     setIsLaunchingAuth(true);
     try {
       await window.omni.shell.openExternal(kind === "sign-in" ? "clerk:sign-in" : "clerk:sign-up");

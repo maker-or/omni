@@ -669,6 +669,10 @@ async function handleAuthCallback(url: string): Promise<void> {
     name: record.name,
     avatarUrl: record.avatar_url,
   });
+  captureAnalytics("onboarding_step", {
+    windowType: "launch",
+    properties: { step: "auth_callback_succeeded", status: "complete", success: true },
+  });
 
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.webContents.send("launch:authComplete", record);
@@ -739,6 +743,10 @@ async function ensureAuthCallbackServer(): Promise<number> {
         })
         .catch((error) => {
           console.error("[Main] Auth callback handling failed:", error);
+          captureAnalytics("onboarding_step", {
+            windowType: "launch",
+            properties: { step: "auth_callback_failed", status: "failed", success: false },
+          });
           res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
           res.end("Auth callback failed");
         });
@@ -1517,8 +1525,53 @@ function registerIpc(): void {
           ? appendReturnTo(resolveExternalUrl("clerkSignIn"))
           : url;
 
+    const authStep = url === "clerk:sign-up" ? "sign_up_initiated" : "sign_in_initiated";
+    captureAnalytics("onboarding_step", {
+      windowType: "launch",
+      properties: { step: authStep, status: "running", success: true },
+    });
     await shell.openExternal(assertAllowedExternalUrl(resolvedUrl));
   });
+
+  // Allowlist: renderer can only emit these funnel steps. Anything else is
+  // dropped so a compromised/buggy renderer can't explode PostHog cardinality.
+  const ONBOARDING_STEPS = new Set([
+    "sign_in_clicked",
+    "sign_up_clicked",
+    "auth_completed",
+    "stage_agent_viewed",
+    "stage_sleepless_viewed",
+    "stage_shortcuts_viewed",
+    "stage_list_viewed",
+    "stage_add_viewed",
+    "agent_pick_completed",
+    "agent_repick_started",
+    "sleepless_enabled",
+    "sleepless_skipped",
+    "sleepless_completed",
+    "shortcuts_completed",
+    "add_project_started",
+    "add_project_completed",
+    "add_project_abandoned",
+    "project_opened",
+  ]);
+  const ONBOARDING_STATUSES = new Set(["viewed", "running", "complete", "skipped", "failed"]);
+  ipcMain.handle(
+    "analytics:trackOnboarding",
+    (_event, step: string, status: string, success?: boolean) => {
+      const cleanStep = String(step ?? "").slice(0, 80);
+      const cleanStatus = String(status ?? "").slice(0, 24);
+      if (!ONBOARDING_STEPS.has(cleanStep) || !ONBOARDING_STATUSES.has(cleanStatus)) return;
+      captureAnalytics("onboarding_step", {
+        windowType: "launch",
+        properties: {
+          step: cleanStep,
+          status: cleanStatus,
+          success: success ?? (cleanStatus !== "skipped" && cleanStatus !== "failed"),
+        },
+      });
+    },
+  );
 
   ipcMain.handle("launch:complete", async (_event, projectId: string) => {
     requireAuthenticatedUserForLaunch();
@@ -1544,6 +1597,10 @@ function registerIpc(): void {
 
     setActiveProjectId(projectId);
     await markLaunchComplete(projectId);
+    captureAnalytics("onboarding_step", {
+      windowType: "launch",
+      properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
+    });
     await requireAgentManager().activateProject(projectId);
 
     if (launchWindow && !launchWindow.isDestroyed()) {
