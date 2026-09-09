@@ -266,6 +266,7 @@ declare global {
           message: string;
           stack?: string;
         }) => Promise<void>;
+        trackOnboarding: (step: string, status: string, success?: boolean) => Promise<void>;
       };
       startup: {
         reportRendererMilestone: (label: string, rendererElapsedMs: number) => void;
