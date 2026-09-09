@@ -68,6 +68,9 @@ jobs:
       - name: Build application
         env:
           VITE_PIPPER_LAUNCHER_WINDOWS_UPDATE_MANIFEST_URL: https://github.com/${{ env.PIPPER_RELEASE_REPOSITORY }}/releases/latest/download/latest-windows.json
+          # Baked into the bundle via import.meta.env; without this secret the
+          # shipped app silently captures zero analytics events.
+          VITE_POSTHOG_KEY: ${{ secrets.PIPPER_POSTHOG_KEY }}
         run: bun run build
 
       # Packaging only. `dist:win` pins `--publish never`, because electron-builder
