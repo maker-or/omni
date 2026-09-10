@@ -616,8 +616,12 @@ function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
   return kind === "clerkSignUp" ? resolveClerkSignUpUrl() : resolveClerkSignInUrl();
 }
 
+const PIPPER_DOCS_URL_PREFIXES = ["https://www.pipper.dev/docs/", "https://pipper.dev/docs/"];
+
 function isAllowedExternalUrl(inputUrl: string): boolean {
-  return isAllowedClerkAuthUrl(inputUrl);
+  if (isAllowedClerkAuthUrl(inputUrl)) return true;
+  // Onboarding verification cards link failing agents to their setup guide.
+  return PIPPER_DOCS_URL_PREFIXES.some((prefix) => inputUrl.startsWith(prefix));
 }
 
 function assertAllowedExternalUrl(inputUrl: string): string {
@@ -1714,7 +1718,12 @@ function registerIpc(): void {
       broadcastToWindows("projects:listChanged", project);
       captureAnalytics("onboarding_step", {
         windowType: "launch",
-        properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
+        properties: {
+          step: "launch_completed",
+          status: "complete",
+          success: true,
+          project_id: projectId,
+        },
       });
       return;
     }
@@ -1726,13 +1735,23 @@ function registerIpc(): void {
     } catch (error) {
       captureAnalytics("onboarding_step", {
         windowType: "launch",
-        properties: { step: "launch_failed", status: "failed", success: false, project_id: projectId },
+        properties: {
+          step: "launch_failed",
+          status: "failed",
+          success: false,
+          project_id: projectId,
+        },
       });
       throw error;
     }
     captureAnalytics("onboarding_step", {
       windowType: "launch",
-      properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
+      properties: {
+        step: "launch_completed",
+        status: "complete",
+        success: true,
+        project_id: projectId,
+      },
     });
 
     if (launchWindow && !launchWindow.isDestroyed()) {
