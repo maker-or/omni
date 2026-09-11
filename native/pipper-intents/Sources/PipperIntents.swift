@@ -160,136 +160,54 @@ enum SiriCatalogStore {
   }
 }
 
-// MARK: - Entities (both dynamic -> AppEntity, not AppEnum)
+// MARK: - Options (String IDs + pickers; AppEntity decoding fails pre-perform, see intents-debug.log LNPerformActionErrorCodeUnsupportedValueType)
+// decoding a saved AppEntity value before perform(). These providers retain
+// the same named pickers while passing the stable catalog IDs as Strings.
+struct ProjectOptionsProvider: DynamicOptionsProvider {
+  typealias Result = IntentItemCollection<String>
+  typealias DefaultValue = String
 
-struct ProjectEntity: AppEntity {
-  static var typeDisplayRepresentation: TypeDisplayRepresentation = "Project"
-  static var defaultQuery = ProjectEntityQuery()
-
-  var id: String
-  @Property(title: "Name") var name: String
-  @Property(title: "Path") var path: String
-
-  var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(name)", subtitle: "\(path)")
-  }
-
-  init(id: String, name: String, path: String) {
-    self.id = id
-    self.name = name
-    self.path = path
+  func results() async throws -> IntentItemCollection<String> {
+    let projects = SiriCatalogStore.load()?.projects ?? []
+    let items = projects.map {
+      IntentItem(
+        $0.id,
+        title: LocalizedStringResource(stringLiteral: $0.name),
+        subtitle: LocalizedStringResource(stringLiteral: $0.path)
+      )
+    }
+    return IntentItemCollection(sections: [IntentItemSection(items: items)])
   }
 }
 
-struct ProjectEntityQuery: EnumerableEntityQuery, EntityStringQuery {
-  func entities(for identifiers: [String]) async throws -> [ProjectEntity] {
-    StartThreadIntent.debugLog("projectQuery.entities identifiers=\(identifiers)")
-    let all = SiriCatalogStore.load()?.projects ?? []
-    let result = all.filter { identifiers.contains($0.id) }.map {
-      ProjectEntity(id: $0.id, name: $0.name, path: $0.path)
+struct AgentOptionsProvider: DynamicOptionsProvider {
+  typealias Result = IntentItemCollection<String>
+  typealias DefaultValue = String
+
+  func results() async throws -> IntentItemCollection<String> {
+    let agents = SiriCatalogStore.load()?.agents.filter(\.available) ?? []
+    let items = agents.map {
+      IntentItem(
+        $0.id,
+        title: LocalizedStringResource(stringLiteral: $0.displayName)
+      )
     }
-    StartThreadIntent.debugLog("projectQuery.entities resolved=\(result.map(\.id))")
-    return result
-  }
-
-  func suggestedEntities() async throws -> [ProjectEntity] {
-    StartThreadIntent.debugLog("projectQuery.suggested begin")
-    return try await allEntities()
-  }
-
-  func allEntities() async throws -> [ProjectEntity] {
-    StartThreadIntent.debugLog("projectQuery.all begin")
-    let all = SiriCatalogStore.load()?.projects ?? []
-    let result = all.map { ProjectEntity(id: $0.id, name: $0.name, path: $0.path) }
-    StartThreadIntent.debugLog("projectQuery.all resultCount=\(result.count)")
-    return result
-  }
-
-  func entities(matching string: String) async throws -> [ProjectEntity] {
-    StartThreadIntent.debugLog("projectQuery.match begin inputLen=\(string.count)")
-    let all = SiriCatalogStore.load()?.projects ?? []
-    let result = all.filter {
-      $0.name.localizedCaseInsensitiveContains(string)
-        || $0.path.localizedCaseInsensitiveContains(string)
-    }.map { ProjectEntity(id: $0.id, name: $0.name, path: $0.path) }
-    StartThreadIntent.debugLog("projectQuery.match resultCount=\(result.count)")
-    return result
-  }
-}
-
-struct AgentEntity: AppEntity {
-  static var typeDisplayRepresentation: TypeDisplayRepresentation = "Agent"
-  static var defaultQuery = AgentEntityQuery()
-
-  var id: String
-  @Property(title: "Name") var name: String
-  var available: Bool
-
-  var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(name)")
-  }
-
-  init(id: String, name: String, available: Bool) {
-    self.id = id
-    self.available = available
-    self.name = name
-  }
-}
-
-struct AgentEntityQuery: EnumerableEntityQuery, EntityStringQuery {
-  /// Only usable agents are ever offered — staging a thread for a missing
-  /// CLI would fail later in Electron.
-  private func usableAgents() -> [SiriCatalogAgent] {
-    let all = SiriCatalogStore.load()?.agents ?? []
-    let usable = all.filter { $0.available }
-    StartThreadIntent.debugLog(
-      "agentQuery.usable total=\(all.count) available=\(usable.count) ids=\(usable.map(\.id))"
-    )
-    return usable
-  }
-
-  func entities(for identifiers: [String]) async throws -> [AgentEntity] {
-    StartThreadIntent.debugLog("agentQuery.entities identifiers=\(identifiers)")
-    let result = usableAgents().filter { identifiers.contains($0.id) }.map {
-      AgentEntity(id: $0.id, name: $0.displayName, available: $0.available)
-    }
-    StartThreadIntent.debugLog("agentQuery.entities resolved=\(result.map(\.id))")
-    return result
-  }
-
-  func suggestedEntities() async throws -> [AgentEntity] {
-    StartThreadIntent.debugLog("agentQuery.suggested begin")
-    return try await allEntities()
-  }
-
-  func allEntities() async throws -> [AgentEntity] {
-    StartThreadIntent.debugLog("agentQuery.all begin")
-    let result = usableAgents().map {
-      AgentEntity(id: $0.id, name: $0.displayName, available: $0.available)
-    }
-    StartThreadIntent.debugLog("agentQuery.all resultCount=\(result.count)")
-    return result
-  }
-
-  func entities(matching string: String) async throws -> [AgentEntity] {
-    StartThreadIntent.debugLog("agentQuery.match begin inputLen=\(string.count)")
-    let result = usableAgents().filter { $0.displayName.localizedCaseInsensitiveContains(string) }.map {
-      AgentEntity(id: $0.id, name: $0.displayName, available: $0.available)
-    }
-    StartThreadIntent.debugLog("agentQuery.match resultCount=\(result.count)")
-    return result
+    return IntentItemCollection(sections: [IntentItemSection(items: items)])
   }
 }
 
 enum SiriRequestError: Error, CustomLocalizedStringResourceConvertible {
   case encodingFailed
   case stagingFailed
+  case projectUnavailable(String)
   case agentUnavailable(String)
 
   var localizedStringResource: LocalizedStringResource {
     switch self {
     case .encodingFailed: return "Couldn't prepare the thread request."
     case .stagingFailed: return "Couldn't save the thread request. Please try again."
+    case .projectUnavailable(let id):
+      return "The project \(id) isn't available. Pick an available project."
     case .agentUnavailable(let name):
       return "The agent \(name) isn't available. Pick an installed agent."
     }
@@ -305,39 +223,40 @@ struct StartThreadIntent: AppIntent {
     categoryName: "Productivity"
   )
 static var isDiscoverable: Bool = true
-  // NOTE (ad-hoc debugging): openAppWhenRun=true requires the system to
-  // resolve the containing host app, which fails for ad-hoc-signed builds
-  // and aborts the run before perform(). Disabled until proven otherwise;
-  // Electron already consumes staged requests on next activation/startup.
+  // Ad-hoc-signed builds cannot use App Intents' host-app launch handshake.
+  // The result below opens the app's registered URL scheme instead.
   static var openAppWhenRun: Bool = false
 
   static func debugLog(_ message: String) {
     SiriDiagnostics.log(message)
   }
 
-  @Parameter(title: "Project" , description: "name of the project to run the agent in") var project: ProjectEntity
-  @Parameter(title: "Agent" , description: "the agent to run") var agent: AgentEntity
+  @Parameter(title: "Project", description: "name of the project to run the agent in", optionsProvider: ProjectOptionsProvider()) var projectId: String
+  @Parameter(title: "Agent", description: "the agent to run", optionsProvider: AgentOptionsProvider()) var agentId: String
   @Parameter(title: "Task",description: "what action or a task in perform in a project with an agent", requestValueDialog: "What should the thread work on?") var prompt: String?
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     Self.debugLog("perform entered")
-    Self.debugLog("perform start projectId=\(project.id) agentId=\(agent.id) promptLen=\(prompt?.count ?? 0)")
+    Self.debugLog("perform start projectId=\(projectId) agentId=\(agentId) promptLen=\(prompt?.count ?? 0)")
     Self.debugLog("candidateDirs=\(SiriCatalogStore.candidateDirs().map { $0.path })")
     let catalog = SiriCatalogStore.load()
     Self.debugLog("catalog loaded: projects=\(catalog?.projects.count ?? -1) agents=\(catalog?.agents.count ?? -1)")
+    guard let chosenProject = catalog?.projects.first(where: { $0.id == projectId }) else {
+      Self.debugLog("perform rejected projectId=\(projectId) reason=unavailable")
+      throw SiriRequestError.projectUnavailable(projectId)
+    }
     // Revalidate availability at run time: the catalog may have changed
     // between entity resolution and perform().
     let usableIds = Set((catalog?.agents ?? []).filter { $0.available }.map { $0.id })
-    let chosenAgent = agent
-    guard usableIds.contains(chosenAgent.id) else {
-      Self.debugLog("perform rejected agentId=\(chosenAgent.id) reason=unavailable")
-      throw SiriRequestError.agentUnavailable(chosenAgent.name)
+    guard usableIds.contains(agentId) else {
+      let agentName = catalog?.agents.first(where: { $0.id == agentId })?.displayName ?? agentId
+      Self.debugLog("perform rejected agentId=\(agentId) reason=unavailable")
+      throw SiriRequestError.agentUnavailable(agentName)
     }
-    let resolvedAgentId = chosenAgent.id
-    Self.debugLog("perform validation passed agentId=\(resolvedAgentId)")
+    Self.debugLog("perform validation passed agentId=\(agentId)")
     if SiriCatalogStore.isPreviewExtension {
       return .result(
-        dialog: "Preview: would start a thread in \(project.name)."
+        dialog: "Preview: would start a thread in \(chosenProject.name)."
       )
     }
     // Stage a pending request. The host app is opened automatically after the
@@ -345,8 +264,8 @@ static var isDiscoverable: Bool = true
     let requestId = UUID().uuidString
     let payload: [String: String] = [
       "requestId": requestId,
-      "projectId": project.id,
-      "agentId": resolvedAgentId,
+      "projectId": projectId,
+      "agentId": agentId,
       "prompt": prompt ?? "",
     ]
     let dir = SiriCatalogStore.baseDir().appendingPathComponent("siri-requests", isDirectory: true)
@@ -379,59 +298,14 @@ static var isDiscoverable: Bool = true
       }
       throw SiriRequestError.stagingFailed
     }
-    return .result(
-      dialog: "Starting a thread in \(project.name)."
-    )
-  }
-}
-
-// MARK: - Entity parameter probe (no staging)
-
-struct CheckPipperParametersIntent: AppIntent {
-  static var title: LocalizedStringResource = "Check Pipper parameters"
-  static var description = IntentDescription(
-    "Diagnostic action that verifies Project and Agent parameters without creating a thread.",
-    categoryName: "Productivity"
-  )
-  static var isDiscoverable: Bool = true
-  static var openAppWhenRun: Bool = false
-
-  @Parameter(title: "Project", description: "the project to inspect") var project: ProjectEntity
-  @Parameter(title: "Agent", description: "the agent to inspect") var agent: AgentEntity
-  @Parameter(title: "Task") var prompt: String?
-
-  func perform() async throws -> some IntentResult & ProvidesDialog {
-    StartThreadIntent.debugLog(
-      "parameterProbe perform projectId=\(project.id) agentId=\(agent.id) promptLen=\(prompt?.count ?? 0)"
-    )
-    return .result(
-      dialog: "Parameters resolved for \(project.name) with \(agent.name)."
-    )
-  }
-}
-
-// MARK: - Primitive parameter probe (bypasses AppEntity conversion)
-
-struct CheckPipperIDsIntent: AppIntent {
-  static var title: LocalizedStringResource = "Check Pipper IDs"
-  static var description = IntentDescription(
-    "Diagnostic action that verifies primitive Project and Agent IDs without creating a thread.",
-    categoryName: "Productivity"
-  )
-  static var isDiscoverable: Bool = true
-  static var openAppWhenRun: Bool = false
-
-  @Parameter(title: "Project ID", description: "the project identifier to inspect") var projectId: String
-  @Parameter(title: "Agent ID", description: "the agent identifier to inspect") var agentId: String
-  @Parameter(title: "Task") var prompt: String?
-
-  func perform() async throws -> some IntentResult & ProvidesDialog {
-    StartThreadIntent.debugLog(
-      "idProbe perform projectId=\(projectId) agentId=\(agentId) promptLen=\(prompt?.count ?? 0)"
-    )
-    return .result(
-      dialog: "Primitive IDs received for project \(projectId) and agent \(agentId)."
-    )
+    if #available(macOS 15.2, *) {
+      let openURL = URL(string: "pipper://siri/\(requestId)")!
+      return .result(
+        opensIntent: OpenURLIntent(openURL),
+        dialog: "Starting a thread in \(chosenProject.name)."
+      )
+    }
+    return .result(dialog: "Starting a thread in \(chosenProject.name).")
   }
 }
 
