@@ -1,16 +1,17 @@
 # PipperIntents (Siri / Shortcuts)
 
-Swift Package providing the Siri entry point for Pipper: `StartThreadIntent`
-plus `ProjectEntity` / `AgentEntity` backed by the shared App Group catalog in
-`group.com.maker-or.omni.pipper` (written by Electron, see
+Swift Package providing the Siri / Shortcuts / Spotlight entry point for
+Pipper: `StartThreadIntent` with Project / Agent pickers backed by the shared
+catalog `siri-catalog.json` (written by Electron, see
 `electron/siri/siri-catalog.ts`).
 
-Flow: the intent stages a request in
-`~/Library/Group Containers/group.com.maker-or.omni.pipper/siri-requests/<uuid>.json`
-and asks macOS to open Pipper. Electron consumes the pending request during
-startup or activation, creates the thread, delivers the prompt, and lands on
-it. The App Group is required because macOS runs App Intents extensions in the
-App Sandbox.
+Flow: the intent stages a request in `siri-requests/<uuid>.json` under both
+`~/Library/pipper/` and `~/Library/Application Support/Pipper/`, then opens
+`pipper://siri/<uuid>`. Electron consumes the pending request during startup,
+activation, or the deep link; creates the thread; hands off the prompt; and
+lands on it. macOS runs App Intents extensions in the App Sandbox, and ad-hoc
+builds have no Team ID for App Groups, so the extension reaches those two
+directories via `temporary-exception.files.home-relative-path` entitlements.
 
 ## Packaging
 

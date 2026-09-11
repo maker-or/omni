@@ -57,10 +57,6 @@ struct SiriCatalog: Codable, Sendable {
 }
 
 enum SiriCatalogStore {
-  /// App Intents extensions must run in the App Sandbox. The containing
-  /// Electron app and this extension share the catalog through this group.
-  static let appGroupIdentifier = "group.com.maker-or.omni.pipper"
-
   /// The Xcode preview host has no Electron process to populate the live
   /// catalog. Keep its metadata/action preview useful without exposing these
   /// sample entities in the packaged app.
@@ -78,9 +74,9 @@ enum SiriCatalogStore {
     return FileManager.default.homeDirectoryForCurrentUser
   }
 
-  /// Ad-hoc builds have no Team ID, so App Group containers are denied.
-  /// Primary is ~/Library/pipper (temporary-exception), with Group Container
-  /// as legacy fallback for users migrating from signed builds.
+  /// Ad-hoc builds have no Team ID, so App Group containers are denied; the
+  /// extension reaches these home-relative paths via temporary-exception
+  /// entitlements instead. Primary is ~/Library/pipper.
   static func candidateDirs() -> [URL] {
     if let overridePath = ProcessInfo.processInfo.environment["PIPPER_LIBRARY_PATH"],
       !overridePath.isEmpty
@@ -93,14 +89,7 @@ enum SiriCatalogStore {
       home.appendingPathComponent("Library/pipper", isDirectory: true))
     dirs.append(
       home.appendingPathComponent("Library/Application Support/Pipper", isDirectory: true))
-    if let groupURL = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: appGroupIdentifier
-    ) {
-      dirs.append(groupURL)
-    }
-    // Deduplicate while preserving order.
-    var seen = Set<String>()
-    return dirs.filter { seen.insert($0.path).inserted }
+    return dirs
   }
 
   static func baseDir() -> URL {
@@ -233,11 +222,20 @@ static var isDiscoverable: Bool = true
 
   @Parameter(title: "Project", description: "name of the project to run the agent in", optionsProvider: ProjectOptionsProvider()) var projectId: String
   @Parameter(title: "Agent", description: "the agent to run", optionsProvider: AgentOptionsProvider()) var agentId: String
-  @Parameter(title: "Task",description: "what action or a task in perform in a project with an agent", requestValueDialog: "What should the thread work on?") var prompt: String?
+  // Required (not `String?`): App Intents only asks for required parameters,
+  // so an optional task was silently skipped when run from Spotlight/Siri.
+  @Parameter(title: "Task", description: "what action or a task to perform in a project with an agent", requestValueDialog: "What should the thread work on?") var prompt: String
+
+  // Spotlight (macOS 26+) renders this sentence inline in the search bar with
+  // each parameter as a fillable token, like Mail's "Send [Message] with
+  // [Subject] to [Recipients]". Free text goes first so the cursor lands there.
+  static var parameterSummary: some ParameterSummary {
+    Summary("Start \(\.$prompt) in \(\.$projectId) with \(\.$agentId)")
+  }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     Self.debugLog("perform entered")
-    Self.debugLog("perform start projectId=\(projectId) agentId=\(agentId) promptLen=\(prompt?.count ?? 0)")
+    Self.debugLog("perform start projectId=\(projectId) agentId=\(agentId) promptLen=\(prompt.count)")
     Self.debugLog("candidateDirs=\(SiriCatalogStore.candidateDirs().map { $0.path })")
     let catalog = SiriCatalogStore.load()
     Self.debugLog("catalog loaded: projects=\(catalog?.projects.count ?? -1) agents=\(catalog?.agents.count ?? -1)")
@@ -266,12 +264,12 @@ static var isDiscoverable: Bool = true
       "requestId": requestId,
       "projectId": projectId,
       "agentId": agentId,
-      "prompt": prompt ?? "",
+      "prompt": prompt,
     ]
     let dir = SiriCatalogStore.baseDir().appendingPathComponent("siri-requests", isDirectory: true)
     // Stage into every candidate dir so Electron finds the request no
-    // matter which location it consumes from. One location failing (e.g.
-    //Sandbox denying the group container) must not fail the whole intent.
+    // matter which location it consumes from. One location failing must
+    // not fail the whole intent.
     var stagedCount = 0
     var lastError: Error?
     for base in SiriCatalogStore.candidateDirs() {

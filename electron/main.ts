@@ -513,7 +513,7 @@ async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
     try {
       const marker = JSON.parse(fs.readFileSync(markerFile, "utf8")) as { threadId?: string };
       if (marker?.threadId && hasPrompt) {
-        await manager.sendPrompt({ threadId: marker.threadId, message: parsed.prompt });
+        deliverSiriPrompt(marker.threadId, parsed.prompt as string, requestId);
       }
       fs.rmSync(file, { force: true });
       fs.rmSync(markerFile, { force: true });
@@ -533,8 +533,8 @@ async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
   if (threadId) {
     fs.writeFileSync(markerFile, JSON.stringify({ threadId }), "utf8");
   }
-  if (hasPrompt) {
-    await manager.sendPrompt({ threadId, message: parsed.prompt });
+  if (threadId && hasPrompt) {
+    deliverSiriPrompt(threadId, parsed.prompt as string, requestId);
   }
   fs.rmSync(file, { force: true });
   // Remove stale replicas in other dirs only after full success.
@@ -553,6 +553,20 @@ async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
   return thread;
 }
 
+/**
+ * Hand the prompt to the agent without awaiting the turn. `sendPrompt` only
+ * resolves when the agent finishes (up to ACP_PROMPT_TIMEOUT_MS), so awaiting
+ * it from the startup path blocked window creation until the agent was done.
+ * The thread already exists and is opened; a delivery failure is logged.
+ */
+function deliverSiriPrompt(threadId: string, message: string, requestId: string): void {
+  void requireAgentManager()
+    .sendPrompt({ threadId, message })
+    .catch((err) => {
+      console.error(`[Main] Siri request ${requestId}: prompt delivery failed:`, err);
+    });
+}
+
 async function openSiriThread(thread: unknown): Promise<void> {
   const threadId = (thread as { id?: string })?.id;
   if (!threadId) return;
@@ -568,9 +582,9 @@ async function openSiriThread(thread: unknown): Promise<void> {
 
 /**
  * App Intents extensions cannot launch Electron directly. They leave a
- * request in the shared directory and macOS opens the containing app because
- * StartThreadIntent.openAppWhenRun is true. Consume the newest pending files
- * whenever Pipper starts or is activated from Shortcuts.
+ * request in the shared directory and open `pipper://siri/<id>`. Consume the
+ * pending files (oldest first) whenever Pipper starts or is activated from
+ * Shortcuts. Callers must not block window creation on this.
  */
 async function consumePendingSiriRequests(): Promise<void> {
   if (!agentManager) return;
@@ -630,6 +644,19 @@ async function handlePipperDeepLink(url: string): Promise<boolean> {
   const thread = await consumeSiriRequest(match[1]);
   if (thread) await openSiriThread(thread);
   return true;
+}
+
+async function drainStartupSiriRequests(): Promise<void> {
+  try {
+    await consumePendingSiriRequests();
+  } catch (err) {
+    console.error("[Main] Failed to consume pending Siri requests at startup:", err);
+  }
+  for (const queued of pendingDeepLinks.splice(0)) {
+    await handlePipperDeepLink(queued).catch((err) => {
+      console.error("[Main] Failed to handle queued deep link:", err);
+    });
+  }
 }
 
 function requireLauncherUpdateManager(): LauncherUpdateManager {
@@ -2544,12 +2571,6 @@ app.whenReady().then(async () => {
     attention: { isFocused: () => mainWindowFocused },
     notify: osNotifier,
   });
-  await consumePendingSiriRequests();
-  for (const queued of pendingDeepLinks.splice(0)) {
-    await handlePipperDeepLink(queued).catch((err) => {
-      console.error("[Main] Failed to handle queued deep link:", err);
-    });
-  }
   sleeplessController = new SleeplessController({
     platform: process.platform,
     settingsPath: join(app.getPath("userData"), "sleepless.json"),
@@ -2668,6 +2689,11 @@ app.whenReady().then(async () => {
     }
     logStartupMilestone("main-window:starting-before-agent-activation");
     void createMainWindow();
+    // Siri/Shortcuts requests staged before launch (and deep links that
+    // arrived before the agent manager existed) are consumed only once the
+    // window is on its way up, and never awaited: consumption creates threads
+    // and talks to agents, which must not gate first paint.
+    void drainStartupSiriRequests();
     if (state.projectId) {
       // ACP activation spawns and handshakes with child processes. It must not
       // overlap Chromium's renderer bootstrap or first paint. The renderer's
