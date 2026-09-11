@@ -10,13 +10,14 @@ import {
 } from "./registry.ts";
 
 describe("ACP agent registry", () => {
-  test("catalog includes Cursor, Codex, Claude, Gemini, Copilot, and Antigravity adapters", () => {
+  test("catalog includes Cursor, Codex, Claude, Gemini, Copilot, Devin, and Antigravity adapters", () => {
     const ids = BUILTIN_ACP_AGENTS.map((a) => a.id);
     expect(ids).toContain("cursor-acp");
     expect(ids).toContain("codex-acp");
     expect(ids).toContain("claude-agent-acp");
     expect(ids).toContain("gemini-acp");
     expect(ids).toContain("copilot-acp");
+    expect(ids).toContain("devin-acp");
     expect(ids).toContain("antigravity-acp");
 
     const cursor = BUILTIN_ACP_AGENTS.find((a) => a.id === "cursor-acp")!;
@@ -50,6 +51,13 @@ describe("ACP agent registry", () => {
     expect(antigravity.npmPackage).toBe("antigravity-acp");
     expect(antigravity.detectCommands).toEqual(["antigravity-acp", "agy-acp"]);
     expect(antigravity.docsUrl).toContain("antigravity.google");
+
+    const devin = BUILTIN_ACP_AGENTS.find((a) => a.id === "devin-acp")!;
+    expect(devin.command).toBe("devin");
+    expect(devin.args).toEqual(["acp"]);
+    expect(devin.installKind).toBe("binary");
+    expect(devin.detectCommands).toContain("devin");
+    expect(devin.docsUrl).toContain("docs.devin.ai/desktop/acp");
   });
 
   test("npx-backed agent resolution is idempotent across repeated re-probes", () => {
