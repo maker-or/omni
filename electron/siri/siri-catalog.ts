@@ -1,6 +1,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
+import { getSelectedAgentIds } from "../db.ts";
 import { getPipperLibraryPath, PIPPER_APP_GROUP_IDENTIFIER } from "../paths.ts";
 import { listProjects } from "../projects.ts";
 import { listRegisteredAgents, getDefaultAgentId } from "../agents/registry.ts";
@@ -60,15 +61,21 @@ export function buildSiriCatalog(): SiriCatalog {
     name: p.name,
     path: p.path,
   }));
-  const agents = listRegisteredAgents().map((a) => ({
+  const selectedAgentIds = new Set(getSelectedAgentIds());
+  const selectedAgents = listRegisteredAgents().filter((a) => selectedAgentIds.has(a.id));
+  const agents = selectedAgents.map((a) => ({
     id: a.id,
     displayName: a.displayName,
     available: a.available ?? false,
   }));
+  const configuredDefaultAgentId = getDefaultAgentId();
+  const defaultAgentId = selectedAgents.some((a) => a.id === configuredDefaultAgentId)
+    ? configuredDefaultAgentId
+    : (selectedAgents[0]?.id ?? "");
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
-    defaultAgentId: getDefaultAgentId(),
+    defaultAgentId,
     projects,
     agents,
   };

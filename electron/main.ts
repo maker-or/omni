@@ -2103,8 +2103,14 @@ function registerIpc(): void {
     requireAgentManager().setPreferredAgentId(agentId);
   });
   ipcMain.handle("agent:getSelectedAgentIds", () => getSelectedAgentIds());
-  ipcMain.handle("agent:setSelectedAgentIds", (_event, agentIds: string[]) => {
+  ipcMain.handle("agent:setSelectedAgentIds", async (_event, agentIds: string[]) => {
     setSelectedAgentIds(agentIds);
+    try {
+      const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+      refreshSiriCatalog();
+    } catch (err) {
+      console.warn("[Main] Siri catalog refresh failed after agent selection change:", err);
+    }
   });
   ipcMain.handle("agent:closeThreadSession", (_event, threadId: string) =>
     requireAgentManager().closeThreadSession(threadId),

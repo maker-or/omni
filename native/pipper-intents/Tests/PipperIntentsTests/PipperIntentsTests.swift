@@ -97,22 +97,37 @@ struct PipperIntentsTests {
     }
   }
 
-  @Test func startThreadIntentUsesDefaultAgentWhenNoneChosen() async throws {
+  @Test func startThreadIntentRequiresAndStagesChosenAgent() async throws {
     let catalog = makeCatalog(
       projects: [SiriCatalogProject(id: "p1", name: "My App", path: "/tmp/a")],
       agents: [SiriCatalogAgent(id: "codex-acp", displayName: "Codex", available: true)],
       defaultAgentId: "codex-acp"
     )
     try await withTempCatalog(catalog) {
-        let intent = StartThreadIntent()
+      let intent = StartThreadIntent()
       intent.project = try await ProjectEntityQuery().entities(for: ["p1"]).first!
-      intent.agent = nil
+      intent.agent = try await AgentEntityQuery().entities(for: ["codex-acp"]).first!
       intent.prompt = "Hello"
       _ = try await intent.perform()
       let dir = URL(fileURLWithPath: ProcessInfo.processInfo.environment["PIPPER_LIBRARY_PATH"]!)
       let file = try FileManager.default.contentsOfDirectory(at: dir.appendingPathComponent("siri-requests"), includingPropertiesForKeys: nil).first!
       let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: String]
       #expect(json["agentId"] == "codex-acp")
+    }
+  }
+}
+
+extension PipperIntentsTests {
+  @Test func entitiesForResolvesRealIds() async throws {
+    let catalog = SiriCatalog(
+      version: 1, updatedAt: "2026-09-09T09:03:09.283Z", defaultAgentId: "cursor-acp",
+      projects: [SiriCatalogProject(id: "bae0366a-9087-4e4c-966d-bd4ef5ce1295", name: "FolkLore-LiveLore-", path: "/Users/me/code/FolkLore-LiveLore-")],
+      agents: [SiriCatalogAgent(id: "opencode-acp", displayName: "opencode", available: true)]
+    )
+    try await withTempCatalog(catalog) {
+      let projects = try await ProjectEntityQuery().entities(for: ["bae0366a-9087-4e4c-966d-bd4ef5ce1295"])
+      #expect(projects.count == 1)
+      #expect(projects.first?.name == "FolkLore-LiveLore-")
     }
   }
 }
