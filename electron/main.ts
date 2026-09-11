@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
-import { join, dirname } from "node:path";
+import { join, dirname, relative, resolve, isAbsolute } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -283,6 +283,30 @@ if (!gotSingleInstanceLock) {
   app.quit();
 }
 
+if (!app.isDefaultProtocolClient("pipper")) {
+  app.setAsDefaultProtocolClient("pipper");
+}
+
+app.on("second-instance", (_event, argv) => {
+  const url = argv.find((arg) => arg.startsWith("pipper://"));
+  if (url) {
+    void handlePipperDeepLink(url).catch((err) => {
+      console.error("[Main] Failed to handle deep link:", err);
+    });
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  void handlePipperDeepLink(url).catch((err) => {
+    console.error("[Main] Failed to handle deep link:", err);
+  });
+});
+
 // Without these, an uncaught error anywhere in the main process (e.g. handling
 // an ACP session/update from an agent) crashes the whole process and takes
 // every window down with it. Log and keep running instead.
@@ -415,6 +439,224 @@ function requireAgentManager(): AgentManager {
     throw new Error("Agent manager is not initialized.");
   }
   return agentManager;
+}
+
+/**
+ * Deep links that arrived before the agent manager was ready (cold launch).
+ * Drained once initialization completes in `app.whenReady()`.
+ */
+const pendingDeepLinks: string[] = [];
+
+/**
+ * Single-flight guard: concurrent deliveries of the same staged request
+ * (startup scan, activation, deep link, renderer, IPC) share one promise.
+ */
+const inFlightSiriRequests = new Map<string, Promise<unknown>>();
+
+/**
+ * Consume a Siri-staged thread request: validate, create the thread (once —
+ * a `.done-<id>.json` marker records the created thread so retries never
+ * spawn duplicates), deliver the prompt, and only then delete the request
+ * file. Invalid payloads are discarded (retrying them can never succeed);
+ * processing failures leave the file in place for idempotent retry.
+ */
+async function consumeSiriRequest(requestId: string): Promise<unknown> {
+  if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(requestId)) {
+    return null;
+  }
+  const existing = inFlightSiriRequests.get(requestId);
+  if (existing) return existing;
+  const task = consumeSiriRequestInner(requestId).finally(() => {
+    if (inFlightSiriRequests.get(requestId) === task) inFlightSiriRequests.delete(requestId);
+  });
+  inFlightSiriRequests.set(requestId, task);
+  return task;
+}
+
+async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
+  const { getSiriRequestsDir, getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  // Resolve the request from every supported directory so legacy-only
+  // staged requests are delivered, not orphaned.
+  let dir = resolve(getSiriRequestsDir());
+  let file: string | null = null;
+  for (const rawDir of getSiriRequestsDirs()) {
+    const candidateDir = resolve(rawDir);
+    const candidate = resolve(join(candidateDir, `${requestId}.json`));
+    const rel = relative(candidateDir, candidate);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    if (fs.existsSync(candidate)) {
+      dir = candidateDir;
+      file = candidate;
+      break;
+    }
+  }
+  if (!file) return null;
+  const raw = fs.readFileSync(file, "utf8");
+  let parsed: { projectId: string; agentId?: string; prompt?: string };
+  try {
+    parsed = JSON.parse(raw) as typeof parsed;
+  } catch {
+    fs.rmSync(file, { force: true });
+    return null;
+  }
+  if (!parsed || typeof parsed.projectId !== "string" || !parsed.projectId) {
+    fs.rmSync(file, { force: true });
+    return null;
+  }
+  const manager = requireAgentManager();
+  const markerFile = resolve(join(dir, `.done-${requestId}.json`));
+  const hasPrompt = typeof parsed.prompt === "string" && parsed.prompt.length > 0;
+  const markerRel = relative(dir, markerFile);
+  if (!markerRel.startsWith("..") && !isAbsolute(markerRel) && fs.existsSync(markerFile)) {
+    // Retry path: the thread already exists, so resume delivery instead of
+    // creating a duplicate.
+    try {
+      const marker = JSON.parse(fs.readFileSync(markerFile, "utf8")) as { threadId?: string };
+      if (marker?.threadId && hasPrompt) {
+        deliverSiriPrompt(marker.threadId, parsed.prompt as string, requestId);
+      }
+      fs.rmSync(file, { force: true });
+      fs.rmSync(markerFile, { force: true });
+      return marker?.threadId ? getThread(marker.threadId) : null;
+    } catch {
+      return null;
+    }
+  }
+  const thread = await manager.createThread(
+    parsed.projectId,
+    hasPrompt ? (parsed.prompt as string).slice(0, 80) : null,
+    null,
+    parsed.agentId || null,
+    null,
+  );
+  const threadId = (thread as { id?: string })?.id ?? null;
+  if (threadId) {
+    fs.writeFileSync(markerFile, JSON.stringify({ threadId }), "utf8");
+  }
+  if (threadId && hasPrompt) {
+    deliverSiriPrompt(threadId, parsed.prompt as string, requestId);
+  }
+  fs.rmSync(file, { force: true });
+  // Remove stale replicas in other dirs only after full success.
+  const { getSiriRequestsDirs: getDirs } = await import("./siri/siri-catalog.ts");
+  for (const rawDir of getDirs()) {
+    const otherDir = resolve(rawDir);
+    if (otherDir === dir) continue;
+    try {
+      fs.rmSync(resolve(join(otherDir, `${requestId}.json`)), { force: true });
+      fs.rmSync(resolve(join(otherDir, `.done-${requestId}.json`)), { force: true });
+    } catch {
+      // Best-effort replica cleanup.
+    }
+  }
+  if (threadId) fs.rmSync(markerFile, { force: true });
+  return thread;
+}
+
+/**
+ * Hand the prompt to the agent without awaiting the turn. `sendPrompt` only
+ * resolves when the agent finishes (up to ACP_PROMPT_TIMEOUT_MS), so awaiting
+ * it from the startup path blocked window creation until the agent was done.
+ * The thread already exists and is opened; a delivery failure is logged.
+ */
+function deliverSiriPrompt(threadId: string, message: string, requestId: string): void {
+  void requireAgentManager()
+    .sendPrompt({ threadId, message })
+    .catch((err) => {
+      console.error(`[Main] Siri request ${requestId}: prompt delivery failed:`, err);
+    });
+}
+
+async function openSiriThread(thread: unknown): Promise<void> {
+  const threadId = (thread as { id?: string })?.id;
+  if (!threadId) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  const next = await openThreadTab(threadId);
+  broadcastOpenTabsChanged(mainWindow, next);
+  await requireAgentManager().switchThread(threadId);
+}
+
+/**
+ * App Intents extensions cannot launch Electron directly. They leave a
+ * request in the shared directory and open `pipper://siri/<id>`. Consume the
+ * pending files (oldest first) whenever Pipper starts or is activated from
+ * Shortcuts. Callers must not block window creation on this.
+ */
+async function consumePendingSiriRequests(): Promise<void> {
+  if (!agentManager) return;
+  const { getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  const seen = new Map<string, number>();
+  for (const rawDir of getSiriRequestsDirs()) {
+    const dir = resolve(rawDir);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/^[A-Za-z0-9-]{1,128}\.json$/.test(entry.name)) continue;
+      const requestId = entry.name.slice(0, -5);
+      const mtimeMs = fs.statSync(join(dir, entry.name)).mtimeMs;
+      if (!seen.has(requestId) || mtimeMs > (seen.get(requestId) ?? 0))
+        seen.set(requestId, mtimeMs);
+    }
+  }
+  const requests = [...seen.entries()]
+    .map(([requestId, mtimeMs]) => ({ requestId, mtimeMs }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  for (const { requestId } of requests) {
+    try {
+      const thread = await consumeSiriRequest(requestId);
+      if (thread) await openSiriThread(thread);
+    } catch (error) {
+      // Leave failed requests on disk so a later app activation can retry.
+      console.error(`[Main] Failed to consume pending Siri request ${requestId}:`, error);
+    }
+  }
+}
+
+/**
+ * Route a `pipper://siri/<requestId>` deep link (opened by the Swift
+ * StartThreadIntent): focus the main window, consume the staged request, and
+ * land the user on the new thread. Returns true when the URL was handled.
+ */
+async function handlePipperDeepLink(url: string): Promise<boolean> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "pipper:") return false;
+  const match = /^siri\/([A-Za-z0-9-]{1,128})\/?$/.exec(`${parsed.host}${parsed.pathname}`);
+  if (!match?.[1]) return false;
+  if (!agentManager) {
+    // Cold launch: the open-url/second-instance event can arrive before
+    // initialization. Queue it; it drains once the manager is ready.
+    if (!pendingDeepLinks.includes(url)) pendingDeepLinks.push(url);
+    return true;
+  }
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+  const thread = await consumeSiriRequest(match[1]);
+  if (thread) await openSiriThread(thread);
+  return true;
+}
+
+async function drainStartupSiriRequests(): Promise<void> {
+  try {
+    await consumePendingSiriRequests();
+  } catch (err) {
+    console.error("[Main] Failed to consume pending Siri requests at startup:", err);
+  }
+  for (const queued of pendingDeepLinks.splice(0)) {
+    await handlePipperDeepLink(queued).catch((err) => {
+      console.error("[Main] Failed to handle queued deep link:", err);
+    });
+  }
 }
 
 function requireLauncherUpdateManager(): LauncherUpdateManager {
@@ -1382,6 +1624,24 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:list", () => listProjects());
 
+  ipcMain.handle("siri:getCatalog", async () => {
+    const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+    return refreshSiriCatalog();
+  });
+
+  ipcMain.handle("siri:consumeRequest", async (_event, requestId: string) => {
+    const thread = await consumeSiriRequest(requestId);
+    if (thread) {
+      const threadId = (thread as { id?: string })?.id;
+      if (threadId) {
+        const next = await openThreadTab(threadId);
+        broadcastOpenTabsChanged(mainWindow, next);
+        await requireAgentManager().switchThread(threadId);
+      }
+    }
+    return thread;
+  });
+
   ipcMain.handle("projects:getActive", () => {
     const id = getActiveProjectId();
     return id ? getProject(id) : null;
@@ -1419,9 +1679,15 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "projects:create",
-    (_event, input: { name: string; path: string; icon: string }) => {
+    async (_event, input: { name: string; path: string; icon: string }) => {
       requireAuthenticatedUserForLaunch();
       const project = createProject(input);
+      try {
+        const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+        refreshSiriCatalog();
+      } catch (err) {
+        console.warn("[Main] Siri catalog refresh failed after project create:", err);
+      }
       captureAnalytics("project_created", {
         windowType: "launch",
         properties: {
@@ -1868,8 +2134,14 @@ function registerIpc(): void {
     requireAgentManager().setPreferredAgentId(agentId);
   });
   ipcMain.handle("agent:getSelectedAgentIds", () => getSelectedAgentIds());
-  ipcMain.handle("agent:setSelectedAgentIds", (_event, agentIds: string[]) => {
+  ipcMain.handle("agent:setSelectedAgentIds", async (_event, agentIds: string[]) => {
     setSelectedAgentIds(agentIds);
+    try {
+      const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+      refreshSiriCatalog();
+    } catch (err) {
+      console.warn("[Main] Siri catalog refresh failed after agent selection change:", err);
+    }
   });
   ipcMain.handle("agent:closeThreadSession", (_event, threadId: string) =>
     requireAgentManager().closeThreadSession(threadId),
@@ -2263,6 +2535,12 @@ app.whenReady().then(async () => {
   logStartupMilestone("database:init:start");
   getDb();
   logStartupMilestone("database:init:complete");
+  try {
+    const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+    refreshSiriCatalog();
+  } catch (err) {
+    console.warn("[Main] Siri catalog refresh failed at startup:", err);
+  }
   await prepareBenchmarkLaunchState();
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {
@@ -2372,10 +2650,29 @@ app.whenReady().then(async () => {
     (process.env.PIPPER_ENABLE_LAUNCHER_UPDATES_IN_DEV === "1" && launcherManifestUrl != null);
   if (!launcherManifestUrl)
     console.info("[LauncherUpdate] Disabled: manifest URL is not configured.");
+  // One-time migration: previous releases stored launcher-update state
+  // under ~/Library/pipper; the App Group relocation must reuse it instead
+  // of stranding completed downloads.
+  let launcherRoot = join(getPipperLibraryPath(), "launcher-updates");
+  if (process.platform === "darwin" && !process.env.PIPPER_LIBRARY_PATH) {
+    try {
+      const legacyRoot = join(os.homedir(), "Library", "pipper", "launcher-updates");
+      if (
+        legacyRoot !== launcherRoot &&
+        fs.existsSync(legacyRoot) &&
+        !fs.existsSync(join(launcherRoot, "state.json"))
+      ) {
+        fs.mkdirSync(launcherRoot, { recursive: true });
+        fs.cpSync(legacyRoot, launcherRoot, { recursive: true, force: false });
+      }
+    } catch (err) {
+      console.warn("[LauncherUpdate] Legacy migration failed:", err);
+    }
+  }
   launcherUpdateManager = new LauncherUpdateManager({
     currentVersion: app.getVersion(),
     manifestUrl: launcherManifestUrl,
-    rootPath: join(getPipperLibraryPath(), "launcher-updates"),
+    rootPath: launcherRoot,
     enabled: launcherUpdatesEnabled,
     broadcastState: (state) => broadcastToWindows("launcher-update:stateChanged", state),
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
@@ -2392,6 +2689,11 @@ app.whenReady().then(async () => {
     }
     logStartupMilestone("main-window:starting-before-agent-activation");
     void createMainWindow();
+    // Siri/Shortcuts requests staged before launch (and deep links that
+    // arrived before the agent manager existed) are consumed only once the
+    // window is on its way up, and never awaited: consumption creates threads
+    // and talks to agents, which must not gate first paint.
+    void drainStartupSiriRequests();
     if (state.projectId) {
       // ACP activation spawns and handshakes with child processes. It must not
       // overlap Chromium's renderer bootstrap or first paint. The renderer's
@@ -2412,6 +2714,9 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", async () => {
+    await consumePendingSiriRequests().catch((err) => {
+      console.error("[Main] Failed to consume pending Siri requests on activation:", err);
+    });
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
     if (!hasMain && !hasLaunch) {

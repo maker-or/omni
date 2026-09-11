@@ -44,3 +44,17 @@ startup-benchmark-results/
 
 # Benchmark results
 benchmarks
+
+# Swift / Xcode (App Intents, native helpers)
+.build/
+DerivedData/
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+**/xcuserdata/
+native/pipper-intents/PreviewApp/build/
+native/pipper-intents/preview-dist/
+native/pipper-intents/PreviewApp/native/
+.swiftpm/
+
+# Local script output
+.tmp-check/

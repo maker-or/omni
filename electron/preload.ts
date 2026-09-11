@@ -82,6 +82,11 @@ const api = {
       ipcRenderer.send("window:reportVisibility", visible);
     },
   },
+  siri: {
+    getCatalog: (): Promise<unknown> => ipcRenderer.invoke("siri:getCatalog"),
+    consumeRequest: (requestId: string): Promise<unknown> =>
+      ipcRenderer.invoke("siri:consumeRequest", requestId),
+  },
   sleepless: {
     getStatus: (): Promise<SleeplessStatus | null> => ipcRenderer.invoke("sleepless:getStatus"),
     setEnabled: (enabled: boolean): Promise<SleeplessStatus | null> =>
