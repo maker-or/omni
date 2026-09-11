@@ -149,9 +149,39 @@ enum SiriCatalogStore {
   }
 }
 
-// MARK: - Options (String IDs + pickers; AppEntity decoding fails pre-perform, see intents-debug.log LNPerformActionErrorCodeUnsupportedValueType)
-// decoding a saved AppEntity value before perform(). These providers retain
-// the same named pickers while passing the stable catalog IDs as Strings.
+// MARK: - Options (String values + pickers)
+//
+// AppEntity parameters fail to decode before perform() on ad-hoc builds
+// (LNPerformActionErrorCodeUnsupportedValueType), so parameters are Strings
+// with DynamicOptionsProviders. Spotlight renders the raw String value and
+// ignores IntentItem titles, so the value must be the human-readable label;
+// perform() resolves it back to the catalog id. Raw ids are still accepted
+// so Shortcuts saved before this change keep working.
+
+enum SiriCatalogLabels {
+  /// Project label: the name, disambiguated with the path when two projects
+  /// share a name.
+  static func projectLabel(_ project: SiriCatalogProject, in all: [SiriCatalogProject]) -> String {
+    let duplicates = all.filter { $0.name == project.name }.count > 1
+    return duplicates ? "\(project.name) (\(project.path))" : project.name
+  }
+
+  static func resolveProject(_ value: String, in all: [SiriCatalogProject]) -> SiriCatalogProject? {
+    if let byId = all.first(where: { $0.id == value }) { return byId }
+    return all.first(where: { projectLabel($0, in: all) == value })
+  }
+
+  static func agentLabel(_ agent: SiriCatalogAgent, in all: [SiriCatalogAgent]) -> String {
+    let duplicates = all.filter { $0.displayName == agent.displayName }.count > 1
+    return duplicates ? "\(agent.displayName) (\(agent.id))" : agent.displayName
+  }
+
+  static func resolveAgent(_ value: String, in all: [SiriCatalogAgent]) -> SiriCatalogAgent? {
+    if let byId = all.first(where: { $0.id == value }) { return byId }
+    return all.first(where: { agentLabel($0, in: all) == value })
+  }
+}
+
 struct ProjectOptionsProvider: DynamicOptionsProvider {
   typealias Result = IntentItemCollection<String>
   typealias DefaultValue = String
@@ -160,9 +190,10 @@ struct ProjectOptionsProvider: DynamicOptionsProvider {
     let projects = SiriCatalogStore.load()?.projects ?? []
     let items = projects.map {
       IntentItem(
-        $0.id,
+        SiriCatalogLabels.projectLabel($0, in: projects),
         title: LocalizedStringResource(stringLiteral: $0.name),
-        subtitle: LocalizedStringResource(stringLiteral: $0.path)
+        subtitle: LocalizedStringResource(stringLiteral: $0.path),
+        image: .init(systemName: "folder")
       )
     }
     return IntentItemCollection(sections: [IntentItemSection(items: items)])
@@ -177,8 +208,9 @@ struct AgentOptionsProvider: DynamicOptionsProvider {
     let agents = SiriCatalogStore.load()?.agents.filter(\.available) ?? []
     let items = agents.map {
       IntentItem(
-        $0.id,
-        title: LocalizedStringResource(stringLiteral: $0.displayName)
+        SiriCatalogLabels.agentLabel($0, in: agents),
+        title: LocalizedStringResource(stringLiteral: $0.displayName),
+        image: .init(systemName: "cpu")
       )
     }
     return IntentItemCollection(sections: [IntentItemSection(items: items)])
@@ -239,19 +271,22 @@ static var isDiscoverable: Bool = true
     Self.debugLog("candidateDirs=\(SiriCatalogStore.candidateDirs().map { $0.path })")
     let catalog = SiriCatalogStore.load()
     Self.debugLog("catalog loaded: projects=\(catalog?.projects.count ?? -1) agents=\(catalog?.agents.count ?? -1)")
-    guard let chosenProject = catalog?.projects.first(where: { $0.id == projectId }) else {
-      Self.debugLog("perform rejected projectId=\(projectId) reason=unavailable")
+    guard
+      let chosenProject = SiriCatalogLabels.resolveProject(projectId, in: catalog?.projects ?? [])
+    else {
+      Self.debugLog("perform rejected project=\(projectId) reason=unavailable")
       throw SiriRequestError.projectUnavailable(projectId)
     }
     // Revalidate availability at run time: the catalog may have changed
-    // between entity resolution and perform().
-    let usableIds = Set((catalog?.agents ?? []).filter { $0.available }.map { $0.id })
-    guard usableIds.contains(agentId) else {
-      let agentName = catalog?.agents.first(where: { $0.id == agentId })?.displayName ?? agentId
-      Self.debugLog("perform rejected agentId=\(agentId) reason=unavailable")
+    // between picking and perform().
+    let agents = catalog?.agents ?? []
+    guard let chosenAgent = SiriCatalogLabels.resolveAgent(agentId, in: agents), chosenAgent.available
+    else {
+      let agentName = SiriCatalogLabels.resolveAgent(agentId, in: agents)?.displayName ?? agentId
+      Self.debugLog("perform rejected agent=\(agentId) reason=unavailable")
       throw SiriRequestError.agentUnavailable(agentName)
     }
-    Self.debugLog("perform validation passed agentId=\(agentId)")
+    Self.debugLog("perform validation passed projectId=\(chosenProject.id) agentId=\(chosenAgent.id)")
     if SiriCatalogStore.isPreviewExtension {
       return .result(
         dialog: "Preview: would start a thread in \(chosenProject.name)."
@@ -262,11 +297,10 @@ static var isDiscoverable: Bool = true
     let requestId = UUID().uuidString
     let payload: [String: String] = [
       "requestId": requestId,
-      "projectId": projectId,
-      "agentId": agentId,
+      "projectId": chosenProject.id,
+      "agentId": chosenAgent.id,
       "prompt": prompt,
     ]
-    let dir = SiriCatalogStore.baseDir().appendingPathComponent("siri-requests", isDirectory: true)
     // Stage into every candidate dir so Electron finds the request no
     // matter which location it consumes from. One location failing must
     // not fail the whole intent.
@@ -289,7 +323,6 @@ static var isDiscoverable: Bool = true
       }
     }
     Self.debugLog("stagedCount=\(stagedCount) lastError=\(String(describing: lastError))")
-    _ = dir
     if stagedCount == 0 {
       if let siriError = lastError as? SiriRequestError {
         throw siriError

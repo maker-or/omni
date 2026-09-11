@@ -27,6 +27,20 @@ struct PipperIntentsTests {
     try await withTempCatalog(catalog) {
       let items = try await ProjectOptionsProvider().results()
       #expect(items.sections.first?.items.count == 2)
+      // Spotlight shows the raw value, so it must be the project name.
+      #expect(items.sections.first?.items.map(\.value) == ["My App", "Other"])
+    }
+  }
+
+  @Test func projectOptionsDisambiguateDuplicateNames() async throws {
+    let catalog = makeCatalog(projects: [
+      SiriCatalogProject(id: "p1", name: "app", path: "/tmp/a"),
+      SiriCatalogProject(id: "p2", name: "app", path: "/tmp/b"),
+    ])
+    try await withTempCatalog(catalog) {
+      let values = try await ProjectOptionsProvider().results().sections.first?.items.map(\.value)
+      #expect(values == ["app (/tmp/a)", "app (/tmp/b)"])
+      #expect(SiriCatalogLabels.resolveProject("app (/tmp/b)", in: catalog.projects)?.id == "p2")
     }
   }
 
@@ -38,6 +52,7 @@ struct PipperIntentsTests {
     try await withTempCatalog(catalog) {
       let items = try await AgentOptionsProvider().results()
       #expect(items.sections.first?.items.count == 1)
+      #expect(items.sections.first?.items.first?.value == "Codex")
     }
   }
 
@@ -48,9 +63,10 @@ struct PipperIntentsTests {
       defaultAgentId: "codex-acp"
     )
     try await withTempCatalog(catalog) {
-        let intent = StartThreadIntent()
-      intent.projectId = "p1"
-      intent.agentId = "codex-acp"
+      let intent = StartThreadIntent()
+      // Picker values are labels; the staged payload must carry catalog ids.
+      intent.projectId = "My App"
+      intent.agentId = "Codex"
       intent.prompt = "Fix login bug"
       let result = try await intent.perform()
       // Verify file staged
@@ -66,7 +82,7 @@ struct PipperIntentsTests {
     }
   }
 
-  @Test func startThreadIntentRequiresAndStagesChosenAgent() async throws {
+  @Test func startThreadIntentStillAcceptsRawIds() async throws {
     let catalog = makeCatalog(
       projects: [SiriCatalogProject(id: "p1", name: "My App", path: "/tmp/a")],
       agents: [SiriCatalogAgent(id: "codex-acp", displayName: "Codex", available: true)],
@@ -81,7 +97,22 @@ struct PipperIntentsTests {
       let dir = URL(fileURLWithPath: ProcessInfo.processInfo.environment["PIPPER_LIBRARY_PATH"]!)
       let file = try FileManager.default.contentsOfDirectory(at: dir.appendingPathComponent("siri-requests"), includingPropertiesForKeys: nil).first!
       let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: String]
+      #expect(json["projectId"] == "p1")
       #expect(json["agentId"] == "codex-acp")
+    }
+  }
+
+  @Test func startThreadIntentRejectsUnavailableAgent() async throws {
+    let catalog = makeCatalog(
+      projects: [SiriCatalogProject(id: "p1", name: "My App", path: "/tmp/a")],
+      agents: [SiriCatalogAgent(id: "opencode-acp", displayName: "opencode", available: false)]
+    )
+    try await withTempCatalog(catalog) {
+      let intent = StartThreadIntent()
+      intent.projectId = "My App"
+      intent.agentId = "opencode"
+      intent.prompt = "x"
+      await #expect(throws: SiriRequestError.self) { try await intent.perform() }
     }
   }
 }
