@@ -1,0 +1,132 @@
+---
+import Layout from "../../layouts/Layout.astro";
+
+interface AgentDoc {
+  id: string;
+  handle: string;
+  installCmd?: string;
+  signinCmd?: string;
+}
+
+const agents: AgentDoc[] = [
+  { id: "grok", handle: "@grok", installCmd: "npm install -g @xai-official/grok", signinCmd: "grok login" },
+  { id: "claude", handle: "@claude", installCmd: "curl -fsSL https://claude.ai/install.sh | bash", signinCmd: "claude auth login" },
+  { id: "codex", handle: "@codex", installCmd: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", signinCmd: "codex login" },
+  { id: "copilot", handle: "@copilot", installCmd: "npm install -g @github/copilot", signinCmd: "/login" },
+  { id: "cursor", handle: "@cursor", installCmd: "curl https://cursor.com/install -fsS | bash", signinCmd: "agent login" },
+  { id: "opencode", handle: "@opencode", installCmd: "curl -fsSL https://opencode.ai/install | bash", signinCmd: "opencode auth login" },
+  { id: "gemini", handle: "@Gemini", installCmd: "npm install -g @google/gemini-cli", signinCmd: "gemini" },
+  { id: "antigravity", handle: "@antigravity", installCmd: "curl -fsSL https://antigravity.google/cli/install.sh | bash", signinCmd: "agy" },
+  { id: "devin", handle: "@devin", installCmd: "curl -fsSL https://cli.devin.ai/install.sh | bash", signinCmd: "devin" },
+];
+---
+
+<Layout
+    title="Connect your assistants — pipper"
+    description="How to set up each AI assistant Pipper works with: Cursor, Codex, Claude, opencode, Grok, Gemini, Copilot, Antigravity, Devin."
+    pageClass="docs-page"
+    hideHeader
+    hideFooter
+>
+    <div class="w-full px-3 sm:px-6 py-3 sm:py-5 font-geist" style="background:#f0efed;color:#111;min-height:100svh;">
+        <div class="mx-auto grid lg:grid-cols-[17rem_minmax(0,1fr)]" style="border:1.5px solid #111;min-height:calc(100svh - 1.5rem);max-width:110rem;background:#f0efed;">
+            <aside id="docs-sidebar" class="border-b-[1.5px] lg:border-b-0 lg:border-r-[1.5px] border-[#111] px-6 sm:px-8 py-6 lg:py-8" aria-label="Assistants">
+                <a href="/" class="no-underline text-[1.6rem]" style="color:#111;font-family:'Figtree Variable',sans-serif;font-weight:420;letter-spacing:-0.05em;">Pipper.dev</a>
+                <nav aria-label="Assistants" class="mt-10 lg:mt-14">
+                    <ul class="list-none m-0 p-0 flex lg:flex-col flex-row flex-wrap gap-x-2 gap-y-3">
+                        {agents.map((a, i) => (
+                            <li>
+                                <button type="button" data-agent-tab={a.id} class={`docs-agent-tab ${i === 0 ? "active" : ""}`} style="font-family:'Figtree Variable',sans-serif;font-size:clamp(1.4rem,1.8vw,1.9rem);font-weight:420;letter-spacing:-0.04em;background:none;border:none;cursor:pointer;padding:0.35rem 1.4rem;border-radius:999px;color:#b66509;">
+                                    {a.handle}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </nav>
+            </aside>
+            <div class="relative px-6 sm:px-12 lg:px-16 py-8 lg:py-12 min-w-0">
+                <a href="/download" class="absolute no-underline text-[1.05rem] px-7 py-2.5" style="top:1.25rem;right:1.25rem;background:#e8d9fa;color:#a54cf1;border:1.5px solid #a54cf1;font-family:'Figtree Variable',sans-serif;">Download</a>
+                {agents.map((a, i) => (
+                    <div data-agent-panel={a.id} class="flex-col gap-7" style={`display:${i === 0 ? "flex" : "none"};`} role="tabpanel" aria-label={a.handle}>
+                        <ol class="list-none m-0 mt-10 p-0 flex flex-col gap-6" style="font-family:'Figtree Variable',sans-serif;">
+                            <li class="flex items-baseline gap-4 text-[clamp(1.3rem,2.2vw,1.8rem)]" style="letter-spacing:-0.02em;">
+                                <svg viewBox="0 0 33 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:1.1em;height:1.1em;flex-shrink:0;align-self:center;overflow:visible;"><g><path d="M9.83385 1.20794L28.9336 13.41C30.7681 14.582 30.5218 17.3345 28.5083 18.1621L6.03476 27.3992C3.49609 28.4426 1.20969 25.4586 2.87767 23.2789L8.9863 15.2959C9.57315 14.529 9.70359 13.5062 9.32802 12.6166L5.90971 4.51905C4.88322 2.08746 7.60963 -0.213023 9.83385 1.20794Z" fill="#FFAA4F"/><path d="M9.83385 1.20794L28.9336 13.41C30.7681 14.582 30.5218 17.3345 28.5083 18.1621L6.03476 27.3992C3.49609 28.4426 1.20969 25.4586 2.87767 23.2789L8.9863 15.2959C9.57315 14.529 9.70359 13.5062 9.32802 12.6166L5.90971 4.51905C4.88322 2.08746 7.60963 -0.213023 9.83385 1.20794Z" stroke="#B1620D" stroke-width="1.53624"/></g></svg>
+                                <span>Open the Terminal</span>
+                            </li>
+                            <li class="flex items-baseline gap-4 text-[clamp(1.3rem,2.2vw,1.8rem)]" style="letter-spacing:-0.02em;">
+                                <svg viewBox="0 0 33 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:1.1em;height:1.1em;flex-shrink:0;align-self:center;overflow:visible;"><g><path d="M9.83385 1.20794L28.9336 13.41C30.7681 14.582 30.5218 17.3345 28.5083 18.1621L6.03476 27.3992C3.49609 28.4426 1.20969 25.4586 2.87767 23.2789L8.9863 15.2959C9.57315 14.529 9.70359 13.5062 9.32802 12.6166L5.90971 4.51905C4.88322 2.08746 7.60963 -0.213023 9.83385 1.20794Z" fill="#FFAA4F"/><path d="M9.83385 1.20794L28.9336 13.41C30.7681 14.582 30.5218 17.3345 28.5083 18.1621L6.03476 27.3992C3.49609 28.4426 1.20969 25.4586 2.87767 23.2789L8.9863 15.2959C9.57315 14.529 9.70359 13.5062 9.32802 12.6166L5.90971 4.51905C4.88322 2.08746 7.60963 -0.213023 9.83385 1.20794Z" stroke="#B1620D" stroke-width="1.53624"/></g></svg>
+                                <span>Paste the command below</span>
+                            </li>
+                            {a.installCmd && (
+                                <li class="sm:pl-10">
+                                    <button type="button" data-copy={a.installCmd} title="Click to copy" class="font-mono cursor-pointer" style="font-size:clamp(0.95rem,1.4vw,1.15rem);background:#ffad4b;color:#7a4a08;border:none;border-radius:999px;padding:0.7rem 1.6rem;max-width:100%;overflow-x:auto;white-space:nowrap;display:inline-block;">{a.installCmd}</button>
+                                </li>
+                            )}
+                            {a.signinCmd && (
+                                <li class="sm:pl-10">
+                                    <button type="button" data-copy={a.signinCmd} title="Click to copy" class="font-mono cursor-pointer" style="font-size:clamp(0.95rem,1.4vw,1.15rem);background:#ffad4b;color:#7a4a08;border:none;border-radius:999px;padding:0.7rem 1.6rem;max-width:100%;overflow-x:auto;white-space:nowrap;display:inline-block;">{a.signinCmd}</button>
+                                </li>
+                            )}
+                            <li class="flex items-baseline gap-4 text-[clamp(1.3rem,2.2vw,1.8rem)]" style="letter-spacing:-0.02em;">
+                                <svg viewBox="0 0 33 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:1.1em;height:1.1em;flex-shrink:0;align-self:center;overflow:visible;"><g><path d="M9.83385 1.20794L28.9336 13.41C30.7681 14.582 30.5218 17.3345 28.5083 18.1621L6.03476 27.3992C3.49609 28.4426 1.20969 25.4586 2.87767 23.2789L8.9863 15.2959C9.57315 14.529 9.70359 13.5062 9.32802 12.6166L5.90971 4.51905C4.88322 2.08746 7.60963 -0.213023 9.83385 1.20794Z" fill="#FFAA4F"/><path d="M9.83385 1.20794L28.9336 13.41C30.7681 14.582 30.5218 17.3345 28.5083 18.1621L6.03476 27.3992C3.49609 28.4426 1.20969 25.4586 2.87767 23.2789L8.9863 15.2959C9.57315 14.529 9.70359 13.5062 9.32802 12.6166L5.90971 4.51905C4.88322 2.08746 7.60963 -0.213023 9.83385 1.20794Z" stroke="#B1620D" stroke-width="1.53624"/></g></svg>
+                                <span>reopen pipper and retry</span>
+                            </li>
+                        </ol>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </div>
+</Layout>
+
+<style is:global>
+    .docs-page { background: #f0efed !important; color: #111111 !important; }
+    .docs-page .main { background: #f0efed; }
+    .docs-page .docs-agent-tab.active { background: #ffad4b !important; color: #7a4a08 !important; }
+    .docs-page .docs-agent-tab:hover { background: rgba(255,173,75,0.3); }
+    .docs-page .docs-agent-tab.active:hover { background: #ffad4b; }
+    .docs-page [data-copy]:hover { filter: brightness(0.96); }
+    .docs-page [data-copy][data-copied="true"] { background: #26B25A !important; color: #24ED75 !important; }
+</style>
+
+<script>
+    const tabs = Array.from(document.querySelectorAll("[data-agent-tab]"));
+    const panels = Array.from(document.querySelectorAll("[data-agent-panel]"));
+    function select(id: string) {
+        tabs.forEach((t) => t.classList.toggle("active", t.getAttribute("data-agent-tab") === id));
+        panels.forEach((p) => {
+            (p as HTMLElement).style.display = p.getAttribute("data-agent-panel") === id ? "flex" : "none";
+        });
+        try {
+            history.replaceState(null, "", `#${id}`);
+        } catch {
+            // ignore
+        }
+    }
+    tabs.forEach((t) => {
+        t.addEventListener("click", () => select(t.getAttribute("data-agent-tab") ?? ""));
+    });
+    const initial = window.location.hash.slice(1);
+    if (initial && document.querySelector(`[data-agent-panel="${initial}"]`)) {
+        select(initial);
+    }
+    document.querySelectorAll("[data-copy]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+            const el = btn as HTMLElement;
+            const text = btn.getAttribute("data-copy") ?? "";
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch {
+                // clipboard unavailable — still show feedback, user can select manually
+            }
+            if (el.hasAttribute("data-copied")) return;
+            const original = el.textContent;
+            el.setAttribute("data-copied", "true");
+            el.textContent = "Copied ✓";
+            setTimeout(() => {
+                el.removeAttribute("data-copied");
+                el.textContent = original;
+            }, 1500);
+        });
+    });
+</script>

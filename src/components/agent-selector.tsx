@@ -286,6 +286,30 @@ function AgentOption({
 }
 
 /**
+ * Registry id → anchor on the marketing setup guide (`/docs/agents`).
+ * Failed verification cards link here so users can install / sign in
+ * without leaving onboarding context.
+ */
+const SETUP_GUIDE_BASE_URL = "https://www.pipper.dev/docs/agents";
+
+const SETUP_GUIDE_DOC_IDS: Record<string, string> = {
+  "cursor-acp": "cursor",
+  "codex-acp": "codex",
+  "claude-agent-acp": "claude",
+  "opencode-acp": "opencode",
+  "grok-acp": "grok",
+  "gemini-acp": "gemini",
+  "copilot-acp": "copilot",
+  "antigravity-acp": "antigravity",
+  "devin-acp": "devin",
+};
+
+function setupGuideUrl(agentId: string): string | null {
+  const docId = SETUP_GUIDE_DOC_IDS[agentId];
+  return docId ? `${SETUP_GUIDE_BASE_URL}#${docId}` : null;
+}
+
+/**
  * Setup card — stays visible for the whole walkthrough.
  * Inline: logo + name + trailing status (spinner | check | retry).
  */
@@ -314,6 +338,16 @@ function AgentSetupCard({
     result.status === "needs-auth"
       ? `Sign in required for ${descriptor.displayName}. Retry after authenticating`
       : `Retry ${descriptor.displayName}`;
+  const guideUrl = status === "ready" ? null : setupGuideUrl(descriptor.id);
+
+  const openSetupGuide = async () => {
+    if (!guideUrl || !window.omni?.shell?.openExternal) return;
+    try {
+      await window.omni.shell.openExternal(guideUrl);
+    } catch {
+      // Link is a convenience — a blocked popup must never break the walkthrough.
+    }
+  };
 
   return (
     <Card selected={status === "ready"} data-pipper-id={`agent-setup-card-${descriptor.id}`}>
@@ -337,16 +371,30 @@ function AgentSetupCard({
             data-pipper-id={`agent-setup-ready-${descriptor.id}`}
           />
         ) : (
-          <button
-            type="button"
-            onClick={onRetry}
-            title={result.message ?? retryLabel}
-            aria-label={retryLabel}
-            data-pipper-id={`agent-setup-retry-${descriptor.id}`}
-            className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <ArrowsClockwiseIcon size={16} />
-          </button>
+          <span className="inline-flex items-center gap-2">
+            {guideUrl && (
+              <button
+                type="button"
+                onClick={() => void openSetupGuide()}
+                title={`Open setup steps for ${descriptor.displayName}`}
+                aria-label={`Open setup guide for ${descriptor.displayName}`}
+                data-pipper-id={`agent-setup-guide-${descriptor.id}`}
+                className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                Setup guide
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onRetry}
+              title={result.message ?? retryLabel}
+              aria-label={retryLabel}
+              data-pipper-id={`agent-setup-retry-${descriptor.id}`}
+              className="inline-flex size-7 items-center justify-center text-muted-foreground hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <ArrowsClockwiseIcon size={16} />
+            </button>
+          </span>
         )}
       </CardFooter>
     </Card>
