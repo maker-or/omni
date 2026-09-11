@@ -17,12 +17,13 @@ const agents: AgentDoc[] = [
   { id: "opencode", handle: "@opencode", installCmd: "curl -fsSL https://opencode.ai/install | bash", signinCmd: "opencode auth login" },
   { id: "gemini", handle: "@Gemini", installCmd: "npm install -g @google/gemini-cli", signinCmd: "gemini" },
   { id: "antigravity", handle: "@antigravity", installCmd: "curl -fsSL https://antigravity.google/cli/install.sh | bash", signinCmd: "agy" },
+  { id: "devin", handle: "@devin", installCmd: "curl -fsSL https://cli.devin.ai/install.sh | bash", signinCmd: "devin" },
 ];
 ---
 
 <Layout
     title="Connect your assistants — pipper"
-    description="How to set up each AI assistant Pipper works with: Cursor, Codex, Claude, opencode, Grok, Gemini, Copilot, Antigravity."
+    description="How to set up each AI assistant Pipper works with: Cursor, Codex, Claude, opencode, Grok, Gemini, Copilot, Antigravity, Devin."
     pageClass="docs-page"
     hideHeader
     hideFooter

@@ -301,6 +301,7 @@ const SETUP_GUIDE_DOC_IDS: Record<string, string> = {
   "gemini-acp": "gemini",
   "copilot-acp": "copilot",
   "antigravity-acp": "antigravity",
+  "devin-acp": "devin",
 };
 
 function setupGuideUrl(agentId: string): string | null {
