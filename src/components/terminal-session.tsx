@@ -85,11 +85,18 @@ export const TerminalSession = memo(function TerminalSession({
   const hasBeenActiveRef = useRef(isActive);
   if (isActive) hasBeenActiveRef.current = true;
 
+  // A workspace switch keeps the session id but changes `cwd` (the store
+  // restores the bucket expecting fresh PTYs). Keying on `cwd` remounts the
+  // inner view, which is the only way to make every stage restart cleanly:
+  // scrollback recovery re-reads the restored history, the PTY is spawned
+  // only after that recovery, and any in-flight callback from the previous
+  // workspace (recovery frames, `create()` resolution) lands on an unmounted
+  // instance instead of replaying old history into the new shell.
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden">
       {hasBeenActiveRef.current && (
         <TerminalInner
-          key={retryKey}
+          key={`${retryKey}:${cwd ?? ""}`}
           sessionId={sessionId}
           cwd={cwd}
           isActive={isActive}
@@ -115,9 +122,6 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   const [gridSize, setGridSize] = useState<TerminalGridSize | null>(null);
   const mountedRef = useRef(true);
   const createdRef = useRef(false);
-  /** Cwd the live PTY was spawned with. A workspace switch restores the same
-   * session id with a new cwd — the spawn gate below must open again. */
-  const createdCwdRef = useRef<string | undefined>(undefined);
   /** Human-readable spawn stage for timeout diagnostics (no PII). */
   const spawnStageRef = useRef("mount");
   const ptyReadyRef = useRef(false);
@@ -302,44 +306,24 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
       if (!mountedRef.current || ptyReadyRef.current) return;
       const stage = spawnStageRef.current;
       console.error(`[Terminal Session] Spawn timed out for ${sessionId} at stage: ${stage}`);
+      // The log lives under the app's user-data folder, which differs per
+      // platform and build; name the file, not a machine-specific path.
       setError(
-        `Shell did not start (stuck at: ${stage}). Check ${"~/Library/Application Support/pipper-dev/logs/main.log"} for spawn lines, then Retry.`,
+        `Shell did not start (stuck at: ${stage}). Check logs/main.log in the app data folder for spawn lines, then Retry.`,
       );
       markError(sessionId);
     }, 20000);
     return () => clearTimeout(id);
-  }, [sessionId, cwd, markError]);
-
-  // Workspace switch reuses the session id with a new cwd (store restores
-  // the bucket with fresh PTYs expected). Reopen the spawn gate so the
-  // creation effect below respawns the shell in the new cwd instead of
-  // keeping a dead view of the old workspace.
-  useEffect(() => {
-    if (!createdRef.current || cwd === createdCwdRef.current) return;
-    createdRef.current = false;
-    createdCwdRef.current = cwd;
-    ptyReadyRef.current = false;
-    recoveryCompleteRef.current = false;
-    exitDisplayedRef.current = false;
-    queuedLiveDataRef.current = "";
-    queuedInputRef.current = "";
-    initialHistoryRef.current =
-      useTerminalStore.getState().sessions.find((session) => session.id === sessionId)?.history ??
-      "";
-    setIsRecoveryComplete(false);
-    setError(null);
-    // Drop the old workspace's scrollback; recovery replays the restored one.
-    write("\x1bc");
-  }, [cwd, sessionId, write]);
+  }, [sessionId, markError]);
 
   // Create only after recovery finishes, so fresh shell output cannot
   // interleave with recovered scrollback. The measured WTerm grid is sent as
-  // part of creation, avoiding the old 80x24 spawn window.
+  // part of creation, avoiding the old 80x24 spawn window. A cwd change never
+  // reaches this instance: the parent remounts it (see `TerminalSession`).
   useEffect(() => {
     if (!core || !gridSize || !isReady || !isRecoveryComplete || createdRef.current) return;
 
     createdRef.current = true;
-    createdCwdRef.current = cwd;
     const creationSize = gridSize;
 
     void window.omni.terminal

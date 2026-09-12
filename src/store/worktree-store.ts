@@ -33,6 +33,8 @@ interface WorktreeState {
   createWorktree: (projectId: string, name: string) => Promise<Worktree | null>;
   switchWorktree: (projectId: string, path: string) => Promise<Thread | null>;
   switchBranch: (projectId: string, path: string, branch: string) => Promise<Worktree | null>;
+  /** Drop a stale failure message (e.g. when a dialog opens or is dismissed). */
+  clearError: () => void;
   clear: () => void;
 }
 
@@ -195,6 +197,7 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
       return null;
     }
   },
+  clearError: () => set({ error: null }),
   clear: () =>
     set({ worktrees: [], branches: [], projectId: null, branchProjectId: null, error: null }),
 }));

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, Check, Circle, CircleNotch, Minus, X } from "@phosphor-icons/react";
 import { WorkspacePrComments } from "@/components/workspace-pr-comments";
 import type {
@@ -8,6 +8,7 @@ import type {
   WorkspacePrDeployment,
 } from "../../contracts/git.ts";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import { useContentOverflow } from "@/lib/use-content-overflow";
 import { cn } from "@/lib/utils";
 
 /** One "todo" row under Git status: what blocks the PR and the button that clears it. */
@@ -116,21 +117,25 @@ export function WorkspacePrDetail({
 }) {
   const pr = status.pr;
   const [bodyExpanded, setBodyExpanded] = useState(false);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  // Rendered height, not character count, decides whether anything is clipped.
+  const bodyClipped = useContentOverflow(bodyRef, [pr?.body, bodyExpanded]);
   if (!pr) return null;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
-        <h2 className="text-sm font-semibold leading-5 text-foreground">{pr.title}</h2>
+        <h2 className="text-sm font-semibold leading-5 text-foreground">Summary</h2>
         {pr.body.trim() ? (
           <div className="relative">
             <div
+              ref={bodyRef}
               className={cn("overflow-hidden text-xs text-muted-foreground")}
               style={bodyExpanded ? undefined : { maxHeight: BODY_COLLAPSED_PX }}
             >
               <MarkdownRenderer className="text-xs leading-5">{pr.body}</MarkdownRenderer>
             </div>
-            {!bodyExpanded && pr.body.length > 400 ? (
+            {!bodyExpanded && bodyClipped ? (
               <button
                 type="button"
                 onClick={() => setBodyExpanded(true)}
@@ -142,33 +147,6 @@ export function WorkspacePrDetail({
           </div>
         ) : null}
       </div>
-
-      {items.length > 0 ? (
-        <Section title="Git status">
-          {items.map((item) => (
-            <li key={item.key} className="flex h-8 items-center gap-2 text-xs">
-              <span className="flex w-4 shrink-0 justify-center">
-                {item.done ? (
-                  <Check size={13} weight="bold" className="text-emerald-500" />
-                ) : (
-                  <Circle size={13} className="text-muted-foreground/60" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-foreground">{item.label}</span>
-              {item.action ? (
-                <button
-                  type="button"
-                  disabled={item.action.disabled}
-                  onClick={item.action.onClick}
-                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                >
-                  {item.action.label}
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </Section>
-      ) : null}
 
       {pr.deployments.length > 0 ? (
         <Section title="Deployments">

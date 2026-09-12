@@ -134,13 +134,13 @@ function prPill(status: WorkspaceGitStatus) {
       type="button"
       onClick={() => void window.omni.shell.openExternal(url)}
       title="Open pull request on GitHub"
-      className="flex shrink-0 items-center overflow-hidden rounded-full bg-white/15 text-xs font-semibold text-white transition-colors hover:bg-white/25"
+      className="flex shrink-0 items-center overflow-hidden rounded-full bg-white/30 border-white/30 border-2 text-xs font-semibold text-white transition-colors hover:bg-white/25"
     >
-      <span className="bg-white/20 px-2.5 py-1.5">
+      <span className=" px-2.5 py-1.5">
         #{number}
         {suffix}
       </span>
-      <span className="px-2 py-1.5">
+      <span className="p-2 bg-white/30 rounded-r-full">
         <ArrowUpRight size={13} />
       </span>
     </button>
@@ -173,7 +173,13 @@ export function WorkspaceControlPanel({
   const [pickedTab, setPickedTab] = useState<PanelTab | null>(null);
   /** Agent turn we handed a commit to; cleared when that turn settles. */
   const [agentTask, setAgentTask] = useState<"commit" | "commitPush" | null>(null);
-  const agentTaskWorkspaceRef = useRef<string | null>(null);
+  /**
+   * Bumped on every workspace switch. Every async result (status poll, the
+   * agent's commit turn) captures the generation it started under and is
+   * dropped if the panel has since moved on — so a slow poll or a late turn
+   * from workspace A can never paint over workspace B, including A → B → A.
+   */
+  const generationRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!project || !worktreePath) {
@@ -186,19 +192,24 @@ export function WorkspaceControlPanel({
       setError("Git bridge missing — restart the app (bun run dev) to load it.");
       return;
     }
+    const generation = generationRef.current;
     setLoading(true);
     setError(null);
     try {
-      setStatus(await window.omni.git.status({ projectId: project.id, path: worktreePath }));
+      const next = await window.omni.git.status({ projectId: project.id, path: worktreePath });
+      if (generation !== generationRef.current) return;
+      setStatus(next);
     } catch (err) {
+      if (generation !== generationRef.current) return;
       setStatus(null);
       setError(err instanceof Error ? err.message : "Git status failed.");
     } finally {
-      setLoading(false);
+      if (generation === generationRef.current) setLoading(false);
     }
   }, [project, worktreePath]);
 
   useEffect(() => {
+    generationRef.current += 1;
     setError(null);
     setNotice(null);
     setAgentTask(null);
@@ -215,9 +226,13 @@ export function WorkspaceControlPanel({
     return () => clearInterval(id);
   }, [project, worktreePath, refresh]);
 
+  /** Runs a git action with toasts; resolves `true` only when it succeeded. */
   const runAction = useCallback(
-    async (kind: string, fn: () => Promise<{ message: string; url?: string | null }>) => {
-      if (!project || !worktreePath) return;
+    async (
+      kind: string,
+      fn: () => Promise<{ message: string; url?: string | null }>,
+    ): Promise<boolean> => {
+      if (!project || !worktreePath) return false;
       setAction(kind);
       setError(null);
       setNotice(null);
@@ -230,10 +245,12 @@ export function WorkspaceControlPanel({
         if (result.url && window.omni?.shell?.openExternal) {
           await window.omni.shell.openExternal(result.url).catch(() => {});
         }
+        return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : `${kind} failed.`;
         setError(message);
         notify("error", `${actionLabel(kind)} failed`, message);
+        return false;
       } finally {
         setAction(null);
         void refresh();
@@ -271,10 +288,11 @@ export function WorkspaceControlPanel({
     setError(null);
     setNotice(null);
     setAgentTask(kind);
-    agentTaskWorkspaceRef.current = worktreePath;
+    const generation = generationRef.current;
+    // A workspace switch already reset the panel; don't clobber its state.
+    const stale = () => generation !== generationRef.current;
     const settle = () => {
-      // A workspace switch already reset the panel; don't clobber its state.
-      if (agentTaskWorkspaceRef.current !== worktreePath) return;
+      if (stale()) return;
       setAgentTask(null);
       setNotice(null);
       void refresh();
@@ -283,9 +301,15 @@ export function WorkspaceControlPanel({
       project,
       worktreePath,
       title: workspaceName ? `${workspaceName}: commit` : "Commit",
-      message: buildCommitPrompt({ branch: status.branch, push }),
+      message: buildCommitPrompt({
+        branch: status.branch,
+        push,
+        files: status.files.map((file) => file.path),
+        truncated: status.truncated,
+      }),
     })
       .then(({ turn }) => {
+        if (stale()) return;
         setNotice(push ? "Agent is committing and pushing…" : "Agent is committing…");
         notify(
           "ok",
@@ -293,7 +317,7 @@ export function WorkspaceControlPanel({
           "Watch the thread for progress; the panel updates when it finishes.",
         );
         turn.then(settle, (err) => {
-          if (agentTaskWorkspaceRef.current !== worktreePath) return;
+          if (stale()) return;
           const message = err instanceof Error ? err.message : "The agent did not finish.";
           setError(message);
           notify("error", `${actionLabel(kind)} failed`, message);
@@ -301,6 +325,7 @@ export function WorkspaceControlPanel({
         });
       })
       .catch((err) => {
+        if (stale()) return;
         const message = err instanceof Error ? err.message : "Could not reach the agent.";
         setError(message);
         notify("error", `${actionLabel(kind)} failed`, message);
@@ -706,9 +731,9 @@ export function WorkspaceControlPanel({
             {/* Gradient state header: PR pill + state action, Check/Changes tabs. */}
             <div
               className={cn(
-                "shrink-0 rounded-tr-[28px] bg-gradient-to-b px-4 pb-3 pt-4",
-                tone === "ready" && "from-emerald-500/80 via-emerald-900/25 to-transparent",
-                tone === "action" && "from-amber-500/70 via-amber-900/25 to-transparent",
+                "shrink-0 rounded-tr-[16px] bg-linear-to-b px-4 pb-3 pt-4",
+                tone === "ready" && "from-[#088139] via-[#114526] to-transparent",
+                tone === "action" && "from-[#FFAA4F] via-[#6F5121] to-transparent",
                 tone === "merged" && "from-violet-500/80 via-violet-900/25 to-transparent",
                 tone === "neutral" && "from-zinc-300/50 via-zinc-600/20 to-transparent",
               )}
@@ -743,15 +768,6 @@ export function WorkspaceControlPanel({
             <div className="flex flex-col gap-3 px-4 pt-3">
               {tab === "check" ? (
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                    <GitBranch size={13} className="shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">{status.branch ?? "detached"}</span>
-                    {syncLabel(status) && (
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {syncLabel(status)}
-                      </span>
-                    )}
-                  </div>
                   {status.pr ? (
                     <WorkspacePrDetail
                       status={status}
@@ -860,7 +876,11 @@ export function WorkspaceControlPanel({
                                   prTitle.trim() || status.branch || workspaceName || "Workspace",
                                 draft: prDraft,
                               });
-                            }).then(() => setShowPrForm(false))
+                            }).then((created) => {
+                              // Keep the title/draft choice on failure so a
+                              // retry does not start from scratch.
+                              if (created) setShowPrForm(false);
+                            })
                           }
                         >
                           {action === "pr"

@@ -86,7 +86,7 @@ function SidebarSheet({ side, open, onClose, children }: SidebarSheetProps) {
   // Fallback: rAF-driven animation callbacks stall in throttled tabs.
   useEffect(() => {
     if (!closing) return;
-    const id = setTimeout(finishClose, exitFallbackMs(spring.moderate));
+    const id = setTimeout(finishClose, exitFallbackMs());
     return () => clearTimeout(id);
   }, [closing, finishClose]);
 

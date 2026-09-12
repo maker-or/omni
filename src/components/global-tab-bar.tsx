@@ -351,7 +351,20 @@ export function GlobalTabBar() {
       const nextState = await window.omni.tabs.close(id);
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       if (!wasActive) return;
-      if (nextState.activeThreadId) {
+      // Persisted state always names *some* open tab as active, and when the
+      // closed tab was its workspace's last one that is a tab from another
+      // workspace. Advanced mode hides those, so activating it would jump the
+      // user to a thread they cannot see; fall through to the draft/terminal
+      // path instead, exactly as if no tab remained.
+      const nextThread = nextState.activeThreadId
+        ? openThreads.find((thread) => thread.id === nextState.activeThreadId)
+        : undefined;
+      const nextIsVisible =
+        uiMode !== "advanced" ||
+        (nextThread !== undefined &&
+          nextThread.project_id === activeProject?.id &&
+          isThreadInWorkspace(nextThread, activeWorkspacePath));
+      if (nextState.activeThreadId && nextIsVisible) {
         await handleSelectThread(nextState.activeThreadId, mode !== "terminal");
       } else {
         requestThread(null);

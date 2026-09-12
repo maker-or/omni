@@ -68,6 +68,7 @@ import { probeAgentById } from "./agents/handshake-probe.ts";
 import {
   broadcastOpenTabsChanged,
   closeThreadTab,
+  removeThreadTabs,
   openThreadTab,
   readOpenTabsState,
   setActiveThreadTab,
@@ -482,33 +483,33 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
 
 const WORKTREE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 
+type WorktreeInstallOutcome = Pick<WorktreeSetupProgress, "status" | "manager" | "message">;
+
 /**
  * Install a freshly created worktree's dependencies in the background so the
  * workspace is ready to run without a manual install. The package manager is
  * detected from the worktree's lockfile; progress is broadcast to the
  * renderer (`worktrees:setupProgress`) for toasts. Never throws — a failed
- * install must not undo the created worktree, it just reports.
+ * install must not undo the created worktree, it just reports; the outcome is
+ * also returned so callers that must wait (restore) can act on it.
  */
 async function installWorktreeDependencies(
   projectId: string,
   worktreePath: string,
   workspaceName: string,
-): Promise<void> {
-  const report = (
-    progress: Omit<WorktreeSetupProgress, "projectId" | "worktreePath" | "workspaceName">,
-  ) =>
+): Promise<WorktreeInstallOutcome> {
+  const report = (progress: WorktreeInstallOutcome): WorktreeInstallOutcome => {
     broadcastToWindows("worktrees:setupProgress", {
       projectId,
       worktreePath,
       workspaceName,
       ...progress,
     } satisfies WorktreeSetupProgress);
+    return progress;
+  };
 
   const install = resolveInstallCommand(worktreePath);
-  if (!install) {
-    report({ status: "skipped" });
-    return;
-  }
+  if (!install) return report({ status: "skipped" });
 
   report({ status: "installing", manager: install.manager });
   try {
@@ -544,10 +545,10 @@ async function installWorktreeDependencies(
         }
       });
     });
-    report({ status: "installed", manager: install.manager });
+    return report({ status: "installed", manager: install.manager });
   } catch (err) {
     console.error(`[Worktree] Dependency install failed for ${worktreePath}:`, err);
-    report({
+    return report({
       status: "failed",
       manager: install.manager,
       message: err instanceof Error ? err.message : String(err),
@@ -1678,17 +1679,31 @@ function registerIpc(): void {
     };
   });
 
-  // Restore = bring deps back in the background (same flow as create).
-  ipcMain.handle("worktrees:restore", (_event, input: { projectId: string; path: string }) => {
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
-    if (target.isProjectRoot) throw new Error("The project root cannot be restored.");
-    void installWorktreeDependencies(
-      input.projectId,
-      target.path,
-      target.workspaceName ?? "Workspace",
-    );
-    return { ok: true as const, message: "Workspace restored." };
-  });
+  // Restore = bring deps back (same installer as create). Unlike create this
+  // waits for the install: the renderer only un-archives on success, so a
+  // failed install leaves the workspace parked instead of half-restored.
+  ipcMain.handle(
+    "worktrees:restore",
+    async (_event, input: { projectId: string; path: string }) => {
+      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      if (target.isProjectRoot) throw new Error("The project root cannot be restored.");
+      const outcome = await installWorktreeDependencies(
+        input.projectId,
+        target.path,
+        target.workspaceName ?? "Workspace",
+      );
+      if (outcome.status === "failed") {
+        throw new Error(outcome.message ?? `${outcome.manager ?? "Dependency"} install failed.`);
+      }
+      return {
+        ok: true as const,
+        message:
+          outcome.status === "installed"
+            ? "Workspace restored; dependencies installed."
+            : "Workspace restored.",
+      };
+    },
+  );
 
   // Continue after merge: new branch off the fresh base, same worktree.
   ipcMain.handle("worktrees:continue", (_event, input: { projectId: string; path: string }) => {
@@ -1729,17 +1744,17 @@ function registerIpc(): void {
     // Run every cleanup operation even if one fails. Git has already removed
     // the workspace, so leaving the remaining tabs or threads untouched would
     // strand them against a path that no longer exists.
-    const tabResults = await Promise.allSettled(threads.map((thread) => closeThreadTab(thread.id)));
-    tabResults.forEach((result, index) => {
-      if (result.status === "rejected") {
-        const threadId = threads[index]?.id ?? "unknown";
-        console.error(
-          `[IPC] Failed to close tab for deleted workspace thread ${threadId}:`,
-          result.reason,
-        );
-        cleanupErrors.push(result.reason);
-      }
-    });
+    //
+    // One persisted write drops every deleted tab: a per-thread close could
+    // fail midway and leave a stale ID in launch state that resurfaces after
+    // restart, bound to a worktree that no longer exists.
+    let tabs: OpenTabsState | null = null;
+    try {
+      tabs = await removeThreadTabs([...deletedThreadIds]);
+    } catch (error) {
+      console.error("[IPC] Failed to persist tab cleanup after worktree removal:", error);
+      cleanupErrors.push(error);
+    }
 
     const threadResults = await Promise.allSettled(
       threads.map((thread) => manager.deleteThread(thread.id)),
@@ -1756,7 +1771,12 @@ function registerIpc(): void {
     });
 
     try {
-      await updateWorkspaceSelection(project.id, project.path);
+      // Fall back to the project's root checkout. Its path comes from the
+      // live worktree list (the same value a root switch persists), not
+      // `project.path`: for a project registered at a repository subdirectory
+      // the two can differ, and the selection must name a real workspace.
+      const rootWorktree = listWorktrees(project.path).find((worktree) => worktree.isProjectRoot);
+      await updateWorkspaceSelection(project.id, rootWorktree?.path ?? project.path);
     } catch (error) {
       console.error(
         `[IPC] Failed to reconcile workspace selection after deleting ${target.path}:`,
@@ -1765,31 +1785,29 @@ function registerIpc(): void {
       cleanupErrors.push(error);
     }
 
-    let tabs: OpenTabsState | null = null;
-    try {
-      tabs = await readOpenTabsState();
-    } catch (error) {
-      console.error("[IPC] Failed to read tabs after worktree cleanup:", error);
-      cleanupErrors.push(error);
+    // When the persisted tab write failed, stale IDs may remain on disk. Still
+    // never broadcast them back to the renderer or reactivate a thread whose
+    // workspace has just been removed — reconcile the in-memory view instead.
+    let reconciledTabs: OpenTabsState | null = tabs;
+    if (!reconciledTabs) {
+      try {
+        const persisted = await readOpenTabsState();
+        const openThreadIds = persisted.openThreadIds.filter((id) => !deletedThreadIds.has(id));
+        reconciledTabs = {
+          openThreadIds,
+          activeThreadId:
+            persisted.activeThreadId && !deletedThreadIds.has(persisted.activeThreadId)
+              ? persisted.activeThreadId
+              : (openThreadIds[0] ?? null),
+          threadSwitchHistory: persisted.threadSwitchHistory.filter(
+            (id) => !deletedThreadIds.has(id),
+          ),
+        };
+      } catch (error) {
+        console.error("[IPC] Failed to read tabs after worktree cleanup:", error);
+        cleanupErrors.push(error);
+      }
     }
-
-    // A failed tab write can leave stale IDs on disk. Do not broadcast those
-    // IDs back to the renderer, and do not reactivate a thread whose workspace
-    // has already been removed.
-    const reconciledTabs = tabs
-      ? (() => {
-          const openThreadIds = tabs.openThreadIds.filter((id) => !deletedThreadIds.has(id));
-          return {
-            ...tabs,
-            openThreadIds,
-            activeThreadId:
-              tabs.activeThreadId && !deletedThreadIds.has(tabs.activeThreadId)
-                ? tabs.activeThreadId
-                : (openThreadIds[0] ?? null),
-            threadSwitchHistory: tabs.threadSwitchHistory.filter((id) => !deletedThreadIds.has(id)),
-          };
-        })()
-      : null;
 
     try {
       const activeThreadId = reconciledTabs?.activeThreadId ?? manager.getState().threadId ?? null;

@@ -167,6 +167,36 @@ export async function closeThreadTab(
   });
 }
 
+/**
+ * Drop several tabs in one persisted write — used when a workspace is deleted
+ * and every thread bound to it goes with it. Atomic on purpose: closing them
+ * one by one can leave a stale ID on disk when a middle write fails, and that
+ * ID would resurface as a tab bound to a missing worktree after restart.
+ * The next active tab is chosen with the same rules as a single close.
+ */
+export async function removeThreadTabs(threadIds: string[]): Promise<OpenTabsState> {
+  const removed = new Set(threadIds);
+  return enqueueMutation(async () => {
+    const current = await readOpenTabsState();
+    const openThreadIds = current.openThreadIds.filter((id) => !removed.has(id));
+    const threadSwitchHistory = current.threadSwitchHistory.filter((id) => !removed.has(id));
+    let activeThreadId = current.activeThreadId;
+    if (activeThreadId && removed.has(activeThreadId)) {
+      activeThreadId = pickNextActiveThreadId(
+        current.openThreadIds,
+        openThreadIds,
+        activeThreadId,
+        threadSwitchHistory,
+      );
+    }
+    const next = await writeOpenTabsState({ openThreadIds, activeThreadId, threadSwitchHistory });
+    for (const id of threadIds) {
+      if (current.openThreadIds.includes(id)) notifyTabEvent("close", id, next);
+    }
+    return next;
+  });
+}
+
 export async function setActiveThreadTab(threadId: string | null): Promise<OpenTabsState> {
   return enqueueMutation(async () => {
     const current = await readOpenTabsState();

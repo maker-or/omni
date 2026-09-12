@@ -164,14 +164,26 @@ async function remoteOrigin(cwd: string): Promise<{ host: string | null; url: st
   }
 }
 
-async function parseStatusFiles(
-  cwd: string,
-): Promise<{ files: WorkspaceGitFile[]; truncated: boolean }> {
-  const out = await tryGitAsync(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+interface StatusSummary {
+  /** First `MAX_PANEL_FILES` changed files, for display. */
+  files: WorkspaceGitFile[];
+  truncated: boolean;
+  /** Totals over *every* record, not just the displayed slice. */
+  staged: number;
+  unstaged: number;
+  untracked: number;
+}
+
+/**
+ * Pure parse of `git status --porcelain=v1 -z` output. Exported for tests.
+ * Counts index and worktree columns independently, so `MM file` is one staged
+ * and one unstaged change — the same arithmetic `git status` itself uses.
+ */
+export function summarizeStatusPorcelain(out: string): StatusSummary {
   const files: WorkspaceGitFile[] = [];
-  if (!out) return { files, truncated: false };
+  const summary: StatusSummary = { files, truncated: false, staged: 0, unstaged: 0, untracked: 0 };
+  if (!out) return summary;
   const records = out.split("\0");
-  let truncated = false;
   for (let i = 0; i < records.length; i += 1) {
     const record = records[i];
     if (!record || record.length < 4) continue;
@@ -186,13 +198,24 @@ async function parseStatusFiles(
     else if (code.includes("A")) status = "added";
     else if (code.includes("M") || code.includes("T") || code.includes("U")) status = "modified";
     if (!status) continue;
+    const staged = code[0] !== " " && code[0] !== "?";
+    if (status === "untracked") summary.untracked += 1;
+    else {
+      if (staged) summary.staged += 1;
+      if (code[1] !== " ") summary.unstaged += 1;
+    }
     if (files.length >= MAX_PANEL_FILES) {
-      truncated = true;
+      summary.truncated = true;
       continue;
     }
-    files.push({ path, staged: code[0] !== " " && code[0] !== "?", status });
+    files.push({ path, staged, status });
   }
-  return { files, truncated };
+  return summary;
+}
+
+async function parseStatusFiles(cwd: string): Promise<StatusSummary> {
+  const out = await tryGitAsync(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  return summarizeStatusPorcelain(out ?? "");
 }
 
 type PrSummary = {
@@ -235,7 +258,7 @@ query($owner: String!, $name: String!, $branch: String!) {
     pullRequests(headRefName: $branch, states: [OPEN, MERGED], first: 5,
                  orderBy: { field: UPDATED_AT, direction: DESC }) {
       nodes {
-        number title body isDraft state url
+        number title body isDraft state url isCrossRepository
         commits(last: 1) { nodes { commit {
           deployments(last: 10) { nodes {
             environment state latestStatus { state environmentUrl logUrl }
@@ -268,6 +291,8 @@ export interface GhPrNode {
   isDraft?: boolean | null;
   state?: string | null;
   url?: string | null;
+  /** True when the head branch lives in a fork rather than this repository. */
+  isCrossRepository?: boolean | null;
   commits?: {
     nodes?: Array<{
       commit?: {
@@ -399,10 +424,16 @@ function commentOf(node: GhCommentNode, fallbackId: string): WorkspacePrComment 
   };
 }
 
-/** Pure selection over PR_QUERY nodes: open PR wins, else newest merged. */
+/**
+ * Pure selection over PR_QUERY nodes: open PR wins, else newest merged.
+ * GitHub filters `pullRequests(headRefName:)` by branch *name* only, so a
+ * fork's PR with the same branch name would match too; those are dropped
+ * here so the panel never displays or merges someone else's pull request.
+ */
 export function summarizePrNodes(nodes: GhPrNode[]): PrSummary {
-  const open = nodes.find((node) => (node.state ?? "").toUpperCase() === "OPEN");
-  const merged = nodes.find((node) => (node.state ?? "").toUpperCase() === "MERGED");
+  const ours = nodes.filter((node) => node.isCrossRepository !== true);
+  const open = ours.find((node) => (node.state ?? "").toUpperCase() === "OPEN");
+  const merged = ours.find((node) => (node.state ?? "").toUpperCase() === "MERGED");
   const node = open ?? merged;
   if (!node) return NO_PR;
   const commit = node.commits?.nodes?.[0]?.commit;
@@ -545,19 +576,11 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
       // fresh worktree.
       ahead = aheadOfBase;
     }
-    const [{ files, truncated }, origin] = await Promise.all([
+    const [{ files, truncated, staged, unstaged, untracked }, origin] = await Promise.all([
       parseStatusFiles(worktreePath),
       remoteOrigin(worktreePath),
     ]);
     const host = origin.host;
-    let staged = 0;
-    let unstaged = 0;
-    let untracked = 0;
-    for (const file of files) {
-      if (file.status === "untracked") untracked += 1;
-      else if (file.staged) staged += 1;
-      else unstaged += 1;
-    }
     const pr = host === "github.com" ? await lookupPr(worktreePath, branch, origin.url) : NO_PR;
     return {
       isRepo: true,
@@ -665,14 +688,38 @@ async function branchBaseAsync(worktreePath: string): Promise<string | null> {
   );
 }
 
+/** Local branch names tried, in order, when no remote advertises a default. */
+const CONVENTIONAL_BASE_BRANCHES = ["main", "master"];
+
+/**
+ * The repository's base branch as a *local* branch name: `origin/HEAD` when
+ * advertised, else a conventional local branch. Deliberately never "whatever
+ * is checked out" — the project root may be sitting on another feature
+ * branch, and merging workspace work into that would be silent data
+ * misplacement. Throws when nothing qualifies.
+ */
+function resolveLocalBaseBranch(projectPath: string): string {
+  const remoteHead = tryGit(projectPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  if (remoteHead) return remoteHead.replace(/^origin\//, "");
+  for (const candidate of CONVENTIONAL_BASE_BRANCHES) {
+    if (
+      tryGit(projectPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${candidate}`]) !== null
+    )
+      return candidate;
+  }
+  throw new Error(
+    "Could not determine the base branch: no origin default branch and no local main/master.",
+  );
+}
+
 /** Fallback PR body: the branch's commit subjects, else the branch name. */
 async function defaultPrBody(
   worktreePath: string,
   branch: string,
   base: string | null,
 ): Promise<string> {
-  const range = base ? `${base}..HEAD` : "-n 10 HEAD";
-  const log = await tryGitAsync(worktreePath, ["log", "--pretty=format:- %s", range]);
+  const rangeArgs = base ? [`${base}..HEAD`] : ["-n", "10", "HEAD"];
+  const log = await tryGitAsync(worktreePath, ["log", "--pretty=format:- %s", ...rangeArgs]);
   if (log) return log.split("\n").slice(0, 20).join("\n");
   return branch;
 }
@@ -709,13 +756,8 @@ export function mergeWorkspaceBranch(projectPath: string, branch: string): strin
   if (!branch.trim()) throw new Error("No branch to merge.");
   const dirty = tryGit(projectPath, ["status", "--porcelain"]);
   if (dirty) throw new Error("Project checkout has uncommitted changes — commit or stash first.");
-  const base =
-    tryGit(projectPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(
-      /^origin\//,
-      "",
-    ) ??
-    tryGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]) ??
-    "main";
+  const base = resolveLocalBaseBranch(projectPath);
+  if (base === branch.trim()) throw new Error(`"${branch}" is already the base branch.`);
   const current = tryGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (current !== base) git(projectPath, ["checkout", base]);
   try {

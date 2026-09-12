@@ -5,6 +5,8 @@ import { join } from "node:path";
 const MAX_BYTES = 2 * 1024 * 1024;
 
 let logFile: string | null = null;
+/** Bytes in the active log, tracked locally so rotation needs no stat per line. */
+let logSize = 0;
 
 function resolveLogFile(): string | null {
   if (logFile) return logFile;
@@ -13,14 +15,30 @@ function resolveLogFile(): string | null {
     mkdirSync(dir, { recursive: true });
     logFile = join(dir, "main.log");
     try {
-      if (statSync(logFile).size > MAX_BYTES) renameSync(logFile, `${logFile}.1`);
+      logSize = statSync(logFile).size;
     } catch {
       // No log yet or unreadable — start fresh.
+      logSize = 0;
     }
     return logFile;
   } catch {
     return null;
   }
+}
+
+/**
+ * Keep one previous generation (`main.log.1`). Checked on every append — a
+ * long-running process must not grow the active file past the cap just
+ * because it was small at startup.
+ */
+function rotateIfNeeded(file: string, incomingBytes: number): void {
+  if (logSize + incomingBytes <= MAX_BYTES) return;
+  try {
+    renameSync(file, `${file}.1`);
+  } catch {
+    // Nothing to rotate yet (or it vanished); the append recreates it.
+  }
+  logSize = 0;
 }
 
 /** Timestamped main-process log, mirrored to stdout. Never throws. */
@@ -29,7 +47,12 @@ export function logMain(message: string): void {
   console.log(line);
   try {
     const file = resolveLogFile();
-    if (file) appendFileSync(file, `${line}\n`);
+    if (!file) return;
+    const payload = `${line}\n`;
+    const bytes = Buffer.byteLength(payload);
+    rotateIfNeeded(file, bytes);
+    appendFileSync(file, payload);
+    logSize += bytes;
   } catch {
     // Logging must never break the app.
   }

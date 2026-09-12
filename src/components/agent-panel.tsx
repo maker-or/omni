@@ -868,9 +868,11 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     } else {
       setDraftContent((prev) => removeEntityKind(prev, "project"));
     }
-    // Only react to store project id — not every content keystroke.
+    // Only react to store project id and the UI mode — not every content
+    // keystroke. Returning to Basic must re-add the chip the Advanced-mode
+    // strip below removed, or the first send fails with `missing_project`.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: store → chip bridge
-  }, [draft?.projectId]);
+  }, [draft?.projectId, isAdvancedUI]);
   // Advanced UI keeps no project chip: the workspace owns the project context.
   // Strip any legacy chip that arrives (e.g. restored content) without wiping text.
   useEffect(() => {

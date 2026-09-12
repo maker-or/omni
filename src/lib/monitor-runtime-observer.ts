@@ -32,6 +32,8 @@ const DOM_ATTRIBUTION_IDS = new Set([
   "subagent-activity",
   "agent-selector",
   "agent-terminal-output",
+  "workspace-name-dialog",
+  "workspace-context-menu",
 ]);
 
 export interface RendererMonitorContext {

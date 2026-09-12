@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { ProjectIcon } from "@/components/ui/icon-picker";
+import { toast } from "@/components/ui/toast";
+import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useTerminalStore } from "@/store/terminal-store";
@@ -55,43 +57,49 @@ function WorkspaceNameDialog({
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4">
-      <form
-        className="w-full max-w-sm rounded-xl border border-border bg-surface-1 p-5 shadow-surface-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (name.trim()) onSubmit(name.trim());
-        }}
+      <Elevated
+        offset={4}
+        data-pipper-id="workspace-name-dialog"
+        className="w-full max-w-sm rounded-xl border border-border"
       >
-        <div className="mb-4 flex flex-col gap-1">
-          <h2 className="text-base font-semibold text-foreground">New workspace</h2>
-          <p className="text-xs leading-5 text-muted-foreground">
-            Create an isolated workspace in {project.name}.
-          </p>
-        </div>
-        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-foreground">
-          Workspace name
-          <input
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. Fix login redirect"
-            className="h-9 rounded-md border border-border bg-surface-2 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-foreground/50 focus:ring-1 focus:ring-ring"
-          />
-        </label>
-        {error && (
-          <p className="mt-3 text-xs leading-5 text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" size="sm" disabled={!name.trim() || isCreating}>
-            Create workspace
-          </Button>
-        </div>
-      </form>
+        <form
+          className="p-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (name.trim()) onSubmit(name.trim());
+          }}
+        >
+          <div className="mb-4 flex flex-col gap-1">
+            <h2 className="text-base font-semibold text-foreground">New workspace</h2>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Create an isolated workspace in {project.name}.
+            </p>
+          </div>
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-foreground">
+            Workspace name
+            <input
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Fix login redirect"
+              className="h-9 rounded-md border border-border bg-surface-2 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-foreground/50 focus:ring-1 focus:ring-ring"
+            />
+          </label>
+          {error && (
+            <p className="mt-3 text-xs leading-5 text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" size="sm" disabled={!name.trim() || isCreating}>
+              Create workspace
+            </Button>
+          </div>
+        </form>
+      </Elevated>
     </div>
   );
 }
@@ -146,7 +154,11 @@ function WorkspaceRow({
         </span>
       </button>
       {menuOpen && (
-        <div className="absolute left-2 top-full z-50 mt-1 w-44 rounded-lg border border-border bg-surface-1 p-1 shadow-surface-5">
+        <Elevated
+          offset={2}
+          data-pipper-id="workspace-context-menu"
+          className="absolute left-2 top-full z-50 mt-1 w-44 rounded-lg border border-border p-1"
+        >
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-hover hover:text-foreground"
@@ -167,7 +179,7 @@ function WorkspaceRow({
           >
             <Trash size={14} /> Delete workspace
           </button>
-        </div>
+        </Elevated>
       )}
     </div>
   );
@@ -184,6 +196,7 @@ export function AdvancedShell() {
     createWorktree,
     switchWorktree,
     syncSelections,
+    clearError: clearWorktreeError,
   } = useWorktreeStore();
   const loadProjectThreads = useThreadStore((state) => state.loadProjectThreads);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -298,35 +311,72 @@ export function AdvancedShell() {
     if (project.id !== activeProject?.id) await window.omni.projects.setActive(project.id);
   };
 
+  const openWorkspaceDialog = (project: Project) => {
+    // A failure from an earlier attempt (possibly another project) must not
+    // greet the user before they have typed anything.
+    clearWorktreeError();
+    setDialogProject(project);
+  };
+  const closeWorkspaceDialog = () => {
+    clearWorktreeError();
+    setDialogProject(null);
+  };
+
   const createWorkspace = async (name: string) => {
     if (!dialogProject) return;
     const project = dialogProject;
     const worktree = await createWorktree(project.id, name);
     if (!worktree) return;
     setDialogProject(null);
-    const thread = await selectWorkspace(project, worktree.path);
-    if (thread) {
-      await window.omni.threads.rename(thread.id, name);
-      void queryClient.invalidateQueries({ queryKey: ["open-tabs"] });
-    }
+    // The worktree exists on disk now — show it before anything that can
+    // still fail (switching, renaming), so the sidebar never hides a real
+    // workspace behind a later error.
     setWorktreesByProject((current) => {
       const existing = current[project.id] ?? [];
       const withoutDup = existing.filter((item) => item.path !== worktree.path);
       // Newest-first: the fresh worktree carries Date.now(), so it sorts top.
       return { ...current, [project.id]: orderWorktreesForDisplay([worktree, ...withoutDup]) };
     });
+    const thread = await selectWorkspace(project, worktree.path);
+    if (thread) {
+      try {
+        await window.omni.threads.rename(thread.id, name);
+      } catch (err) {
+        // Cosmetic: the chat keeps its default title; the workspace is fine.
+        console.error("[AdvancedShell] Failed to name the workspace thread:", err);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["open-tabs"] });
+    } else {
+      // The dialog is gone, so the store's error has nowhere else to show.
+      toast({
+        icon: <GitBranch weight="duotone" className="size-5 text-destructive" />,
+        title: "Workspace created, but could not be opened",
+        description:
+          useWorktreeStore.getState().error ?? "Select it from the sidebar to try again.",
+      });
+    }
     await loadWorktrees(project.id);
   };
 
   const workspaceKey = (projectId: string, path: string) => `${projectId}:${path}`;
-  const persistArchived = (next: Set<string>) => {
-    setArchivedKeys(next);
+  // Mirror the archived set to storage whenever it changes. Mutations below
+  // are functional updates, so long-running flows (restore can take minutes)
+  // never overwrite a change made in the meantime with a stale snapshot.
+  useEffect(() => {
     try {
-      window.localStorage.setItem("pipper.archived-workspaces", JSON.stringify([...next]));
+      window.localStorage.setItem("pipper.archived-workspaces", JSON.stringify([...archivedKeys]));
     } catch {
       // Keep the current session state when storage is unavailable.
     }
-  };
+  }, [archivedKeys]);
+  const setArchived = (key: string, archived: boolean) =>
+    setArchivedKeys((current) => {
+      if (current.has(key) === archived) return current;
+      const next = new Set(current);
+      if (archived) next.add(key);
+      else next.delete(key);
+      return next;
+    });
   const archiveWorkspace = async (project: Project, worktree: Worktree) => {
     if (worktree.isProjectRoot) return;
     // Free the disk first (node_modules); the archived flag is only set once
@@ -335,21 +385,36 @@ export function AdvancedShell() {
     if (project.id === activeProject?.id && worktree.path === selectedPath) {
       await switchWorktree(project.id, project.path);
     }
-    const next = new Set(archivedKeys);
-    next.add(workspaceKey(project.id, worktree.path));
-    persistArchived(next);
+    setArchived(workspaceKey(project.id, worktree.path), true);
   };
-  const restoreWorkspace = (project: Project, worktree: Worktree) => {
-    const next = new Set(archivedKeys);
-    next.delete(workspaceKey(project.id, worktree.path));
-    persistArchived(next);
-    // Deps were dropped on archive; bring them back in the background.
-    void window.omni.worktrees.restore({ projectId: project.id, path: worktree.path });
+  const restoreWorkspace = async (project: Project, worktree: Worktree) => {
+    const key = workspaceKey(project.id, worktree.path);
+    // Optimistic: the row moves back immediately while deps reinstall (that
+    // can take minutes). `restore` resolves only once the install finished;
+    // on failure the workspace is parked again so "restored" always means
+    // "usable".
+    setArchived(key, false);
+    try {
+      await window.omni.worktrees.restore({ projectId: project.id, path: worktree.path });
+    } catch (err) {
+      setArchived(key, true);
+      toast({
+        icon: <Archive weight="duotone" className="size-5 text-destructive" />,
+        title: "Workspace restore failed",
+        description: err instanceof Error ? err.message : "Dependencies could not be installed.",
+      });
+    }
   };
   /** After "Continue" the worktree is on a new branch — refresh git-derived rows. */
   const reloadWorkspaces = async (project: Project) => {
     const items = await window.omni.worktrees.list(project.id).catch(() => null);
-    if (items) setWorktreesByProject((current) => ({ ...current, [project.id]: items }));
+    // Git's order is readdir order; keep the same newest-first display as
+    // the initial load so "Continue" never reshuffles the rows.
+    if (items)
+      setWorktreesByProject((current) => ({
+        ...current,
+        [project.id]: orderWorktreesForDisplay(items),
+      }));
     if (project.id === activeProject?.id) await loadWorktrees(project.id);
   };
   const deleteWorkspace = async (project: Project, worktree: Worktree) => {
@@ -361,9 +426,7 @@ export function AdvancedShell() {
     )
       return;
     await window.omni.worktrees.delete({ projectId: project.id, path: worktree.path });
-    const next = new Set(archivedKeys);
-    next.delete(workspaceKey(project.id, worktree.path));
-    persistArchived(next);
+    setArchived(workspaceKey(project.id, worktree.path), false);
     setWorktreesByProject((current) => ({
       ...current,
       [project.id]: (current[project.id] ?? []).filter((item) => item.path !== worktree.path),
@@ -431,7 +494,7 @@ export function AdvancedShell() {
                           size="icon-sm"
                           className="shrink-0"
                           aria-label={`New workspace in ${project.name}`}
-                          onClick={() => setDialogProject(project)}
+                          onClick={() => openWorkspaceDialog(project)}
                         >
                           <Plus size={16} />
                         </Button>
@@ -464,7 +527,7 @@ export function AdvancedShell() {
                                 selected={false}
                                 archived
                                 onSelect={() => void selectWorkspace(project, worktree.path)}
-                                onArchive={() => restoreWorkspace(project, worktree)}
+                                onArchive={() => void restoreWorkspace(project, worktree)}
                                 onDelete={() => void deleteWorkspace(project, worktree)}
                               />
                             ))}
@@ -550,7 +613,7 @@ export function AdvancedShell() {
           project={dialogProject}
           isCreating={isCreating}
           error={worktreeError}
-          onCancel={() => setDialogProject(null)}
+          onCancel={closeWorkspaceDialog}
           onSubmit={(name) => void createWorkspace(name)}
         />
       )}

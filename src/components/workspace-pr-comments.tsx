@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, CaretDown, ChatCircle } from "@phosphor-icons/react";
 import type { WorkspacePrComment } from "../../contracts/git.ts";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import { Elevated } from "@/lib/elevated";
 import {
   commentTitle,
   commentToMarkdown,
   groupCommentsByAuthor,
   sortComments,
 } from "@/lib/pr-comment-text";
+import { useContentOverflow } from "@/lib/use-content-overflow";
 import { cn } from "@/lib/utils";
 
 type SortOrder = "latest" | "oldest";
@@ -50,8 +52,54 @@ function Avatar({
 }
 
 /**
+ * Minimal anchored menu: a trigger plus an `Elevated` popup that closes on
+ * outside pointer-down. `items` render inside; each closes the menu itself
+ * via the `close` callback.
+ */
+function PopMenu({
+  trigger,
+  align = "right",
+  width,
+  children,
+}: {
+  trigger: (props: { open: boolean; toggle: () => void }) => ReactNode;
+  align?: "left" | "right";
+  width: string;
+  children: (close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative shrink-0">
+      {trigger({ open, toggle: () => setOpen((value) => !value) })}
+      {open ? (
+        <Elevated
+          offset={2}
+          className={cn(
+            "absolute top-full z-50 mt-1 rounded-lg border border-border p-1",
+            align === "right" ? "right-0" : "left-0",
+            width,
+          )}
+        >
+          {children(() => setOpen(false))}
+        </Elevated>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Selected author reads as a pill (avatar + name); the rest collapse into an
- * overlapping avatar stack. One click swaps who is expanded.
+ * overlapping avatar stack. One click swaps who is expanded. Authors past the
+ * strip cap live behind the `+N` menu so every group stays reachable.
  */
 function AuthorStrip({
   groups,
@@ -62,9 +110,22 @@ function AuthorStrip({
   selected: string;
   onSelect: (author: string) => void;
 }) {
+  // Keep the selected author visible even when they would fall past the cap:
+  // swap them into the last visible slot rather than hiding the active pill.
+  const { visible, hidden } = useMemo(() => {
+    const selectedIndex = groups.findIndex((group) => group.author === selected);
+    if (groups.length <= AVATAR_STRIP_MAX || selectedIndex < AVATAR_STRIP_MAX) {
+      return { visible: groups.slice(0, AVATAR_STRIP_MAX), hidden: groups.slice(AVATAR_STRIP_MAX) };
+    }
+    const head = groups.slice(0, AVATAR_STRIP_MAX - 1);
+    const rest = groups.filter(
+      (_, index) => index >= AVATAR_STRIP_MAX - 1 && index !== selectedIndex,
+    );
+    return { visible: [...head, groups[selectedIndex]!], hidden: rest };
+  }, [groups, selected]);
   return (
     <div className="flex min-w-0 items-center">
-      {groups.slice(0, AVATAR_STRIP_MAX).map((group, index) => {
+      {visible.map((group, index) => {
         const active = group.author === selected;
         return (
           <button
@@ -91,58 +152,80 @@ function AuthorStrip({
           </button>
         );
       })}
-      {groups.length > AVATAR_STRIP_MAX ? (
-        <span className="-ml-2 flex h-7 items-center rounded-full border border-border/60 bg-surface-1 px-2 text-[10px] text-muted-foreground">
-          +{groups.length - AVATAR_STRIP_MAX}
-        </span>
+      {hidden.length > 0 ? (
+        <PopMenu
+          align="left"
+          width="w-52"
+          trigger={({ open, toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={open}
+              aria-label={`${hidden.length} more ${hidden.length === 1 ? "author" : "authors"}`}
+              className="-ml-2 flex h-7 items-center rounded-full border border-border/60 bg-surface-1 px-2 text-[10px] text-muted-foreground transition-colors hover:z-20 hover:bg-surface-2 hover:text-foreground"
+            >
+              +{hidden.length}
+            </button>
+          )}
+        >
+          {(close) =>
+            hidden.map((group) => (
+              <button
+                key={group.author}
+                type="button"
+                onClick={() => {
+                  onSelect(group.author);
+                  close();
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-hover hover:text-foreground"
+              >
+                <Avatar url={group.avatarUrl} name={group.author} size={18} />
+                <span className="min-w-0 flex-1 truncate">{group.author}</span>
+                <span className="text-[10px]">{group.comments.length}</span>
+              </button>
+            ))
+          }
+        </PopMenu>
       ) : null}
     </div>
   );
 }
 
 function SortMenu({ value, onChange }: { value: SortOrder; onChange: (v: SortOrder) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        aria-expanded={open}
-      >
-        {value === "latest" ? "Latest" : "Oldest"}
-        <CaretDown size={11} />
-      </button>
-      {open ? (
-        <div className="absolute right-0 top-full z-50 mt-1 w-28 rounded-lg border border-border bg-surface-1 p-1 shadow-surface-5">
-          {(["latest", "oldest"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                onChange(option);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-hover",
-                option === value ? "text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {option === "latest" ? "Latest" : "Oldest"}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <PopMenu
+      width="w-28"
+      trigger={({ open, toggle }) => (
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          aria-expanded={open}
+        >
+          {value === "latest" ? "Latest" : "Oldest"}
+          <CaretDown size={11} />
+        </button>
+      )}
+    >
+      {(close) =>
+        (["latest", "oldest"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              onChange(option);
+              close();
+            }}
+            className={cn(
+              "flex w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-hover",
+              option === value ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {option === "latest" ? "Latest" : "Oldest"}
+          </button>
+        ))
+      }
+    </PopMenu>
   );
 }
 
@@ -156,7 +239,9 @@ function CommentCard({
   const [expanded, setExpanded] = useState(false);
   const markdown = useMemo(() => commentToMarkdown(comment.body), [comment.body]);
   const title = useMemo(() => commentTitle(comment), [comment]);
-  const long = markdown.length > 600;
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  // Rendered height, not character count, decides whether anything is clipped.
+  const clipped = useContentOverflow(bodyRef, [markdown, expanded]);
   return (
     <article className="flex flex-col gap-1.5 py-3">
       <header className="flex items-center gap-2">
@@ -193,12 +278,13 @@ function CommentCard({
         ) : null}
       </header>
       <div
+        ref={bodyRef}
         className="overflow-hidden pl-5 text-xs leading-5 text-muted-foreground"
         style={expanded ? undefined : { maxHeight: BODY_COLLAPSED_PX }}
       >
         <MarkdownRenderer className="text-xs leading-5">{markdown}</MarkdownRenderer>
       </div>
-      {long && !expanded ? (
+      {clipped && !expanded ? (
         <button
           type="button"
           onClick={() => setExpanded(true)}

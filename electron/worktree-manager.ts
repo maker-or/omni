@@ -158,6 +158,44 @@ function git(projectPath: string, args: string[]): string {
 }
 
 /**
+ * The project's location inside its checkout, relative to the worktree root
+ * (`""` when the project *is* the root). A project registered at
+ * `repo/packages/app` must map to `<worktree>/packages/app` in every linked
+ * worktree — the checkout is always the whole repository, but the agent,
+ * terminals and dependency detection must run in the project directory.
+ */
+function projectSubpath(projectPath: string): string {
+  try {
+    const toplevel = git(projectPath, ["rev-parse", "--show-toplevel"]);
+    const rel = relative(canonical(toplevel), canonical(projectPath));
+    return rel === "." ? "" : rel;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Root of the checkout containing `path` — what `git worktree remove` needs.
+ * Walks up when the project subdirectory itself is missing from the checkout
+ * (a branch that predates it) so removal still finds the worktree.
+ */
+function worktreeRootOf(path: string): string {
+  let probe = path;
+  for (;;) {
+    if (existsSync(probe)) {
+      try {
+        return git(probe, ["rev-parse", "--show-toplevel"]);
+      } catch {
+        return path;
+      }
+    }
+    const parent = dirname(probe);
+    if (parent === probe) return path;
+    probe = parent;
+  }
+}
+
+/**
  * The repo's default branch to base new worktrees on: `origin/HEAD` when a
  * remote advertises one, else the currently checked-out branch, else HEAD.
  */
@@ -423,6 +461,10 @@ function runSetupScript(
 /**
  * Create a worktree off `projectPath`: add the git worktree on a fresh branch,
  * seed gitignored files (`.env*`), then run the optional setup script.
+ *
+ * The returned `path` is the *project's* directory inside the new checkout —
+ * identical to the checkout root unless the project is registered at a
+ * repository subdirectory (see `projectSubpath`).
  */
 export function createWorktree(options: CreateWorktreeOptions): Worktree {
   const { projectPath, projectId, name } = options;
@@ -445,6 +487,9 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
     throw new Error(`Branch already exists: ${branch}`);
   }
   const base = resolveBaseBranch(projectPath);
+  // Where the project lives inside the new checkout: everything after the
+  // checkout itself (env seed, setup script, the returned path) targets it.
+  const projectDir = join(worktreePath, projectSubpath(projectPath));
 
   // `git worktree add` needs the leaf absent but the parent present.
   mkdirSync(dirname(worktreePath), { recursive: true });
@@ -455,12 +500,12 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
 
   try {
     // 2. Seed gitignored files (untrusted data, allowlisted, contained).
-    seedGitignoredFiles(projectPath, worktreePath, options.includeGlobs);
+    seedGitignoredFiles(projectPath, projectDir, options.includeGlobs);
 
     // 3. Setup script (trusted, user-authored, may touch the main checkout).
     if (options.setupScript) {
       runSetupScript(options.setupScript, {
-        worktreePath,
+        worktreePath: projectDir,
         rootPath: projectPath,
         name,
       });
@@ -489,21 +534,23 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   const head = git(worktreePath, ["rev-parse", "HEAD"]);
   // Same canonical form `listWorktrees` returns, so callers can match/exclude
   // entries from `git worktree list`.
-  return { path: canonical(worktreePath), branch, head, createdAtMs: Date.now() };
+  return { path: canonical(projectDir), branch, head, createdAtMs: Date.now() };
 }
 
 /**
  * Best-effort removal of a worktree created for a request that later failed
  * (e.g. agent spawn/prompt error). Never throws — cleanup must not mask the
- * original failure.
+ * original failure. `worktreePath` may be the project directory inside the
+ * checkout; removal always targets the checkout root.
  */
 export function removeWorktreeBestEffort(
   projectPath: string,
   worktreePath: string,
   branch: string | null,
 ): void {
+  const root = worktreeRootOf(worktreePath);
   try {
-    git(projectPath, ["worktree", "remove", worktreePath, "--force"]);
+    git(projectPath, ["worktree", "remove", root, "--force"]);
   } catch {
     // Best effort cleanup of worktree registration
   }
@@ -515,7 +562,7 @@ export function removeWorktreeBestEffort(
     }
   }
   try {
-    rmSync(worktreePath, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   } catch {
     // Best effort cleanup of directory
   }
@@ -559,7 +606,14 @@ export function parseWorktreePorcelain(stdout: string): Worktree[] {
   return worktrees;
 }
 
-/** List worktrees from a short-lived cache. Includes the main tree. */
+/**
+ * List worktrees from a short-lived cache. Includes the main tree.
+ *
+ * Every `path` is the *project's* directory inside that checkout: for a
+ * project registered at a repository subdirectory the entries point at the
+ * same subdirectory of each worktree, so the root entry is the project path
+ * itself and linked entries are where the agent/terminals should run.
+ */
 export function listWorktrees(projectPath: string): Worktree[] {
   const cacheKey = worktreeCacheKey(projectPath);
   const cached = worktreeCache.get(cacheKey);
@@ -571,16 +625,18 @@ export function listWorktrees(projectPath: string): Worktree[] {
     env: foreignGitEnv(),
   });
   const projectRoot = pathKey(projectPath);
+  const subpath = projectSubpath(projectPath);
   // Canonicalize up front so every path this module hands out is in one form.
   // Git reports POSIX separators and long names on Windows; callers compare
   // these against `createWorktree` results and stored paths, so the two must
   // agree exactly.
   const worktrees = parseWorktreePorcelain(stdout).map((worktree) => ({
     ...worktree,
-    path: canonical(worktree.path),
+    path: canonical(join(worktree.path, subpath)),
   }));
   // git lists the main working tree first; use it as the root when the project
-  // path doesn't canonical-match any entry (e.g. project added as a subdir).
+  // path still doesn't canonical-match any entry (defensive: keeps exactly one
+  // root so the UI can always resolve a current workspace).
   const rootEntry =
     worktrees.find((worktree) => pathKey(worktree.path) === projectRoot) ?? worktrees[0];
   const rootLabel = rootEntry
@@ -804,7 +860,9 @@ export function removeWorktree(
   const branchToDelete =
     managedPath && target.branch?.startsWith(GENERATED_BRANCH_PREFIX) ? target.branch : null;
 
-  git(projectPath, ["worktree", "remove", "--force", target.path]);
+  // `target.path` is the project directory inside the checkout; Git only
+  // accepts the checkout root here.
+  git(projectPath, ["worktree", "remove", "--force", worktreeRootOf(target.path)]);
   if (branchToDelete) {
     try {
       git(projectPath, ["branch", "-D", branchToDelete]);

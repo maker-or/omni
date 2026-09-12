@@ -12,6 +12,7 @@ import {
   parseGitHubRepo,
   summarizeChecks,
   summarizePrNodes,
+  summarizeStatusPorcelain,
 } from "./git-workspace.ts";
 
 const GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
@@ -108,6 +109,38 @@ describe("getWorkspaceGitStatus", () => {
   });
 });
 
+describe("summarizeStatusPorcelain", () => {
+  const record = (code: string, path: string) => `${code} ${path}`;
+
+  test("counts index and worktree columns independently", () => {
+    const out = [
+      record("MM", "both.ts"),
+      record("M ", "staged.ts"),
+      record(" M", "unstaged.ts"),
+      record("A ", "new.ts"),
+      record("??", "loose.ts"),
+    ].join("\0");
+    const summary = summarizeStatusPorcelain(out);
+    // MM contributes to both totals; ?? only to untracked.
+    expect(summary).toMatchObject({ staged: 3, unstaged: 2, untracked: 1, truncated: false });
+    expect(summary.files.find((f) => f.path === "both.ts")).toMatchObject({
+      staged: true,
+      status: "modified",
+    });
+  });
+
+  test("totals cover every record even when the file list is capped", () => {
+    const records: string[] = [];
+    for (let i = 0; i < 40; i += 1) records.push(record(" M", `m${i}.ts`));
+    for (let i = 0; i < 5; i += 1) records.push(record("??", `u${i}.ts`));
+    const summary = summarizeStatusPorcelain(records.join("\0"));
+    expect(summary.files).toHaveLength(30);
+    expect(summary.truncated).toBe(true);
+    // Untracked files sit entirely past the cap yet still count.
+    expect(summary).toMatchObject({ staged: 0, unstaged: 40, untracked: 5 });
+  });
+});
+
 describe("commitWorkspace", () => {
   test("stages everything and commits", () => {
     initProjectRepo(dir, { name: "Test", email: "test@example.com" });
@@ -148,6 +181,40 @@ describe("mergeWorkspaceBranch", () => {
     expect(() => mergeWorkspaceBranch(dir, "side")).toThrow();
     expect(existsSync(join(dir, ".git", "MERGE_HEAD"))).toBe(false);
     expect(git(dir, ["status", "--porcelain"])).toBe("");
+  });
+
+  test("merges into the conventional base even when another feature branch is checked out", () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(dir, "a.txt"), "base");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "base"]);
+    git(dir, ["checkout", "-b", "side"]);
+    writeFileSync(join(dir, "b.txt"), "side");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "side change"]);
+    // The project root is parked on an unrelated feature branch: that must
+    // never become the merge target.
+    git(dir, ["checkout", "-b", "other-feature", "main"]);
+
+    expect(mergeWorkspaceBranch(dir, "side")).toBe("main");
+    expect(git(dir, ["branch", "--show-current"])).toBe("main");
+    expect(git(dir, ["log", "--oneline", "-1", "other-feature"])).toContain("base");
+    expect(git(dir, ["log", "--oneline", "-1", "main"])).toContain("side");
+  });
+
+  test("refuses when no base branch can be determined", () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" }, "trunk");
+    writeFileSync(join(dir, "a.txt"), "base");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "base"]);
+    git(dir, ["checkout", "-b", "side"]);
+    writeFileSync(join(dir, "b.txt"), "side");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "side change"]);
+    git(dir, ["checkout", "trunk"]);
+
+    expect(() => mergeWorkspaceBranch(dir, "side")).toThrow(/base branch/);
+    expect(git(dir, ["log", "--oneline", "-1", "trunk"])).toContain("base");
   });
 
   test("clean merge returns the base branch", () => {
@@ -330,6 +397,22 @@ describe("summarizePrNodes", () => {
 
   test("no nodes means no PR", () => {
     expect(summarizePrNodes([])).toMatchObject({ number: null, mergedNumber: null, pr: null });
+  });
+
+  test("a fork's PR with the same head branch name is never selected", () => {
+    const forkPr = {
+      number: 99,
+      state: "OPEN",
+      url: "https://github.com/o/r/pull/99",
+      isCrossRepository: true,
+    };
+    expect(summarizePrNodes([forkPr])).toMatchObject({
+      number: null,
+      mergedNumber: null,
+      pr: null,
+    });
+    // Our own PR is still found behind it.
+    expect(summarizePrNodes([forkPr, { ...openNode, isCrossRepository: false }]).number).toBe(12);
   });
 });
 

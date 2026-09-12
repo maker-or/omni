@@ -271,6 +271,10 @@ export default function App() {
     if (!currentProject || !workspaceName.trim() || isCreatingWorktree) return;
     const worktree = await createWorktree(currentProject.id, workspaceName.trim());
     if (!worktree) return;
+    // The store only splices the new worktree into the list it currently
+    // holds; when the picker targets another project (draft-bound), reload
+    // that project so the new workspace is selectable right away.
+    if (worktreeProjectId !== currentProject.id) void loadWorktrees(currentProject.id);
     if (draft) {
       useWorkspaceViewStore.getState().setDraftProject(currentProject.id, worktree.path);
       // A draft has no thread to activate yet. Switching the worktree through

@@ -27,6 +27,7 @@ import {
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
+  worktreePathFor,
 } from "./worktree-manager.ts";
 
 // Git hooks export GIT_DIR/GIT_INDEX_FILE and related variables for the
@@ -201,9 +202,14 @@ describe("createWorktree", () => {
     ).toThrow();
   });
 
-  test("creates from a project path nested inside a git repository", () => {
+  test("a project nested inside a repository maps to the same subdirectory of the new checkout", () => {
     const nestedProject = join(projectPath, "packages", "app");
     mkdirSync(nestedProject, { recursive: true });
+    writeFileSync(join(nestedProject, "package.json"), "{}");
+    writeFileSync(join(projectPath, ".env"), "SECRET=1");
+    writeFileSync(join(nestedProject, ".env"), "APP_SECRET=1");
+    git(projectPath, ["add", "-A"]);
+    git(projectPath, ["commit", "-m", "add package"]);
 
     const worktree = createWorktree({
       projectPath: nestedProject,
@@ -211,8 +217,26 @@ describe("createWorktree", () => {
       name: "nested-project",
     });
 
-    expect(existsSync(worktree.path)).toBe(true);
+    // The checkout is the whole repo, but the workspace (thread cwd, deps,
+    // env seed) is the project's own directory inside it.
+    expect(worktree.path).toBe(
+      realPath(join(worktreePathFor(PROJECT_ID, "nested-project"), "packages", "app")),
+    );
     expect(worktree.branch).toBe("pipper/nested-project");
+    expect(existsSync(join(worktree.path, "package.json"))).toBe(true);
+    expect(readFileSync(join(worktree.path, ".env"), "utf8")).toBe("APP_SECRET=1");
+
+    // Listing is consistent with creation: the root entry *is* the project
+    // path and the linked entry is the mapped subdirectory.
+    const all = listWorktrees(nestedProject);
+    expect(all.find((w) => w.isProjectRoot)?.path).toBe(realPath(nestedProject));
+    expect(all.some((w) => w.path === worktree.path)).toBe(true);
+    expect(isLiveWorktree(worktree.path, nestedProject)).toBe(true);
+
+    // Removal resolves the checkout root from the mapped path.
+    removeWorktree(nestedProject, worktree.path, PROJECT_ID);
+    expect(existsSync(worktreePathFor(PROJECT_ID, "nested-project"))).toBe(false);
+    expect(listChildWorktrees(nestedProject)).toEqual([]);
   });
 });
 
