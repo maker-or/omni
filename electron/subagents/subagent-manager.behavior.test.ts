@@ -125,6 +125,7 @@ describe("subagent runs", () => {
   let manager: SubagentManager | null = null;
 
   afterEach(() => {
+    vi.useRealTimers();
     manager?.dispose();
     manager = null;
   });
@@ -200,23 +201,23 @@ describe("subagent runs", () => {
   });
 
   test("a timed-out prompt releases its slot even when cancel is ignored", async () => {
+    const fake = makeFakeAgent({ onPrompt: () => new Promise<void>(() => {}) });
+    const made = await makeManager(fake);
+    manager = made.manager;
+    await manager.setConfig({ runTimeoutMs: 30_000, maxConcurrent: 1 });
+
+    const attached = await manager.attachMcpServers(
+      [],
+      { mcpCapabilities: { http: true } },
+      {
+        cwd: "/repo",
+        depth: 0,
+      },
+    );
+    manager.bindSession(attached.token!, "orchestrator-session");
+
     vi.useFakeTimers();
     try {
-      const fake = makeFakeAgent({ onPrompt: () => new Promise<void>(() => {}) });
-      const made = await makeManager(fake);
-      manager = made.manager;
-      await manager.setConfig({ runTimeoutMs: 30_000, maxConcurrent: 1 });
-
-      const attached = await manager.attachMcpServers(
-        [],
-        { mcpCapabilities: { http: true } },
-        {
-          cwd: "/repo",
-          depth: 0,
-        },
-      );
-      manager.bindSession(attached.token!, "orchestrator-session");
-
       const pending = (manager as any).runSubagent(attached.token, {
         agent_id: "agent-a",
         task: "hang",
