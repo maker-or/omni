@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { orderWorktreesForDisplay } from "../../contracts/worktrees.ts";
 import type { GitBranch, Worktree } from "../../contracts/worktrees.ts";
 import type { Thread } from "../../contracts/threads.ts";
 
@@ -75,11 +76,9 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
       const worktrees = await window.omni.worktrees.list(projectId);
       // Only apply if this request is still current
       if (get().lastWorktreeRequest === requestToken) {
-        // Newest-first for linked worktrees: git lists oldest-first, so
-        // reverse the non-root entries and keep the project root pinned top.
-        const root = worktrees.filter((item) => item.isProjectRoot);
-        const rest = worktrees.filter((item) => !item.isProjectRoot).reverse();
-        set({ worktrees: [...root, ...rest], projectId, isLoading: false });
+        // Newest-first for linked worktrees (git order is arbitrary readdir),
+        // project root pinned top.
+        set({ worktrees: orderWorktreesForDisplay(worktrees), projectId, isLoading: false });
       }
     } catch (err) {
       // Only apply if this request is still current

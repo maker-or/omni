@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
+import type { WorkspaceGitActionResult, WorkspaceGitStatus } from "../contracts/git.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
 import type {
   AcpBridgeEvent,
@@ -75,6 +76,8 @@ const api = {
   },
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:openExternal", url),
+    /** Any https link the user's own PR data points at (checks, deploys, comments). */
+    openHttps: (url: string): Promise<void> => ipcRenderer.invoke("shell:openHttps", url),
   },
   window: {
     /** Report document.visibilityState so main can gate hidden-window traffic. */
@@ -208,6 +211,41 @@ const api = {
       branch: string;
     }): Promise<{ thread: Thread; worktree: Worktree }> =>
       ipcRenderer.invoke("worktrees:switchBranch", input),
+    archive: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
+      ipcRenderer.invoke("worktrees:archive", input),
+    restore: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
+      ipcRenderer.invoke("worktrees:restore", input),
+    continue: (input: { projectId: string; path: string }): Promise<Worktree> =>
+      ipcRenderer.invoke("worktrees:continue", input),
+  },
+  git: {
+    status: (input: { projectId: string; path: string }): Promise<WorkspaceGitStatus> =>
+      ipcRenderer.invoke("git:status", input),
+    commit: (input: {
+      projectId: string;
+      path: string;
+      message: string;
+    }): Promise<WorkspaceGitActionResult> => ipcRenderer.invoke("git:commit", input),
+    push: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
+      ipcRenderer.invoke("git:push", input),
+    createPr: (input: {
+      projectId: string;
+      path: string;
+      title: string;
+      body?: string;
+      draft?: boolean;
+    }): Promise<WorkspaceGitActionResult> => ipcRenderer.invoke("git:createPr", input),
+    merge: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
+      ipcRenderer.invoke("git:merge", input),
+    mergePr: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
+      ipcRenderer.invoke("git:mergePr", input),
+    markPrReady: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
+      ipcRenderer.invoke("git:markPrReady", input),
+    init: (input: {
+      projectId: string;
+      name?: string | null;
+      email?: string | null;
+    }): Promise<WorkspaceGitActionResult> => ipcRenderer.invoke("git:init", input),
   },
   onboarding: {
     verifyGit: (): Promise<boolean> => ipcRenderer.invoke("onboarding:verifyGit"),

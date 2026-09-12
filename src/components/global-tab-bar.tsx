@@ -414,7 +414,9 @@ export function GlobalTabBar() {
 
   const handleNewTerminal = () => {
     const project = activeProject;
-    const cwd = project ? (selectedWorktreePathByProject[project.id] ?? project.path) : undefined;
+    const cwd = project
+      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+      : undefined;
     const id = createSession(cwd);
     showTerminal(id);
   };

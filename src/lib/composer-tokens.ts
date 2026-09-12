@@ -261,9 +261,9 @@ export type CreatableCheck =
 /** Validate draft content for thread creation. */
 export function assertCreatable(
   content: ComposerContent,
-  options: { defaultAgentId?: string | null } = {},
+  options: { defaultAgentId?: string | null; defaultProjectId?: string | null } = {},
 ): CreatableCheck {
-  const projectId = extractProjectId(content);
+  const projectId = extractProjectId(content) ?? options.defaultProjectId ?? null;
   const agentId = resolveAgentId(content, options.defaultAgentId);
   const modelId = extractModelId(content);
   const text = extractTextContent(content);
@@ -444,8 +444,12 @@ export function defaultMentionKind(
 }
 
 /** Human hint for the composer placeholder. */
-export function mentionPlaceholderHint(mode: "draft" | "live", content: ComposerContent): string {
-  const next = resolveDefaultMentionKind({ mode, content, filesAvailable: true });
+export function mentionPlaceholderHint(
+  mode: "draft" | "live",
+  content: ComposerContent,
+  availability?: MentionAvailability,
+): string {
+  const next = resolveDefaultMentionKind({ mode, content, filesAvailable: true, availability });
   if (mode === "draft") {
     if (next === "project") return "@ a project, then a model, then describe the task…";
     if (next === "model") return "@ a model, then describe the task…";

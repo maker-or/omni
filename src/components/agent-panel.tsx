@@ -23,6 +23,7 @@ import { useAgentStore } from "@/store/agent-store";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { useModelCatalogStore } from "@/store/model-catalog-store";
 import { useWorktreeStore } from "@/store/worktree-store";
+import { useUiModeStore } from "@/store/ui-mode-store";
 import { useIsDiffSplit, useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { useDiffStore, type DiffTurnSummary } from "@/store/diff-store";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
@@ -720,15 +721,18 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     (state) => state.markDraftUserEditedProject,
   );
   const isDraftMode = draft != null;
+  // Advanced workspace UI: the selected workspace already fixes the project
+  // (and worktree), so the @project composer chip is redundant and hidden.
+  const isAdvancedUI = useUiModeStore((state) => state.mode) === "advanced";
   const liveComposerProject = useMemo<ComposerProjectContext | null>(() => {
-    if (isDraftMode) return null;
+    if (isDraftMode || isAdvancedUI) return null;
     const projectId = snapshot?.projectId ?? activeProject?.id ?? null;
     if (!projectId) return null;
     return (
       projectsList.find((project) => project.id === projectId) ??
       (activeProject?.id === projectId ? activeProject : null)
     );
-  }, [activeProject, isDraftMode, projectsList, snapshot?.projectId]);
+  }, [activeProject, isAdvancedUI, isDraftMode, projectsList, snapshot?.projectId]);
   const isDiffSplit = useIsDiffSplit();
   const selectedWorktreePathByProject = useWorktreeStore(
     (state) => state.selectedWorktreePathByProject,
@@ -806,7 +810,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
             icon: projectObj?.icon ?? null,
           }
         : null;
-    const content = initialDraftContent(softProject);
+    const content = initialDraftContent(isAdvancedUI ? null : softProject);
     // Soft-default agent into draft state (no @agent chip — model-first UX).
     // Prefer the currently connected agent when it is in the user's pool.
     const registry = useAgentRegistryStore.getState();
@@ -824,13 +828,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
     setDraftContent(content);
     requestAnimationFrame(() => composerTextareaRef.current?.focus());
-  }, [draft, projectsList, activeProject, setDraftAgent]);
+  }, [draft, projectsList, activeProject, isAdvancedUI, setDraftAgent]);
 
   // External chrome (title-bar project switcher) can change draft.projectId;
   // keep the composer chip in sync without wiping free text. Also clear agent
   // when the project identity changes so @agent is offered again.
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || isAdvancedUI) return;
     const contentProject = extractProjectId(draftContent);
     if ((draft.projectId ?? null) === (contentProject ?? null)) return;
     if (draft.projectId) {
@@ -867,6 +871,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     // Only react to store project id — not every content keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: store → chip bridge
   }, [draft?.projectId]);
+  // Advanced UI keeps no project chip: the workspace owns the project context.
+  // Strip any legacy chip that arrives (e.g. restored content) without wiping text.
+  useEffect(() => {
+    if (!isAdvancedUI || !draft) return;
+    if (extractProjectId(draftContent) == null) return;
+    setDraftContent((prev) => removeEntityKind(prev, "project"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: one-way chip strip
+  }, [isAdvancedUI, draft, draftContent]);
 
   // Keep draft store fields aligned with chips so chrome can bind.
   const handleDraftContentChange = (next: ComposerContent) => {
@@ -1579,7 +1591,11 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   };
 
   const handleDraftSend = async (content: ComposerContent, files: File[]) => {
-    const check = assertCreatable(content, { defaultAgentId: draft?.agentId ?? null });
+    const check = assertCreatable(content, {
+      defaultAgentId: draft?.agentId ?? null,
+      // Advanced UI: no project chip — the workspace owns the project context.
+      defaultProjectId: isAdvancedUI ? (draft?.projectId ?? activeProject?.id ?? null) : null,
+    });
     if (!check.ok) {
       const description =
         check.reason === "missing_project"
@@ -2281,7 +2297,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               // A full-bleed conversation reads badly, so the global view caps
               // it to a centred column. Inside the diff split the panel is
               // already narrow, so it uses the full width.
-              !isDiffSplit && "mx-auto lg:w-[62%]",
+              !isDiffSplit && "mx-auto w-full max-w-4xl xl:max-w-5xl",
             )}
           >
             <div
@@ -2617,7 +2633,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           onSend={(content, files) => void handleDraftSend(content, files)}
                           disabled={composerDisabled}
                           isSubmitting={isSubmitting}
-                          projects={draftProjectItems}
+                          projects={isAdvancedUI ? [] : draftProjectItems}
                           agents={[]}
                           models={modelMentionItems}
                           modelProviders={modelProviderItems}
@@ -2629,6 +2645,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           showImageAttach={false}
                           appearance="plain"
                           hideSendButton
+                          hideProjectChip={isAdvancedUI}
                           textareaRef={composerTextareaRef}
                           onTextareaKeyDown={handleComposerKeyDown}
                         />
@@ -2701,6 +2718,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             showImageAttach={false}
                             appearance="plain"
                             hideSendButton
+                            hideProjectChip={isAdvancedUI}
                             textareaRef={composerTextareaRef}
                             placeholder={
                               isConnecting ? "Connecting to agent runtime..." : undefined

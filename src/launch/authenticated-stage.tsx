@@ -98,6 +98,7 @@ export function AuthenticatedStage({
       } catch {
         // ignore sessionStorage errors
       }
+    }
     return "list";
   });
 

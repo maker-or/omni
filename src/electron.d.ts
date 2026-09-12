@@ -1,5 +1,6 @@
 import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts/worktrees.ts";
+import type { WorkspaceGitActionResult, WorkspaceGitStatus } from "../../contracts/git.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type {
   AcpAgentDescriptor,
@@ -71,6 +72,7 @@ declare global {
       };
       shell: {
         openExternal: (url: string) => Promise<void>;
+        openHttps: (url: string) => Promise<void>;
       };
       window: {
         reportVisibility: (visible: boolean) => void;
@@ -139,6 +141,36 @@ declare global {
           path: string;
           branch: string;
         }) => Promise<{ thread: Thread; worktree: Worktree }>;
+        archive: (input: { projectId: string; path: string }) => Promise<WorkspaceGitActionResult>;
+        restore: (input: { projectId: string; path: string }) => Promise<WorkspaceGitActionResult>;
+        continue: (input: { projectId: string; path: string }) => Promise<Worktree>;
+      };
+      git: {
+        status: (input: { projectId: string; path: string }) => Promise<WorkspaceGitStatus>;
+        commit: (input: {
+          projectId: string;
+          path: string;
+          message: string;
+        }) => Promise<WorkspaceGitActionResult>;
+        push: (input: { projectId: string; path: string }) => Promise<WorkspaceGitActionResult>;
+        createPr: (input: {
+          projectId: string;
+          path: string;
+          title: string;
+          body?: string;
+          draft?: boolean;
+        }) => Promise<WorkspaceGitActionResult>;
+        merge: (input: { projectId: string; path: string }) => Promise<WorkspaceGitActionResult>;
+        mergePr: (input: { projectId: string; path: string }) => Promise<WorkspaceGitActionResult>;
+        markPrReady: (input: {
+          projectId: string;
+          path: string;
+        }) => Promise<WorkspaceGitActionResult>;
+        init: (input: {
+          projectId: string;
+          name?: string | null;
+          email?: string | null;
+        }) => Promise<WorkspaceGitActionResult>;
       };
       onboarding: {
         verifyGit: () => Promise<boolean>;

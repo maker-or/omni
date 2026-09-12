@@ -2,19 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
+  CaretDown,
+  CaretRight,
   FunnelSimple,
   FolderPlus,
   GitBranch,
   Plus,
   Trash,
-  Wrench,
 } from "@phosphor-icons/react";
 import type { Project } from "../../contracts/projects.ts";
 import type { Worktree } from "../../contracts/worktrees.ts";
+import { orderWorktreesForDisplay } from "../../contracts/worktrees.ts";
 import { AgentView } from "@/components/agent-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { GlobalTabBar } from "@/components/global-tab-bar";
 import { TerminalSession } from "@/components/terminal-session";
+import { WorkspaceControlPanel } from "@/components/workspace-control-panel";
 import { Toaster } from "@/components/ui/toaster";
 import {
   Sidebar,
@@ -186,6 +189,29 @@ export function AdvancedShell() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [worktreesByProject, setWorktreesByProject] = useState<Record<string, Worktree[]>>({});
   const [dialogProject, setDialogProject] = useState<Project | null>(null);
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(new Set());
+  const toggleProjectCollapsed = (projectId: string) => {
+    setCollapsedProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  };
+  // Collapse every project except the active one so the full project
+  // list always fits on screen with no sidebar scrolling — only the
+  // active project's workspaces expand.
+  useEffect(() => {
+    if (projects.length === 0) return;
+    setCollapsedProjectIds((current) => {
+      const next = new Set(current);
+      for (const project of projects) {
+        if (project.id === activeProject?.id) next.delete(project.id);
+        else next.add(project.id);
+      }
+      return next;
+    });
+  }, [projects, activeProject?.id]);
   const [archivedKeys, setArchivedKeys] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(window.localStorage.getItem("pipper.archived-workspaces") ?? "[]"));
@@ -197,6 +223,21 @@ export function AdvancedShell() {
   const selectedPath = activeProject
     ? normalizeWorkspacePath(selectedWorktreePathByProject[activeProject.id], activeProject.path)
     : null;
+  const selectedWorktree = useMemo(() => {
+    if (!activeProject || !selectedPath) return null;
+    return (
+      (worktreesByProject[activeProject.id] ?? []).find(
+        (item) => normalizeWorkspacePath(item.path, activeProject.path) === selectedPath,
+      ) ?? null
+    );
+  }, [activeProject, selectedPath, worktreesByProject]);
+  const selectedWorkspaceName = useMemo(() => {
+    if (!selectedPath) return null;
+    if (selectedWorktree && !selectedWorktree.isProjectRoot)
+      return selectedWorktree.workspaceName ?? null;
+    if (selectedWorktree?.isProjectRoot) return "main";
+    return selectedPath.split(/[\\/]/).filter(Boolean).at(-1) ?? null;
+  }, [selectedPath, selectedWorktree]);
 
   useEffect(() => {
     void window.omni.projects
@@ -221,18 +262,14 @@ export function AdvancedShell() {
         try {
           return [project.id, await window.omni.worktrees.list(project.id)] as const;
         } catch {
-          return [project.id, []] as const;
+          return [project.id, [] as Worktree[]] as const;
         }
       }),
     ).then((entries) => {
       if (cancelled) return;
-      // Newest-first for linked worktrees (git returns oldest-first).
+      // Newest-first for linked worktrees (git order is arbitrary readdir).
       const ordered = Object.fromEntries(
-        entries.map(([id, list]) => {
-          const root = list.filter((item) => item.isProjectRoot);
-          const rest = list.filter((item) => !item.isProjectRoot).reverse();
-          return [id, [...root, ...rest]];
-        }),
+        entries.map(([id, list]) => [id, orderWorktreesForDisplay(list)]),
       );
       setWorktreesByProject(ordered);
     });
@@ -275,17 +312,8 @@ export function AdvancedShell() {
     setWorktreesByProject((current) => {
       const existing = current[project.id] ?? [];
       const withoutDup = existing.filter((item) => item.path !== worktree.path);
-      const adjustedRootIndex = withoutDup.findIndex((item) => item.isProjectRoot);
-      // New workspace goes to the top (right after the project root).
-      const next =
-        adjustedRootIndex === -1
-          ? [worktree, ...withoutDup]
-          : [
-              ...withoutDup.slice(0, adjustedRootIndex + 1),
-              worktree,
-              ...withoutDup.slice(adjustedRootIndex + 1),
-            ];
-      return { ...current, [project.id]: next };
+      // Newest-first: the fresh worktree carries Date.now(), so it sorts top.
+      return { ...current, [project.id]: orderWorktreesForDisplay([worktree, ...withoutDup]) };
     });
     await loadWorktrees(project.id);
   };
@@ -301,6 +329,9 @@ export function AdvancedShell() {
   };
   const archiveWorkspace = async (project: Project, worktree: Worktree) => {
     if (worktree.isProjectRoot) return;
+    // Free the disk first (node_modules); the archived flag is only set once
+    // that succeeded so a failed cleanup never leaves a "phantom" archive.
+    await window.omni.worktrees.archive({ projectId: project.id, path: worktree.path });
     if (project.id === activeProject?.id && worktree.path === selectedPath) {
       await switchWorktree(project.id, project.path);
     }
@@ -312,6 +343,14 @@ export function AdvancedShell() {
     const next = new Set(archivedKeys);
     next.delete(workspaceKey(project.id, worktree.path));
     persistArchived(next);
+    // Deps were dropped on archive; bring them back in the background.
+    void window.omni.worktrees.restore({ projectId: project.id, path: worktree.path });
+  };
+  /** After "Continue" the worktree is on a new branch — refresh git-derived rows. */
+  const reloadWorkspaces = async (project: Project) => {
+    const items = await window.omni.worktrees.list(project.id).catch(() => null);
+    if (items) setWorktreesByProject((current) => ({ ...current, [project.id]: items }));
+    if (project.id === activeProject?.id) await loadWorktrees(project.id);
   };
   const deleteWorkspace = async (project: Project, worktree: Worktree) => {
     if (worktree.isProjectRoot) return;
@@ -344,7 +383,7 @@ export function AdvancedShell() {
         <DiffIngestor />
         <Toaster />
         <div className="flex min-h-0 flex-1">
-          <Sidebar collapsible="none" bordered rail={false}>
+          <Sidebar collapsible="none" bordered={false} rail={false}>
             <SidebarContent className="p-2 pt-12">
               <SidebarMenu>
                 {projects.map((project) => {
@@ -354,17 +393,38 @@ export function AdvancedShell() {
                   // selected worktree; other projects show none highlighted.
                   const projectSelectedPath =
                     project.id === activeProject?.id ? selectedPath : null;
+                  const visibleWorktrees = (worktreesByProject[project.id] ?? []).filter(
+                    (worktree) => !worktree.isProjectRoot,
+                  );
+                  const isCollapsed = collapsedProjectIds.has(project.id);
                   return (
                     <SidebarMenuItem key={project.id}>
-                      <div className="flex items-center gap-1">
-                        <SidebarMenuButton
-                          className="min-w-0 flex-1"
-                          isActive={active}
-                          onClick={() => void openProject(project)}
-                        >
-                          <ProjectIcon name={project.icon} className="size-4" />
-                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                        </SidebarMenuButton>
+                      <div className="flex min-w-0 items-center gap-1">
+                        {visibleWorktrees.length > 0 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="shrink-0"
+                            aria-label={`${isCollapsed ? "Expand" : "Collapse"} workspaces in ${project.name}`}
+                            aria-expanded={!isCollapsed}
+                            onClick={() => toggleProjectCollapsed(project.id)}
+                          >
+                            {isCollapsed ? <CaretRight size={14} /> : <CaretDown size={14} />}
+                          </Button>
+                        ) : null}
+                        <div className="min-w-0 flex-1">
+                          <SidebarMenuButton
+                            className="w-full min-w-0"
+                            isActive={active}
+                            onClick={() => void openProject(project)}
+                          >
+                            <ProjectIcon name={project.icon} className="size-4" />
+                            <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
+                              {project.name}
+                            </span>
+                          </SidebarMenuButton>
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -376,40 +436,40 @@ export function AdvancedShell() {
                           <Plus size={16} />
                         </Button>
                       </div>
-                      <div className="mt-1 flex flex-col gap-0.5 pl-2">
-                        {(worktreesByProject[project.id] ?? [])
-                          .filter((worktree) => !worktree.isProjectRoot)
-                          .filter(
-                            (worktree) =>
-                              !archivedKeys.has(workspaceKey(project.id, worktree.path)),
-                          )
-                          .map((worktree) => (
-                            <WorkspaceRow
-                              key={worktree.path}
-                              worktree={worktree}
-                              selected={worktree.path === projectSelectedPath}
-                              onSelect={() => void selectWorkspace(project, worktree.path)}
-                              onArchive={() => void archiveWorkspace(project, worktree)}
-                              onDelete={() => void deleteWorkspace(project, worktree)}
-                            />
-                          ))}
-                        {(worktreesByProject[project.id] ?? [])
-                          .filter((worktree) => !worktree.isProjectRoot)
-                          .filter((worktree) =>
-                            archivedKeys.has(workspaceKey(project.id, worktree.path)),
-                          )
-                          .map((worktree) => (
-                            <WorkspaceRow
-                              key={`archived-${worktree.path}`}
-                              worktree={worktree}
-                              selected={false}
-                              archived
-                              onSelect={() => void selectWorkspace(project, worktree.path)}
-                              onArchive={() => restoreWorkspace(project, worktree)}
-                              onDelete={() => void deleteWorkspace(project, worktree)}
-                            />
-                          ))}
-                      </div>
+                      {isCollapsed ? null : (
+                        <div className="mt-1 flex flex-col gap-0.5 pl-2">
+                          {visibleWorktrees
+                            .filter(
+                              (worktree) =>
+                                !archivedKeys.has(workspaceKey(project.id, worktree.path)),
+                            )
+                            .map((worktree) => (
+                              <WorkspaceRow
+                                key={worktree.path}
+                                worktree={worktree}
+                                selected={worktree.path === projectSelectedPath}
+                                onSelect={() => void selectWorkspace(project, worktree.path)}
+                                onArchive={() => void archiveWorkspace(project, worktree)}
+                                onDelete={() => void deleteWorkspace(project, worktree)}
+                              />
+                            ))}
+                          {visibleWorktrees
+                            .filter((worktree) =>
+                              archivedKeys.has(workspaceKey(project.id, worktree.path)),
+                            )
+                            .map((worktree) => (
+                              <WorkspaceRow
+                                key={`archived-${worktree.path}`}
+                                worktree={worktree}
+                                selected={false}
+                                archived
+                                onSelect={() => void selectWorkspace(project, worktree.path)}
+                                onArchive={() => restoreWorkspace(project, worktree)}
+                                onDelete={() => void deleteWorkspace(project, worktree)}
+                              />
+                            ))}
+                        </div>
+                      )}
                     </SidebarMenuItem>
                   );
                 })}
@@ -441,8 +501,8 @@ export function AdvancedShell() {
           <main className="relative min-w-0 flex-1 overflow-hidden">
             <div className="flex h-full min-w-0">
               <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <div className="flex h-12 shrink-0 items-center justify-center border-b border-border/60 bg-surface-1 px-3">
-                  <div className="w-full max-w-[1000px] px-4">
+                <div className="flex h-12 shrink-0 items-center justify-center bg-surface-1 px-3">
+                  <div className="mt-2 w-full max-w-[1000px] px-4">
                     <GlobalTabBar />
                   </div>
                 </div>
@@ -468,13 +528,18 @@ export function AdvancedShell() {
                   })}
                 </div>
               </section>
-              <aside className="hidden w-72 shrink-0 border-l border-border/60 bg-surface-1 lg:flex lg:flex-col">
-                <div className="flex h-11 items-center gap-2 border-b border-border/60 px-3 text-xs font-semibold text-foreground">
-                  <Wrench size={15} weight="duotone" /> Workflow
-                </div>
-                <div className="flex flex-1 items-center justify-center px-6 text-center text-xs leading-5 text-muted-foreground">
-                  Workspace checks and pull requests will appear here.
-                </div>
+              <aside className="hidden w-[22rem] shrink-0 bg-surface-1 lg:flex lg:flex-col">
+                <WorkspaceControlPanel
+                  project={activeProject}
+                  worktreePath={selectedPath}
+                  workspaceName={selectedWorkspaceName}
+                  onArchive={
+                    activeProject && selectedWorktree && !selectedWorktree.isProjectRoot
+                      ? () => archiveWorkspace(activeProject, selectedWorktree)
+                      : undefined
+                  }
+                  onContinued={activeProject ? () => reloadWorkspaces(activeProject) : undefined}
+                />
               </aside>
             </div>
           </main>

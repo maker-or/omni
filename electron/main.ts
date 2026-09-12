@@ -16,16 +16,29 @@ import {
 } from "./launch-state";
 import { pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { createProject, getProject, listProjects } from "./projects";
+import { logMain } from "./main-log";
 import {
+  continueWorktreeOnNewBranch,
   createWorktree,
   listBranches,
   listWorktrees,
   removeWorktree,
+  removeWorktreeDependencies,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
 } from "./worktree-manager";
 import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
+import {
+  commitWorkspace,
+  createWorkspacePr,
+  getWorkspaceGitStatus,
+  initProjectRepo,
+  markWorkspacePrReady,
+  mergeWorkspaceBranch,
+  mergeWorkspacePr,
+  pushWorkspace,
+} from "./git-workspace";
 import type { ProjectFileGitStatus, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
@@ -617,9 +630,13 @@ function resolveExternalUrl(kind: "clerkSignUp" | "clerkSignIn"): string {
 }
 
 const PIPPER_DOCS_URL_PREFIXES = ["https://www.pipper.dev/docs/", "https://pipper.dev/docs/"];
+// Workspace panel links to the branch's pull request. Only PR pages — not
+// arbitrary GitHub URLs — so a crafted `gh` response can't open anything else.
+const GITHUB_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/;
 
 function isAllowedExternalUrl(inputUrl: string): boolean {
   if (isAllowedClerkAuthUrl(inputUrl)) return true;
+  if (GITHUB_PR_URL.test(inputUrl)) return true;
   // Onboarding verification cards link failing agents to their setup guide.
   return PIPPER_DOCS_URL_PREFIXES.some((prefix) => inputUrl.startsWith(prefix));
 }
@@ -1519,6 +1536,175 @@ function registerIpc(): void {
     );
   });
 
+  // First-party git for the advanced workspace UI. Every handler re-resolves
+  // the worktree from the project's live worktree list so a stale renderer
+  // path can never operate on an unrelated checkout.
+  function resolveWorkspaceTarget(projectId: string, path: string) {
+    const project = getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    const target = listWorktrees(project.path).find((worktree) => samePath(worktree.path, path));
+    if (!target) throw new Error("Workspace is no longer available");
+    return target;
+  }
+
+  ipcMain.handle("git:status", async (_event, input: { projectId: string; path: string }) => {
+    try {
+      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      return await getWorkspaceGitStatus(target.path);
+    } catch (err) {
+      logMain(
+        `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
+    }
+  });
+
+  ipcMain.handle(
+    "git:commit",
+    (_event, input: { projectId: string; path: string; message: string }) => {
+      logMain(
+        `[Main] git:commit project=${input.projectId} path=${input.path} msgLen=${input.message?.length ?? 0}`,
+      );
+      try {
+        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        const hash = commitWorkspace(target.path, input.message);
+        logMain(`[Main] git:commit ok ${hash}`);
+        captureAnalytics("workspace_committed", {
+          windowType: "main",
+          properties: { project_id: input.projectId },
+        });
+        return { ok: true as const, message: `Committed ${hash}.` };
+      } catch (err) {
+        logMain(`[Main] git:commit failed: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    },
+  );
+
+  ipcMain.handle("git:push", async (_event, input: { projectId: string; path: string }) => {
+    logMain(`[Main] git:push project=${input.projectId} path=${input.path}`);
+    try {
+      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      await pushWorkspace(target.path);
+      logMain(`[Main] git:push ok`);
+      captureAnalytics("workspace_pushed", {
+        windowType: "main",
+        properties: { project_id: input.projectId },
+      });
+      return { ok: true as const, message: "Pushed." };
+    } catch (err) {
+      logMain(`[Main] git:push failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+  });
+
+  ipcMain.handle(
+    "git:createPr",
+    async (
+      _event,
+      input: { projectId: string; path: string; title: string; body?: string; draft?: boolean },
+    ) => {
+      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      const url = await createWorkspacePr(
+        target.path,
+        input.title,
+        input.body,
+        input.draft ?? false,
+      );
+      captureAnalytics("workspace_pr_created", {
+        windowType: "main",
+        properties: { project_id: input.projectId, draft: input.draft ?? false },
+      });
+      return { ok: true as const, message: "Pull request created.", url };
+    },
+  );
+
+  ipcMain.handle("git:merge", (_event, input: { projectId: string; path: string }) => {
+    const project = getProject(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    if (!target.branch) throw new Error("Workspace has no branch to merge.");
+    const base = mergeWorkspaceBranch(project.path, target.branch);
+    captureAnalytics("workspace_merged", {
+      windowType: "main",
+      properties: { project_id: input.projectId },
+    });
+    return { ok: true as const, message: `Merged into ${base}.` };
+  });
+
+  // Merge the open GitHub PR for the workspace branch (checks-gated in the UI).
+  ipcMain.handle("git:mergePr", async (_event, input: { projectId: string; path: string }) => {
+    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const status = await getWorkspaceGitStatus(target.path);
+    if (!status.openPrNumber) throw new Error("No open pull request for this workspace.");
+    const message = await mergeWorkspacePr(target.path, status.openPrNumber);
+    captureAnalytics("workspace_pr_merged", {
+      windowType: "main",
+      properties: { project_id: input.projectId },
+    });
+    return { ok: true as const, message };
+  });
+
+  // Draft PR → ready for review. Checks-agnostic: it only flips the GitHub flag.
+  ipcMain.handle("git:markPrReady", async (_event, input: { projectId: string; path: string }) => {
+    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const status = await getWorkspaceGitStatus(target.path);
+    if (!status.openPrNumber) throw new Error("No open pull request for this workspace.");
+    if (!status.isDraftPr) throw new Error("Pull request is already ready for review.");
+    const message = await markWorkspacePrReady(target.path, status.openPrNumber);
+    return { ok: true as const, message };
+  });
+
+  ipcMain.handle(
+    "git:init",
+    (_event, input: { projectId: string; name?: string | null; email?: string | null }) => {
+      const project = getProject(input.projectId);
+      if (!project) throw new Error(`Project not found: ${input.projectId}`);
+      initProjectRepo(project.path, { name: input.name, email: input.email });
+      return { ok: true as const, message: "Git repository initialized." };
+    },
+  );
+
+  // Archive = park the workspace: drop installed deps to free disk, keep
+  // everything else. The archived flag itself lives in the renderer.
+  ipcMain.handle("worktrees:archive", (_event, input: { projectId: string; path: string }) => {
+    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    if (target.isProjectRoot) throw new Error("The project root cannot be archived.");
+    const { removed } = removeWorktreeDependencies(target.path);
+    logMain(`[Main] worktrees:archive path=${target.path} depsRemoved=${removed}`);
+    return {
+      ok: true as const,
+      message: removed ? "Workspace archived; dependencies removed." : "Workspace archived.",
+    };
+  });
+
+  // Restore = bring deps back in the background (same flow as create).
+  ipcMain.handle("worktrees:restore", (_event, input: { projectId: string; path: string }) => {
+    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    if (target.isProjectRoot) throw new Error("The project root cannot be restored.");
+    void installWorktreeDependencies(
+      input.projectId,
+      target.path,
+      target.workspaceName ?? "Workspace",
+    );
+    return { ok: true as const, message: "Workspace restored." };
+  });
+
+  // Continue after merge: new branch off the fresh base, same worktree.
+  ipcMain.handle("worktrees:continue", (_event, input: { projectId: string; path: string }) => {
+    const project = getProject(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    if (target.isProjectRoot) throw new Error("The project root cannot be continued.");
+    const worktree = continueWorktreeOnNewBranch(project.path, target.path);
+    logMain(`[Main] worktrees:continue path=${target.path} branch=${worktree.branch}`);
+    captureAnalytics("workspace_continued", {
+      windowType: "main",
+      properties: { project_id: input.projectId },
+    });
+    return worktree;
+  });
+
   ipcMain.handle("worktrees:delete", async (_event, input: { projectId: string; path: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
@@ -1624,6 +1810,20 @@ function registerIpc(): void {
       throw new AggregateError(cleanupErrors, "Workspace removed, but some chat cleanup failed");
     }
     return removed;
+  });
+
+  // Links surfaced from the workspace's own PR (CI runs, preview deploys,
+  // review comments) live on arbitrary hosts. Scheme-gated only: never file:,
+  // javascript:, or app-internal URLs.
+  ipcMain.handle("shell:openHttps", async (_event, url: string) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("Invalid URL.");
+    }
+    if (parsed.protocol !== "https:") throw new Error("Only https links can be opened.");
+    await shell.openExternal(parsed.toString());
   });
 
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {
@@ -2043,7 +2243,7 @@ function registerIpc(): void {
     "terminal:create",
     (_event, sessionId: string, cwd?: string, requestedCols?: number, requestedRows?: number) => {
       if (ptyProcesses.has(sessionId)) {
-        console.log(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
+        logMain(`[Main] PTY session ${sessionId} is already active. Reusing it.`);
         return;
       }
 
@@ -2061,7 +2261,7 @@ function registerIpc(): void {
 
       let spawnCwd = cwd || os.homedir();
       if (spawnCwd && !fs.existsSync(spawnCwd)) {
-        console.warn(
+        logMain(
           `[Main] CWD directory does not exist: ${spawnCwd}. Falling back to home directory.`,
         );
         spawnCwd = os.homedir();
@@ -2074,7 +2274,7 @@ function registerIpc(): void {
 
       let ptyProcess: pty.IPty;
       try {
-        console.log(
+        logMain(
           `[Main] Spawning PTY session ${sessionId} - Shell: ${defaultShell}, Args: ${JSON.stringify(shellArgs)}, CWD: ${spawnCwd}, Size: ${cols}x${rows}`,
         );
         prependStandardPaths();
@@ -2089,7 +2289,9 @@ function registerIpc(): void {
           } as Record<string, string>,
         });
       } catch (err) {
-        console.error(`[Main] Error spawning PTY process for session ${sessionId}:`, err);
+        logMain(
+          `[Main] Error spawning PTY process for session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       }
 
