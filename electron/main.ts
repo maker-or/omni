@@ -1605,7 +1605,12 @@ function registerIpc(): void {
       broadcastToWindows("projects:listChanged", project);
       captureAnalytics("onboarding_step", {
         windowType: "launch",
-        properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
+        properties: {
+          step: "launch_completed",
+          status: "complete",
+          success: true,
+          project_id: projectId,
+        },
       });
       return;
     }
@@ -1617,13 +1622,23 @@ function registerIpc(): void {
     } catch (error) {
       captureAnalytics("onboarding_step", {
         windowType: "launch",
-        properties: { step: "launch_failed", status: "failed", success: false, project_id: projectId },
+        properties: {
+          step: "launch_failed",
+          status: "failed",
+          success: false,
+          project_id: projectId,
+        },
       });
       throw error;
     }
     captureAnalytics("onboarding_step", {
       windowType: "launch",
-      properties: { step: "launch_completed", status: "complete", success: true, project_id: projectId },
+      properties: {
+        step: "launch_completed",
+        status: "complete",
+        success: true,
+        project_id: projectId,
+      },
     });
 
     if (launchWindow && !launchWindow.isDestroyed()) {
