@@ -115,6 +115,11 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   const [gridSize, setGridSize] = useState<TerminalGridSize | null>(null);
   const mountedRef = useRef(true);
   const createdRef = useRef(false);
+  /** Cwd the live PTY was spawned with. A workspace switch restores the same
+   * session id with a new cwd — the spawn gate below must open again. */
+  const createdCwdRef = useRef<string | undefined>(undefined);
+  /** Human-readable spawn stage for timeout diagnostics (no PII). */
+  const spawnStageRef = useRef("mount");
   const ptyReadyRef = useRef(false);
   const queuedInputRef = useRef("");
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -276,6 +281,57 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     });
   }, [isReady, sessionId, write]);
 
+  useEffect(() => {
+    spawnStageRef.current = !core
+      ? "loading shell core"
+      : !gridSize
+        ? "measuring terminal grid"
+        : !isReady
+          ? "starting terminal view"
+          : !isRecoveryComplete
+            ? "restoring scrollback"
+            : ptyReadyRef.current
+              ? "ready"
+              : "spawning shell";
+  }, [core, gridSize, isReady, isRecoveryComplete]);
+
+  // Silent stalls used to leave a black, untypable view. Surface the stuck
+  // stage instead so there is always something actionable on screen.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (!mountedRef.current || ptyReadyRef.current) return;
+      const stage = spawnStageRef.current;
+      console.error(`[Terminal Session] Spawn timed out for ${sessionId} at stage: ${stage}`);
+      setError(
+        `Shell did not start (stuck at: ${stage}). Check ${"~/Library/Application Support/pipper-dev/logs/main.log"} for spawn lines, then Retry.`,
+      );
+      markError(sessionId);
+    }, 20000);
+    return () => clearTimeout(id);
+  }, [sessionId, cwd, markError]);
+
+  // Workspace switch reuses the session id with a new cwd (store restores
+  // the bucket with fresh PTYs expected). Reopen the spawn gate so the
+  // creation effect below respawns the shell in the new cwd instead of
+  // keeping a dead view of the old workspace.
+  useEffect(() => {
+    if (!createdRef.current || cwd === createdCwdRef.current) return;
+    createdRef.current = false;
+    createdCwdRef.current = cwd;
+    ptyReadyRef.current = false;
+    recoveryCompleteRef.current = false;
+    exitDisplayedRef.current = false;
+    queuedLiveDataRef.current = "";
+    queuedInputRef.current = "";
+    initialHistoryRef.current =
+      useTerminalStore.getState().sessions.find((session) => session.id === sessionId)?.history ??
+      "";
+    setIsRecoveryComplete(false);
+    setError(null);
+    // Drop the old workspace's scrollback; recovery replays the restored one.
+    write("\x1bc");
+  }, [cwd, sessionId, write]);
+
   // Create only after recovery finishes, so fresh shell output cannot
   // interleave with recovered scrollback. The measured WTerm grid is sent as
   // part of creation, avoiding the old 80x24 spawn window.
@@ -283,6 +339,7 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
     if (!core || !gridSize || !isReady || !isRecoveryComplete || createdRef.current) return;
 
     createdRef.current = true;
+    createdCwdRef.current = cwd;
     const creationSize = gridSize;
 
     void window.omni.terminal

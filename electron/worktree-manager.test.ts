@@ -15,12 +15,15 @@ import { tmpdir, userInfo } from "node:os";
 import { join, normalize } from "node:path";
 import { realpathSync } from "node:fs";
 import {
+  continueWorktreeOnNewBranch,
   createWorktree,
   isLiveWorktree,
   listBranches,
   listChildWorktrees,
   listWorktrees,
   parseWorktreePorcelain,
+  removeWorktree,
+  removeWorktreeDependencies,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
@@ -197,6 +200,20 @@ describe("createWorktree", () => {
       createWorktree({ projectPath: notRepo, projectId: PROJECT_ID, name: "x" }),
     ).toThrow();
   });
+
+  test("creates from a project path nested inside a git repository", () => {
+    const nestedProject = join(projectPath, "packages", "app");
+    mkdirSync(nestedProject, { recursive: true });
+
+    const worktree = createWorktree({
+      projectPath: nestedProject,
+      projectId: PROJECT_ID,
+      name: "nested-project",
+    });
+
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(worktree.branch).toBe("pipper/nested-project");
+  });
 });
 
 describe("listWorktrees / isLiveWorktree", () => {
@@ -257,6 +274,32 @@ describe("listWorktrees / isLiveWorktree", () => {
     expect(switched.branch).toBe("feature/header");
     expect(switched.isProjectRoot).toBe(true);
     expect(git(projectPath, ["branch", "--show-current"])).toBe("feature/header");
+  });
+
+  test("removes a linked worktree and its generated branch", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "remove-me" });
+
+    const removed = removeWorktree(projectPath, worktree.path, PROJECT_ID);
+
+    expect(removed.path).toBe(worktree.path);
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(listChildWorktrees(projectPath)).toEqual([]);
+    expect(git(projectPath, ["branch", "--list", "pipper/remove-me"])).toBe("");
+  });
+
+  test("preserves a user-managed branch when removing its worktree", () => {
+    const branch = "feature/preserve-me";
+    const worktree = createWorktree({
+      projectPath,
+      projectId: PROJECT_ID,
+      name: "external-worktree",
+      branch,
+    });
+
+    removeWorktree(projectPath, worktree.path, PROJECT_ID);
+
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(git(projectPath, ["branch", "--list", branch])).toBe(branch);
   });
 });
 
@@ -328,5 +371,43 @@ describe("resolveInstallCommand", () => {
   test("a bare package.json falls back to npm", () => {
     writeFileSync(join(dir, "package.json"), "{}");
     expect(resolveInstallCommand(dir)?.manager).toBe("npm");
+  });
+});
+
+describe("continueWorktreeOnNewBranch", () => {
+  test("starts a fresh generated branch off main in the same directory", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Feature" });
+    writeFileSync(join(worktree.path, "work.txt"), "done");
+    git(worktree.path, ["add", "-A"]);
+    git(worktree.path, ["commit", "-m", "feature work"]);
+    // Simulate the merge landing on main.
+    git(projectPath, ["merge", "--no-ff", worktree.branch!]);
+
+    const next = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    expect(next.path).toBe(worktree.path);
+    expect(next.branch).toBe("pipper/feature-2");
+    expect(git(worktree.path, ["rev-parse", "HEAD"])).toBe(git(projectPath, ["rev-parse", "main"]));
+    expect(existsSync(join(worktree.path, "work.txt"))).toBe(true);
+  });
+
+  test("refuses a dirty worktree", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Dirty" });
+    writeFileSync(join(worktree.path, "wip.txt"), "wip");
+    expect(() => continueWorktreeOnNewBranch(projectPath, worktree.path)).toThrow(
+      /uncommitted changes/,
+    );
+    expect(git(worktree.path, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("pipper/dirty");
+  });
+});
+
+describe("removeWorktreeDependencies", () => {
+  test("removes node_modules only and reports whether anything was removed", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Deps" });
+    expect(removeWorktreeDependencies(worktree.path)).toEqual({ removed: false });
+    mkdirSync(join(worktree.path, "node_modules", "pkg"), { recursive: true });
+    writeFileSync(join(worktree.path, "node_modules", "pkg", "index.js"), "");
+    expect(removeWorktreeDependencies(worktree.path)).toEqual({ removed: true });
+    expect(existsSync(join(worktree.path, "node_modules"))).toBe(false);
+    expect(existsSync(join(worktree.path, "README.md"))).toBe(true);
   });
 });

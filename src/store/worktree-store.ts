@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { orderWorktreesForDisplay } from "../../contracts/worktrees.ts";
 import type { GitBranch, Worktree } from "../../contracts/worktrees.ts";
 import type { Thread } from "../../contracts/threads.ts";
 
@@ -75,7 +76,9 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
       const worktrees = await window.omni.worktrees.list(projectId);
       // Only apply if this request is still current
       if (get().lastWorktreeRequest === requestToken) {
-        set({ worktrees, projectId, isLoading: false });
+        // Newest-first for linked worktrees (git order is arbitrary readdir),
+        // project root pinned top.
+        set({ worktrees: orderWorktreesForDisplay(worktrees), projectId, isLoading: false });
       }
     } catch (err) {
       // Only apply if this request is still current
@@ -91,10 +94,21 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
     set({ isCreating: true, error: null });
     try {
       const worktree = await window.omni.worktrees.create({ projectId, name });
-      set((state) => ({
-        worktrees: state.projectId === projectId ? [...state.worktrees, worktree] : state.worktrees,
-        isCreating: false,
-      }));
+      set((state) => {
+        if (state.projectId !== projectId) return { isCreating: false };
+        // Insert new worktree at the top (right after the project root, if
+        // present) so it appears first in the sidebar instead of the bottom.
+        const rootIndex = state.worktrees.findIndex((item) => item.isProjectRoot);
+        const worktrees =
+          rootIndex === -1
+            ? [worktree, ...state.worktrees]
+            : [
+                ...state.worktrees.slice(0, rootIndex + 1),
+                worktree,
+                ...state.worktrees.slice(rootIndex + 1),
+              ];
+        return { worktrees, isCreating: false };
+      });
       return worktree;
     } catch (err) {
       set({

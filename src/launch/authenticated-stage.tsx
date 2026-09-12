@@ -9,6 +9,8 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSelector } from "@/components/agent-selector";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { SleeplessOnboarding } from "@/components/sleepless-onboarding";
+import { UiModeSelector } from "@/components/ui-mode-selector";
+import { hasSavedUiMode, useUiModeStore, type UiMode } from "@/store/ui-mode-store";
 import { trackOnboarding } from "./onboarding-analytics";
 
 interface AuthenticatedStageProps {
@@ -22,7 +24,7 @@ interface AuthenticatedStageProps {
   handleProjectCreated: (project: Project) => void;
 }
 
-type LaunchStage = "agent" | "sleepless" | "shortcuts" | "list" | "add";
+type LaunchStage = "agent" | "sleepless" | "shortcuts" | "mode" | "list" | "add";
 
 const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
 const SLEEPLESS_ONBOARDING_STORAGE_KEY = "pipper.launch.sleeplessConfigured";
@@ -54,6 +56,12 @@ export function AuthenticatedStage({
 }: AuthenticatedStageProps) {
   const selectedAgentIds = useAgentRegistryStore((s) => s.selectedAgentIds);
   const loadAgents = useAgentRegistryStore((s) => s.load);
+  const setUiMode = useUiModeStore((s) => s.setMode);
+
+  const continueAfterMode = (mode: UiMode) => {
+    setUiMode(mode);
+    setStage("list");
+  };
 
   const [stage, setStage] = useState<LaunchStage>(() => {
     if (typeof window !== "undefined") {
@@ -71,8 +79,11 @@ export function AuthenticatedStage({
       if (stageParam === "shortcuts") {
         return "shortcuts";
       }
-      // First-run funnel: agent → sleepless → shortcuts → list. Returning
-      // users who completed an earlier step resume at the next unfinished one.
+      if (stageParam === "mode") {
+        return "mode";
+      }
+      // First-run funnel: agent → sleepless → shortcuts → mode → list.
+      // Returning users who completed an earlier step resume at the next unfinished one.
       if (!isOnboardingFlagSet(AGENT_PICK_STORAGE_KEY)) {
         return "agent";
       }
@@ -81,6 +92,11 @@ export function AuthenticatedStage({
       }
       if (!isOnboardingFlagSet(SHORTCUTS_ONBOARDING_STORAGE_KEY)) {
         return "shortcuts";
+      }
+      try {
+        if (!hasSavedUiMode()) return "mode";
+      } catch {
+        // ignore sessionStorage errors
       }
     }
     return "list";
@@ -107,7 +123,7 @@ export function AuthenticatedStage({
           "w-full z-10 rounded-2xl p-8 flex flex-col gap-6",
           stage === "agent"
             ? "max-w-3xl"
-            : stage === "sleepless" || stage === "shortcuts"
+            : stage === "sleepless" || stage === "shortcuts" || stage === "mode"
               ? "max-w-xl"
               : "max-w-md",
         )}
@@ -126,13 +142,16 @@ export function AuthenticatedStage({
                     return;
                   }
                   if (sessionStorage.getItem(SHORTCUTS_ONBOARDING_STORAGE_KEY) !== "1") {
-                    setStage("shortcuts");
-                    return;
+                    try {
+                      sessionStorage.setItem(SHORTCUTS_ONBOARDING_STORAGE_KEY, "1");
+                    } catch {
+                      // ignore
+                    }
                   }
                 } catch {
                   // ignore
                 }
-                setStage("list");
+                setStage(hasSavedUiMode() ? "list" : "mode");
               }}
             />
           </>
@@ -153,11 +172,11 @@ export function AuthenticatedStage({
               } catch {
                 // ignore
               }
-              if (sessionStorage.getItem(SHORTCUTS_ONBOARDING_STORAGE_KEY) !== "1") {
+              if (!isOnboardingFlagSet(SHORTCUTS_ONBOARDING_STORAGE_KEY)) {
                 setStage("shortcuts");
                 return;
               }
-              setStage("list");
+              setStage(hasSavedUiMode() ? "list" : "mode");
             }}
           />
         ) : stage === "shortcuts" ? (
@@ -183,12 +202,14 @@ export function AuthenticatedStage({
                 } catch {
                   // ignore
                 }
-                setStage("list");
+                setStage(hasSavedUiMode() ? "list" : "mode");
               }}
             >
               Continue
             </Button>
           </div>
+        ) : stage === "mode" ? (
+          <UiModeSelector onContinue={continueAfterMode} />
         ) : stage === "list" ? (
           <>
             <header className="flex flex-col gap-1 pb-2 border-b border-border">
