@@ -66,6 +66,7 @@
     "lucide-react": "^1.39.0",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "^6.3.289",
+    "posthog-js": "^1.430.2",
     "posthog-node": "^5.51.6",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
