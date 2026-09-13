@@ -1,5 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import ProductDemo from "../components/ProductDemo.tsx";
 ---
 
 <Layout
@@ -11,106 +12,79 @@ import Layout from "../layouts/Layout.astro";
     <div class="home-shell">
         <main class="home-content">
             <section class="hero-block" aria-labelledby="hero-title">
-                <div class="selection-frame">
-                    <span
-                        class="canvas-cursor canvas-cursor--blue"
-                        aria-hidden="true"
-                    >
-                        <svg viewBox="0 0 54 54" role="presentation">
-                            <path
-                                d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
-                            ></path>
+                <h1 id="hero-title" class="hero-title">
+                    <span class="hero-cursor hero-cursor--blue" aria-hidden="true">
+                        <svg width="87" height="83" viewBox="0 0 87 83" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <g filter="url(#heroCursorBlue)">
+                                <path d="M62.0438 6.86278L80.0698 63.0558C81.8012 68.4532 76.7349 73.5628 71.323 71.8774L10.9189 53.066C4.09546 50.941 4.46801 41.16 11.4333 39.5603L36.9423 33.7015C39.3929 33.1387 41.3533 31.3047 42.0782 28.8971L48.6756 6.98303C50.6567 0.402474 59.9447 0.31892 62.0438 6.86278Z" fill="#8BB8FF"/>
+                                <path d="M62.0438 6.86278L80.0698 63.0558C81.8012 68.4532 76.7349 73.5628 71.323 71.8774L10.9189 53.066C4.09546 50.941 4.46801 41.16 11.4333 39.5603L36.9423 33.7015C39.3929 33.1387 41.3533 31.3047 42.0782 28.8971L48.6756 6.98303C50.6567 0.402474 59.9447 0.31892 62.0438 6.86278Z" stroke="#0C59FD" stroke-width="4"/>
+                            </g>
+                            <defs>
+                                <filter id="heroCursorBlue" x="0" y="0" width="86.4185" height="82.207" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                                    <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+                                    <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+                                    <feOffset dy="4"/>
+                                    <feGaussianBlur stdDeviation="2"/>
+                                    <feComposite in2="hardAlpha" operator="out"/>
+                                    <feColorMatrix type="matrix" values="0 0 0 0 0.262376 0 0 0 0 0.148506 0 0 0 0 0.0259873 0 0 0 1 0"/>
+                                    <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_816_67"/>
+                                    <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_816_67" result="shape"/>
+                                </filter>
+                            </defs>
                         </svg>
                     </span>
-                    <span
-                        class="selection-handle selection-handle--tl"
-                        aria-hidden="true"></span>
-                    <span
-                        class="selection-handle selection-handle--tr"
-                        aria-hidden="true"></span>
-                    <span
-                        class="selection-handle selection-handle--bl"
-                        aria-hidden="true"></span>
-                    <span
-                        class="selection-handle selection-handle--br"
-                        aria-hidden="true"></span>
-
-                    <h1 id="hero-title" class="hero-title">
-                        <span class="hero-title__blue">@ne interface</span>
-                        <span class="hero-title__second-line">
-                            <span>to control your</span>
-                            <span class="hero-pill">@gents</span>
-                            <span
-                                class="canvas-cursor canvas-cursor--orange"
-                                aria-hidden="true"
-                            >
-                                <svg viewBox="0 0 54 54" role="presentation">
-                                    <path
-                                        d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
-                                    ></path>
+                    <span class="hero-title__blue">@ne Interface</span>
+                    <span class="hero-title__second-line">
+                        <span>to control your</span>
+                        <span class="hero-pill">@gents
+                            <span class="hero-cursor hero-cursor--orange" aria-hidden="true">
+                                <svg width="88" height="81" viewBox="0 0 88 81" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <g filter="url(#heroCursorOrange)">
+                                        <path d="M28.1611 66.474L6.50452 11.5778C4.4244 6.30506 9.14629 0.875522 14.6567 2.20396L76.1602 17.0312C83.1078 18.7061 83.3747 28.4906 76.5287 30.5417L51.4567 38.0535C49.0481 38.7752 47.2115 40.7332 46.6454 43.1831L41.493 65.4811C39.9458 72.177 30.6831 72.8668 28.1611 66.474Z" fill="#FFAA4F"/>
+                                        <path d="M28.1611 66.474L6.50452 11.5778C4.4244 6.30506 9.14629 0.875522 14.6567 2.20396L76.1602 17.0312C83.1078 18.7061 83.3747 28.4906 76.5287 30.5417L51.4567 38.0535C49.0481 38.7752 47.2115 40.7332 46.6454 43.1831L41.493 65.4811C39.9458 72.177 30.6831 72.8668 28.1611 66.474Z" stroke="#B1620D" stroke-width="4"/>
+                                    </g>
+                                    <defs>
+                                        <filter id="heroCursorOrange" x="0" y="0" width="87.52" height="80.9062" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                                            <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+                                            <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+                                            <feOffset dy="4"/>
+                                            <feGaussianBlur stdDeviation="2"/>
+                                            <feComposite in2="hardAlpha" operator="out"/>
+                                            <feColorMatrix type="matrix" values="0 0 0 0 0.262376 0 0 0 0 0.148506 0 0 0 0 0.0259873 0 0 0 1 0"/>
+                                            <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_816_75"/>
+                                            <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_816_75" result="shape"/>
+                                        </filter>
+                                    </defs>
                                 </svg>
                             </span>
                         </span>
-                    </h1>
-                </div>
+                    </span>
+                </h1>
 
                 <div class="action-row" aria-label="Get started">
                     <a
-                        class="action-card action-card--download"
+                        id="hero-download"
+                        class="download-btn"
                         href="/download"
                     >
+                        <span class="download-btn__icon" aria-hidden="true">D</span>
                         <span>Download</span>
-                        <span
-                            class="action-handle action-handle--tl"
-                            aria-hidden="true"></span>
-                        <span
-                            class="action-handle action-handle--tr"
-                            aria-hidden="true"></span>
-                        <span
-                            class="action-handle action-handle--bl"
-                            aria-hidden="true"></span>
-                        <span
-                            class="action-handle action-handle--br"
-                            aria-hidden="true"></span>
-                        <span
-                            class="canvas-cursor canvas-cursor--purple"
-                            aria-hidden="true"
-                        >
-                            <svg viewBox="0 0 54 54" role="presentation">
-                                <path
-                                    d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z"
-                                ></path>
-                            </svg>
-                        </span>
                     </a>
                     <a
-                        class="action-card action-card--github"
+                        class="github-link"
                         href="https://github.com/maker-or/omni"
                         target="_blank"
                         rel="noopener noreferrer"
                     >
-                        <span>Github</span>
-                        <span
-                            class="action-handle action-handle--tl"
-                            aria-hidden="true"></span>
-                        <span
-                            class="action-handle action-handle--tr"
-                            aria-hidden="true"></span>
-                        <span
-                            class="action-handle action-handle--bl"
-                            aria-hidden="true"></span>
-                        <span
-                            class="action-handle action-handle--br"
-                            aria-hidden="true"></span>
+                        Github
                     </a>
+                </div>
+
+                <div class="hero-demo">
+                    <ProductDemo client:visible />
                 </div>
             </section>
         </main>
-
-        <p class="trust-line">
-            <span>Trusted by</span>
-            <span>cracked builders</span>
-        </p>
     </div>
 
     <section class="agents-section" aria-labelledby="agents-title">
@@ -385,6 +359,41 @@ import Layout from "../layouts/Layout.astro";
     </section>
 </Layout>
 
+<script>
+    // Start the platform download immediately, then land on /download?started=1
+    // so the page can confirm it and offer a fallback link + setup steps.
+    const heroDownload = document.querySelector("#hero-download");
+    heroDownload?.addEventListener("click", (event) => {
+        event.preventDefault();
+        const isWindows = /win/i.test(navigator.userAgent);
+        const manifestUrl = isWindows
+            ? "/api/launcher/latest-windows.json"
+            : "/api/launcher/latest.json";
+        fetch(manifestUrl, { cache: "no-store" })
+            .then((response) => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then((manifest) => {
+                const url = new URL(manifest.url, window.location.origin);
+                if (url.protocol !== "https:") throw new Error("bad url");
+                // Assigning location to an attachment response (.dmg/.exe)
+                // downloads without unloading the page — most reliable
+                // cross-browser trigger (anchor+download is ignored
+                // cross-origin and can be swallowed).
+                window.location.href = url.toString();
+                window.setTimeout(() => {
+                    window.location.href = "/download?started=1";
+                }, 1200);
+            })
+            .catch(() => {
+                // No file to start — land without the started flag so the
+                // page doesn't claim a download began.
+                window.location.href = "/download";
+            });
+    });
+</script>
+
 <style>
     :global(.home-page) {
         --canvas-bg: #f0efed;
@@ -406,12 +415,23 @@ import Layout from "../layouts/Layout.astro";
         flex-direction: column;
         box-sizing: border-box;
         width: 100%;
-        height: 100svh;
         min-height: 100svh;
         margin: 0;
         border: none;
         overflow: hidden;
         isolation: isolate;
+    }
+
+    .hero-demo {
+        width: 100%;
+        max-width: 96rem;
+        margin: 0.5rem auto 0;
+    }
+    .hero-demo > section {
+        height: min(160svh, 92rem) !important;
+        width: 100% !important;
+        padding: 0 !important;
+        background: transparent !important;
     }
 
     .agents-section {
@@ -427,7 +447,7 @@ import Layout from "../layouts/Layout.astro";
         min-height: calc(100svh - clamp(2.3rem, 6vw, 7.5rem));
         padding: clamp(4rem, 10.5vh, 8rem) clamp(2rem, 6.5vw, 8rem)
             clamp(2.5rem, 5vw, 5rem);
-        border: 1.5px solid var(--canvas-ink);
+        border: none;
         overflow: hidden;
     }
 
@@ -742,12 +762,17 @@ import Layout from "../layouts/Layout.astro";
         display: flex;
         width: 100%;
         flex: 1;
+        justify-content: center;
         padding: clamp(3.25rem, 5.2vw, 5rem) clamp(2rem, 5vw, 6.5rem) 4rem;
     }
 
     .hero-block {
         position: relative;
-        width: min(100%, 64rem);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: min(100%, 80rem);
+        text-align: center;
     }
 
     .selection-frame {
@@ -785,14 +810,19 @@ import Layout from "../layouts/Layout.astro";
     }
 
     .hero-title {
+        position: relative;
         display: flex;
-        flex-direction: column;
-        align-items: flex-start;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: center;
+        column-gap: 0.3em;
+        row-gap: 0.05em;
         margin: 0;
+        text-align: center;
         font-family: "Figtree Variable", sans-serif;
-        font-size: clamp(3.1rem, 5.6vw, 5rem);
+        font-size: clamp(2.6rem, 5.2vw, 5rem);
         font-weight: 420;
-        line-height: 0.91;
+        line-height: 1;
         letter-spacing: -0.078em;
     }
 
@@ -801,6 +831,7 @@ import Layout from "../layouts/Layout.astro";
         display: flex;
         flex-wrap: wrap;
         align-items: baseline;
+        justify-content: center;
         column-gap: 0.26em;
         row-gap: 0.02em;
     }
@@ -810,6 +841,7 @@ import Layout from "../layouts/Layout.astro";
     }
 
     .hero-pill {
+        position: relative;
         display: inline-flex;
         align-items: center;
         padding: 0.08em 0.32em 0.13em;
@@ -820,13 +852,52 @@ import Layout from "../layouts/Layout.astro";
         transform: translateY(-0.03em) rotate(-0.7deg);
     }
 
+    .hero-cursor {
+        position: absolute;
+        z-index: 2;
+        width: clamp(1.4rem, 2.4vw, 2rem);
+        pointer-events: none;
+    }
+
+    .hero-cursor svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+    }
+
+    .hero-cursor--blue {
+        top: -2.6rem;
+        left: -3.2rem;
+        transform: rotate(-8deg);
+    }
+
+    .hero-cursor--orange {
+        right: -1.5rem;
+        bottom: -1.4rem;
+        width: clamp(1.4rem, 2.2vw, 1.9rem);
+    }
+
+    .hero-cursor--purple {
+        left: -0.9rem;
+        bottom: -1.5rem;
+        width: clamp(1.5rem, 2.6vw, 2.1rem);
+        transform: rotate(8deg);
+    }
+
+    .action-card--download {
+        position: relative;
+    }
+
     .action-row {
         display: flex;
+        flex-direction: column;
         flex-wrap: wrap;
-        gap: 1.1rem;
-        width: min(100%, 58rem);
-        margin-top: 2.9rem;
-        padding-left: 0.05rem;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        margin-top: 5rem;
+        margin-bottom: 0.5rem;
         animation: rise-in 850ms 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
@@ -835,18 +906,69 @@ import Layout from "../layouts/Layout.astro";
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 15rem;
-        min-height: 5.6rem;
-        padding: 1rem 1.5rem;
+        min-width: 10rem;
+        min-height: 3.4rem;
+        padding: 0.65rem 1.1rem;
         border: 1.5px solid currentColor;
         color: var(--canvas-blue);
         font-family: "Figtree Variable", sans-serif;
-        font-size: clamp(1.65rem, 2.6vw, 2.65rem);
+        font-size: clamp(1.15rem, 1.7vw, 1.6rem);
         font-weight: 430;
         line-height: 1;
         letter-spacing: -0.065em;
         text-decoration: none;
         transition: none;
+    }
+
+    .download-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.35rem 1.1rem 0.35rem 0.35rem;
+        border: none;
+        border-radius: 0.45rem;
+        background: #088139;
+        color: #26b25a;
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(1.15rem, 1.7vw, 1.6rem);
+        font-weight: 430;
+        line-height: 1;
+        letter-spacing: -0.045em;
+        text-decoration: none;
+    }
+
+    .download-btn:focus-visible {
+        outline: 3px solid #088139;
+        outline-offset: 4px;
+    }
+
+    .download-btn__icon {
+        display: inline-grid;
+        place-items: center;
+        width: 2.1rem;
+        height: 2.1rem;
+        border-radius: 0.3rem;
+        background: #26b25a;
+        color: #088139;
+        font-weight: 560;
+    }
+
+    .github-link {
+        color: var(--canvas-muted);
+        font-family: "Figtree Variable", sans-serif;
+        font-size: clamp(1.05rem, 1.5vw, 1.4rem);
+        font-weight: 420;
+        letter-spacing: -0.045em;
+        text-decoration: none;
+    }
+
+    .github-link:hover {
+        color: var(--canvas-ink);
+    }
+
+    .github-link:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 4px;
     }
 
     .action-card:focus-visible {

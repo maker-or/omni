@@ -110,6 +110,21 @@ export function setActiveAgentContext(
 }
 
 /** The id events are attributed to: the signed-in user, else the device id. */
+export function getAnalyticsDistinctId(): string | null {
+  return currentDistinctId();
+}
+
+/** Renderer-safe config: null when disabled/keyless so renderer stays off. */
+export function getAnalyticsConfig(): {
+  key: string;
+  host: string;
+  distinctId: string | null;
+} | null {
+  const apiKey = resolvePostHogKey();
+  if (!apiKey) return null;
+  return { key: apiKey, host: resolvePostHogHost(), distinctId: currentDistinctId() };
+}
+
 function currentDistinctId(): string | null {
   return identifiedUserId ?? deviceId ?? ensureDeviceId();
 }
