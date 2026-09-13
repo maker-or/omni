@@ -362,9 +362,14 @@ import ProductDemo from "../components/ProductDemo.tsx";
 <script>
     // Start the platform download immediately, then land on /download?started=1
     // so the page can confirm it and offer a fallback link + setup steps.
+    // Triggered by the hero button click or by pressing "D" (the button's
+    // keycap hint).
     const heroDownload = document.querySelector("#hero-download");
-    heroDownload?.addEventListener("click", (event) => {
-        event.preventDefault();
+    let downloadInFlight = false;
+
+    function startDownload() {
+        if (downloadInFlight) return;
+        downloadInFlight = true;
         const isWindows = /win/i.test(navigator.userAgent);
         const manifestUrl = isWindows
             ? "/api/launcher/latest-windows.json"
@@ -391,6 +396,26 @@ import ProductDemo from "../components/ProductDemo.tsx";
                 // page doesn't claim a download began.
                 window.location.href = "/download";
             });
+    }
+
+    heroDownload?.addEventListener("click", (event) => {
+        event.preventDefault();
+        startDownload();
+    });
+
+    window.addEventListener("keydown", (event) => {
+        if (event.key !== "d" && event.key !== "D") return;
+        if (event.metaKey || event.ctrlKey || event.altKey || event.repeat)
+            return;
+        const target = event.target;
+        if (
+            target instanceof HTMLElement &&
+            (target.isContentEditable ||
+                /^(input|textarea|select)$/i.test(target.tagName))
+        )
+            return;
+        event.preventDefault();
+        startDownload();
     });
 </script>
 
