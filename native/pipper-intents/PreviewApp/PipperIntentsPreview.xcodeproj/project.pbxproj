@@ -1,0 +1,400 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000010000000000000001 /* PipperIntentsPreviewApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000001 /* PipperIntentsPreviewApp.swift */; };
+		A10000010000000000000002 /* PipperIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000002 /* PipperIntents.swift */; };
+		A10000010000000000000003 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000020000000000000003 /* SwiftUI.framework */; };
+		A10000010000000000000004 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000020000000000000004 /* AppIntents.framework */; };
+		A10000010000000000000005 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000020000000000000005 /* AppKit.framework */; };
+		A10000010000000000000006 /* AppIntentsExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000007 /* AppIntentsExtension.swift */; };
+		A10000010000000000000007 /* PipperIntents.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000002 /* PipperIntents.swift */; };
+		A10000010000000000000008 /* AppIntents.framework in Extension Frameworks */ = {isa = PBXBuildFile; fileRef = A10000020000000000000004 /* AppIntents.framework */; };
+		A10000010000000000000009 /* AppKit.framework in Extension Frameworks */ = {isa = PBXBuildFile; fileRef = A10000020000000000000005 /* AppKit.framework */; };
+		A1000001000000000000000A /* ExtensionFoundation.framework in Extension Frameworks */ = {isa = PBXBuildFile; fileRef = A10000020000000000000009 /* ExtensionFoundation.framework */; };
+		A1000001000000000000000B /* PipperIntents.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1000002000000000000000A /* PipperIntents.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A100000A0000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000070000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000050000000000000002;
+			remoteInfo = PipperIntents;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A10000020000000000000001 /* PipperIntentsPreviewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipperIntentsPreviewApp.swift; sourceTree = "<group>"; };
+		A10000020000000000000002 /* PipperIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipperIntents.swift; path = ../Sources/PipperIntents.swift; sourceTree = "<group>"; };
+		A10000020000000000000003 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		A10000020000000000000004 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
+		A10000020000000000000005 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		A10000020000000000000006 /* PipperIntentsPreview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PipperIntentsPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000020000000000000007 /* AppIntentsExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppIntentsExtension.swift; path = ../Extension/AppIntentsExtension.swift; sourceTree = "<group>"; };
+		A10000020000000000000008 /* AppIntentsExtension-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = ../Extension/Info.plist; sourceTree = "<group>"; };
+		A10000020000000000000009 /* ExtensionFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ExtensionFoundation.framework; path = System/Library/Frameworks/ExtensionFoundation.framework; sourceTree = SDKROOT; };
+		A1000002000000000000000A /* PipperIntents.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = PipperIntents.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000030000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000003 /* SwiftUI.framework in Frameworks */,
+				A10000010000000000000004 /* AppIntents.framework in Frameworks */,
+				A10000010000000000000005 /* AppKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000030000000000000004 /* Extension Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000008 /* AppIntents.framework in Extension Frameworks */,
+				A10000010000000000000009 /* AppKit.framework in Extension Frameworks */,
+				A1000001000000000000000A /* ExtensionFoundation.framework in Extension Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000040000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A10000040000000000000002 /* PreviewApp */,
+				A10000040000000000000003 /* Frameworks */,
+				A10000040000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000040000000000000002 /* PreviewApp */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000001 /* PipperIntentsPreviewApp.swift */,
+				A10000020000000000000002 /* PipperIntents.swift */,
+			);
+			path = .;
+			sourceTree = "<group>";
+		};
+		A10000040000000000000005 /* Extension */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000007 /* AppIntentsExtension.swift */,
+				A10000020000000000000008 /* AppIntentsExtension-Info.plist */,
+			);
+			path = ../Extension;
+			sourceTree = "<group>";
+		};
+		A10000040000000000000003 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000003 /* SwiftUI.framework */,
+				A10000020000000000000004 /* AppIntents.framework */,
+				A10000020000000000000005 /* AppKit.framework */,
+				A10000020000000000000009 /* ExtensionFoundation.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A10000040000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000006 /* PipperIntentsPreview.app */,
+				A1000002000000000000000A /* PipperIntents.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000050000000000000001 /* PipperIntentsPreview */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000060000000000000002 /* Build configuration list for PBXNativeTarget "PipperIntentsPreview" */;
+			buildPhases = (
+				A10000030000000000000002 /* Sources */,
+				A10000030000000000000001 /* Frameworks */,
+				A10000030000000000000003 /* Resources */,
+				A10000030000000000000007 /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A100000B0000000000000001 /* PBXTargetDependency */,
+			);
+			name = PipperIntentsPreview;
+			productName = PipperIntentsPreview;
+			productReference = A10000020000000000000006 /* PipperIntentsPreview.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A10000050000000000000002 /* PipperIntents */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000060000000000000003 /* Build configuration list for PBXNativeTarget "PipperIntents" */;
+			buildPhases = (
+				A10000030000000000000005 /* Extension Sources */,
+				A10000030000000000000004 /* Extension Frameworks */,
+				A10000030000000000000006 /* Extension Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PipperIntents;
+			productName = PipperIntents;
+			productReference = A1000002000000000000000A /* PipperIntents.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000070000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					A10000050000000000000001 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					A10000050000000000000002 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = A10000060000000000000001 /* Build configuration list for PBXProject "PipperIntentsPreview" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000040000000000000001;
+			productRefGroup = A10000040000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000050000000000000001 /* PipperIntentsPreview */,
+				A10000050000000000000002 /* PipperIntents */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000030000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000030000000000000006 /* Extension Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A10000030000000000000007 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				A1000001000000000000000B /* PipperIntents.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000030000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000001 /* PipperIntentsPreviewApp.swift in Sources */,
+				A10000010000000000000002 /* PipperIntents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000030000000000000005 /* Extension Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000006 /* AppIntentsExtension.swift in Sources */,
+				A10000010000000000000007 /* PipperIntents.swift in Extension Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A100000B0000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000050000000000000002 /* PipperIntents */;
+			targetProxy = A100000A0000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A10000080000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				APP_SHORTCUTS_ENABLE_FLEXIBLE_MATCHING = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_ENTITLEMENTS = PipperIntentsPreview.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Pipper;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pipper.PipperIntentsPreview;
+				PRODUCT_NAME = PipperIntentsPreview;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = apple-generic;
+			};
+			name = Debug;
+		};
+		A10000080000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				APP_SHORTCUTS_ENABLE_FLEXIBLE_MATCHING = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_ENTITLEMENTS = PipperIntentsPreview.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Pipper;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pipper.PipperIntentsPreview;
+				PRODUCT_NAME = PipperIntentsPreview;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = apple-generic;
+			};
+			name = Release;
+		};
+		A10000080000000000000003 /* Debug target */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		A10000080000000000000004 /* Release target */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+		A10000080000000000000005 /* Debug extension */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_ENTITLEMENTS = PipperIntentsPreviewExtension.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ../Extension/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pipper.PipperIntentsPreview.PipperIntents;
+				PRODUCT_NAME = PipperIntents;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A10000080000000000000006 /* Release extension */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_ENTITLEMENTS = PipperIntentsPreviewExtension.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ../Extension/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pipper.PipperIntentsPreview.PipperIntents;
+				PRODUCT_NAME = PipperIntents;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000060000000000000001 /* Build configuration list for PBXProject "PipperIntentsPreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000080000000000000001 /* Debug */,
+				A10000080000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000060000000000000002 /* Build configuration list for PBXNativeTarget "PipperIntentsPreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000080000000000000003 /* Debug target */,
+				A10000080000000000000004 /* Release target */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000060000000000000003 /* Build configuration list for PBXNativeTarget "PipperIntents" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000080000000000000005 /* Debug extension */,
+				A10000080000000000000006 /* Release extension */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000070000000000000001 /* Project object */;
+}

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "app-intents": {
+      "source": "n0an/App-Intents-Agent-Skill",
+      "sourceType": "github",
+      "skillPath": "app-intents/SKILL.md",
+      "computedHash": "fb727ef9d2ff854b607528e6671fb93547068495911e25f5005491492544216c"
+    },
     "brag": {
       "source": "latent-spaces/brag",
       "sourceType": "github",

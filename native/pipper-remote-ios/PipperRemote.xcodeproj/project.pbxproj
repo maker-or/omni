@@ -1,0 +1,360 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B20100000000000000000001 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000001 /* RemoteModels.swift */; };
+		B20100000000000000000002 /* RemoteConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000002 /* RemoteConfig.swift */; };
+		B20100000000000000000003 /* CatalogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000003 /* CatalogStore.swift */; };
+		B20100000000000000000004 /* RemoteClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000004 /* RemoteClient.swift */; };
+		B20100000000000000000005 /* PipperRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000005 /* PipperRemoteApp.swift */; };
+		B20100000000000000000006 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000006 /* Keychain.swift */; };
+		B20100000000000000000007 /* RemoteSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000007 /* RemoteSession.swift */; };
+		B20100000000000000000008 /* CatalogEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000008 /* CatalogEntities.swift */; };
+		B20100000000000000000009 /* StartThreadIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000009 /* StartThreadIntent.swift */; };
+		B2010000000000000000000A /* PipperRemoteShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000A /* PipperRemoteShortcuts.swift */; };
+		B2010000000000000000000B /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000B /* PairingView.swift */; };
+		B2010000000000000000000C /* QRScannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000C /* QRScannerSheet.swift */; };
+		B2010000000000000000000D /* ThreadListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000D /* ThreadListView.swift */; };
+		B2010000000000000000000E /* ThreadDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000E /* ThreadDetailView.swift */; };
+		B2010000000000000000000F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000F /* SettingsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B20200000000000000000001 /* RemoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteModels.swift; path = Sources/PipperRemoteCore/RemoteModels.swift; sourceTree = "<group>"; };
+		B20200000000000000000002 /* RemoteConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteConfig.swift; path = Sources/PipperRemoteCore/RemoteConfig.swift; sourceTree = "<group>"; };
+		B20200000000000000000003 /* CatalogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CatalogStore.swift; path = Sources/PipperRemoteCore/CatalogStore.swift; sourceTree = "<group>"; };
+		B20200000000000000000004 /* RemoteClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteClient.swift; path = Sources/PipperRemoteCore/RemoteClient.swift; sourceTree = "<group>"; };
+		B20200000000000000000005 /* PipperRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipperRemoteApp.swift; path = App/PipperRemoteApp.swift; sourceTree = "<group>"; };
+		B20200000000000000000006 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Keychain.swift; path = App/Keychain.swift; sourceTree = "<group>"; };
+		B20200000000000000000007 /* RemoteSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteSession.swift; path = App/RemoteSession.swift; sourceTree = "<group>"; };
+		B20200000000000000000008 /* CatalogEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CatalogEntities.swift; path = App/Intents/CatalogEntities.swift; sourceTree = "<group>"; };
+		B20200000000000000000009 /* StartThreadIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StartThreadIntent.swift; path = App/Intents/StartThreadIntent.swift; sourceTree = "<group>"; };
+		B2020000000000000000000A /* PipperRemoteShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipperRemoteShortcuts.swift; path = App/Intents/PipperRemoteShortcuts.swift; sourceTree = "<group>"; };
+		B2020000000000000000000B /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PairingView.swift; path = App/Views/PairingView.swift; sourceTree = "<group>"; };
+		B2020000000000000000000C /* QRScannerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QRScannerSheet.swift; path = App/Views/QRScannerSheet.swift; sourceTree = "<group>"; };
+		B2020000000000000000000D /* ThreadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThreadListView.swift; path = App/Views/ThreadListView.swift; sourceTree = "<group>"; };
+		B2020000000000000000000E /* ThreadDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThreadDetailView.swift; path = App/Views/ThreadDetailView.swift; sourceTree = "<group>"; };
+		B2020000000000000000000F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = App/Views/SettingsView.swift; sourceTree = "<group>"; };
+		B20200000000000000000100 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = App/Info.plist; sourceTree = "<group>"; };
+		B20200000000000000000101 /* PipperRemote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PipperRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B20300000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B20400000000000000000010 = {
+			isa = PBXGroup;
+			children = (
+				B20400000000000000000002 /* App */,
+				B20400000000000000000003 /* Intents */,
+				B20400000000000000000004 /* Views */,
+				B20400000000000000000001 /* Core */,
+				B20400000000000000000011 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B20400000000000000000011 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B20200000000000000000101 /* PipperRemote.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B20400000000000000000001 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				B20200000000000000000001 /* RemoteModels.swift */,
+				B20200000000000000000002 /* RemoteConfig.swift */,
+				B20200000000000000000003 /* CatalogStore.swift */,
+				B20200000000000000000004 /* RemoteClient.swift */,
+			);
+			name = Core;
+			sourceTree = "<group>";
+		};
+		B20400000000000000000002 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B20200000000000000000005 /* PipperRemoteApp.swift */,
+				B20200000000000000000006 /* Keychain.swift */,
+				B20200000000000000000007 /* RemoteSession.swift */,
+				B20200000000000000000100 /* Info.plist */,
+			);
+			name = App;
+			sourceTree = "<group>";
+		};
+		B20400000000000000000003 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				B20200000000000000000008 /* CatalogEntities.swift */,
+				B20200000000000000000009 /* StartThreadIntent.swift */,
+				B2020000000000000000000A /* PipperRemoteShortcuts.swift */,
+			);
+			name = Intents;
+			sourceTree = "<group>";
+		};
+		B20400000000000000000004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B2020000000000000000000B /* PairingView.swift */,
+				B2020000000000000000000C /* QRScannerSheet.swift */,
+				B2020000000000000000000D /* ThreadListView.swift */,
+				B2020000000000000000000E /* ThreadDetailView.swift */,
+				B2020000000000000000000F /* SettingsView.swift */,
+			);
+			name = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B20500000000000000000001 /* PipperRemote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B20800000000000000000002 /* Build configuration list for PBXNativeTarget "PipperRemote" */;
+			buildPhases = (
+				B20300000000000000000001 /* Sources */,
+				B20300000000000000000003 /* Frameworks */,
+				B20300000000000000000002 /* Resources */,
+				B20300000000000000000004 /* Sign simulator build with Team ID */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PipperRemote;
+			productName = PipperRemote;
+			productReference = B20200000000000000000101 /* PipperRemote.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B20700000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					B20500000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = B20800000000000000000001 /* Build configuration list for PBXProject "PipperRemote" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B20400000000000000000010;
+			productRefGroup = B20400000000000000000011 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B20500000000000000000001 /* PipperRemote */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B20300000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B20300000000000000000004 /* Sign simulator build with Team ID */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Sign simulator build with Team ID";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/sign-simulator.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B20300000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B20100000000000000000001 /* RemoteModels.swift in Sources */,
+				B20100000000000000000002 /* RemoteConfig.swift in Sources */,
+				B20100000000000000000003 /* CatalogStore.swift in Sources */,
+				B20100000000000000000004 /* RemoteClient.swift in Sources */,
+				B20100000000000000000005 /* PipperRemoteApp.swift in Sources */,
+				B20100000000000000000006 /* Keychain.swift in Sources */,
+				B20100000000000000000007 /* RemoteSession.swift in Sources */,
+				B20100000000000000000008 /* CatalogEntities.swift in Sources */,
+				B20100000000000000000009 /* StartThreadIntent.swift in Sources */,
+				B2010000000000000000000A /* PipperRemoteShortcuts.swift in Sources */,
+				B2010000000000000000000B /* PairingView.swift in Sources */,
+				B2010000000000000000000C /* QRScannerSheet.swift in Sources */,
+				B2010000000000000000000D /* ThreadListView.swift in Sources */,
+				B2010000000000000000000E /* ThreadDetailView.swift in Sources */,
+				B2010000000000000000000F /* SettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		B20900000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B20900000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B20900000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.0.23;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maker-or.omni.remote;
+				PRODUCT_NAME = PipperRemote;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+
+			};
+			name = Debug;
+		};
+		B20900000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.0.23;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maker-or.omni.remote;
+				PRODUCT_NAME = PipperRemote;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B20800000000000000000001 /* Build configuration list for PBXProject "PipperRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B20900000000000000000001 /* Debug */,
+				B20900000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B20800000000000000000002 /* Build configuration list for PBXNativeTarget "PipperRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B20900000000000000000003 /* Debug */,
+				B20900000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B20700000000000000000001 /* Project object */;
+}

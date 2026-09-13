@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
+import { buildSiriCatalog } from "./siri/siri-catalog.ts";
 import { getThread, listThreads } from "./threads.ts";
 import { createWorktree, gitBinary, removeWorktree } from "./worktree-manager.ts";
 import type {
@@ -336,6 +337,14 @@ export class RemoteServer {
           name: a.displayName ?? a.name ?? a.id,
         }));
         return send(res, 200, { models });
+      }
+      if (req.method === "GET" && path === "/api/remote/catalog") {
+        // Same shape as siri-catalog.json on the laptop, so the iOS app's
+        // Siri intents resolve projects/agents against an identical catalog
+        // (selected agents only, with availability) without a network hop.
+        return send(res, 200, buildSiriCatalog(), "application/json", {
+          "Cache-Control": "no-store",
+        });
       }
       if (req.method === "GET" && path === "/api/remote/threads") {
         const running = new Set(am?.getRunningThreadIds() ?? []);
