@@ -54,6 +54,7 @@ DerivedData/
 native/pipper-intents/PreviewApp/build/
 native/pipper-intents/preview-dist/
 native/pipper-intents/PreviewApp/native/
+native/pipper-remote-ios/build/
 .swiftpm/
 
 # Local script output

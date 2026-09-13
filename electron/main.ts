@@ -2614,6 +2614,15 @@ app.whenReady().then(async () => {
         console.log(
           `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
         );
+        // The iOS app's manual pairing form has exactly these three fields.
+        console.log(
+          [
+            "\x1b[32m[Remote] iOS app → Pair with your Mac (enter manually):\x1b[0m",
+            `\x1b[32m         Host:   ${tailscale}\x1b[0m`,
+            `\x1b[32m         Port:   ${remoteServer.port}\x1b[0m`,
+            `\x1b[32m         Token:  ${remoteServer.getPairingToken()}\x1b[0m`,
+          ].join("\n"),
+        );
         try {
           const { default: qrcode } = await import("qrcode-terminal");
           console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
