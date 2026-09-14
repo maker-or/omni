@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -21,6 +21,8 @@ import { gitBinary } from "./worktree-manager.ts";
  */
 
 const MAX_PANEL_FILES = 30;
+/** Untracked files larger than this are not line-counted (likely binary). */
+const MAX_LINE_COUNT_BYTES = 1_000_000;
 const GH_AVAILABLE_TTL_MS = 60_000;
 
 const execFileAsync = promisify(execFile);
@@ -208,9 +210,108 @@ export function summarizeStatusPorcelain(out: string): StatusSummary {
       summary.truncated = true;
       continue;
     }
-    files.push({ path, staged, status });
+    // Line counts are not part of porcelain; `getWorkspaceGitStatus` enriches
+    // these with `git diff --numstat` after parsing.
+    files.push({ path, staged, status, additions: null, deletions: null });
   }
   return summary;
+}
+
+/**
+ * Parse `git diff --numstat -z`. Records are `add\tdel\tpath` NUL-terminated;
+ * renames emit an empty path then the old and new paths as separate fields.
+ * Binary files report `-` for both counts and are treated as zero.
+ */
+export function parseNumstat(
+  out: string,
+): Map<string, { additions: number | null; deletions: number | null }> {
+  const stats = new Map<string, { additions: number | null; deletions: number | null }>();
+  const fields = out.split("\0");
+  for (let i = 0; i < fields.length; i += 1) {
+    const record = fields[i];
+    if (!record) continue;
+    const firstTab = record.indexOf("\t");
+    const secondTab = firstTab === -1 ? -1 : record.indexOf("\t", firstTab + 1);
+    if (firstTab === -1 || secondTab === -1) continue;
+    const additions = Number(record.slice(0, firstTab));
+    const deletions = Number(record.slice(firstTab + 1, secondTab));
+    let path = record.slice(secondTab + 1);
+    if (path === "") {
+      // Rename/copy: the next two fields are the source then destination path.
+      path = fields[i + 2] ?? "";
+      i += 2;
+    }
+    if (!path) continue;
+    stats.set(path, {
+      additions: Number.isFinite(additions) ? additions : null,
+      deletions: Number.isFinite(deletions) ? deletions : null,
+    });
+  }
+  return stats;
+}
+
+/** Line count for an untracked file; null for binaries/oversized/unreadable. */
+function countFileLines(absolutePath: string): number | null {
+  try {
+    const stat = statSync(absolutePath);
+    if (!stat.isFile() || stat.size > MAX_LINE_COUNT_BYTES) return null;
+    const text = readFileSync(absolutePath, "utf8");
+    if (text.length === 0) return 0;
+    let lines = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      if (text.charCodeAt(i) === 10) lines += 1;
+    }
+    if (text.charCodeAt(text.length - 1) !== 10) lines += 1;
+    return lines;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Per-file line counts for the working tree, relative to HEAD. Falls back to
+ * summing index and worktree diffs on an unborn branch, and counts untracked
+ * files directly since git reports no diff for them.
+ */
+type LineStats = { additions: number | null; deletions: number | null };
+
+async function collectLineStats(
+  cwd: string,
+  files: WorkspaceGitFile[],
+): Promise<Map<string, LineStats>> {
+  const combined = await tryGitAsync(cwd, ["diff", "HEAD", "--numstat", "-z"]);
+  let stats: Map<string, LineStats>;
+  if (combined !== null) {
+    stats = parseNumstat(combined);
+  } else {
+    const [unstaged, staged] = await Promise.all([
+      tryGitAsync(cwd, ["diff", "--numstat", "-z"]),
+      tryGitAsync(cwd, ["diff", "--cached", "--numstat", "-z"]),
+    ]);
+    stats = parseNumstat(unstaged ?? "");
+    for (const [path, value] of parseNumstat(staged ?? "")) {
+      const previous = stats.get(path);
+      // If either side is unknown the combined count is unknown.
+      stats.set(path, {
+        additions:
+          previous?.additions == null || value.additions == null
+            ? null
+            : previous.additions + value.additions,
+        deletions:
+          previous?.deletions == null || value.deletions == null
+            ? null
+            : previous.deletions + value.deletions,
+      });
+    }
+  }
+  // Status/diff paths are relative to the repository root even when `cwd` is a
+  // project subdirectory, so resolve untracked files against the root.
+  const repoRoot = (await tryGitAsync(cwd, ["rev-parse", "--show-toplevel"])) ?? cwd;
+  for (const file of files) {
+    if (file.status !== "untracked" || stats.has(file.path)) continue;
+    stats.set(file.path, { additions: countFileLines(join(repoRoot, file.path)), deletions: 0 });
+  }
+  return stats;
 }
 
 async function parseStatusFiles(cwd: string): Promise<StatusSummary> {
@@ -580,6 +681,15 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
       parseStatusFiles(worktreePath),
       remoteOrigin(worktreePath),
     ]);
+    const lineStats = await collectLineStats(worktreePath, files);
+    const filesWithLines = files.map((file) => {
+      const stat = lineStats.get(file.path);
+      return {
+        ...file,
+        additions: stat?.additions ?? file.additions,
+        deletions: stat?.deletions ?? file.deletions,
+      };
+    });
     const host = origin.host;
     const pr = host === "github.com" ? await lookupPr(worktreePath, branch, origin.url) : NO_PR;
     return {
@@ -592,7 +702,7 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
       staged,
       unstaged,
       untracked,
-      files,
+      files: filesWithLines,
       truncated,
       remoteHost: host,
       ghAvailable: isGhAvailable(),

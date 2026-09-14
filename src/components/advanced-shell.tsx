@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -39,6 +39,9 @@ import { useWorktreeStore } from "@/store/worktree-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { cn } from "@/lib/utils";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
+
+/** Workspaces shown for a project before the "Load more" affordance appears. */
+const WORKSPACE_PAGE_SIZE = 3;
 
 function WorkspaceNameDialog({
   project,
@@ -120,10 +123,30 @@ function WorkspaceRow({
   archived?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const name = worktree.workspaceName ?? (worktree.isProjectRoot ? "Main" : "Workspace");
 
+  // Dismiss the context menu on any click outside it, or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button
         type="button"
         data-active={selected ? "true" : undefined}
@@ -134,7 +157,10 @@ function WorkspaceRow({
             ? "bg-active font-medium text-foreground"
             : "text-muted-foreground hover:bg-hover hover:text-foreground",
         )}
-        onClick={onSelect}
+        onClick={() => {
+          setMenuOpen(false);
+          onSelect();
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
           setMenuOpen((open) => !open);
@@ -210,6 +236,13 @@ export function AdvancedShell() {
       else next.add(projectId);
       return next;
     });
+  };
+  // Projects whose workspace list has been expanded past the initial page.
+  const [expandedWorkspaceProjects, setExpandedWorkspaceProjects] = useState<Set<string>>(
+    new Set(),
+  );
+  const loadMoreWorkspaces = (projectId: string) => {
+    setExpandedWorkspaceProjects((current) => new Set(current).add(projectId));
   };
   // Collapse every project except the active one so the full project
   // list always fits on screen with no sidebar scrolling — only the
@@ -446,7 +479,7 @@ export function AdvancedShell() {
         <DiffIngestor />
         <Toaster />
         <div className="flex min-h-0 flex-1">
-          <Sidebar collapsible="none" bordered={false} rail={false}>
+          <Sidebar collapsible="none" rail={false}>
             <SidebarContent className="p-2 pt-12">
               <SidebarMenu>
                 {projects.map((project) => {
@@ -460,29 +493,65 @@ export function AdvancedShell() {
                     (worktree) => !worktree.isProjectRoot,
                   );
                   const isCollapsed = collapsedProjectIds.has(project.id);
+                  const activeWorktrees = visibleWorktrees.filter(
+                    (worktree) => !archivedKeys.has(workspaceKey(project.id, worktree.path)),
+                  );
+                  const archivedWorktrees = visibleWorktrees.filter((worktree) =>
+                    archivedKeys.has(workspaceKey(project.id, worktree.path)),
+                  );
+                  const workspacesExpanded = expandedWorkspaceProjects.has(project.id);
+                  const shownWorktrees = workspacesExpanded
+                    ? activeWorktrees
+                    : activeWorktrees.slice(0, WORKSPACE_PAGE_SIZE);
+                  const hiddenWorkspaceCount = activeWorktrees.length - shownWorktrees.length;
                   return (
                     <SidebarMenuItem key={project.id}>
-                      <div className="flex min-w-0 items-center gap-1">
+                      <div className="group/project flex min-w-0 items-center gap-1">
                         {visibleWorktrees.length > 0 ? (
-                          <Button
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="shrink-0"
+                            className={cn(
+                              "grid shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground",
+                              active ? "size-7" : "size-6",
+                            )}
                             aria-label={`${isCollapsed ? "Expand" : "Collapse"} workspaces in ${project.name}`}
                             aria-expanded={!isCollapsed}
                             onClick={() => toggleProjectCollapsed(project.id)}
                           >
-                            {isCollapsed ? <CaretRight size={14} /> : <CaretDown size={14} />}
-                          </Button>
-                        ) : null}
+                            <ProjectIcon
+                              name={project.icon}
+                              weight={active ? "fill" : undefined}
+                              className={cn(
+                                "group-hover/project:hidden",
+                                active ? "size-5" : "size-4",
+                              )}
+                            />
+                            {isCollapsed ? (
+                              <CaretRight size={14} className="hidden group-hover/project:block" />
+                            ) : (
+                              <CaretDown size={14} className="hidden group-hover/project:block" />
+                            )}
+                          </button>
+                        ) : (
+                          <span
+                            className={cn(
+                              "grid shrink-0 place-items-center text-muted-foreground",
+                              active ? "size-7" : "size-6",
+                            )}
+                          >
+                            <ProjectIcon
+                              name={project.icon}
+                              weight={active ? "fill" : undefined}
+                              className={active ? "size-5" : "size-4"}
+                            />
+                          </span>
+                        )}
                         <div className="min-w-0 flex-1">
                           <SidebarMenuButton
                             className="w-full min-w-0"
                             isActive={active}
                             onClick={() => void openProject(project)}
                           >
-                            <ProjectIcon name={project.icon} className="size-4" />
                             <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
                               {project.name}
                             </span>
@@ -501,36 +570,39 @@ export function AdvancedShell() {
                       </div>
                       {isCollapsed ? null : (
                         <div className="mt-1 flex flex-col gap-0.5 pl-2">
-                          {visibleWorktrees
-                            .filter(
-                              (worktree) =>
-                                !archivedKeys.has(workspaceKey(project.id, worktree.path)),
-                            )
-                            .map((worktree) => (
-                              <WorkspaceRow
-                                key={worktree.path}
-                                worktree={worktree}
-                                selected={worktree.path === projectSelectedPath}
-                                onSelect={() => void selectWorkspace(project, worktree.path)}
-                                onArchive={() => void archiveWorkspace(project, worktree)}
-                                onDelete={() => void deleteWorkspace(project, worktree)}
-                              />
-                            ))}
-                          {visibleWorktrees
-                            .filter((worktree) =>
-                              archivedKeys.has(workspaceKey(project.id, worktree.path)),
-                            )
-                            .map((worktree) => (
-                              <WorkspaceRow
-                                key={`archived-${worktree.path}`}
-                                worktree={worktree}
-                                selected={false}
-                                archived
-                                onSelect={() => void selectWorkspace(project, worktree.path)}
-                                onArchive={() => void restoreWorkspace(project, worktree)}
-                                onDelete={() => void deleteWorkspace(project, worktree)}
-                              />
-                            ))}
+                          {shownWorktrees.map((worktree) => (
+                            <WorkspaceRow
+                              key={worktree.path}
+                              worktree={worktree}
+                              selected={worktree.path === projectSelectedPath}
+                              onSelect={() => void selectWorkspace(project, worktree.path)}
+                              onArchive={() => void archiveWorkspace(project, worktree)}
+                              onDelete={() => void deleteWorkspace(project, worktree)}
+                            />
+                          ))}
+                          {hiddenWorkspaceCount > 0 ? (
+                            <button
+                              type="button"
+                              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
+                              onClick={() => loadMoreWorkspaces(project.id)}
+                            >
+                              <CaretDown size={14} />
+                              <span className="min-w-0 flex-1 truncate">
+                                Load more ({hiddenWorkspaceCount})
+                              </span>
+                            </button>
+                          ) : null}
+                          {archivedWorktrees.map((worktree) => (
+                            <WorkspaceRow
+                              key={`archived-${worktree.path}`}
+                              worktree={worktree}
+                              selected={false}
+                              archived
+                              onSelect={() => void selectWorkspace(project, worktree.path)}
+                              onArchive={() => void restoreWorkspace(project, worktree)}
+                              onDelete={() => void deleteWorkspace(project, worktree)}
+                            />
+                          ))}
                         </div>
                       )}
                     </SidebarMenuItem>
@@ -565,7 +637,7 @@ export function AdvancedShell() {
             <div className="flex h-full min-w-0">
               <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <div className="flex h-12 shrink-0 items-center justify-center bg-surface-1 px-3">
-                  <div className="mt-2 w-full max-w-[1000px] px-4">
+                  <div className="mt-2 min-w-0 max-w-[1000px] px-4">
                     <GlobalTabBar />
                   </div>
                 </div>
@@ -591,7 +663,7 @@ export function AdvancedShell() {
                   })}
                 </div>
               </section>
-              <aside className="hidden w-[22rem] shrink-0 bg-surface-1 lg:flex lg:flex-col">
+              <aside className="hidden w-[22rem] shrink-0 border-l border-border bg-surface-1 lg:flex lg:flex-col">
                 <WorkspaceControlPanel
                   project={activeProject}
                   worktreePath={selectedPath}

@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowUpRight,
   ArrowsClockwise,
   CheckCircle,
+  FileCode,
   GitBranch,
   GitCommit,
   GitPullRequest,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { parseDiffFromFile } from "@pierre/diffs";
 import type { Project } from "../../contracts/projects.ts";
 import type { WorkspaceGitStatus, WorkspacePrComment } from "../../contracts/git.ts";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { useDiffStore } from "@/store/diff-store";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -105,15 +109,6 @@ function stateCaption(
   return null;
 }
 
-function syncLabel(status: WorkspaceGitStatus): string | null {
-  if (!status.upstream) return status.ahead > 0 ? `${status.ahead} unpushed` : "no upstream";
-  const parts: string[] = [];
-  if (status.ahead > 0) parts.push(`↑${status.ahead}`);
-  if (status.behind > 0) parts.push(`↓${status.behind}`);
-  if (parts.length === 0) return "in sync";
-  return parts.join(" ");
-}
-
 /** Why PR creation is unavailable, or null when it is possible. */
 function prBlocker(status: WorkspaceGitStatus): string | null {
   if (status.remoteHost !== "github.com") return "PRs need a GitHub remote";
@@ -122,6 +117,30 @@ function prBlocker(status: WorkspaceGitStatus): string | null {
 }
 
 type PanelTab = "check" | "changes";
+
+/** Where the Changes tab reads its file list from. */
+type ChangesSource = "turn" | "git";
+
+/** Dropdown labels double as the Select values so the trigger always reads
+ *  correctly, even before the option list has registered its label map. */
+const CHANGES_SOURCE_LABEL: Record<ChangesSource, string> = {
+  turn: "Agent changes",
+  git: "Uncommitted (git)",
+};
+
+interface FileChange {
+  path: string;
+  /** null when the line count is unknown (e.g. a binary file). */
+  additions: number | null;
+  deletions: number | null;
+}
+
+/** Split a path into its directory prefix and file name for display. */
+function splitPath(path: string): { dir: string; name: string } {
+  const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (index === -1) return { dir: "", name: path };
+  return { dir: path.slice(0, index + 1), name: path.slice(index + 1) };
+}
 
 /** `#123 ↗` pill linking to the open (or just-merged) PR. */
 function prPill(status: WorkspaceGitStatus) {
@@ -171,8 +190,13 @@ export function WorkspaceControlPanel({
   const [showPrForm, setShowPrForm] = useState(false);
   const [prDraft, setPrDraft] = useState(false);
   const [pickedTab, setPickedTab] = useState<PanelTab | null>(null);
+  const [changesSource, setChangesSource] = useState<ChangesSource>("git");
   /** Agent turn we handed a commit to; cleared when that turn settles. */
   const [agentTask, setAgentTask] = useState<"commit" | "commitPush" | null>(null);
+  const diffFiles = useDiffStore((state) => state.files);
+  const diffOrder = useDiffStore((state) => state.order);
+  const openDiff = useDiffStore((state) => state.open);
+  const setDiffActivePath = useDiffStore((state) => state.setActivePath);
   /**
    * Bumped on every workspace switch. Every async result (status poll, the
    * agent's commit turn) captures the generation it started under and is
@@ -268,6 +292,46 @@ export function WorkspaceControlPanel({
   const tab: PanelTab =
     pickedTab ?? (tone === "ready" || tone === "merged" || dirtyCount === 0 ? "check" : "changes");
   const caption = status?.isRepo ? stateCaption(status, tone, dirtyCount) : null;
+
+  // Agent changes come from the diff store's active thread. Key the recount on
+  // each file's content version so streaming edits don't re-parse unchanged
+  // files on every render.
+  const turnSignature = diffOrder
+    .map((path) => `${path}:${diffFiles[path]?.updatedAt ?? 0}`)
+    .join("|");
+  const turnChanges = useMemo<FileChange[]>(() => {
+    return diffOrder.map((path) => {
+      const entry = diffFiles[path];
+      if (!entry) return { path, additions: null, deletions: null };
+      try {
+        const parsed = parseDiffFromFile(
+          { name: path, contents: entry.oldText },
+          { name: path, contents: entry.newText },
+        );
+        return {
+          path,
+          additions: parsed.hunks.reduce((total, hunk) => total + hunk.additionLines, 0),
+          deletions: parsed.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0),
+        };
+      } catch {
+        return { path, additions: null, deletions: null };
+      }
+    });
+    // turnSignature encodes diffOrder + per-file updatedAt.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnSignature]);
+  const changes: FileChange[] =
+    changesSource === "turn"
+      ? turnChanges
+      : (status?.files ?? []).map((file) => ({
+          path: file.path,
+          additions: file.additions,
+          deletions: file.deletions,
+        }));
+  const totalAdditions = changes.reduce((total, file) => total + (file.additions ?? 0), 0);
+  const totalDeletions = changes.reduce((total, file) => total + (file.deletions ?? 0), 0);
+  // Hide the aggregate when no file reports line counts (all binary/unknown).
+  const hasLineStats = changes.some((file) => file.additions !== null || file.deletions !== null);
 
   const openPrForm = (draft: boolean) => {
     setPrDraft(draft);
@@ -786,49 +850,101 @@ export function WorkspaceControlPanel({
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {dirtyCount === 0 ? (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Working tree is clean.
+                  <Select
+                    value={CHANGES_SOURCE_LABEL[changesSource]}
+                    onValueChange={(value) =>
+                      setChangesSource(value === CHANGES_SOURCE_LABEL.turn ? "turn" : "git")
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-7 w-full min-w-0 text-[11px]"
+                      aria-label="Choose which changes to show"
+                    />
+                    <SelectContent>
+                      {(["turn", "git"] as const).map((source, index) => (
+                        <SelectItem key={source} index={index} value={CHANGES_SOURCE_LABEL[source]}>
+                          {CHANGES_SOURCE_LABEL[source]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-foreground">
+                      {changes.length} {changes.length === 1 ? "file" : "files"} changed
+                    </span>
+                    {hasLineStats ? (
+                      <span className="flex items-center gap-1.5 tabular-nums">
+                        <span className="text-emerald-500">+{totalAdditions}</span>
+                        <span className="text-red-400">-{totalDeletions}</span>
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {changes.length === 0 ? (
+                    <p className="text-[11px] leading-4 text-muted-foreground">
+                      {changesSource === "turn"
+                        ? "No changes from this session yet."
+                        : "Working tree is clean."}
                     </p>
                   ) : (
-                    <div className="text-[11px] text-muted-foreground">
-                      <span>
-                        {status.staged > 0 && `${status.staged} staged · `}
-                        {status.unstaged > 0 && `${status.unstaged} modified · `}
-                        {status.untracked > 0 && `${status.untracked} untracked`}
-                      </span>
-                    </div>
-                  )}
-                  {status.files.length > 0 && (
                     <ul className="flex flex-col gap-0.5">
-                      {status.files.slice(0, 12).map((file) => (
-                        <li
-                          key={file.path}
-                          className="truncate text-[11px] leading-4 text-muted-foreground"
-                          title={file.path}
-                        >
-                          <span
-                            className={cn(
-                              "mr-1.5 inline-block w-14 shrink-0",
-                              file.status === "untracked" && "text-muted-foreground/70",
-                              file.status === "deleted" && "text-destructive",
-                              file.status === "added" && "text-emerald-500",
-                              (file.status === "modified" || file.status === "renamed") &&
-                                "text-amber-500",
+                      {changes.map((file) => {
+                        const { dir, name } = splitPath(file.path);
+                        const rowClass =
+                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors duration-80 hover:bg-hover";
+                        const rowContent = (
+                          <>
+                            <FileCode
+                              size={14}
+                              weight="duotone"
+                              className="shrink-0 text-muted-foreground"
+                            />
+                            <span className="flex min-w-0 flex-1 items-baseline">
+                              {dir ? (
+                                <span className="truncate text-muted-foreground">{dir}</span>
+                              ) : null}
+                              <span className="shrink-0 font-medium text-foreground">{name}</span>
+                            </span>
+                            {file.additions !== null ? (
+                              <span className="shrink-0 tabular-nums text-emerald-500">
+                                +{file.additions}
+                              </span>
+                            ) : null}
+                            {file.deletions !== null ? (
+                              <span className="shrink-0 tabular-nums text-red-400">
+                                -{file.deletions}
+                              </span>
+                            ) : null}
+                          </>
+                        );
+                        return (
+                          <li key={file.path}>
+                            {changesSource === "turn" ? (
+                              <button
+                                type="button"
+                                title={file.path}
+                                className={rowClass}
+                                onClick={() => {
+                                  setDiffActivePath(file.path);
+                                  openDiff();
+                                }}
+                              >
+                                {rowContent}
+                              </button>
+                            ) : (
+                              <div title={file.path} className={rowClass}>
+                                {rowContent}
+                              </div>
                             )}
-                          >
-                            {file.staged ? "staged" : file.status}
-                          </span>
-                          {file.path}
-                        </li>
-                      ))}
-                      {status.files.length > 12 && (
-                        <li className="text-[11px] text-muted-foreground/70">
-                          +{status.files.length - 12} more{status.truncated ? " (truncated)" : ""}
-                        </li>
-                      )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
+                  {changesSource === "git" && status.truncated ? (
+                    <p className="text-[10px] text-muted-foreground/70">File list truncated.</p>
+                  ) : null}
                   {showPrForm ? (
                     <>
                       {dirtyCount > 0 ? (

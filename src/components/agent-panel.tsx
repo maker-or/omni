@@ -2308,9 +2308,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               aria-busy={isSwitchingThread}
             >
               <div className="flex min-h-full flex-col">
-                {isDraftMode ? null : allMessages.length === 0 ? (
-                  <div aria-hidden="true" className="flex min-h-[280px] flex-1 p-6 select-none" />
-                ) : (
+                {isDraftMode || allMessages.length === 0 ? null : (
                   <>
                     <div
                       data-pipper-id="messages-list"
@@ -2491,7 +2489,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                   data-pipper-id="input-area"
                   className={cn(
                     "relative z-10 px-3 pb-5 transition-colors duration-300",
-                    isDraftMode ? "mt-2 pt-0" : allMessages.length > 0 ? "pt-6" : "mt-auto pt-6",
+                    isDraftMode || allMessages.length === 0 ? "mt-2 pt-0" : "pt-6",
                   )}
                 >
                   <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">

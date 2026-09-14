@@ -7,6 +7,13 @@ export interface WorkspaceGitFile {
   path: string;
   staged: boolean;
   status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+  /**
+   * Lines added in the working tree (untracked files count all their lines).
+   * `null` when git reports no line counts (binary, oversized, or unreadable).
+   */
+  additions: number | null;
+  /** Lines removed in the working tree; `null` when unknown. */
+  deletions: number | null;
 }
 
 export interface WorkspaceGitStatus {

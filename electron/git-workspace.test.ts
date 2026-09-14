@@ -10,6 +10,7 @@ import {
   isGhAvailable,
   mergeWorkspaceBranch,
   parseGitHubRepo,
+  parseNumstat,
   summarizeChecks,
   summarizePrNodes,
   summarizeStatusPorcelain,
@@ -70,6 +71,10 @@ describe("getWorkspaceGitStatus", () => {
     expect(status.unstaged).toBe(1);
     expect(status.untracked).toBe(1);
     expect(status.files.map((f) => f.path).sort()).toEqual(["a.txt", "new.txt"]);
+    const modified = status.files.find((f) => f.path === "a.txt");
+    expect(modified).toMatchObject({ additions: 1, deletions: 1 });
+    const untracked = status.files.find((f) => f.path === "new.txt");
+    expect(untracked).toMatchObject({ additions: 1, deletions: 0 });
   });
 
   test("branch without upstream counts commits beyond main as ahead", async () => {
@@ -138,6 +143,25 @@ describe("summarizeStatusPorcelain", () => {
     expect(summary.truncated).toBe(true);
     // Untracked files sit entirely past the cap yet still count.
     expect(summary).toMatchObject({ staged: 0, unstaged: 40, untracked: 5 });
+  });
+});
+
+describe("parseNumstat", () => {
+  test("parses additions and deletions per path", () => {
+    const stats = parseNumstat("10\t2\tsrc/a.ts\0" + "0\t5\tsrc/b.ts\0");
+    expect(stats.get("src/a.ts")).toEqual({ additions: 10, deletions: 2 });
+    expect(stats.get("src/b.ts")).toEqual({ additions: 0, deletions: 5 });
+  });
+
+  test("attributes renames to the destination path", () => {
+    const stats = parseNumstat("3\t4\t\0old.ts\0new.ts\0");
+    expect(stats.get("new.ts")).toEqual({ additions: 3, deletions: 4 });
+    expect(stats.has("old.ts")).toBe(false);
+  });
+
+  test("treats binary files as unknown line counts", () => {
+    const stats = parseNumstat("-\t-\timg.png\0");
+    expect(stats.get("img.png")).toEqual({ additions: null, deletions: null });
   });
 });
 
