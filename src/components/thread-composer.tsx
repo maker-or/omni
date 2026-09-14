@@ -80,6 +80,12 @@ export type ThreadComposerProps = {
   hideSendButton?: boolean;
   /** Extra key handling after mention keys are processed. */
   onTextareaKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+  /**
+   * Hide the @project chip (advanced workspace UI: the selected workspace
+   * already fixes the project, so the chip is redundant). The project entity
+   * stays in content when present — it is just not rendered or deletable.
+   */
+  hideProjectChip?: boolean;
 };
 
 export function ThreadComposer({
@@ -111,11 +117,18 @@ export function ThreadComposer({
   appearance = "surface",
   hideSendButton = false,
   onTextareaKeyDown,
+  hideProjectChip = false,
 }: ThreadComposerProps) {
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = externalTextareaRef ?? internalRef;
   const mentionFrameRef = useRef<number | null>(null);
-  const entities = useMemo(() => getEntityTokens(content), [content]);
+  const entities = useMemo(
+    () =>
+      getEntityTokens(content).filter(
+        (entity) => entity.kind !== "agent" && !(hideProjectChip && entity.kind === "project"),
+      ),
+    [content, hideProjectChip],
+  );
   const freeText = useMemo(() => getFreeText(content), [content]);
   const inlineTextRef = useRef<HTMLSpanElement | null>(null);
   const inlineEditorRef = useRef<HTMLDivElement | null>(null);
@@ -409,7 +422,7 @@ export function ThreadComposer({
     [closeMention, filteredItems, mentionIndex, mentionOpen, onTextareaKeyDown, pickItem],
   );
 
-  const resolvedPlaceholder = placeholder ?? mentionPlaceholderHint(mode, content);
+  const resolvedPlaceholder = placeholder ?? mentionPlaceholderHint(mode, content, availability);
 
   const textForSend = extractTextContent(content);
   const canSend = textForSend.length > 0 || files.length > 0;

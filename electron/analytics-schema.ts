@@ -22,6 +22,13 @@ export type AnalyticsEventName =
   | "project_created"
   | "worktree_created"
   | "workspace_switched"
+  // advanced workspace git panel
+  | "workspace_committed"
+  | "workspace_pushed"
+  | "workspace_pr_created"
+  | "workspace_pr_merged"
+  | "workspace_merged"
+  | "workspace_continued"
   | "thread_created"
   | "thread_opened"
   | "agent_run_completed"
@@ -50,6 +57,8 @@ export interface AnalyticsBaseProperties {
 
 export interface AnalyticsProperties {
   project_id?: string;
+  /** workspace_pr_created: whether the PR was opened as a draft. */
+  draft?: boolean;
   thread_id?: string;
   model_id?: string;
   model_provider?: string;
