@@ -93,6 +93,21 @@ describe("getWorkspaceGitStatus", () => {
     expect(status.aheadOfBase).toBe(1);
   });
 
+  test("a request issued mid-flight still sees state from its own request time", async () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(dir, "a.txt"), "hi");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "init"]);
+    // Kick off a run, mutate the worktree, then ask again while the first
+    // run may still be in flight: coalescing must queue a follow-up run, not
+    // hand back the stale in-flight answer.
+    const first = getWorkspaceGitStatus(dir);
+    writeFileSync(join(dir, "late.txt"), "late");
+    const second = await getWorkspaceGitStatus(dir);
+    expect(second.files.map((f) => f.path)).toContain("late.txt");
+    await first;
+  });
+
   test("in-sync branch still reports commits beyond base", async () => {
     initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
@@ -184,8 +199,13 @@ describe("commitWorkspace", () => {
 });
 
 describe("isGhAvailable", () => {
-  test("returns a boolean without throwing", () => {
-    expect(typeof isGhAvailable()).toBe("boolean");
+  test("resolves to a boolean without throwing", async () => {
+    expect(typeof (await isGhAvailable())).toBe("boolean");
+  });
+
+  test("concurrent callers share one probe", async () => {
+    const [first, second] = await Promise.all([isGhAvailable(), isGhAvailable()]);
+    expect(first).toBe(second);
   });
 });
 

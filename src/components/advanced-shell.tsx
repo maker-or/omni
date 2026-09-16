@@ -3,9 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   CaretDown,
-  CaretRight,
-  FunnelSimple,
+  DotsThree,
   FolderPlus,
+  FunnelSimple,
   GitBranch,
   Plus,
   Trash,
@@ -17,19 +17,14 @@ import { AgentView } from "@/components/agent-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { GlobalTabBar } from "@/components/global-tab-bar";
 import { TerminalSession } from "@/components/terminal-session";
-import { WorkspaceControlPanel } from "@/components/workspace-control-panel";
-import { Toaster } from "@/components/ui/toaster";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
+  WorkspaceControlPanel,
+  HEADER_TONE_GRADIENT,
+  type HeaderTone,
+} from "@/components/workspace-control-panel";
+import { Toaster } from "@/components/ui/toaster";
+import { Sidebar, SidebarFooter, SidebarProvider } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { ProjectIcon } from "@/components/ui/icon-picker";
 import { toast } from "@/components/ui/toast";
 import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
@@ -41,7 +36,18 @@ import { cn } from "@/lib/utils";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 
 /** Workspaces shown for a project before the "Load more" affordance appears. */
-const WORKSPACE_PAGE_SIZE = 3;
+const WORKSPACE_PAGE_SIZE = 6;
+
+/** A small, stable set of heights so the card grid reads as an organic
+ *  masonry rather than a uniform table — picked by workspace path. */
+const CARD_HEIGHTS = [128, 168, 144, 188, 132, 160, 116, 176];
+
+function cardHeight(path: string, selected: boolean): number {
+  let hash = 0;
+  for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) >>> 0;
+  const base = CARD_HEIGHTS[hash % CARD_HEIGHTS.length];
+  return selected ? base + 24 : base;
+}
 
 function WorkspaceNameDialog({
   project,
@@ -107,20 +113,75 @@ function WorkspaceNameDialog({
   );
 }
 
-function WorkspaceRow({
+/** Horizontal, scrollable project switcher pinned above the workspace grid. */
+function ProjectTabs({
+  projects,
+  activeProjectId,
+  onSelect,
+}: {
+  projects: Project[];
+  activeProjectId: string | undefined;
+  onSelect: (project: Project) => void;
+}) {
+  if (projects.length === 0) {
+    return <p className="px-2 py-1.5 text-[13px] text-muted-foreground/70">No projects yet</p>;
+  }
+  return (
+    <div
+      role="tablist"
+      aria-label="Projects"
+      className="flex items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {projects.map((project) => {
+        const active = project.id === activeProjectId;
+        return (
+          <button
+            key={project.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-active={active ? "true" : undefined}
+            onClick={() => onSelect(project)}
+            className={cn(
+              "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[15px] leading-none outline-none transition-colors duration-80",
+              "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+              active
+                ? "font-medium text-foreground"
+                : "text-muted-foreground/60 hover:text-foreground",
+            )}
+          >
+            {project.name}
+            {active && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-2.5 -bottom-0.5 h-0.5 rounded-full bg-foreground/70"
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A single workspace rendered as a card in the grid. */
+function WorkspaceCard({
   worktree,
   selected,
+  tone = "neutral",
+  archived,
   onSelect,
   onArchive,
   onDelete,
-  archived,
 }: {
   worktree: Worktree;
   selected: boolean;
+  /** Git-state tone of the selected workspace — mirrors the panel header. */
+  tone?: HeaderTone;
+  archived?: boolean;
   onSelect: () => void;
   onArchive?: () => void;
   onDelete?: () => void;
-  archived?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -146,17 +207,11 @@ function WorkspaceRow({
   }, [menuOpen]);
 
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={menuRef} className="group/card relative mb-2 break-inside-avoid">
       <button
         type="button"
         data-active={selected ? "true" : undefined}
         aria-current={selected ? "page" : undefined}
-        className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition-colors duration-80",
-          selected
-            ? "bg-active font-medium text-foreground"
-            : "text-muted-foreground hover:bg-hover hover:text-foreground",
-        )}
         onClick={() => {
           setMenuOpen(false);
           onSelect();
@@ -165,25 +220,61 @@ function WorkspaceRow({
           event.preventDefault();
           setMenuOpen((open) => !open);
         }}
+        style={{ minHeight: cardHeight(worktree.path, selected) }}
+        className={cn(
+          "relative flex w-full flex-col overflow-hidden rounded-2xl p-3 text-left outline-none",
+          "transition-[background-color,color,box-shadow] duration-80",
+          "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+          selected
+            ? cn(
+                "bg-linear-to-b shadow-surface-4 ring-1",
+                HEADER_TONE_GRADIENT[tone],
+                tone === "neutral" ? "text-foreground ring-black/5" : "text-white ring-white/15",
+              )
+            : archived
+              ? "border border-dashed border-foreground/15 bg-transparent text-neutral-500 hover:bg-foreground/5"
+              : "bg-[#262626] text-neutral-400 hover:bg-[#303030] hover:text-neutral-100",
+        )}
       >
-        <GitBranch
-          size={14}
-          weight="duotone"
+        <span
           className={cn(
-            "shrink-0 transition-colors duration-80",
-            selected ? "text-foreground" : undefined,
+            "line-clamp-3 pr-5 text-[13px] font-medium leading-snug",
+            selected && tone !== "neutral" && "drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]",
           )}
-        />
-        <span className="min-w-0 flex-1 truncate">
+        >
           {name}
           {selected && <span className="sr-only"> (active workspace)</span>}
         </span>
+        {archived && (
+          <span className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] opacity-80">
+            Archived
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        aria-label={`${name} options`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        data-open={menuOpen ? "true" : undefined}
+        onClick={(event) => {
+          event.stopPropagation();
+          setMenuOpen((open) => !open);
+        }}
+        className={cn(
+          "absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md outline-none",
+          "text-current opacity-0 transition-opacity duration-80",
+          "group-hover/card:opacity-100 focus-visible:opacity-100 data-[open=true]:opacity-100",
+          selected ? "hover:bg-white/20" : "hover:bg-white/10",
+        )}
+      >
+        <DotsThree size={16} weight="bold" />
       </button>
       {menuOpen && (
         <Elevated
           offset={2}
           data-pipper-id="workspace-context-menu"
-          className="absolute left-2 top-full z-50 mt-1 w-44 rounded-lg border border-border p-1"
+          className="absolute right-1 top-full z-50 mt-1 w-44 rounded-lg border border-border p-1"
         >
           <button
             type="button"
@@ -228,15 +319,9 @@ export function AdvancedShell() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [worktreesByProject, setWorktreesByProject] = useState<Record<string, Worktree[]>>({});
   const [dialogProject, setDialogProject] = useState<Project | null>(null);
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(new Set());
-  const toggleProjectCollapsed = (projectId: string) => {
-    setCollapsedProjectIds((current) => {
-      const next = new Set(current);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
-      return next;
-    });
-  };
+  // Git-state tone of the selected workspace, reported by the control panel,
+  // used to tint the active card with the panel's gradient.
+  const [selectedTone, setSelectedTone] = useState<HeaderTone>("neutral");
   // Projects whose workspace list has been expanded past the initial page.
   const [expandedWorkspaceProjects, setExpandedWorkspaceProjects] = useState<Set<string>>(
     new Set(),
@@ -244,20 +329,6 @@ export function AdvancedShell() {
   const loadMoreWorkspaces = (projectId: string) => {
     setExpandedWorkspaceProjects((current) => new Set(current).add(projectId));
   };
-  // Collapse every project except the active one so the full project
-  // list always fits on screen with no sidebar scrolling — only the
-  // active project's workspaces expand.
-  useEffect(() => {
-    if (projects.length === 0) return;
-    setCollapsedProjectIds((current) => {
-      const next = new Set(current);
-      for (const project of projects) {
-        if (project.id === activeProject?.id) next.delete(project.id);
-        else next.add(project.id);
-      }
-      return next;
-    });
-  }, [projects, activeProject?.id]);
   const [archivedKeys, setArchivedKeys] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(window.localStorage.getItem("pipper.archived-workspaces") ?? "[]"));
@@ -473,162 +544,137 @@ export function AdvancedShell() {
     return switchWorktree(project.id, path);
   };
 
+  // Workspaces for the active project — only the active project's grid renders.
+  const visibleWorktrees = activeProject
+    ? (worktreesByProject[activeProject.id] ?? []).filter((worktree) => !worktree.isProjectRoot)
+    : [];
+  const activeWorktrees = visibleWorktrees.filter(
+    (worktree) => !archivedKeys.has(workspaceKey(activeProject?.id ?? "", worktree.path)),
+  );
+  const archivedWorktrees = visibleWorktrees.filter((worktree) =>
+    archivedKeys.has(workspaceKey(activeProject?.id ?? "", worktree.path)),
+  );
+  const workspacesExpanded = activeProject
+    ? expandedWorkspaceProjects.has(activeProject.id)
+    : false;
+  const shownWorktrees = workspacesExpanded
+    ? activeWorktrees
+    : activeWorktrees.slice(0, WORKSPACE_PAGE_SIZE);
+  const hiddenWorkspaceCount = activeWorktrees.length - shownWorktrees.length;
+
   return (
-    <SidebarProvider defaultOpen>
+    <SidebarProvider defaultOpen width="20rem">
       <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-surface-1 text-foreground">
         <DiffIngestor />
         <Toaster />
         <div className="flex min-h-0 flex-1">
           <Sidebar collapsible="none" rail={false}>
-            <SidebarContent className="p-2 pt-12">
-              <SidebarMenu>
-                {projects.map((project) => {
-                  const active = activeProject?.id === project.id;
-                  // Canonical workspace identity per project: null means the
-                  // project root ("main"). Only the active project can have a
-                  // selected worktree; other projects show none highlighted.
-                  const projectSelectedPath =
-                    project.id === activeProject?.id ? selectedPath : null;
-                  const visibleWorktrees = (worktreesByProject[project.id] ?? []).filter(
-                    (worktree) => !worktree.isProjectRoot,
-                  );
-                  const isCollapsed = collapsedProjectIds.has(project.id);
-                  const activeWorktrees = visibleWorktrees.filter(
-                    (worktree) => !archivedKeys.has(workspaceKey(project.id, worktree.path)),
-                  );
-                  const archivedWorktrees = visibleWorktrees.filter((worktree) =>
-                    archivedKeys.has(workspaceKey(project.id, worktree.path)),
-                  );
-                  const workspacesExpanded = expandedWorkspaceProjects.has(project.id);
-                  const shownWorktrees = workspacesExpanded
-                    ? activeWorktrees
-                    : activeWorktrees.slice(0, WORKSPACE_PAGE_SIZE);
-                  const hiddenWorkspaceCount = activeWorktrees.length - shownWorktrees.length;
-                  return (
-                    <SidebarMenuItem key={project.id}>
-                      <div className="group/project flex min-w-0 items-center gap-1">
-                        {visibleWorktrees.length > 0 ? (
-                          <button
-                            type="button"
-                            className={cn(
-                              "grid shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground",
-                              active ? "size-7" : "size-6",
-                            )}
-                            aria-label={`${isCollapsed ? "Expand" : "Collapse"} workspaces in ${project.name}`}
-                            aria-expanded={!isCollapsed}
-                            onClick={() => toggleProjectCollapsed(project.id)}
-                          >
-                            <ProjectIcon
-                              name={project.icon}
-                              weight={active ? "fill" : undefined}
-                              className={cn(
-                                "group-hover/project:hidden",
-                                active ? "size-5" : "size-4",
-                              )}
-                            />
-                            {isCollapsed ? (
-                              <CaretRight size={14} className="hidden group-hover/project:block" />
-                            ) : (
-                              <CaretDown size={14} className="hidden group-hover/project:block" />
-                            )}
-                          </button>
-                        ) : (
-                          <span
-                            className={cn(
-                              "grid shrink-0 place-items-center text-muted-foreground",
-                              active ? "size-7" : "size-6",
-                            )}
-                          >
-                            <ProjectIcon
-                              name={project.icon}
-                              weight={active ? "fill" : undefined}
-                              className={active ? "size-5" : "size-4"}
-                            />
-                          </span>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <SidebarMenuButton
-                            className="w-full min-w-0"
-                            isActive={active}
-                            onClick={() => void openProject(project)}
-                          >
-                            <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
-                              {project.name}
-                            </span>
-                          </SidebarMenuButton>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="shrink-0"
-                          aria-label={`New workspace in ${project.name}`}
-                          onClick={() => openWorkspaceDialog(project)}
-                        >
-                          <Plus size={16} />
-                        </Button>
-                      </div>
-                      {isCollapsed ? null : (
-                        <div className="mt-1 flex flex-col gap-0.5 pl-2">
-                          {shownWorktrees.map((worktree) => (
-                            <WorkspaceRow
-                              key={worktree.path}
-                              worktree={worktree}
-                              selected={worktree.path === projectSelectedPath}
-                              onSelect={() => void selectWorkspace(project, worktree.path)}
-                              onArchive={() => void archiveWorkspace(project, worktree)}
-                              onDelete={() => void deleteWorkspace(project, worktree)}
-                            />
-                          ))}
-                          {hiddenWorkspaceCount > 0 ? (
-                            <button
-                              type="button"
-                              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
-                              onClick={() => loadMoreWorkspaces(project.id)}
-                            >
-                              <CaretDown size={14} />
-                              <span className="min-w-0 flex-1 truncate">
-                                Load more ({hiddenWorkspaceCount})
-                              </span>
-                            </button>
-                          ) : null}
-                          {archivedWorktrees.map((worktree) => (
-                            <WorkspaceRow
-                              key={`archived-${worktree.path}`}
-                              worktree={worktree}
-                              selected={false}
-                              archived
-                              onSelect={() => void selectWorkspace(project, worktree.path)}
-                              onArchive={() => void restoreWorkspace(project, worktree)}
-                              onDelete={() => void deleteWorkspace(project, worktree)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarContent>
-            <SidebarFooter className="border-t border-border/60 p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Projects
-                </span>
-                <div className="flex items-center gap-1">
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Filter projects">
-                    <FunnelSimple size={16} />
-                  </Button>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex shrink-0 items-center gap-1 px-2 pb-2 pt-11">
+                <div className="min-w-0 flex-1">
+                  <ProjectTabs
+                    projects={projects}
+                    activeProjectId={activeProject?.id}
+                    onSelect={(project) => void openProject(project)}
+                  />
+                </div>
+                {activeProject && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label="Add project"
-                    onClick={() => void window.omni.launch.show("add")}
+                    className="shrink-0"
+                    aria-label={`New workspace in ${activeProject.name}`}
+                    onClick={() => openWorkspaceDialog(activeProject)}
                   >
-                    <FolderPlus size={16} />
+                    <Plus size={16} />
                   </Button>
-                </div>
+                )}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2">
+                {activeProject ? (
+                  <>
+                    {activeWorktrees.length === 0 && archivedWorktrees.length === 0 ? (
+                      <button
+                        type="button"
+                        className="flex min-h-[7rem] w-full items-center justify-center rounded-2xl border border-dashed border-border text-[13px] text-muted-foreground/70 transition-colors duration-80 hover:bg-surface-2 hover:text-foreground"
+                        onClick={() => openWorkspaceDialog(activeProject)}
+                      >
+                        <Plus size={16} className="mr-1.5" /> New workspace
+                      </button>
+                    ) : (
+                      <div className="columns-2 gap-2">
+                        {shownWorktrees.map((worktree) => {
+                          const isSelected = worktree.path === selectedPath;
+                          return (
+                            <WorkspaceCard
+                              key={worktree.path}
+                              worktree={worktree}
+                              selected={isSelected}
+                              tone={isSelected ? selectedTone : "neutral"}
+                              onSelect={() => void selectWorkspace(activeProject, worktree.path)}
+                              onArchive={() => void archiveWorkspace(activeProject, worktree)}
+                              onDelete={() => void deleteWorkspace(activeProject, worktree)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                    {hiddenWorkspaceCount > 0 ? (
+                      <button
+                        type="button"
+                        className="flex h-8 w-full items-center justify-center gap-2 rounded-md text-[12px] text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
+                        onClick={() => loadMoreWorkspaces(activeProject.id)}
+                      >
+                        <CaretDown size={14} />
+                        Load more ({hiddenWorkspaceCount})
+                      </button>
+                    ) : null}
+                    {archivedWorktrees.length > 0 ? (
+                      <div className="mt-3">
+                        <div className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60">
+                          Archived
+                        </div>
+                        <div className="columns-2 gap-2">
+                          {archivedWorktrees.map((worktree) => (
+                            <WorkspaceCard
+                              key={`archived-${worktree.path}`}
+                              worktree={worktree}
+                              selected={false}
+                              archived
+                              onSelect={() => void selectWorkspace(activeProject, worktree.path)}
+                              onArchive={() => void restoreWorkspace(activeProject, worktree)}
+                              onDelete={() => void deleteWorkspace(activeProject, worktree)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="px-1 py-2 text-[13px] text-muted-foreground/70">
+                    Select a project to see its workspaces.
+                  </p>
+                )}
+              </div>
+            </div>
+            <SidebarFooter className="border-t border-white/5 bg-[#1a1a1a] p-2">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="flex h-8 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-400 outline-none transition-colors duration-80 hover:bg-white/10 hover:text-neutral-100"
+                  onClick={() => void window.omni.launch.show("add")}
+                >
+                  <FolderPlus size={16} />
+                  New project
+                </button>
+                <button
+                  type="button"
+                  aria-label="Filter projects"
+                  className="grid size-8 shrink-0 place-items-center rounded-md text-neutral-400 outline-none transition-colors duration-80 hover:bg-white/10 hover:text-neutral-100"
+                >
+                  <FunnelSimple size={16} />
+                </button>
               </div>
             </SidebarFooter>
           </Sidebar>
@@ -668,6 +714,7 @@ export function AdvancedShell() {
                   project={activeProject}
                   worktreePath={selectedPath}
                   workspaceName={selectedWorkspaceName}
+                  onToneChange={setSelectedTone}
                   onArchive={
                     activeProject && selectedWorktree && !selectedWorktree.isProjectRoot
                       ? () => archiveWorkspace(activeProject, selectedWorktree)

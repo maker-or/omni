@@ -40,9 +40,11 @@ const GENERATED_BRANCH_PREFIX = "pipper/";
 /**
  * Git hooks export repository-local state for the repository being committed.
  * Worktree commands may target a different repository, so those variables must
- * not leak into child Git processes.
+ * not leak into child Git processes. Shared by every module that spawns git
+ * (worktrees, workspace git panel, file tree) so the sanitation stays in one
+ * place.
  */
-function foreignGitEnv(): NodeJS.ProcessEnv {
+export function foreignGitEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (
@@ -122,22 +124,37 @@ const GIT_CANDIDATES =
       ]
     : ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git", "/bin/git"];
 
-/** Absolute git binary: PATH-independent so GUI launches work too. */
+let cachedGitBinary: { pathEnv: string; value: string } | null = null;
+
+/**
+ * Absolute git binary: PATH-independent so GUI launches work too.
+ * Memoized per PATH value — this runs before *every* git spawn and the probe
+ * walks the filesystem. A PATH edit (dependency installer prepending Homebrew
+ * etc.) invalidates the cache; a failed probe is never cached so a mid-session
+ * git install is still picked up.
+ */
 export function gitBinary(): string {
   const pathEnv = process.env.PATH ?? "";
+  if (cachedGitBinary && cachedGitBinary.pathEnv === pathEnv) return cachedGitBinary.value;
   const delimiter = process.platform === "win32" ? ";" : ":";
   const exe = process.platform === "win32" ? "git.exe" : "git";
   for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
     const candidate = join(normalize(dir), exe);
     try {
-      if (existsSync(candidate)) return candidate;
+      if (existsSync(candidate)) {
+        cachedGitBinary = { pathEnv, value: candidate };
+        return candidate;
+      }
     } catch {
       /* keep probing */
     }
   }
   for (const candidate of GIT_CANDIDATES) {
     try {
-      if (existsSync(candidate)) return candidate;
+      if (existsSync(candidate)) {
+        cachedGitBinary = { pathEnv, value: candidate };
+        return candidate;
+      }
     } catch {
       /* keep probing */
     }
@@ -165,13 +182,19 @@ function git(projectPath: string, args: string[]): string {
  * terminals and dependency detection must run in the project directory.
  */
 function projectSubpath(projectPath: string): string {
+  const key = worktreeCacheKey(projectPath);
+  const cached = projectSubpathCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  let value = "";
   try {
     const toplevel = git(projectPath, ["rev-parse", "--show-toplevel"]);
     const rel = relative(canonical(toplevel), canonical(projectPath));
-    return rel === "." ? "" : rel;
+    value = rel === "." ? "" : rel;
   } catch {
-    return "";
+    value = "";
   }
+  projectSubpathCache.set(key, { expiresAt: Date.now() + PROJECT_GIT_META_TTL_MS, value });
+  return value;
 }
 
 /**
@@ -277,12 +300,27 @@ let cachedUserSid: string | null = null;
 const WORKTREE_CACHE_TTL_MS = 500;
 const worktreeCache = new Map<string, { expiresAt: number; value: Worktree[] }>();
 
+/**
+ * Slow-moving per-project git facts (the project's subpath inside its repo,
+ * the origin default branch). Each used to cost a git spawn on every fresh
+ * `listWorktrees` — three subprocesses per sidebar refresh instead of one.
+ * A modest TTL keeps external changes (e.g. a re-pointed origin/HEAD) visible
+ * without paying for them on every poll; worktree mutations invalidate
+ * immediately.
+ */
+const PROJECT_GIT_META_TTL_MS = 30_000;
+const projectSubpathCache = new Map<string, { expiresAt: number; value: string }>();
+const remoteDefaultBranchCache = new Map<string, { expiresAt: number; value: string | null }>();
+
 function worktreeCacheKey(projectPath: string): string {
   return normalize(resolve(projectPath));
 }
 
 function invalidateWorktreeCache(projectPath: string): void {
-  worktreeCache.delete(worktreeCacheKey(projectPath));
+  const key = worktreeCacheKey(projectPath);
+  worktreeCache.delete(key);
+  projectSubpathCache.delete(key);
+  remoteDefaultBranchCache.delete(key);
 }
 
 /** The current user's SID (`S-1-5-…`). Cached: it cannot change mid-process. */
@@ -688,14 +726,19 @@ function resolveRepositoryDefaultBranch(
   projectPath: string,
   rootBranch: string | null,
 ): string | null {
+  const key = worktreeCacheKey(projectPath);
+  const cached = remoteDefaultBranchCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value ?? rootBranch;
+  let value: string | null = null;
   try {
     const remoteHead = git(projectPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
     const slash = remoteHead.indexOf("/");
-    if (slash >= 0) return remoteHead.slice(slash + 1);
+    if (slash >= 0) value = remoteHead.slice(slash + 1);
   } catch {
     // A repository without an origin has no advertised default branch.
   }
-  return rootBranch;
+  remoteDefaultBranchCache.set(key, { expiresAt: Date.now() + PROJECT_GIT_META_TTL_MS, value });
+  return value ?? rootBranch;
 }
 
 /** List local branches, annotated with the worktree Git says currently owns each one. */

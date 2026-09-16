@@ -11,7 +11,7 @@ import type {
   WorkspacePrComment,
   WorkspacePrDeployment,
 } from "../contracts/git.ts";
-import { gitBinary } from "./worktree-manager.ts";
+import { foreignGitEnv, gitBinary } from "./worktree-manager.ts";
 
 /**
  * First-party git operations for the advanced workspace UI.
@@ -27,35 +27,12 @@ const GH_AVAILABLE_TTL_MS = 60_000;
 
 const execFileAsync = promisify(execFile);
 
-function cleanGitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (
-      key === "GIT_ALTERNATE_OBJECT_DIRECTORIES" ||
-      key === "GIT_COMMON_DIR" ||
-      key === "GIT_DIR" ||
-      key === "GIT_GRAFT_FILE" ||
-      key === "GIT_IMPLICIT_WORK_TREE" ||
-      key === "GIT_INDEX_FILE" ||
-      key === "GIT_OBJECT_DIRECTORY" ||
-      key === "GIT_PREFIX" ||
-      key === "GIT_REPLACE_REF_BASE" ||
-      key === "GIT_SHALLOW_FILE" ||
-      key === "GIT_WORK_TREE" ||
-      key.startsWith("GIT_CONFIG")
-    ) {
-      delete env[key];
-    }
-  }
-  return env;
-}
-
 function git(cwd: string, args: string[], timeoutMs = 60_000): string {
   const out = execFileSync(gitBinary(), args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: cleanGitEnv(),
+    env: foreignGitEnv(),
     timeout: timeoutMs,
   });
   // Trailing trim only: porcelain status records carry a significant leading
@@ -79,7 +56,7 @@ async function gitAsync(cwd: string, args: string[], timeoutMs = 60_000): Promis
   const { stdout } = await execFileAsync(gitBinary(), args, {
     cwd,
     encoding: "utf8",
-    env: cleanGitEnv(),
+    env: foreignGitEnv(),
     timeout: timeoutMs,
     maxBuffer: 16 * 1024 * 1024,
   });
@@ -98,7 +75,7 @@ async function gh(cwd: string, args: string[], timeoutMs = 60_000): Promise<stri
   const { stdout } = await execFileAsync(ghBinary(), args, {
     cwd,
     encoding: "utf8",
-    env: cleanGitEnv(),
+    env: foreignGitEnv(),
     timeout: timeoutMs,
   });
   return stdout.trim();
@@ -112,45 +89,60 @@ const GH_CANDIDATES =
       ]
     : ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"];
 
+let cachedGhBinary: { pathEnv: string; value: string } | null = null;
+
 /**
  * Absolute `gh` binary, PATH-independent like `gitBinary()`: an app launched
  * from the Dock/Finder gets a minimal PATH without Homebrew, and a bare "gh"
  * would silently read as "not installed" (no PR, no checks) in the panel.
+ * Memoized per PATH value — the probe walks the filesystem and runs before
+ * every gh spawn. A failed probe is never cached so a mid-session install is
+ * still picked up.
  */
 export function ghBinary(): string {
   const pathEnv = process.env.PATH ?? "";
+  if (cachedGhBinary && cachedGhBinary.pathEnv === pathEnv) return cachedGhBinary.value;
   const delimiter = process.platform === "win32" ? ";" : ":";
   const exe = process.platform === "win32" ? "gh.exe" : "gh";
   for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
     const candidate = join(dir, exe);
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      cachedGhBinary = { pathEnv, value: candidate };
+      return candidate;
+    }
   }
   for (const candidate of GH_CANDIDATES) {
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      cachedGhBinary = { pathEnv, value: candidate };
+      return candidate;
+    }
   }
   return "gh";
 }
 
 let ghAvailableCache: { value: boolean; expiresAt: number } | null = null;
+let ghAvailableProbe: Promise<boolean> | null = null;
 
 /**
- * Whether the GitHub CLI can be run. Cached briefly: the status poll asks
- * every 15s and spawning `gh --version` each time is pure overhead.
+ * Whether the GitHub CLI can be run. Cached briefly (the status poll asks
+ * every 15s) and probed asynchronously so the main-process event loop never
+ * blocks on spawning `gh --version`. Concurrent callers share one probe.
  */
-export function isGhAvailable(): boolean {
-  if (ghAvailableCache && ghAvailableCache.expiresAt > Date.now()) return ghAvailableCache.value;
-  let value = false;
-  try {
-    execFileSync(ghBinary(), ["--version"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    value = true;
-  } catch {
-    value = false;
+export function isGhAvailable(): Promise<boolean> {
+  if (ghAvailableCache && ghAvailableCache.expiresAt > Date.now()) {
+    return Promise.resolve(ghAvailableCache.value);
   }
-  ghAvailableCache = { value, expiresAt: Date.now() + GH_AVAILABLE_TTL_MS };
-  return value;
+  ghAvailableProbe ??= execFileAsync(ghBinary(), ["--version"], { encoding: "utf8" })
+    .then(
+      () => true,
+      () => false,
+    )
+    .then((value) => {
+      ghAvailableCache = { value, expiresAt: Date.now() + GH_AVAILABLE_TTL_MS };
+      ghAvailableProbe = null;
+      return value;
+    });
+  return ghAvailableProbe;
 }
 
 async function remoteOrigin(cwd: string): Promise<{ host: string | null; url: string | null }> {
@@ -269,17 +261,20 @@ function countFileLines(absolutePath: string): number | null {
 }
 
 /**
- * Per-file line counts for the working tree, relative to HEAD. Falls back to
- * summing index and worktree diffs on an unborn branch, and counts untracked
- * files directly since git reports no diff for them.
+ * Per-file line counts for the working tree, relative to HEAD. The caller
+ * hands in the pre-fetched `git diff HEAD --numstat -z` output (fetched in
+ * the parallel read round) and the repo root; this falls back to summing
+ * index and worktree diffs on an unborn branch, and counts untracked files
+ * directly since git reports no diff for them.
  */
 type LineStats = { additions: number | null; deletions: number | null };
 
 async function collectLineStats(
   cwd: string,
   files: WorkspaceGitFile[],
+  combined: string | null,
+  repoRoot: string,
 ): Promise<Map<string, LineStats>> {
-  const combined = await tryGitAsync(cwd, ["diff", "HEAD", "--numstat", "-z"]);
   let stats: Map<string, LineStats>;
   if (combined !== null) {
     stats = parseNumstat(combined);
@@ -306,7 +301,6 @@ async function collectLineStats(
   }
   // Status/diff paths are relative to the repository root even when `cwd` is a
   // project subdirectory, so resolve untracked files against the root.
-  const repoRoot = (await tryGitAsync(cwd, ["rev-parse", "--show-toplevel"])) ?? cwd;
   for (const file of files) {
     if (file.status !== "untracked" || stats.has(file.path)) continue;
     stats.set(file.path, { additions: countFileLines(join(repoRoot, file.path)), deletions: 0 });
@@ -575,7 +569,7 @@ export function summarizePrNodes(nodes: GhPrNode[]): PrSummary {
  * PR picture for the branch in one `gh api graphql` round-trip: the open PR
  * (draft flag, CI, deployments, comments) or — once nothing is open — the
  * last merged one. Never throws — `gh` auth/network failures read as
- * "no PR known".
+ * "no PR known". The caller gates on `isGhAvailable()`.
  */
 async function lookupPr(
   cwd: string,
@@ -583,7 +577,7 @@ async function lookupPr(
   remoteUrl: string | null,
 ): Promise<PrSummary> {
   const repo = remoteUrl ? parseGitHubRepo(remoteUrl) : null;
-  if (!branch || !repo || !isGhAvailable()) return NO_PR;
+  if (!branch || !repo) return NO_PR;
   try {
     const out = await gh(
       cwd,
@@ -611,11 +605,56 @@ async function lookupPr(
 }
 
 /**
+ * Coalesces concurrent status requests per worktree. A caller that arrives
+ * while a run is in flight shares one queued follow-up run, so its answer
+ * reflects state no older than its own request — a post-action refresh can
+ * never be satisfied by a poll that started before the action finished —
+ * while the panel's poll, multiple windows, and the PR action handlers never
+ * stack duplicate git/gh process trees for the same path.
+ */
+type StatusFlight = {
+  active: Promise<WorkspaceGitStatus>;
+  queued: Promise<WorkspaceGitStatus> | null;
+};
+
+const statusFlights = new Map<string, StatusFlight>();
+
+export function getWorkspaceGitStatus(worktreePath: string): Promise<WorkspaceGitStatus> {
+  const flight = statusFlights.get(worktreePath);
+  if (!flight) return startStatusFlight(worktreePath);
+  flight.queued ??= flight.active.then(
+    () => startStatusFlight(worktreePath),
+    () => startStatusFlight(worktreePath),
+  );
+  return flight.queued;
+}
+
+function startStatusFlight(worktreePath: string): Promise<WorkspaceGitStatus> {
+  const flight: StatusFlight = {
+    active: computeWorkspaceGitStatus(worktreePath),
+    queued: null,
+  };
+  statusFlights.set(worktreePath, flight);
+  const settle = () => {
+    // A queued follow-up installs itself as the next flight via
+    // startStatusFlight; only clear the entry when nothing is queued. This
+    // callback was registered before any queued chain, so it runs first.
+    if (statusFlights.get(worktreePath) === flight && !flight.queued) {
+      statusFlights.delete(worktreePath);
+    }
+  };
+  void flight.active.then(settle, settle);
+  return flight.active;
+}
+
+/**
  * Full git picture for one workspace worktree. Never throws — degrades to
  * isRepo:false. Async end to end: this is polled by the panel, and a slow
- * `gh` round-trip must not stall every other IPC in the app.
+ * `gh` round-trip must not stall every other IPC in the app. Independent
+ * reads run in two parallel rounds instead of a serial chain of ~10 spawns.
  */
-export async function getWorkspaceGitStatus(worktreePath: string): Promise<WorkspaceGitStatus> {
+async function computeWorkspaceGitStatus(worktreePath: string): Promise<WorkspaceGitStatus> {
+  const ghAvailable = await isGhAvailable();
   const degraded: WorkspaceGitStatus = {
     isRepo: false,
     branch: null,
@@ -629,7 +668,7 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
     files: [],
     truncated: false,
     remoteHost: null,
-    ghAvailable: isGhAvailable(),
+    ghAvailable,
     openPrNumber: null,
     openPrUrl: null,
     isDraftPr: false,
@@ -639,33 +678,39 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
     checks: [],
     pr: null,
   };
-  if (!existsSync(worktreePath)) return degraded;
-  if ((await tryGitAsync(worktreePath, ["rev-parse", "--git-dir"])) === null) return degraded;
   try {
-    const branchRaw = await tryGitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    if (!existsSync(worktreePath)) return degraded;
+    if ((await tryGitAsync(worktreePath, ["rev-parse", "--git-dir"])) === null) return degraded;
+    // Round 1: every read that depends only on the worktree.
+    const [branchRaw, upstreamRaw, base, statusSummary, origin, combinedNumstat, repoRoot] =
+      await Promise.all([
+        tryGitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]),
+        tryGitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
+        branchBaseAsync(worktreePath),
+        parseStatusFiles(worktreePath),
+        remoteOrigin(worktreePath),
+        tryGitAsync(worktreePath, ["diff", "HEAD", "--numstat", "-z"]),
+        tryGitAsync(worktreePath, ["rev-parse", "--show-toplevel"]),
+      ]);
     const branch = !branchRaw || branchRaw === "HEAD" ? null : branchRaw;
-    const upstream =
-      (await tryGitAsync(worktreePath, [
-        "rev-parse",
-        "--abbrev-ref",
-        "--symbolic-full-name",
-        "@{u}",
-      ])) || null;
-    // Commits beyond the base branch: what a PR would contain.
-    const base = await branchBaseAsync(worktreePath);
-    const baseCount = base
-      ? await tryGitAsync(worktreePath, ["rev-list", "--count", `${base}..HEAD`])
-      : null;
+    const upstream = upstreamRaw || null;
+    const { files, truncated, staged, unstaged, untracked } = statusSummary;
+    // Round 2: reads that depend on round 1, plus the gh network round-trip.
+    const [baseCount, counts, lineStats, pr] = await Promise.all([
+      // Commits beyond the base branch: what a PR would contain.
+      base ? tryGitAsync(worktreePath, ["rev-list", "--count", `${base}..HEAD`]) : null,
+      upstream
+        ? tryGitAsync(worktreePath, ["rev-list", "--left-right", "--count", "HEAD...@{u}"])
+        : null,
+      collectLineStats(worktreePath, files, combinedNumstat, repoRoot ?? worktreePath),
+      origin.host === "github.com" && ghAvailable
+        ? lookupPr(worktreePath, branch, origin.url)
+        : NO_PR,
+    ]);
     const aheadOfBase = baseCount && Number.isFinite(Number(baseCount)) ? Number(baseCount) : 0;
     let ahead = 0;
     let behind = 0;
     if (upstream) {
-      const counts = await tryGitAsync(worktreePath, [
-        "rev-list",
-        "--left-right",
-        "--count",
-        "HEAD...@{u}",
-      ]);
       if (counts) {
         const [a, b] = counts.split(/\s+/).map(Number);
         ahead = Number.isFinite(a) ? a : 0;
@@ -677,11 +722,6 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
       // fresh worktree.
       ahead = aheadOfBase;
     }
-    const [{ files, truncated, staged, unstaged, untracked }, origin] = await Promise.all([
-      parseStatusFiles(worktreePath),
-      remoteOrigin(worktreePath),
-    ]);
-    const lineStats = await collectLineStats(worktreePath, files);
     const filesWithLines = files.map((file) => {
       const stat = lineStats.get(file.path);
       return {
@@ -690,8 +730,6 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
         deletions: stat?.deletions ?? file.deletions,
       };
     });
-    const host = origin.host;
-    const pr = host === "github.com" ? await lookupPr(worktreePath, branch, origin.url) : NO_PR;
     return {
       isRepo: true,
       branch,
@@ -704,8 +742,8 @@ export async function getWorkspaceGitStatus(worktreePath: string): Promise<Works
       untracked,
       files: filesWithLines,
       truncated,
-      remoteHost: host,
-      ghAvailable: isGhAvailable(),
+      remoteHost: origin.host,
+      ghAvailable,
       openPrNumber: pr.number,
       openPrUrl: pr.url,
       isDraftPr: pr.isDraft,
@@ -762,7 +800,7 @@ export async function createWorkspacePr(
   draft = false,
 ): Promise<string> {
   assertInsideRepo(worktreePath);
-  if (!isGhAvailable()) throw new Error("GitHub CLI (gh) is not installed.");
+  if (!(await isGhAvailable())) throw new Error("GitHub CLI (gh) is not installed.");
   const branch = await gitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
   // A PR with zero unique commits is rejected server-side with GraphQL noise —
   // catch it here with a message that says what to do instead.
@@ -840,7 +878,7 @@ async function defaultPrBody(
  */
 export async function mergeWorkspacePr(worktreePath: string, prNumber: number): Promise<string> {
   assertInsideRepo(worktreePath);
-  if (!isGhAvailable()) throw new Error("GitHub CLI (gh) is not installed.");
+  if (!(await isGhAvailable())) throw new Error("GitHub CLI (gh) is not installed.");
   await gh(worktreePath, ["pr", "merge", String(prNumber), "--merge"], 120_000);
   return `PR #${prNumber} merged.`;
 }
@@ -851,7 +889,7 @@ export async function markWorkspacePrReady(
   prNumber: number,
 ): Promise<string> {
   assertInsideRepo(worktreePath);
-  if (!isGhAvailable()) throw new Error("GitHub CLI (gh) is not installed.");
+  if (!(await isGhAvailable())) throw new Error("GitHub CLI (gh) is not installed.");
   await gh(worktreePath, ["pr", "ready", String(prNumber)], 60_000);
   return `PR #${prNumber} marked ready for review.`;
 }

@@ -20,6 +20,8 @@ import { logMain } from "./main-log";
 import {
   continueWorktreeOnNewBranch,
   createWorktree,
+  foreignGitEnv,
+  gitBinary,
   listBranches,
   listWorktrees,
   removeWorktree,
@@ -268,8 +270,11 @@ function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStat
 async function listProjectFileTree(projectPath: string): Promise<ProjectFileTreeSnapshot> {
   const [paths, gitStatus] = await Promise.all([
     listProjectFiles(projectPath),
-    execFileAsync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+    // Resolved binary + sanitized env: a bare "git" silently fails (empty
+    // status decorations) when a GUI launch strips PATH.
+    execFileAsync(gitBinary(), ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: projectPath,
+      env: foreignGitEnv(),
       maxBuffer: 1024 * 1024 * 4,
     })
       .then(({ stdout }) => parseProjectGitStatus(String(stdout)))

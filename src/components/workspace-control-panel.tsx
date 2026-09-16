@@ -80,6 +80,15 @@ function actionLabel(kind: string): string {
  */
 export type HeaderTone = "neutral" | "action" | "ready" | "merged";
 
+/** Shared tone gradients: the panel header and the sidebar's active workspace
+ *  card both paint from this map so the two stay in lockstep. */
+export const HEADER_TONE_GRADIENT: Record<HeaderTone, string> = {
+  neutral: "from-zinc-300/50 via-zinc-600/20 to-transparent",
+  action: "from-[#FFAA4F] via-[#6F5121] to-transparent",
+  ready: "from-[#088139] via-[#114526] to-transparent",
+  merged: "from-violet-500/80 via-violet-900/25 to-transparent",
+};
+
 function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone {
   if (!status.openPrNumber) return status.mergedPrNumber ? "merged" : "neutral";
   if (status.isDraftPr) return "action";
@@ -172,6 +181,7 @@ export function WorkspaceControlPanel({
   workspaceName,
   onArchive,
   onContinued,
+  onToneChange,
 }: {
   project: Project | null;
   worktreePath: string | null;
@@ -180,6 +190,9 @@ export function WorkspaceControlPanel({
   onArchive?: () => Promise<void> | void;
   /** Fired after "Continue" moved the worktree onto a new branch. */
   onContinued?: () => Promise<void> | void;
+  /** Reports the current header tone so the shell can tint the active
+   *  workspace card with the matching gradient. */
+  onToneChange?: (tone: HeaderTone) => void;
 }) {
   const [status, setStatus] = useState<WorkspaceGitStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -204,33 +217,51 @@ export function WorkspaceControlPanel({
    * from workspace A can never paint over workspace B, including A → B → A.
    */
   const generationRef = useRef(0);
+  /** Mirrors `status` so refresh can decide without re-subscribing. */
+  const statusRef = useRef<WorkspaceGitStatus | null>(null);
+
+  /**
+   * Set the status, keeping the previous object when the payload is
+   * identical — the 15s poll usually returns the same picture, and swapping
+   * objects would re-render the whole panel (and re-fire the tone effect)
+   * for nothing.
+   */
+  const applyStatus = useCallback((next: WorkspaceGitStatus | null) => {
+    setStatus((prev) => {
+      const value = next && prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      statusRef.current = value;
+      return value;
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!project || !worktreePath) {
-      setStatus(null);
+      applyStatus(null);
       return;
     }
     if (!window.omni?.git?.status) {
       // Preload predates the git bridge (needs app restart, not just HMR).
-      setStatus(null);
+      applyStatus(null);
       setError("Git bridge missing — restart the app (bun run dev) to load it.");
       return;
     }
     const generation = generationRef.current;
-    setLoading(true);
+    // The loading placeholder only shows before the first read; background
+    // polls refresh silently instead of flashing state twice per tick.
+    if (!statusRef.current) setLoading(true);
     setError(null);
     try {
       const next = await window.omni.git.status({ projectId: project.id, path: worktreePath });
       if (generation !== generationRef.current) return;
-      setStatus(next);
+      applyStatus(next);
     } catch (err) {
       if (generation !== generationRef.current) return;
-      setStatus(null);
+      applyStatus(null);
       setError(err instanceof Error ? err.message : "Git status failed.");
     } finally {
       if (generation === generationRef.current) setLoading(false);
     }
-  }, [project, worktreePath]);
+  }, [project, worktreePath, applyStatus]);
 
   useEffect(() => {
     generationRef.current += 1;
@@ -246,8 +277,20 @@ export function WorkspaceControlPanel({
 
   useEffect(() => {
     if (!project || !worktreePath) return;
-    const id = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(id);
+    // Poll only while visible — a hidden window spawning git/gh process trees
+    // every 15s is pure overhead — and re-read immediately on reveal so the
+    // panel is never staler than it was when hidden.
+    const id = setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, POLL_MS);
+    const onVisibilityChange = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [project, worktreePath, refresh]);
 
   /** Runs a git action with toasts; resolves `true` only when it succeeded. */
@@ -292,6 +335,11 @@ export function WorkspaceControlPanel({
   const tab: PanelTab =
     pickedTab ?? (tone === "ready" || tone === "merged" || dirtyCount === 0 ? "check" : "changes");
   const caption = status?.isRepo ? stateCaption(status, tone, dirtyCount) : null;
+
+  // Keep the shell's active-card gradient in lockstep with this header.
+  useEffect(() => {
+    onToneChange?.(tone);
+  }, [tone, onToneChange]);
 
   // Agent changes come from the diff store's active thread. Key the recount on
   // each file's content version so streaming edits don't re-parse unchanged
@@ -796,10 +844,7 @@ export function WorkspaceControlPanel({
             <div
               className={cn(
                 "shrink-0 rounded-tr-[16px] bg-linear-to-b px-4 pb-3 pt-4",
-                tone === "ready" && "from-[#088139] via-[#114526] to-transparent",
-                tone === "action" && "from-[#FFAA4F] via-[#6F5121] to-transparent",
-                tone === "merged" && "from-violet-500/80 via-violet-900/25 to-transparent",
-                tone === "neutral" && "from-zinc-300/50 via-zinc-600/20 to-transparent",
+                HEADER_TONE_GRADIENT[tone],
               )}
             >
               <div className="flex items-center gap-2">
