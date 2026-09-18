@@ -83,6 +83,13 @@ const posthogKey = firstNonEmpty(
   loadedEnv.VITE_POSTHOG_KEY,
   loadedEnv.PIPPER_POSTHOG_KEY,
 );
+const posthogHost =
+  firstNonEmpty(
+    process.env.VITE_POSTHOG_HOST,
+    process.env.PIPPER_POSTHOG_HOST,
+    loadedEnv.VITE_POSTHOG_HOST,
+    loadedEnv.PIPPER_POSTHOG_HOST,
+  ) ?? "https://us.i.posthog.com";
 if (!posthogKey) {
   const message =
     "[build] missing PostHog key. Set VITE_POSTHOG_KEY/PIPPER_POSTHOG_KEY " +
@@ -95,14 +102,10 @@ if (!posthogKey) {
 } else {
   console.log("[build] PostHog key present; analytics will be baked in.");
 }
-console.log(
-  `[build] PostHog host: ${
-    firstNonEmpty(
-      process.env.VITE_POSTHOG_HOST,
-      process.env.PIPPER_POSTHOG_HOST,
-      loadedEnv.VITE_POSTHOG_HOST,
-      loadedEnv.PIPPER_POSTHOG_HOST,
-    ) ?? "https://us.i.posthog.com (default)"
-  }`,
-);
+// Electron Vite only exposes VITE_* values through import.meta.env. Map the
+// accepted PIPPER_* aliases before spawning it so validation and the bundle
+// always use the same resolved configuration.
+if (posthogKey) process.env.VITE_POSTHOG_KEY = posthogKey;
+process.env.VITE_POSTHOG_HOST = posthogHost;
+console.log(`[build] PostHog host: ${posthogHost}`);
 run(["electron-vite", "build"]);
