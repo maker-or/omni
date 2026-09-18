@@ -440,6 +440,16 @@ const api = {
     },
   },
   analytics: {
+    getConfig: (): Promise<{ key: string; host: string; distinctId: string | null } | null> =>
+      ipcRenderer.invoke("analytics:getConfig"),
+    getDistinctId: (): Promise<string | null> => ipcRenderer.invoke("analytics:getDistinctId"),
+    onIdentity: (callback: (distinctId: string) => void) => {
+      const listener = (_event: any, distinctId: string) => callback(distinctId);
+      ipcRenderer.on("analytics:identity", listener);
+      return () => {
+        ipcRenderer.removeListener("analytics:identity", listener);
+      };
+    },
     captureException: (input: { name: string; message: string; stack?: string }): Promise<void> =>
       ipcRenderer.invoke("analytics:captureException", input),
     trackOnboarding: (step: string, status: string, success?: boolean): Promise<void> =>

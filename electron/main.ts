@@ -81,6 +81,8 @@ import {
   captureAnalytics,
   captureAnalyticsException,
   flushAnalytics,
+  getAnalyticsConfig,
+  getAnalyticsDistinctId,
   identifyAnalyticsUser,
   setActiveAgentContext,
   shutdownAnalytics,
@@ -698,6 +700,7 @@ async function handleAuthCallback(url: string): Promise<void> {
     name: record.name,
     avatarUrl: record.avatar_url,
   });
+  notifyAnalyticsIdentity();
   captureAnalytics("onboarding_step", {
     windowType: "launch",
     properties: { step: "auth_callback_succeeded", status: "complete", success: true },
@@ -1148,6 +1151,12 @@ function broadcastToWindows(channel: string, ...args: any[]) {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.webContents.send(channel, ...args);
   }
+}
+
+/** Keep renderer posthog-js identity stitched to main's alias chain. */
+function notifyAnalyticsIdentity(): void {
+  const distinctId = getAnalyticsDistinctId();
+  if (distinctId) broadcastToWindows("analytics:identity", distinctId);
 }
 
 function sendMainWindowTabEvent(
@@ -2391,6 +2400,8 @@ function registerIpc(): void {
     broadcastToWindows("theme:changed", currentTheme);
   });
 
+  ipcMain.handle("analytics:getConfig", () => getAnalyticsConfig());
+  ipcMain.handle("analytics:getDistinctId", () => getAnalyticsDistinctId());
   ipcMain.handle(
     "analytics:captureException",
     (_event, input: { name?: string; message?: string; stack?: string }) => {
@@ -2606,6 +2617,7 @@ app.whenReady().then(async () => {
       name: authUser.name,
       avatarUrl: authUser.avatar_url,
     });
+    notifyAnalyticsIdentity();
   }
   agentManager = new AgentManager({
     // Electron resolves this from package.json's `version` field.

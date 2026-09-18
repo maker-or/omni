@@ -1,527 +1,318 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy02Icon, GitBranchIcon, Sun01Icon } from "@hugeicons/core-free-icons";
+import { Tabs, TabsList, TabItem } from "@/components/ui/tabs";
 
-import { ChatMessage } from "@/components/ui/chat-message";
-import { InputMessage } from "@/components/ui/input-message";
-import { TabItem, TabPanel, Tabs, TabsList } from "@/components/ui/tabs";
-import {
-  ThinkingStep,
-  ThinkingSteps,
-  ThinkingStepsContent,
-  ThinkingStepsHeader,
-} from "@/components/ui/thinking-steps";
-import { Elevated } from "@/lib/elevated";
-import { surfaceClasses } from "@/lib/surface-classes";
-import { cn } from "@/lib/utils";
+const SURPRISE_VIDEO_ID = "dQw4w9WgXcQ";
 
-type DemoTab = "compression" | "hooli";
-type ResponseState = "idle" | "thinking" | "done";
-
-const conversations: Record<
-  DemoTab,
-  {
-    user: string;
-    answer: string;
-    project: string;
-    branch: string;
-    file: string;
+declare global {
+  interface Window {
+    YT?: any;
+    onYouTubeIframeAPIReady?: () => void;
   }
-> = {
-  compression: {
-    user: "Make middle-out compression better",
-    answer:
-      "Done. I moved boundary scoring ahead of chunk allocation and added a small overlap window. The benchmark keeps more context while using 18% fewer tokens.",
-    project: "nucleus",
-    branch: "main",
-    file: "src/compression/middle-out.ts",
-  },
-  hooli: {
-    user: "Summarize the Hooli launch thread",
-    answer:
-      "The launch stays on Thursday. Design approved the new empty state, infra wants a 10% canary first, and the only blocker is the migration dry run.",
-    project: "hooli-web",
-    branch: "launch/brief",
-    file: "notes/launch-brief.md",
-  },
-};
+}
 
-function TrafficLights() {
+function loadYouTubeAPI(): Promise<any> {
+  if (typeof window === "undefined") return Promise.reject(new Error("no window"));
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  return new Promise((resolve) => {
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      prev?.();
+      resolve(window.YT);
+    };
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(tag);
+    }
+  });
+}
+
+const sessions = [
+  { value: "tab-1", label: "surprise" },
+  { value: "tab-2", label: "click here" },
+];
+
+const PROJECTS = ["omni"];
+const MODELS = ["GPT - 7", "Fabel 6"];
+
+type MenuKind = "project" | "model";
+
+function Composer() {
+  const [project, setProject] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [menu, setMenu] = useState<MenuKind | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const placeholder = !project
+    ? "press @ for the project and @ for the model"
+    : !model
+      ? "press @ for the model"
+      : "start typing your prompt";
+
+  const focusInput = () => inputRef.current?.focus();
+
+  // Track "@" typing: first free "@" opens the project menu, the next one
+  // (once a project bubble exists) opens the model menu.
+  function handleChange(value: string) {
+    setPrompt(value);
+    if (!value.endsWith("@")) {
+      setMenu(null);
+      return;
+    }
+    if (!project) setMenu("project");
+    else if (!model) setMenu("model");
+    else setMenu(null);
+  }
+
+  function commitMenuSelection(name: string) {
+    if (menu === "project") setProject(name);
+    else if (menu === "model") setModel(name);
+    // Drop the "@" trigger char, close the menu, keep typing.
+    setPrompt((current) => (current.endsWith("@") ? current.slice(0, -1) : current));
+    setMenu(null);
+    requestAnimationFrame(focusInput);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && menu) {
+      event.preventDefault();
+      const options = menu === "project" ? PROJECTS : MODELS;
+      commitMenuSelection(options[0]);
+      return;
+    }
+    if (event.key === "Escape") {
+      setMenu(null);
+      return;
+    }
+    // Empty input + Backspace removes the last bubble (model, then project).
+    if (event.key === "Backspace" && prompt === "") {
+      if (model) {
+        event.preventDefault();
+        setModel(null);
+      } else if (project) {
+        event.preventDefault();
+        setProject(null);
+      }
+    }
+  }
+
+  const menuOptions = menu === "project" ? PROJECTS : MODELS;
+
   return (
-    <div
-      data-pipper-id="window-controls"
-      className="group/lights flex items-center gap-1.5"
-      aria-label="Window controls"
-    >
-      <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#ff5f57]" />
-      <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#febc2e]" />
-      <span className="size-2.5 rounded-full bg-neutral-400 transition-colors group-hover/lights:bg-[#28c840]" />
+    <div className="relative flex w-full max-w-3xl items-center justify-center gap-2.5">
+      <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[#088139] bg-[#26B25A] text-[14px] font-semibold text-[#088139]">
+        @
+      </span>
+      {project && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#B1620D] bg-[#ffa946] px-2.5 py-1 text-[13px] font-medium text-[#a65b0e]">
+          {project}
+        </span>
+      )}
+      {model && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#2162ff] bg-[#d8e5ff] px-2.5 py-1 text-[13px] font-medium text-[#2162ff]">
+          {model}
+        </span>
+      )}
+      <input
+        ref={inputRef}
+        value={prompt}
+        onChange={(e) => handleChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        aria-label="Prompt"
+        className="min-w-0 flex-1 bg-transparent text-[14px] text-white/90 outline-none placeholder:text-white/30"
+        placeholder={placeholder}
+      />
+      {menu && (
+        <div
+          role="listbox"
+          aria-label={menu === "project" ? "Projects" : "Models"}
+          className="absolute left-11 top-full z-10 mt-2 w-52 overflow-hidden rounded-xl border border-white/10 bg-[#242424] shadow-2xl"
+        >
+          {menuOptions.map((name) => {
+            const selected = menu === "project" ? name === project : name === model;
+            return (
+              <button
+                key={name}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => commitMenuSelection(name)}
+                className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] transition-colors hover:bg-white/10 ${
+                  selected ? "bg-white/10 text-white" : "text-white/85"
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                {selected && (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                    className="shrink-0 text-white"
+                  >
+                    <path
+                      d="M4 12.5 9.5 18 20 6.5"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-function IconButton({
-  label,
-  onClick,
-  children,
-  ...props
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-  "data-pipper-id"?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="grid size-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.055] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.08]"
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
+export default function ProductDemo() {
+  const [activeSession, setActiveSession] = useState("tab-1");
+  const playerHostRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
 
-interface HighlightRect {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-  pipperId: string;
-}
-
-interface CommentPopup {
-  top: number;
-  left: number;
-  pipperId: string;
-}
-
-function getPopupPosition(rect: DOMRect): { top: number; left: number } {
-  return {
-    top: Math.max(8, Math.min(rect.bottom + 10, window.innerHeight - 200)),
-    left: Math.max(8, Math.min(rect.left, window.innerWidth - 320)),
-  };
-}
-
-const defaultPrompts: Record<string, string> = {
-  "window-controls": "Make the traffic light dots bigger and more rounded",
-  "product-demo": "Add a subtle gradient border around the demo",
-  "demo-header": "Reduce the header height and add a bottom separator",
-  "project-info": "Make the project name bolder and larger",
-  "demo-tabs": "Give the active tab a stronger highlight",
-  toolbar: "Add a gentle hover scale effect to the buttons",
-  "chat-area": "Increase the gap between chat messages",
-  "thinking-steps": "Make the thinking steps collapse smoother",
-  "chat-input": "Darken the input background for better contrast",
-};
-
-function DemoOverlay() {
-  const [processingId, setProcessingId] = useState<string | null>(null);
-  const processingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [highlight, setHighlight] = useState<HighlightRect | null>(null);
-  const [popup, setPopup] = useState<CommentPopup | null>(null);
-  const [commentText, setCommentText] = useState("");
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const pointerRef = useRef<{ x: number; y: number } | null>(null);
-  const frameRef = useRef<number | null>(null);
-
+  // Create the player only after the page is interactive, so the YouTube
+  // payload never competes with hero render. It then cues + buffers quietly
+  // while the visitor reads, ready before they click.
   useEffect(() => {
+    let cancelled = false;
+    let idleId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const init = () => {
+      loadYouTubeAPI()
+        .then((YT) => {
+          if (cancelled || !playerHostRef.current || playerRef.current) return;
+          playerRef.current = new YT.Player(playerHostRef.current, {
+            videoId: SURPRISE_VIDEO_ID,
+            width: "100%",
+            height: "100%",
+            playerVars: { rel: 0, preload: 1 },
+          });
+        })
+        .catch(() => {});
+    };
+
+    if (typeof (window as any).requestIdleCallback === "function") {
+      idleId = (window as any).requestIdleCallback(init, { timeout: 4000 });
+    } else {
+      timer = setTimeout(init, 2500);
+    }
     return () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-      if (processingTimer.current) clearTimeout(processingTimer.current);
+      cancelled = true;
+      if (idleId !== null) (window as any).cancelIdleCallback?.(idleId);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
+  // Start / stop playback the moment the tab changes — no iframe mount wait.
   useEffect(() => {
-    if (popup) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(timer);
+    const player = playerRef.current;
+    if (!player?.playVideo) return;
+    if (activeSession === "tab-1") {
+      player.pauseVideo?.();
+    } else {
+      player.playVideo();
     }
-  }, [popup]);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Escape" || !popup) return;
-      setPopup(null);
-      setCommentText("");
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [popup]);
-
-  function findPipperId(x: number, y: number): { el: HTMLElement; pipperId: string } | null {
-    const top = document
-      .elementsFromPoint(x, y)
-      .find((node) => node !== overlayRef.current && node.getRootNode() === document);
-    if (!top) return null;
-    const start = top instanceof HTMLElement ? top : top.parentElement;
-    const pipper = start?.closest<HTMLElement>("[data-pipper-id]") ?? null;
-    const pipperId = pipper?.getAttribute("data-pipper-id");
-    if (!pipper || !pipperId) return null;
-    return { el: pipper, pipperId };
-  }
-
-  function handleMouseMove(e: React.MouseEvent) {
-    if (popup || processingId) return;
-    pointerRef.current = { x: e.clientX, y: e.clientY };
-    if (frameRef.current !== null) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = null;
-      const point = pointerRef.current;
-      if (!point) return;
-      const found = findPipperId(point.x, point.y);
-      if (!found) {
-        setHighlight(null);
-        return;
-      }
-      const rect = found.el.getBoundingClientRect();
-      setHighlight({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        pipperId: found.pipperId,
-      });
-    });
-  }
-
-  function handleClick(e: React.MouseEvent) {
-    if (popup || processingId) return;
-    const found = findPipperId(e.clientX, e.clientY);
-    if (!found) return;
-    const rect = found.el.getBoundingClientRect();
-    const pos = getPopupPosition(rect);
-    setHighlight({
-      top: rect.top,
-      left: rect.left,
-      width: rect.width,
-      height: rect.height,
-      pipperId: found.pipperId,
-    });
-    setPopup({ top: pos.top, left: pos.left, pipperId: found.pipperId });
-    setCommentText(defaultPrompts[found.pipperId] ?? "");
-  }
-
-  function handleMouseLeave() {
-    if (!popup && !processingId) setHighlight(null);
-  }
-
-  return (
-    <>
-      <div
-        ref={overlayRef}
-        className="fixed inset-0 z-[9990]"
-        style={{ cursor: "crosshair" }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        onClick={handleClick}
-      />
-
-      {highlight && processingId && (
-        <div
-          className="fixed z-[9991] pointer-events-none"
-          style={{
-            top: highlight.top - 2,
-            left: highlight.left - 2,
-            width: highlight.width + 4,
-            height: highlight.height + 4,
-          }}
-        >
-          <div
-            className="absolute inset-0 rounded-sm"
-            style={{
-              boxShadow:
-                "0 0 0 2px var(--ring), 0 0 0 4px color-mix(in oklab, var(--ring) 40%, transparent)",
-              animation: "pipper-processing-pulse 0.8s ease-in-out infinite",
-            }}
-          />
-        </div>
-      )}
-
-      {highlight && !popup && !processingId && (
-        <div
-          className="fixed z-[9991] pointer-events-none"
-          style={{
-            top: highlight.top - 2,
-            left: highlight.left - 2,
-            width: highlight.width + 4,
-            height: highlight.height + 4,
-            transition: "top 60ms, left 60ms, width 60ms, height 60ms",
-          }}
-        >
-          <div
-            className="absolute inset-0 rounded-sm ring-2 ring-ring"
-            style={{ animation: "pipper-highlight-pulse 1.4s ease-in-out infinite" }}
-          />
-        </div>
-      )}
-
-      {popup && (
-        <div
-          className="fixed z-[9992] flex flex-col gap-2"
-          style={{
-            top: popup.top,
-            left: popup.left,
-            width: 308,
-            animation: "pipper-popup-in 140ms ease-out both",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Elevated offset={2} shadowLevel={5} className="rounded-xl border border-border/80">
-            <InputMessage
-              value={commentText}
-              onValueChange={setCommentText}
-              onSend={(text) => {
-                if (!text.trim() || !popup) return;
-                const id = popup.pipperId;
-                setPopup(null);
-                setCommentText("");
-                setProcessingId(id);
-                if (processingTimer.current) clearTimeout(processingTimer.current);
-                processingTimer.current = setTimeout(() => {
-                  setProcessingId(null);
-                  setHighlight(null);
-                }, 1400);
-              }}
-              placeholder="Describe the change…"
-              textareaRef={inputRef}
-              leftSlot={() => (
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-md px-1.5 py-0.5",
-                    "text-[10px] font-bold text-foreground tracking-wide",
-                    surfaceClasses(7, 4),
-                  )}
-                >
-                  @ {popup.pipperId}
-                </span>
-              )}
-              minRows={1}
-              maxRows={4}
-            />
-          </Elevated>
-        </div>
-      )}
-    </>
-  );
-}
-
-export default function ProductDemo() {
-  const [tab, setTab] = useState<DemoTab>("compression");
-  const [dark, setDark] = useState(false);
-  const [overlayActive, setOverlayActive] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [sentMessage, setSentMessage] = useState("");
-  const [responseState, setResponseState] = useState<ResponseState>("idle");
-  const timers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
-
-  const active = conversations[tab];
-
-  useEffect(
-    () => () => {
-      timers.current.forEach(clearTimeout);
-    },
-    [],
-  );
-
-  function clearFakeResponse() {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setSentMessage("");
-    setResponseState("idle");
-  }
-
-  function changeTab(value: string) {
-    clearFakeResponse();
-    setTab(value as DemoTab);
-  }
-
-  function submitMessage(value: string) {
-    const next = value.trim();
-    if (!next || responseState === "thinking") return;
-
-    timers.current.forEach(clearTimeout);
-    setDraft("");
-    setSentMessage(next);
-    setResponseState("thinking");
-    timers.current = [window.setTimeout(() => setResponseState("done"), 2200)];
-  }
+  }, [activeSession]);
 
   return (
     <section
       data-pipper-id="product-demo"
-      aria-label="Interactive product demo"
-      className="h-svh w-[100svw] max-w-none shrink-0 overflow-hidden bg-black p-[clamp(0.9rem,2.4vw,3rem)] text-neutral-950"
+      aria-label="Omni product preview"
+      className="flex w-full shrink-0 justify-center overflow-hidden bg-transparent p-[clamp(0.9rem,2.4vw,3rem)]"
     >
-      <Elevated
-        offset={1}
-        shadowLevel={7}
-        className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] text-foreground h-full ${dark ? "dark" : ""}`}
-      >
-        <header
-          data-pipper-id="demo-header"
-          className="grid min-h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-5"
-        >
-          <div className="flex min-w-0 items-center gap-5">
-            <TrafficLights />
-            <div data-pipper-id="project-info" className="min-w-0 leading-tight">
-              <div className="truncate text-[14px] font-medium tracking-[-0.01em]">
-                {active.project}
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-muted-foreground">
-                <HugeiconsIcon icon={GitBranchIcon} size={13} strokeWidth={1.6} />
-                <span>{active.branch}</span>
+      <div className="dark relative flex h-full min-h-[36rem] w-full max-w-6xl flex-col overflow-hidden rounded-[16px] border border-white/10 bg-[#1c1c1c] text-neutral-100">
+        {/* Window header */}
+        <header className="flex items-center gap-4 border-b border-white/[0.07] px-4 py-3">
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="leading-tight text-center">
+              <div className="text-[14px] font-semibold tracking-tight">omni</div>
+              <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px] text-white/40">
+                <span className="inline-flex items-center gap-1">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 256 256"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z" />
+                  </svg>
+                  main
+                </span>
+                <span className="text-white/25">/</span>
+                <span>main</span>
               </div>
             </div>
           </div>
 
-          <Tabs data-pipper-id="demo-tabs" value={tab} onValueChange={changeTab}>
-            <TabsList className="bg-muted/80">
-              <TabItem value="compression" label="Middle-out compression" />
-              <TabItem value="hooli" label="Hooli chat" />
-            </TabsList>
-          </Tabs>
-
-          <div
-            data-pipper-id="toolbar"
-            className="flex justify-self-end rounded-full w-fit bg-muted/80 p-1"
-          >
-            <IconButton
-              label={dark ? "Use light appearance" : "Use dark appearance"}
-              onClick={() => setDark((value) => !value)}
+          {/* Session tab strip */}
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+            <Tabs value={activeSession} onValueChange={setActiveSession} className="w-auto min-w-0">
+              <TabsList className="w-full min-w-0 flex-1 gap-1 overflow-hidden rounded-full bg-white/[0.06]">
+                {sessions.map((session) => (
+                  <TabItem key={session.value} value={session.value} label={session.label} />
+                ))}
+              </TabsList>
+            </Tabs>
+            <button
+              type="button"
+              aria-label="New session"
+              className="grid size-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
             >
-              <motion.span
-                animate={{ rotate: dark ? 180 : 0 }}
-                transition={{ type: "spring", stiffness: 360, damping: 25 }}
-              >
-                <HugeiconsIcon icon={Sun01Icon} size={19} strokeWidth={1.6} />
-              </motion.span>
-            </IconButton>
-            <IconButton
-              label={overlayActive ? "Disable targeting" : "Enable targeting"}
-              onClick={() => setOverlayActive((v) => !v)}
-            >
-              <HugeiconsIcon icon={Copy02Icon} size={19} strokeWidth={1.6} />
-            </IconButton>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path
+                  d="M7 2v10M2 7h10"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
           </div>
+
+          <button
+            type="button"
+            aria-label="History"
+            className="grid size-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9M2.5 8V5.5M2.5 8h2.5M8 5.5V8l1.8 1.2"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
         </header>
 
-        <Tabs value={tab} onValueChange={changeTab} className="flex min-h-0 flex-1 flex-col">
-          {(["compression", "hooli"] as const).map((value) => {
-            const conversation = conversations[value];
-            return (
-              <TabPanel
-                key={value}
-                value={value}
-                className="min-h-0 flex-1 overflow-y-auto px-[clamp(1.25rem,5vw,6rem)] pb-5 pt-5"
-              >
-                <div
-                  data-pipper-id="chat-area"
-                  className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col gap-5"
-                >
-                  <ChatMessage from="user" time="just now">
-                    {conversation.user}
-                  </ChatMessage>
-
-                  <ThinkingSteps data-pipper-id="thinking-steps" defaultOpen className="w-full">
-                    <ThinkingStepsHeader>Worked for 34 seconds</ThinkingStepsHeader>
-                    <ThinkingStepsContent>
-                      <ThinkingStep
-                        icon="search"
-                        label="Inspected the current implementation"
-                        description={`Read ${conversation.file} and its closest tests.`}
-                      />
-                      <ThinkingStep
-                        icon="brain"
-                        label="Mapped the smallest safe change"
-                        description="Kept the public API stable and isolated the hot path."
-                      />
-                      <ThinkingStep
-                        icon="check"
-                        label="Verified the result"
-                        description="Focused tests pass and the benchmark improved."
-                        isLast
-                      />
-                    </ThinkingStepsContent>
-                  </ThinkingSteps>
-
-                  <ChatMessage from="assistant">{conversation.answer}</ChatMessage>
-
-                  {sentMessage && (
-                    <ChatMessage from="user" time="now">
-                      {sentMessage}
-                    </ChatMessage>
-                  )}
-
-                  {responseState !== "idle" && (
-                    <ThinkingSteps
-                      defaultOpen
-                      className="w-full"
-                      key={`${sentMessage}-${responseState}`}
-                    >
-                      <ThinkingStepsHeader>
-                        {responseState === "thinking"
-                          ? "Working on your follow-up"
-                          : "Worked for 12 seconds"}
-                      </ThinkingStepsHeader>
-                      <ThinkingStepsContent>
-                        <ThinkingStep icon="search" label="Reading the active context" />
-                        <ThinkingStep
-                          icon="brain"
-                          label="Preparing a focused update"
-                          status={responseState === "thinking" ? "active" : "complete"}
-                        />
-                        <ThinkingStep
-                          icon="check"
-                          label="Updated the working tree"
-                          status={responseState === "done" ? "complete" : "pending"}
-                          isLast
-                        />
-                      </ThinkingStepsContent>
-                    </ThinkingSteps>
-                  )}
-
-                  {responseState === "done" && (
-                    <ChatMessage from="assistant">
-                      I tightened that up and kept the change scoped. The preview has been updated
-                      with the new result.
-                    </ChatMessage>
-                  )}
-
-                  <div data-pipper-id="chat-input" className="mt-auto pt-8">
-                    <Elevated
-                      offset={1}
-                      shadowLevel={3}
-                      className="mx-auto w-full max-w-[35rem] rounded-3xl"
-                    >
-                      <InputMessage
-                        value={draft}
-                        onValueChange={setDraft}
-                        onSend={(value) => submitMessage(value)}
-                        placeholder="Ask pipper to change something…"
-                        sendLabel="Send message"
-                        minRows={2}
-                        maxRows={4}
-                        disabled={responseState === "thinking"}
-                        className="bg-transparent shadow-none"
-                      />
-                    </Elevated>
-                  </div>
-                </div>
-              </TabPanel>
-            );
-          })}
-        </Tabs>
-      </Elevated>
-
-      {overlayActive && <DemoOverlay />}
+        {/* Body: prompt on tab 1, preloaded video on tab 2.
+            The player host stays mounted (hidden) so the video is cued
+            before the first click — playback starts instantly. */}
+        {activeSession === "tab-1" && (
+          <div className="flex flex-1 items-start justify-center px-6 pt-8">
+            <Composer />
+          </div>
+        )}
+        <div
+          className={`flex-1 items-center justify-center px-6 py-8 ${
+            activeSession === "tab-1" ? "hidden" : "flex"
+          }`}
+        >
+          <div className="aspect-video w-full max-w-3xl overflow-hidden rounded-xl border border-white/10">
+            <div ref={playerHostRef} className="h-full w-full" />
+          </div>
+        </div>
+      </div>
     </section>
   );
 }

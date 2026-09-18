@@ -294,6 +294,9 @@ declare global {
         ) => () => void;
       };
       analytics: {
+        getConfig: () => Promise<{ key: string; host: string; distinctId: string | null } | null>;
+        getDistinctId: () => Promise<string | null>;
+        onIdentity: (callback: (distinctId: string) => void) => () => void;
         captureException: (input: {
           name: string;
           message: string;

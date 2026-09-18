@@ -523,14 +523,14 @@ export function ThreadComposer({
             <span
               key={`${entity.kind}:${entity.id}`}
               contentEditable={false}
-              title={`@${entity.label}`}
+              title={`${entity.label}`}
               className={cn(
                 "mr-1.5 inline-flex h-7 min-w-0 max-w-[min(100%,22rem)] shrink items-center gap-1.5 rounded-full px-2.5 align-middle text-[14px] leading-none font-semibold",
                 mentionChipClass(entity.kind),
               )}
             >
               {iconNode}
-              <span className="min-w-0 truncate leading-none">@{entity.label}</span>
+              <span className="min-w-0 truncate leading-none">{entity.label}</span>
             </span>
           );
         })}
