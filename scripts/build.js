@@ -2,8 +2,14 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv } from "vite";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const loadedEnv = loadEnv("production", root, "");
+
+function firstNonEmpty(...values) {
+  return values.find((value) => typeof value === "string" && value.trim().length > 0)?.trim();
+}
 
 function run(args) {
   const result = spawnSync("bun", ["x", "--bun", ...args], {
@@ -68,18 +74,35 @@ function buildMacSleeplessHelpers() {
 
 buildMacSleeplessHelpers();
 
-// Fail loud: the PostHog key must be present in the build environment
-// (VITE_POSTHOG_KEY secret in CI, .env locally) or the shipped app will
-// silently capture zero analytics events.
-if (!process.env.VITE_POSTHOG_KEY && !process.env.PIPPER_POSTHOG_KEY) {
-  console.warn(
-    "[build] WARNING: no VITE_POSTHOG_KEY/PIPPER_POSTHOG_KEY in the build environment. " +
-      "The packaged app will not report analytics.",
-  );
+// Release builds must fail loud: a packaged app without a PostHog key silently
+// drops every event. Local builds may still run without analytics.
+// loadEnv keeps local .env builds working; process.env takes precedence in CI.
+const posthogKey = firstNonEmpty(
+  process.env.VITE_POSTHOG_KEY,
+  process.env.PIPPER_POSTHOG_KEY,
+  loadedEnv.VITE_POSTHOG_KEY,
+  loadedEnv.PIPPER_POSTHOG_KEY,
+);
+if (!posthogKey) {
+  const message =
+    "[build] missing PostHog key. Set VITE_POSTHOG_KEY/PIPPER_POSTHOG_KEY " +
+    "in CI or .env before building a release.";
+  if (process.env.CI === "true" || process.env.PIPPER_REQUIRE_POSTHOG_CONFIG === "true") {
+    console.error(`[build] ERROR: ${message}`);
+    process.exit(1);
+  }
+  console.warn(`[build] WARNING: ${message}`);
 } else {
   console.log("[build] PostHog key present; analytics will be baked in.");
 }
 console.log(
-  `[build] PostHog host: ${process.env.VITE_POSTHOG_HOST ?? process.env.PIPPER_POSTHOG_HOST ?? "https://us.i.posthog.com (default)"}`,
+  `[build] PostHog host: ${
+    firstNonEmpty(
+      process.env.VITE_POSTHOG_HOST,
+      process.env.PIPPER_POSTHOG_HOST,
+      loadedEnv.VITE_POSTHOG_HOST,
+      loadedEnv.PIPPER_POSTHOG_HOST,
+    ) ?? "https://us.i.posthog.com (default)"
+  }`,
 );
 run(["electron-vite", "build"]);
