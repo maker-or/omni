@@ -1870,20 +1870,31 @@ function registerIpc(): void {
           ? appendReturnTo(resolveExternalUrl("clerkSignIn"))
           : url;
 
-    const authStep = url === "clerk:sign-up" ? "sign_up_initiated" : "sign_in_initiated";
+    // Only the Clerk entry points are funnel steps. Every other URL (setup
+    // guides, docs) is a plain external link and must not show up as a sign-in.
+    const authStep =
+      url === "clerk:sign-up"
+        ? "sign_up_initiated"
+        : url === "clerk:sign-in"
+          ? "sign_in_initiated"
+          : null;
     try {
       await shell.openExternal(assertAllowedExternalUrl(resolvedUrl));
     } catch (error) {
-      captureAnalytics("onboarding_step", {
-        windowType: "launch",
-        properties: { step: authStep, status: "failed", success: false },
-      });
+      if (authStep) {
+        captureAnalytics("onboarding_step", {
+          windowType: "launch",
+          properties: { step: authStep, status: "failed", success: false },
+        });
+      }
       throw error;
     }
-    captureAnalytics("onboarding_step", {
-      windowType: "launch",
-      properties: { step: authStep, status: "running", success: true },
-    });
+    if (authStep) {
+      captureAnalytics("onboarding_step", {
+        windowType: "launch",
+        properties: { step: authStep, status: "running", success: true },
+      });
+    }
   });
 
   // Allowlist: renderer can only emit these funnel steps. Anything else is
