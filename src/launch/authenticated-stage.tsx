@@ -180,18 +180,28 @@ export function AuthenticatedStage({
             }}
           />
         ) : stage === "shortcuts" ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             <header className="flex flex-col gap-1">
               <h1 className="text-xl font-bold tracking-tight">Keyboard shortcuts</h1>
-              <p className="text-xs text-muted-foreground">
-                Press <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
-                <kbd className="rounded border border-border px-1">T</kbd> for a new thread,{" "}
-                <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
-                <kbd className="rounded border border-border px-1">W</kbd> to close a tab,{" "}
-                <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
-                <kbd className="rounded border border-border px-1">1–9</kbd> to switch tabs.
-              </p>
+              <p className="text-xs text-muted-foreground">A few moves worth knowing.</p>
             </header>
+            <ul className="flex flex-col gap-2">
+              {[
+                { action: "New thread", keys: `${modifierSymbol()}T` },
+                { action: "Close tab", keys: `${modifierSymbol()}W` },
+                { action: "Switch tabs", keys: `${modifierSymbol()}1–9` },
+              ].map(({ action, keys }) => (
+                <li
+                  key={action}
+                  className="flex items-center gap-3.5 rounded-xl border border-border/50 bg-surface-1/40 py-2.5 pl-3 pr-3.5"
+                >
+                  <kbd className="inline-flex h-8 min-w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 px-2.5 font-sans text-sm font-medium text-foreground">
+                    {keys}
+                  </kbd>
+                  <span className="text-sm text-foreground">{action}</span>
+                </li>
+              ))}
+            </ul>
             <Button
               type="button"
               size="md"

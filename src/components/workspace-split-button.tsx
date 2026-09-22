@@ -53,7 +53,7 @@ export function SplitButton({
 
   return (
     <div ref={ref} className="relative shrink-0">
-      <div className="flex overflow-hidden rounded-full">
+      <div className="flex h-7 overflow-hidden rounded-full">
         <button
           type="button"
           disabled={disabled}
@@ -63,7 +63,7 @@ export function SplitButton({
             onPrimary();
           }}
           className={cn(
-            "px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50",
+            "px-3 text-[12px] font-semibold transition-colors disabled:opacity-50",
             tone === "action"
               ? "bg-black/40 text-amber-100 hover:bg-black/60"
               : "bg-neutral-900 text-white hover:bg-neutral-700",
@@ -78,7 +78,7 @@ export function SplitButton({
           disabled={menuDisabled}
           onClick={() => setOpen((value) => !value)}
           className={cn(
-            "px-2 py-1.5 transition-colors disabled:opacity-50",
+            "flex items-center px-2 transition-colors disabled:opacity-50",
             tone === "action"
               ? "bg-black/25 text-amber-100 hover:bg-black/45"
               : "bg-white text-neutral-900 hover:bg-zinc-200",
@@ -95,7 +95,7 @@ export function SplitButton({
               type="button"
               disabled={item.disabled}
               title={item.title}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-hover hover:text-foreground disabled:opacity-50"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-muted-foreground hover:bg-hover hover:text-foreground disabled:opacity-50"
               onClick={() => {
                 setOpen(false);
                 item.onSelect();

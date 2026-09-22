@@ -185,16 +185,18 @@ function projectSubpath(projectPath: string): string {
   const key = worktreeCacheKey(projectPath);
   const cached = projectSubpathCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  let value = "";
   try {
     const toplevel = git(projectPath, ["rev-parse", "--show-toplevel"]);
     const rel = relative(canonical(toplevel), canonical(projectPath));
-    value = rel === "." ? "" : rel;
+    const value = rel === "." ? "" : rel;
+    projectSubpathCache.set(key, { expiresAt: Date.now() + PROJECT_GIT_META_TTL_MS, value });
+    return value;
   } catch {
-    value = "";
+    // Never cache a failure: a transient git error would otherwise pin the
+    // empty subpath for the TTL and point every linked worktree at its
+    // checkout root instead of the project subdirectory.
+    return "";
   }
-  projectSubpathCache.set(key, { expiresAt: Date.now() + PROJECT_GIT_META_TTL_MS, value });
-  return value;
 }
 
 /**
@@ -668,10 +670,17 @@ export function listWorktrees(projectPath: string): Worktree[] {
   // Git reports POSIX separators and long names on Windows; callers compare
   // these against `createWorktree` results and stored paths, so the two must
   // agree exactly.
-  const worktrees = parseWorktreePorcelain(stdout).map((worktree) => ({
-    ...worktree,
-    path: canonical(join(worktree.path, subpath)),
-  }));
+  const worktrees = parseWorktreePorcelain(stdout).map((worktree) => {
+    // A linked worktree checked out on a branch that predates the project
+    // subdirectory has no such dir — fall back to the checkout root rather
+    // than handing out a path that doesn't exist (git status, terminals and
+    // thread cwds would all fail on it).
+    const nested = subpath ? join(worktree.path, subpath) : worktree.path;
+    return {
+      ...worktree,
+      path: canonical(existsSync(nested) ? nested : worktree.path),
+    };
+  });
   // git lists the main working tree first; use it as the root when the project
   // path still doesn't canonical-match any entry (defensive: keeps exactly one
   // root so the UI can always resolve a current workspace).

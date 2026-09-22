@@ -238,6 +238,33 @@ describe("createWorktree", () => {
     expect(existsSync(worktreePathFor(PROJECT_ID, "nested-project"))).toBe(false);
     expect(listChildWorktrees(nestedProject)).toEqual([]);
   });
+
+  test("a linked checkout missing the project subdirectory lists as its root, not a dead path", () => {
+    const nestedProject = join(projectPath, "packages", "app");
+    mkdirSync(nestedProject, { recursive: true });
+    writeFileSync(join(nestedProject, "package.json"), "{}");
+    git(projectPath, ["add", "-A"]);
+    git(projectPath, ["commit", "-m", "add package"]);
+
+    createWorktree({
+      projectPath: nestedProject,
+      projectId: PROJECT_ID,
+      name: "predates-subdir",
+    });
+    const checkoutRoot = worktreePathFor(PROJECT_ID, "predates-subdir");
+
+    // Simulate a checkout on a branch that predates packages/app: the mapped
+    // subdirectory does not exist in this worktree.
+    rmSync(join(checkoutRoot, "packages"), { recursive: true, force: true });
+
+    const entry = listWorktrees(nestedProject).find((w) => !w.isProjectRoot);
+    expect(entry).toBeDefined();
+    // The listing must fall back to the checkout root — a non-existent nested
+    // path would be accepted by resolveWorkspaceTarget and handed to git
+    // status, terminals and thread cwds, all of which would fail on it.
+    expect(entry?.path).toBe(realPath(checkoutRoot));
+    expect(existsSync(entry?.path ?? "")).toBe(true);
+  });
 });
 
 describe("listWorktrees / isLiveWorktree", () => {

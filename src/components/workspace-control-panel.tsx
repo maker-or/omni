@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive,
   ArrowUpRight,
-  ArrowsClockwise,
   CheckCircle,
-  FileCode,
+  DotsThreeVertical,
   GitBranch,
   GitCommit,
   GitPullRequest,
@@ -14,7 +12,9 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { Project } from "../../contracts/projects.ts";
 import type { WorkspaceGitStatus, WorkspacePrComment } from "../../contracts/git.ts";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Dropdown } from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
+import { useAgentStore } from "@/store/agent-store";
 import { useDiffStore } from "@/store/diff-store";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ import {
   buildPrCommentsPrompt,
   sendWorkspaceAgentPrompt,
 } from "@/lib/workspace-agent-prompt";
+import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import { WorkspacePrDetail, type PrStatusItem } from "@/components/workspace-pr-detail";
 import { SplitButton, type SplitMenuItem } from "@/components/workspace-split-button";
 
@@ -83,10 +84,10 @@ export type HeaderTone = "neutral" | "action" | "ready" | "merged";
 /** Shared tone gradients: the panel header and the sidebar's active workspace
  *  card both paint from this map so the two stay in lockstep. */
 export const HEADER_TONE_GRADIENT: Record<HeaderTone, string> = {
-  neutral: "from-zinc-300/50 via-zinc-600/20 to-transparent",
-  action: "from-[#FFAA4F] via-[#6F5121] to-transparent",
-  ready: "from-[#088139] via-[#114526] to-transparent",
-  merged: "from-violet-500/80 via-violet-900/25 to-transparent",
+  neutral: "from-zinc-300/50 via-zinc-600/20 to-zinc-600/0",
+  action: "from-[#FFAA4F] via-[#6F5121] to-[#6F5121]/0",
+  ready: "from-[#088139] via-[#114526] to-[#114526]/0",
+  merged: "from-violet-500/80 via-violet-900/25 to-violet-900/0",
 };
 
 function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone {
@@ -98,30 +99,11 @@ function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone 
   return "action";
 }
 
-/** One-line state caption shown in the header next to the action. */
-function stateCaption(
-  status: WorkspaceGitStatus,
-  tone: HeaderTone,
-  dirtyCount: number,
-): string | null {
-  if (tone === "merged") return "Merged";
-  if (tone === "ready") return "Ready to merge";
-  if (tone === "neutral") {
-    if (dirtyCount > 0 || status.ahead > 0) return null;
-    return status.aheadOfBase > 0 ? "Pushed — ready for a PR" : null;
-  }
-  if (dirtyCount > 0) return "Uncommitted changes";
-  if (status.ahead > 0) return "Unpushed commits";
-  if (status.isDraftPr) return "Draft PR";
-  if (status.checksState === "pending") return "Checks running";
-  if (status.checksState === "failing") return "Checks failing";
-  return null;
-}
-
 /** Why PR creation is unavailable, or null when it is possible. */
 function prBlocker(status: WorkspaceGitStatus): string | null {
   if (status.remoteHost !== "github.com") return "PRs need a GitHub remote";
   if (!status.ghAvailable) return "Install the GitHub CLI (gh) to create PRs";
+  if (status.prDataState !== "fresh") return "Refresh GitHub before creating a PR";
   return null;
 }
 
@@ -129,13 +111,6 @@ type PanelTab = "check" | "changes";
 
 /** Where the Changes tab reads its file list from. */
 type ChangesSource = "turn" | "git";
-
-/** Dropdown labels double as the Select values so the trigger always reads
- *  correctly, even before the option list has registered its label map. */
-const CHANGES_SOURCE_LABEL: Record<ChangesSource, string> = {
-  turn: "Agent changes",
-  git: "Uncommitted (git)",
-};
 
 interface FileChange {
   path: string;
@@ -148,7 +123,7 @@ interface FileChange {
 function splitPath(path: string): { dir: string; name: string } {
   const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   if (index === -1) return { dir: "", name: path };
-  return { dir: path.slice(0, index + 1), name: path.slice(index + 1) };
+  return { dir: path.slice(0, index), name: path.slice(index + 1) };
 }
 
 /** `#123 ↗` pill linking to the open (or just-merged) PR. */
@@ -162,13 +137,13 @@ function prPill(status: WorkspaceGitStatus) {
       type="button"
       onClick={() => void window.omni.shell.openExternal(url)}
       title="Open pull request on GitHub"
-      className="flex shrink-0 items-center overflow-hidden rounded-full bg-white/30 border-white/30 border-2 text-xs font-semibold text-white transition-colors hover:bg-white/25"
+      className="flex h-7 shrink-0 items-center overflow-hidden rounded-full border-2 border-white/30 bg-white/30 text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
     >
-      <span className=" px-2.5 py-1.5">
+      <span className="px-2.5">
         #{number}
         {suffix}
       </span>
-      <span className="p-2 bg-white/30 rounded-r-full">
+      <span className="flex h-full items-center bg-white/30 px-1.5">
         <ArrowUpRight size={13} />
       </span>
     </button>
@@ -204,12 +179,19 @@ export function WorkspaceControlPanel({
   const [prDraft, setPrDraft] = useState(false);
   const [pickedTab, setPickedTab] = useState<PanelTab | null>(null);
   const [changesSource, setChangesSource] = useState<ChangesSource>("git");
+  const [changesMenuOpen, setChangesMenuOpen] = useState(false);
+  const changesMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const changesMenuRef = useRef<HTMLDivElement>(null);
   /** Agent turn we handed a commit to; cleared when that turn settles. */
   const [agentTask, setAgentTask] = useState<"commit" | "commitPush" | null>(null);
   const diffFiles = useDiffStore((state) => state.files);
   const diffOrder = useDiffStore((state) => state.order);
+  const diffThreadId = useDiffStore((state) => state.threadId);
   const openDiff = useDiffStore((state) => state.open);
   const setDiffActivePath = useDiffStore((state) => state.setActivePath);
+  const agentThreadId = useAgentStore((state) => state.state?.threadId ?? null);
+  const agentProjectId = useAgentStore((state) => state.state?.projectId ?? null);
+  const agentCwd = useAgentStore((state) => state.state?.cwd ?? null);
   /**
    * Bumped on every workspace switch. Every async result (status poll, the
    * agent's commit turn) captures the generation it started under and is
@@ -256,7 +238,9 @@ export function WorkspaceControlPanel({
       applyStatus(next);
     } catch (err) {
       if (generation !== generationRef.current) return;
-      applyStatus(null);
+      // Preserve last-known-good state during transient IPC/main-process
+      // failures. A workspace switch clears status before starting its own
+      // generation, so this can never retain data from another workspace.
       setError(err instanceof Error ? err.message : "Git status failed.");
     } finally {
       if (generation === generationRef.current) setLoading(false);
@@ -265,15 +249,20 @@ export function WorkspaceControlPanel({
 
   useEffect(() => {
     generationRef.current += 1;
+    // Drop the previous workspace's status immediately: until the fresh read
+    // lands, its PR/branch controls would otherwise stay rendered and
+    // interactive while every handler already targets the new worktree.
+    applyStatus(null);
     setError(null);
     setNotice(null);
     setAgentTask(null);
     setShowPrForm(false);
     setPrDraft(false);
     setPickedTab(null);
+    setChangesMenuOpen(false);
     setPrTitle(workspaceName ?? "");
     void refresh();
-  }, [refresh, workspaceName]);
+  }, [refresh, workspaceName, applyStatus]);
 
   useEffect(() => {
     if (!project || !worktreePath) return;
@@ -292,6 +281,30 @@ export function WorkspaceControlPanel({
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [project, worktreePath, refresh]);
+
+  useEffect(() => {
+    if (!changesMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        changesMenuButtonRef.current?.contains(target) ||
+        changesMenuRef.current?.contains(target)
+      )
+        return;
+      setChangesMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setChangesMenuOpen(false);
+      changesMenuButtonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [changesMenuOpen]);
 
   /** Runs a git action with toasts; resolves `true` only when it succeeded. */
   const runAction = useCallback(
@@ -334,16 +347,26 @@ export function WorkspaceControlPanel({
   // local work → Changes.
   const tab: PanelTab =
     pickedTab ?? (tone === "ready" || tone === "merged" || dirtyCount === 0 ? "check" : "changes");
-  const caption = status?.isRepo ? stateCaption(status, tone, dirtyCount) : null;
 
   // Keep the shell's active-card gradient in lockstep with this header.
   useEffect(() => {
     onToneChange?.(tone);
   }, [tone, onToneChange]);
 
-  // Agent changes come from the diff store's active thread. Key the recount on
-  // each file's content version so streaming edits don't re-parse unchanged
-  // files on every render.
+  // Agent changes come from the diff store's active-thread projection. That
+  // projection is swapped after paint (DiffIngestor effect) and the active
+  // thread itself follows a workspace switch asynchronously — only trust it
+  // when the projection is for the active thread AND that thread runs in this
+  // panel's worktree; otherwise a switch would briefly show (and let the user
+  // open) the previous workspace's files under the new workspace's header.
+  const turnDiffReady =
+    diffThreadId !== null &&
+    diffThreadId === agentThreadId &&
+    agentProjectId === (project?.id ?? null) &&
+    normalizeWorkspacePath(agentCwd, project?.path ?? null) ===
+      normalizeWorkspacePath(worktreePath, project?.path ?? null);
+  // Key the recount on each file's content version so streaming edits don't
+  // re-parse unchanged files on every render.
   const turnSignature = diffOrder
     .map((path) => `${path}:${diffFiles[path]?.updatedAt ?? 0}`)
     .join("|");
@@ -370,7 +393,9 @@ export function WorkspaceControlPanel({
   }, [turnSignature]);
   const changes: FileChange[] =
     changesSource === "turn"
-      ? turnChanges
+      ? turnDiffReady
+        ? turnChanges
+        : []
       : (status?.files ?? []).map((file) => ({
           path: file.path,
           additions: file.additions,
@@ -453,7 +478,14 @@ export function WorkspaceControlPanel({
   };
 
   const runMergePr = () => {
-    if (!project || !worktreePath || !status?.openPrNumber || busy) return;
+    if (
+      !project ||
+      !worktreePath ||
+      !status?.openPrNumber ||
+      status.prDataState !== "fresh" ||
+      busy
+    )
+      return;
     if (
       !window.confirm(`Merge PR #${status.openPrNumber} on GitHub? The workspace branch is kept.`)
     )
@@ -477,7 +509,14 @@ export function WorkspaceControlPanel({
   };
 
   const runMarkReady = () => {
-    if (!project || !worktreePath || !status?.openPrNumber || busy) return;
+    if (
+      !project ||
+      !worktreePath ||
+      !status?.openPrNumber ||
+      status.prDataState !== "fresh" ||
+      busy
+    )
+      return;
     void runAction("ready", () =>
       window.omni.git.markPrReady({ projectId: project.id, path: worktreePath }),
     );
@@ -520,7 +559,7 @@ export function WorkspaceControlPanel({
         action: {
           label: action === "ready" ? "Marking…" : "Ready for review",
           onClick: runMarkReady,
-          disabled: busy,
+          disabled: busy || status.prDataState !== "fresh",
         },
       });
     }
@@ -567,7 +606,7 @@ export function WorkspaceControlPanel({
         action: {
           label: action === "mergePr" ? "Merging…" : "Merge",
           onClick: runMergePr,
-          disabled: busy,
+          disabled: busy || status.prDataState !== "fresh",
         },
       });
     }
@@ -709,10 +748,14 @@ export function WorkspaceControlPanel({
       return (
         <button
           type="button"
-          disabled={busy}
-          title="Merge this pull request on GitHub"
+          disabled={busy || status.prDataState !== "fresh"}
+          title={
+            status.prDataState === "fresh"
+              ? "Merge this pull request on GitHub"
+              : "Refresh GitHub before merging"
+          }
           onClick={runMergePr}
-          className="shrink-0 rounded-full bg-emerald-300/90 px-3.5 py-1.5 text-xs font-semibold text-emerald-950 transition-colors hover:bg-emerald-200 disabled:opacity-50"
+          className="flex h-7 shrink-0 items-center rounded-full bg-emerald-300/90 px-3.5 text-[12px] font-semibold text-emerald-950 transition-colors hover:bg-emerald-200 disabled:opacity-50"
         >
           {action === "mergePr" ? "Merging…" : "Merge"}
         </button>
@@ -723,10 +766,14 @@ export function WorkspaceControlPanel({
       return (
         <button
           type="button"
-          disabled={busy}
-          title="Mark this draft pull request ready for review"
+          disabled={busy || status.prDataState !== "fresh"}
+          title={
+            status.prDataState === "fresh"
+              ? "Mark this draft pull request ready for review"
+              : "Refresh GitHub before changing the pull request"
+          }
           onClick={runMarkReady}
-          className="shrink-0 rounded-full bg-black/40 px-3.5 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-black/60 disabled:opacity-50"
+          className="flex h-7 shrink-0 items-center rounded-full bg-black/40 px-3.5 text-[12px] font-semibold text-amber-100 transition-colors hover:bg-black/60 disabled:opacity-50"
         >
           {action === "ready" ? "Marking…" : "Ready for review"}
         </button>
@@ -739,8 +786,11 @@ export function WorkspaceControlPanel({
           {
             label: "Ready for review",
             icon: <GitPullRequest size={14} />,
-            disabled: busy,
-            title: "Mark this draft pull request ready for review",
+            disabled: busy || status.prDataState !== "fresh",
+            title:
+              status.prDataState === "fresh"
+                ? "Mark this draft pull request ready for review"
+                : "Refresh GitHub before changing the pull request",
             onSelect: runMarkReady,
           },
         ]
@@ -757,15 +807,14 @@ export function WorkspaceControlPanel({
 
   /** Merged state: Archive (primary) + Continue (secondary) side by side. */
   const renderMergedActions = () => (
-    <div className="flex shrink-0 items-center gap-1.5">
+    <div className="flex shrink-0 items-center gap-1">
       <button
         type="button"
         disabled={busy}
         title="Start a new branch off the latest base in this same workspace"
         onClick={runContinue}
-        className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/25 disabled:opacity-50"
+        className="flex h-7 items-center rounded-full bg-white/15 px-3 text-[12px] font-semibold text-white transition-colors hover:bg-white/25 disabled:opacity-50"
       >
-        <ArrowsClockwise size={13} />
         {action === "continue" ? "Starting…" : "Continue"}
       </button>
       <button
@@ -777,9 +826,8 @@ export function WorkspaceControlPanel({
             : "The project root cannot be archived"
         }
         onClick={runArchive}
-        className="flex items-center gap-1.5 rounded-full bg-violet-200/90 px-3.5 py-1.5 text-xs font-semibold text-violet-950 transition-colors hover:bg-violet-100 disabled:opacity-50"
+        className="flex h-7 items-center rounded-full bg-violet-200/90 px-3 text-[12px] font-semibold text-violet-950 transition-colors hover:bg-violet-100 disabled:opacity-50"
       >
-        <Archive size={13} />
         {action === "archive" ? "Archiving…" : "Archive"}
       </button>
     </div>
@@ -840,41 +888,133 @@ export function WorkspaceControlPanel({
           </div>
         ) : (
           <>
-            {/* Gradient state header: PR pill + state action, Check/Changes tabs. */}
+            {/* Gradient state header: PR pill + state action, Check/Changes
+                tabs. Sticky with an opaque surface-1 base so it stays put
+                while the tab content scrolls beneath it. */}
             <div
               className={cn(
-                "shrink-0 rounded-tr-[16px] bg-linear-to-b px-4 pb-3 pt-4",
+                "sticky top-0 z-20 shrink-0 rounded-tr-[16px] bg-surface-1 bg-linear-to-b px-4 pb-8 pt-4",
                 HEADER_TONE_GRADIENT[tone],
               )}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {prPill(status)}
-                {caption ? (
-                  <span className="min-w-0 truncate text-xs font-medium text-white/80">
-                    {caption}
-                  </span>
-                ) : null}
-                <div className="min-w-0 flex-1" />
-                {tone === "merged" ? renderMergedActions() : renderStateAction(status)}
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                  {tone === "merged" ? renderMergedActions() : renderStateAction(status)}
+                </div>
               </div>
-              <div className="mt-3 flex items-center gap-4 text-[19px] font-medium leading-6">
+              <div className="mt-3 flex items-center gap-4 text-[13px] font-medium leading-5">
                 {(["check", "changes"] as const).map((value) => (
                   <button
                     key={value}
                     type="button"
-                    onClick={() => setPickedTab(value)}
+                    onClick={() => {
+                      setPickedTab(value);
+                      if (value !== "changes") setChangesMenuOpen(false);
+                    }}
                     className={cn(
                       "capitalize transition-colors",
-                      tab === value ? "text-white" : "text-white/35 hover:text-white/60",
+                      tab === value
+                        ? "font-semibold text-white"
+                        : "text-white/35 hover:text-white/60",
                     )}
                   >
                     {value === "check" ? "Check" : "Changes"}
                   </button>
                 ))}
+                {tab === "changes" ? (
+                  <div className="relative ml-auto">
+                    <button
+                      ref={changesMenuButtonRef}
+                      type="button"
+                      aria-label="Choose which changes to show"
+                      aria-haspopup="menu"
+                      aria-expanded={changesMenuOpen}
+                      title={
+                        changesSource === "turn"
+                          ? "Showing agent changes"
+                          : "Showing uncommitted changes"
+                      }
+                      data-pipper-id="changes-source-menu-toggle"
+                      onClick={() => setChangesMenuOpen((open) => !open)}
+                      className={cn(
+                        "grid size-7 place-items-center rounded-md outline-none transition-colors",
+                        "focus-visible:ring-2 focus-visible:ring-white/70",
+                        changesMenuOpen
+                          ? "bg-white/20 text-white"
+                          : "text-white/55 hover:bg-white/10 hover:text-white",
+                      )}
+                    >
+                      <DotsThreeVertical size={16} weight="bold" />
+                    </button>
+                    {changesMenuOpen ? (
+                      <div
+                        ref={changesMenuRef}
+                        className="absolute right-0 top-full z-[200] mt-2 text-left"
+                        data-pipper-id="changes-source-menu"
+                      >
+                        <Dropdown
+                          checkedIndex={changesSource === "turn" ? 0 : 1}
+                          className="w-64"
+                          aria-label="Changes source"
+                        >
+                          <MenuItem
+                            index={0}
+                            label="Agent changes"
+                            description="Files edited across this agent thread"
+                            secondaryLabel={`${turnDiffReady ? turnChanges.length : 0} files`}
+                            checked={changesSource === "turn"}
+                            onSelect={() => {
+                              setChangesSource("turn");
+                              setChangesMenuOpen(false);
+                            }}
+                          />
+                          <MenuItem
+                            index={1}
+                            label="Uncommitted changes"
+                            description="Current changes reported by local git"
+                            secondaryLabel={`${status.files.length} files`}
+                            checked={changesSource === "git"}
+                            onSelect={() => {
+                              setChangesSource("git");
+                              setChangesMenuOpen(false);
+                            }}
+                          />
+                        </Dropdown>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
 
             <div className="flex flex-col gap-3 px-4 pt-3">
+              {status.prDataState === "stale" ? (
+                <p
+                  className="rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-4 text-amber-500"
+                  role="status"
+                >
+                  Couldn’t refresh GitHub — showing cached data
+                  {status.prUpdatedAt
+                    ? ` from ${new Date(status.prUpdatedAt).toLocaleString()}`
+                    : ""}
+                  .
+                </p>
+              ) : status.prDataState === "unavailable" &&
+                status.remoteHost === "github.com" &&
+                status.ghAvailable ? (
+                <p
+                  className="rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-4 text-amber-500"
+                  role="status"
+                >
+                  GitHub data is unavailable. Local git state is still current.
+                </p>
+              ) : null}
+              {error ? (
+                <p className="text-[11px] leading-4 text-destructive" role="alert">
+                  Refresh failed: {error}. Showing the previous state.
+                </p>
+              ) : null}
               {tab === "check" ? (
                 <div className="flex flex-col gap-3">
                   {status.pr ? (
@@ -895,25 +1035,6 @@ export function WorkspaceControlPanel({
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <Select
-                    value={CHANGES_SOURCE_LABEL[changesSource]}
-                    onValueChange={(value) =>
-                      setChangesSource(value === CHANGES_SOURCE_LABEL.turn ? "turn" : "git")
-                    }
-                  >
-                    <SelectTrigger
-                      className="h-7 w-full min-w-0 text-[11px]"
-                      aria-label="Choose which changes to show"
-                    />
-                    <SelectContent>
-                      {(["turn", "git"] as const).map((source, index) => (
-                        <SelectItem key={source} index={index} value={CHANGES_SOURCE_LABEL[source]}>
-                          {CHANGES_SOURCE_LABEL[source]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-semibold text-foreground">
                       {changes.length} {changes.length === 1 ? "file" : "files"} changed
@@ -937,19 +1058,14 @@ export function WorkspaceControlPanel({
                       {changes.map((file) => {
                         const { dir, name } = splitPath(file.path);
                         const rowClass =
-                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors duration-80 hover:bg-hover";
+                          "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] transition-colors duration-80 hover:bg-hover";
                         const rowContent = (
                           <>
-                            <FileCode
-                              size={14}
-                              weight="duotone"
-                              className="shrink-0 text-muted-foreground"
-                            />
-                            <span className="flex min-w-0 flex-1 items-baseline">
+                            <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                              <span className="shrink-0 font-medium text-foreground">{name}</span>
                               {dir ? (
                                 <span className="truncate text-muted-foreground">{dir}</span>
                               ) : null}
-                              <span className="shrink-0 font-medium text-foreground">{name}</span>
                             </span>
                             {file.additions !== null ? (
                               <span className="shrink-0 tabular-nums text-emerald-500">

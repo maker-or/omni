@@ -33,6 +33,7 @@ import {
 import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import {
   commitWorkspace,
+  configureGithubPrSnapshotCache,
   createWorkspacePr,
   getWorkspaceGitStatus,
   initProjectRepo,
@@ -51,10 +52,12 @@ import {
 } from "./clerk-auth-config";
 import {
   getDb,
+  getGithubPrSnapshot,
   getMostRecentAuthUser,
   upsertAuthUser,
   getSelectedAgentIds,
   setSelectedAgentIds,
+  saveGithubPrSnapshot,
 } from "./db";
 import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import type { OpenTabsState } from "../contracts/threads.ts";
@@ -933,10 +936,10 @@ function createSettingsWindow(): void {
       : {};
 
   settingsWindow = new BrowserWindow({
-    width: 720,
-    height: 560,
-    minWidth: 620,
-    minHeight: 480,
+    width: 1024,
+    height: 720,
+    minWidth: 860,
+    minHeight: 600,
     title: "Settings",
     show: false,
     resizable: true,
@@ -1651,6 +1654,9 @@ function registerIpc(): void {
   ipcMain.handle("git:mergePr", async (_event, input: { projectId: string; path: string }) => {
     const target = resolveWorkspaceTarget(input.projectId, input.path);
     const status = await getWorkspaceGitStatus(target.path);
+    if (status.prDataState !== "fresh") {
+      throw new Error("GitHub could not be refreshed. Reconnect before merging.");
+    }
     if (!status.openPrNumber) throw new Error("No open pull request for this workspace.");
     const message = await mergeWorkspacePr(target.path, status.openPrNumber);
     captureAnalytics("workspace_pr_merged", {
@@ -1664,6 +1670,9 @@ function registerIpc(): void {
   ipcMain.handle("git:markPrReady", async (_event, input: { projectId: string; path: string }) => {
     const target = resolveWorkspaceTarget(input.projectId, input.path);
     const status = await getWorkspaceGitStatus(target.path);
+    if (status.prDataState !== "fresh") {
+      throw new Error("GitHub could not be refreshed. Reconnect before updating the pull request.");
+    }
     if (!status.openPrNumber) throw new Error("No open pull request for this workspace.");
     if (!status.isDraftPr) throw new Error("Pull request is already ready for review.");
     const message = await markWorkspacePrReady(target.path, status.openPrNumber);
@@ -2618,6 +2627,10 @@ app.whenReady().then(async () => {
   buildAppMenu();
   logStartupMilestone("database:init:start");
   getDb();
+  configureGithubPrSnapshotCache({
+    read: getGithubPrSnapshot,
+    write: saveGithubPrSnapshot,
+  });
   logStartupMilestone("database:init:complete");
   await prepareBenchmarkLaunchState();
   const authUser = getAuthenticatedUserForLaunch();

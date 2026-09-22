@@ -8,6 +8,7 @@ import {
   FunnelSimple,
   GitBranch,
   Plus,
+  SidebarSimple,
   Trash,
 } from "@phosphor-icons/react";
 import type { Project } from "../../contracts/projects.ts";
@@ -17,13 +18,14 @@ import { AgentView } from "@/components/agent-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { GlobalTabBar } from "@/components/global-tab-bar";
 import { TerminalSession } from "@/components/terminal-session";
+import { ThreadCompletionDock } from "@/components/thread-completion-dock";
 import {
   WorkspaceControlPanel,
   HEADER_TONE_GRADIENT,
   type HeaderTone,
 } from "@/components/workspace-control-panel";
 import { Toaster } from "@/components/ui/toaster";
-import { Sidebar, SidebarFooter, SidebarProvider } from "@/components/ui/sidebar";
+import { Sidebar, SidebarFooter, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { Elevated } from "@/lib/elevated";
@@ -322,6 +324,10 @@ export function AdvancedShell() {
   // Git-state tone of the selected workspace, reported by the control panel,
   // used to tint the active card with the panel's gradient.
   const [selectedTone, setSelectedTone] = useState<HeaderTone>("neutral");
+  // Left rail collapse. Tracked here (not inside the provider) so the edge
+  // hover target can slide it back in once the in-rail trigger is hidden.
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   // Projects whose workspace list has been expanded past the initial page.
   const [expandedWorkspaceProjects, setExpandedWorkspaceProjects] = useState<Set<string>>(
     new Set(),
@@ -400,6 +406,34 @@ export function AdvancedShell() {
     void loadWorktrees(activeProject.id);
     void loadProjectThreads(activeProject.id, { reset: true });
   }, [activeProject?.id, loadProjectThreads, loadWorktrees]);
+
+  // Sidebar toggles: "[" left, "]" right. Owned here rather than by the
+  // providers because the design-system shortcut routing hands a keystroke to
+  // a single provider when they nest, which kills "]" whenever focus sits
+  // outside the inner (right) provider. Providers get shortcut={null}.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      )
+        return;
+      if (event.key === "[") {
+        event.preventDefault();
+        setLeftSidebarOpen((open) => !open);
+      } else if (event.key === "]") {
+        event.preventDefault();
+        setRightSidebarOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalSessions = useMemo(
@@ -557,20 +591,55 @@ export function AdvancedShell() {
   const workspacesExpanded = activeProject
     ? expandedWorkspaceProjects.has(activeProject.id)
     : false;
+  const firstPage = activeWorktrees.slice(0, WORKSPACE_PAGE_SIZE);
+  // The active workspace must never hide behind "Load more": pin it into the
+  // visible page when the selection (switch/restore of an older workspace)
+  // falls past the page boundary.
+  const selectedBeyondPage =
+    !workspacesExpanded && selectedPath && !firstPage.some((item) => item.path === selectedPath)
+      ? (activeWorktrees.find((item) => item.path === selectedPath) ?? null)
+      : null;
   const shownWorktrees = workspacesExpanded
     ? activeWorktrees
-    : activeWorktrees.slice(0, WORKSPACE_PAGE_SIZE);
+    : selectedBeyondPage
+      ? [...firstPage, selectedBeyondPage]
+      : firstPage;
   const hiddenWorkspaceCount = activeWorktrees.length - shownWorktrees.length;
 
   return (
-    <SidebarProvider defaultOpen width="20rem">
+    <SidebarProvider
+      open={leftSidebarOpen}
+      onOpenChange={setLeftSidebarOpen}
+      persist={false}
+      shortcut={null}
+      width="20rem"
+    >
       <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-surface-1 text-foreground">
         <DiffIngestor />
         <Toaster />
+        {/* Reaching the left edge slides the docked rail back in. It is a
+            plain hover target, not the design-system peek overlay, so the
+            panel arrives as the real column instead of a floating card. */}
+        {!leftSidebarOpen ? (
+          <div
+            className="group/left-edge absolute inset-y-0 left-0 z-40 w-6"
+            onPointerEnter={() => setLeftSidebarOpen(true)}
+          >
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-0 left-0 w-px bg-border opacity-0 transition-opacity duration-80 group-hover/left-edge:opacity-100"
+            />
+          </div>
+        ) : null}
         <div className="flex min-h-0 flex-1">
-          <Sidebar collapsible="none" rail={false}>
+          <Sidebar collapsible="offcanvas" rail={false}>
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex shrink-0 items-center gap-1 px-2 pb-2 pt-11">
+              <div className="flex shrink-0 items-center justify-end px-2 pt-3">
+                <SidebarTrigger size="icon-sm" aria-label="Collapse workspace sidebar">
+                  <SidebarSimple size={16} />
+                </SidebarTrigger>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
                 <div className="min-w-0 flex-1">
                   <ProjectTabs
                     projects={projects}
@@ -679,13 +748,28 @@ export function AdvancedShell() {
             </SidebarFooter>
           </Sidebar>
 
-          <main className="relative min-w-0 flex-1 overflow-hidden">
-            <div className="flex h-full min-w-0">
+          <SidebarProvider
+            open={rightSidebarOpen}
+            onOpenChange={setRightSidebarOpen}
+            persist={false}
+            shortcut={null}
+            width="24rem"
+            mobileBreakpoint={1024}
+            className="min-h-0 min-w-0 flex-1"
+          >
+            <main className="relative flex min-w-0 flex-1 overflow-hidden">
               <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <div className="flex h-12 shrink-0 items-center justify-center bg-surface-1 px-3">
-                  <div className="mt-2 min-w-0 max-w-[1000px] px-4">
+                <div className="flex h-12 shrink-0 items-center gap-2 bg-surface-1 px-3">
+                  <div className="mx-auto mt-2 min-w-0 max-w-[1000px] px-4">
                     <GlobalTabBar />
                   </div>
+                  <SidebarTrigger
+                    size="icon-sm"
+                    className="mt-2 shrink-0"
+                    aria-label="Toggle workspace panel"
+                  >
+                    <SidebarSimple size={16} className="-scale-x-100" />
+                  </SidebarTrigger>
                 </div>
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                   <AgentView />
@@ -708,8 +792,9 @@ export function AdvancedShell() {
                     );
                   })}
                 </div>
+                <ThreadCompletionDock projects={projects} />
               </section>
-              <aside className="hidden w-[22rem] shrink-0 border-l border-border bg-surface-1 lg:flex lg:flex-col">
+              <Sidebar side="right" collapsible="offcanvas" rail={false}>
                 <WorkspaceControlPanel
                   project={activeProject}
                   worktreePath={selectedPath}
@@ -722,9 +807,9 @@ export function AdvancedShell() {
                   }
                   onContinued={activeProject ? () => reloadWorkspaces(activeProject) : undefined}
                 />
-              </aside>
-            </div>
-          </main>
+              </Sidebar>
+            </main>
+          </SidebarProvider>
         </div>
       </div>
       {dialogProject && (

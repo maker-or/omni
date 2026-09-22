@@ -313,7 +313,7 @@ async function parseStatusFiles(cwd: string): Promise<StatusSummary> {
   return summarizeStatusPorcelain(out ?? "");
 }
 
-type PrSummary = {
+export type PrSummary = {
   number: number | null;
   url: string | null;
   isDraft: boolean;
@@ -334,6 +334,114 @@ const NO_PR: PrSummary = {
   mergedUrl: null,
   pr: null,
 };
+
+type PrLookup = {
+  summary: PrSummary;
+  dataState: WorkspaceGitStatus["prDataState"];
+  updatedAt: number | null;
+};
+
+export interface GithubPrSnapshotCache {
+  read(repository: string, branch: string): { snapshotJson: string; updatedAt: number } | null;
+  write(repository: string, branch: string, snapshotJson: string, updatedAt: number): void;
+}
+
+let persistentPrSnapshotCache: GithubPrSnapshotCache | null = null;
+const memoryPrSnapshotCache = new Map<string, { snapshotJson: string; updatedAt: number }>();
+const MAX_PR_SNAPSHOTS = 200;
+
+/** Installed by the Electron entrypoint after SQLite is ready. */
+export function configureGithubPrSnapshotCache(cache: GithubPrSnapshotCache): void {
+  persistentPrSnapshotCache = cache;
+}
+
+function prSnapshotKey(repository: string, branch: string): string {
+  return `${repository}\0${branch}`;
+}
+
+function isPrSummary(value: unknown): value is PrSummary {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<PrSummary>;
+  return (
+    (candidate.number === null || typeof candidate.number === "number") &&
+    (candidate.url === null || typeof candidate.url === "string") &&
+    typeof candidate.isDraft === "boolean" &&
+    typeof candidate.checksState === "string" &&
+    Array.isArray(candidate.checks) &&
+    (candidate.mergedNumber === null || typeof candidate.mergedNumber === "number") &&
+    (candidate.mergedUrl === null || typeof candidate.mergedUrl === "string") &&
+    (candidate.pr === null || typeof candidate.pr === "object")
+  );
+}
+
+function readPrSnapshot(
+  repository: string,
+  branch: string,
+): {
+  summary: PrSummary;
+  updatedAt: number;
+} | null {
+  const key = prSnapshotKey(repository, branch);
+  let record = memoryPrSnapshotCache.get(key) ?? null;
+  if (!record && persistentPrSnapshotCache) {
+    try {
+      record = persistentPrSnapshotCache.read(repository, branch);
+    } catch {
+      // A display cache must never make git status fail.
+    }
+  }
+  if (!record) return null;
+  try {
+    const summary: unknown = JSON.parse(record.snapshotJson);
+    if (!isPrSummary(summary)) return null;
+    memoryPrSnapshotCache.set(key, record);
+    return { summary, updatedAt: record.updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function writePrSnapshot(
+  repository: string,
+  branch: string,
+  summary: PrSummary,
+  updatedAt: number,
+): void {
+  const snapshotJson = JSON.stringify(summary);
+  const key = prSnapshotKey(repository, branch);
+  // Refresh insertion order as a tiny in-memory LRU mirroring the disk cap.
+  memoryPrSnapshotCache.delete(key);
+  memoryPrSnapshotCache.set(key, { snapshotJson, updatedAt });
+  while (memoryPrSnapshotCache.size > MAX_PR_SNAPSHOTS) {
+    const oldest = memoryPrSnapshotCache.keys().next().value;
+    if (oldest === undefined) break;
+    memoryPrSnapshotCache.delete(oldest);
+  }
+  try {
+    persistentPrSnapshotCache?.write(repository, branch, snapshotJson, updatedAt);
+  } catch {
+    // The fresh response is still usable when persistence is unavailable.
+  }
+}
+
+/** Stale-while-revalidate policy, exported so fallback semantics stay unit-testable. */
+export async function resolvePrWithCache(
+  repository: string,
+  branch: string,
+  fetchSummary: () => Promise<PrSummary>,
+  now = Date.now(),
+): Promise<PrLookup> {
+  try {
+    const summary = await fetchSummary();
+    writePrSnapshot(repository, branch, summary, now);
+    return { summary, dataState: "fresh", updatedAt: now };
+  } catch {
+    const cached = readPrSnapshot(repository, branch);
+    return cached
+      ? { summary: cached.summary, dataState: "stale", updatedAt: cached.updatedAt }
+      : { summary: NO_PR, dataState: "unavailable", updatedAt: null };
+  }
+}
 
 const PR_BODY_MAX = 20_000;
 const COMMENT_BODY_MAX = 4_000;
@@ -575,10 +683,13 @@ async function lookupPr(
   cwd: string,
   branch: string | null,
   remoteUrl: string | null,
-): Promise<PrSummary> {
+): Promise<PrLookup> {
   const repo = remoteUrl ? parseGitHubRepo(remoteUrl) : null;
-  if (!branch || !repo) return NO_PR;
-  try {
+  if (!branch || !repo) {
+    return { summary: NO_PR, dataState: "unavailable", updatedAt: null };
+  }
+  const repository = `${repo.owner}/${repo.name}`;
+  return resolvePrWithCache(repository, branch, async () => {
     const out = await gh(
       cwd,
       [
@@ -596,12 +707,15 @@ async function lookupPr(
       30_000,
     );
     const parsed = JSON.parse(out) as {
+      errors?: unknown[];
       data?: { repository?: { pullRequests?: { nodes?: GhPrNode[] } | null } | null };
     };
-    return summarizePrNodes(parsed.data?.repository?.pullRequests?.nodes ?? []);
-  } catch {
-    return NO_PR;
-  }
+    const nodes = parsed.data?.repository?.pullRequests?.nodes;
+    if (parsed.errors?.length || !Array.isArray(nodes)) {
+      throw new Error("GitHub returned no pull request data");
+    }
+    return summarizePrNodes(nodes);
+  });
 }
 
 /**
@@ -677,6 +791,8 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
     checksState: "unknown",
     checks: [],
     pr: null,
+    prDataState: "unavailable",
+    prUpdatedAt: null,
   };
   try {
     if (!existsSync(worktreePath)) return degraded;
@@ -696,7 +812,7 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
     const upstream = upstreamRaw || null;
     const { files, truncated, staged, unstaged, untracked } = statusSummary;
     // Round 2: reads that depend on round 1, plus the gh network round-trip.
-    const [baseCount, counts, lineStats, pr] = await Promise.all([
+    const [baseCount, counts, lineStats, prLookup] = await Promise.all([
       // Commits beyond the base branch: what a PR would contain.
       base ? tryGitAsync(worktreePath, ["rev-list", "--count", `${base}..HEAD`]) : null,
       upstream
@@ -705,8 +821,9 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
       collectLineStats(worktreePath, files, combinedNumstat, repoRoot ?? worktreePath),
       origin.host === "github.com" && ghAvailable
         ? lookupPr(worktreePath, branch, origin.url)
-        : NO_PR,
+        : { summary: NO_PR, dataState: "unavailable" as const, updatedAt: null },
     ]);
+    const pr = prLookup.summary;
     const aheadOfBase = baseCount && Number.isFinite(Number(baseCount)) ? Number(baseCount) : 0;
     let ahead = 0;
     let behind = 0;
@@ -752,6 +869,8 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
       checksState: pr.checksState,
       checks: pr.checks,
       pr: pr.pr,
+      prDataState: prLookup.dataState,
+      prUpdatedAt: prLookup.updatedAt,
     };
   } catch {
     return degraded;

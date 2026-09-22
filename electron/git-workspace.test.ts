@@ -11,6 +11,7 @@ import {
   mergeWorkspaceBranch,
   parseGitHubRepo,
   parseNumstat,
+  resolvePrWithCache,
   summarizeChecks,
   summarizePrNodes,
   summarizeStatusPorcelain,
@@ -206,6 +207,52 @@ describe("isGhAvailable", () => {
   test("concurrent callers share one probe", async () => {
     const [first, second] = await Promise.all([isGhAvailable(), isGhAvailable()]);
     expect(first).toBe(second);
+  });
+});
+
+describe("resolvePrWithCache", () => {
+  test("returns the last successful PR snapshot when a refresh fails", async () => {
+    const repository = `owner/repo-${Date.now()}`;
+    const freshSummary = summarizePrNodes([
+      { number: 42, url: "https://github.com/owner/repo/pull/42", state: "OPEN" },
+    ]);
+
+    const fresh = await resolvePrWithCache(repository, "feature", async () => freshSummary, 1000);
+    expect(fresh).toMatchObject({
+      dataState: "fresh",
+      updatedAt: 1000,
+      summary: { number: 42 },
+    });
+
+    const stale = await resolvePrWithCache(
+      repository,
+      "feature",
+      async () => {
+        throw new Error("network down");
+      },
+      2000,
+    );
+    expect(stale).toMatchObject({
+      dataState: "stale",
+      updatedAt: 1000,
+      summary: { number: 42 },
+    });
+  });
+
+  test("reports unavailable when refresh fails before any successful response", async () => {
+    const result = await resolvePrWithCache(
+      `owner/uncached-${Date.now()}`,
+      "feature",
+      async () => {
+        throw new Error("offline");
+      },
+      2000,
+    );
+    expect(result).toMatchObject({
+      dataState: "unavailable",
+      updatedAt: null,
+      summary: { number: null, pr: null },
+    });
   });
 });
 

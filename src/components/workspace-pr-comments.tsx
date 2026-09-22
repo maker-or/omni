@@ -2,11 +2,21 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, CaretDown, ChatCircle } from "@phosphor-icons/react";
 import type { WorkspacePrComment } from "../../contracts/git.ts";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Elevated } from "@/lib/elevated";
 import {
+  commentSeverity,
   commentTitle,
   commentToMarkdown,
+  type CommentSeverity,
   groupCommentsByAuthor,
+  highestSeverity,
+  isInlineComment,
   sortComments,
 } from "@/lib/pr-comment-text";
 import { useContentOverflow } from "@/lib/use-content-overflow";
@@ -14,8 +24,8 @@ import { cn } from "@/lib/utils";
 
 type SortOrder = "latest" | "oldest";
 
-const AVATAR_STRIP_MAX = 6;
 const BODY_COLLAPSED_PX = 160;
+const SEVERITY_RANK: Record<CommentSeverity, number> = { high: 3, medium: 2, low: 1 };
 
 function Avatar({
   url,
@@ -32,14 +42,12 @@ function Avatar({
     <img
       src={url}
       alt=""
-      title={name}
       width={size}
       height={size}
       className={cn("shrink-0 rounded-full bg-surface-2 object-cover", className)}
     />
   ) : (
     <span
-      title={name}
       style={{ width: size, height: size }}
       className={cn(
         "flex shrink-0 items-center justify-center rounded-full bg-surface-2 text-[10px] font-semibold uppercase text-muted-foreground",
@@ -48,6 +56,17 @@ function Avatar({
     >
       {name.slice(0, 1)}
     </span>
+  );
+}
+
+function SeverityDot({ level }: { level: CommentSeverity }) {
+  const tone = level === "high" ? "bg-red-500" : level === "medium" ? "bg-amber-500" : "bg-sky-500";
+  return (
+    <span
+      title={`${level} severity`}
+      className={cn("size-1.5 shrink-0 rounded-full", tone)}
+      aria-label={`${level} severity`}
+    />
   );
 }
 
@@ -96,101 +115,6 @@ function PopMenu({
   );
 }
 
-/**
- * Selected author reads as a pill (avatar + name); the rest collapse into an
- * overlapping avatar stack. One click swaps who is expanded. Authors past the
- * strip cap live behind the `+N` menu so every group stays reachable.
- */
-function AuthorStrip({
-  groups,
-  selected,
-  onSelect,
-}: {
-  groups: ReturnType<typeof groupCommentsByAuthor>;
-  selected: string;
-  onSelect: (author: string) => void;
-}) {
-  // Keep the selected author visible even when they would fall past the cap:
-  // swap them into the last visible slot rather than hiding the active pill.
-  const { visible, hidden } = useMemo(() => {
-    const selectedIndex = groups.findIndex((group) => group.author === selected);
-    if (groups.length <= AVATAR_STRIP_MAX || selectedIndex < AVATAR_STRIP_MAX) {
-      return { visible: groups.slice(0, AVATAR_STRIP_MAX), hidden: groups.slice(AVATAR_STRIP_MAX) };
-    }
-    const head = groups.slice(0, AVATAR_STRIP_MAX - 1);
-    const rest = groups.filter(
-      (_, index) => index >= AVATAR_STRIP_MAX - 1 && index !== selectedIndex,
-    );
-    return { visible: [...head, groups[selectedIndex]!], hidden: rest };
-  }, [groups, selected]);
-  return (
-    <div className="flex min-w-0 items-center">
-      {visible.map((group, index) => {
-        const active = group.author === selected;
-        return (
-          <button
-            key={group.author}
-            type="button"
-            onClick={() => onSelect(group.author)}
-            title={`${group.author} · ${group.comments.length}`}
-            className={cn(
-              "flex h-7 items-center rounded-full border border-border/60 transition-[margin,background-color]",
-              active
-                ? "z-10 gap-1.5 bg-surface-2 pl-0.5 pr-2.5 text-foreground"
-                : "bg-surface-1 text-muted-foreground hover:z-20 hover:bg-surface-2",
-              index > 0 && !active && "-ml-2",
-              index > 0 && active && "-ml-1",
-            )}
-          >
-            <Avatar url={group.avatarUrl} name={group.author} size={24} />
-            {active ? (
-              <span className="max-w-[9rem] truncate text-xs font-medium">{group.author}</span>
-            ) : null}
-            {active ? (
-              <span className="text-[10px] text-muted-foreground">{group.comments.length}</span>
-            ) : null}
-          </button>
-        );
-      })}
-      {hidden.length > 0 ? (
-        <PopMenu
-          align="left"
-          width="w-52"
-          trigger={({ open, toggle }) => (
-            <button
-              type="button"
-              onClick={toggle}
-              aria-expanded={open}
-              aria-label={`${hidden.length} more ${hidden.length === 1 ? "author" : "authors"}`}
-              className="-ml-2 flex h-7 items-center rounded-full border border-border/60 bg-surface-1 px-2 text-[10px] text-muted-foreground transition-colors hover:z-20 hover:bg-surface-2 hover:text-foreground"
-            >
-              +{hidden.length}
-            </button>
-          )}
-        >
-          {(close) =>
-            hidden.map((group) => (
-              <button
-                key={group.author}
-                type="button"
-                onClick={() => {
-                  onSelect(group.author);
-                  close();
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-hover hover:text-foreground"
-              >
-                <Avatar url={group.avatarUrl} name={group.author} size={18} />
-                <span className="min-w-0 flex-1 truncate">{group.author}</span>
-                <span className="text-[10px]">{group.comments.length}</span>
-              </button>
-            ))
-          }
-        </PopMenu>
-      ) : null}
-    </div>
-  );
-}
-
 function SortMenu({ value, onChange }: { value: SortOrder; onChange: (v: SortOrder) => void }) {
   return (
     <PopMenu
@@ -199,7 +123,7 @@ function SortMenu({ value, onChange }: { value: SortOrder; onChange: (v: SortOrd
         <button
           type="button"
           onClick={toggle}
-          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           aria-expanded={open}
         >
           {value === "latest" ? "Latest" : "Oldest"}
@@ -239,20 +163,32 @@ function CommentCard({
   const [expanded, setExpanded] = useState(false);
   const markdown = useMemo(() => commentToMarkdown(comment.body), [comment.body]);
   const title = useMemo(() => commentTitle(comment), [comment]);
+  const severity = useMemo(() => commentSeverity(comment), [comment]);
+  const inline = isInlineComment(comment);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   // Rendered height, not character count, decides whether anything is clipped.
   const clipped = useContentOverflow(bodyRef, [markdown, expanded]);
   return (
     <article className="flex flex-col gap-1.5 py-3">
       <header className="flex items-center gap-2">
-        <span
+        {severity ? (
+          <SeverityDot level={severity} />
+        ) : (
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              inline ? "bg-amber-500/70" : "bg-muted-foreground/30",
+            )}
+            title={inline ? "Inline review comment" : "Comment"}
+          />
+        )}
+        <h4
           className={cn(
-            "size-3 shrink-0 rounded-full",
-            comment.path ? "bg-amber-500" : "bg-muted-foreground/40",
+            "min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground",
+            inline && "font-mono",
           )}
-          title={comment.path ? "Inline review comment" : "Comment"}
-        />
-        <h4 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={title}>
+          title={title}
+        >
           {title}
         </h4>
         {onAdd ? (
@@ -260,7 +196,7 @@ function CommentCard({
             type="button"
             onClick={() => onAdd(comment)}
             title="Add this comment to chat"
-            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            className="shrink-0 text-muted-foreground/70 transition-colors hover:text-foreground"
             aria-label="Add to chat"
           >
             <ChatCircle size={14} />
@@ -270,7 +206,7 @@ function CommentCard({
           <button
             type="button"
             onClick={() => void window.omni.shell.openHttps(comment.url!).catch(() => {})}
-            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            className="shrink-0 text-muted-foreground/70 transition-colors hover:text-foreground"
             aria-label="Open comment on GitHub"
           >
             <ArrowUpRight size={14} />
@@ -279,16 +215,21 @@ function CommentCard({
       </header>
       <div
         ref={bodyRef}
-        className="overflow-hidden pl-5 text-xs leading-5 text-muted-foreground"
+        className="relative overflow-hidden"
         style={expanded ? undefined : { maxHeight: BODY_COLLAPSED_PX }}
       >
-        <MarkdownRenderer className="text-xs leading-5">{markdown}</MarkdownRenderer>
+        <MarkdownRenderer className="text-[13px] leading-6 text-muted-foreground">
+          {markdown}
+        </MarkdownRenderer>
+        {clipped && !expanded ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-t from-surface-1 to-transparent" />
+        ) : null}
       </div>
       {clipped && !expanded ? (
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="self-start pl-5 text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+          className="self-start text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
         >
           Show more
         </button>
@@ -305,48 +246,81 @@ export function WorkspacePrComments({
   onAddComments?: (comments: WorkspacePrComment[]) => void;
 }) {
   const groups = useMemo(() => groupCommentsByAuthor(comments), [comments]);
-  const [picked, setPicked] = useState<string | null>(null);
   const [order, setOrder] = useState<SortOrder>("latest");
-  // Fall back to the first author whenever the picked one leaves the list
-  // (comment deleted, PR refreshed).
-  const selected =
-    picked && groups.some((group) => group.author === picked)
-      ? picked
-      : (groups[0]?.author ?? null);
-  const visible = useMemo(() => {
-    const group = groups.find((item) => item.author === selected);
-    return group ? sortComments(group.comments, order) : [];
-  }, [groups, selected, order]);
+
+  // Surface the bot with the most severe findings first, then the most recent.
+  const orderedGroups = useMemo(() => {
+    const rank = (group: (typeof groups)[number]) => {
+      const level = highestSeverity(group.comments);
+      return level ? SEVERITY_RANK[level] : 0;
+    };
+    const recency = (group: (typeof groups)[number]) =>
+      Math.max(0, ...group.comments.map((comment) => Date.parse(comment.createdAt) || 0));
+    return [...groups].sort((a, b) => rank(b) - rank(a) || recency(b) - recency(a));
+  }, [groups]);
 
   if (groups.length === 0) return null;
 
   return (
     <section className="flex flex-col gap-2">
-      <header className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">Comments</h3>
-        {onAddComments && visible.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => onAddComments(visible)}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Add {visible.length === 1 ? "to chat" : `all ${visible.length} to chat`}
-          </button>
-        ) : null}
-      </header>
       <div className="flex items-center justify-between gap-2">
-        <AuthorStrip groups={groups} selected={selected ?? ""} onSelect={setPicked} />
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+          Review comments
+        </h3>
         <SortMenu value={order} onChange={setOrder} />
       </div>
-      <div className="flex flex-col divide-y divide-border/60">
-        {visible.map((comment) => (
-          <CommentCard
-            key={comment.id}
-            comment={comment}
-            onAdd={onAddComments ? (item) => onAddComments([item]) : undefined}
-          />
-        ))}
-      </div>
+
+      <Accordion
+        type="multiple"
+        className="w-full"
+        defaultValue={orderedGroups[0] ? [orderedGroups[0].author] : []}
+      >
+        {orderedGroups.map((group, index) => {
+          const severity = highestSeverity(group.comments);
+          const inlineCount = group.comments.filter(isInlineComment).length;
+          // Findings (inline, with a file) first, then the bot's general notes.
+          const ordered = sortComments(group.comments, order).sort(
+            (a, b) => Number(isInlineComment(b)) - Number(isInlineComment(a)),
+          );
+          return (
+            <AccordionItem
+              key={group.author}
+              value={group.author}
+              index={index}
+              className="border-b border-border/50 last:border-b-0"
+            >
+              <AccordionTrigger>
+                <span className="flex w-full min-w-0 items-center gap-2">
+                  <Avatar url={group.avatarUrl} name={group.author} size={18} />
+                  <span className="min-w-0 truncate font-medium text-foreground">
+                    {group.author}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground/70">
+                    {group.comments.length}
+                  </span>
+                  {severity ? <SeverityDot level={severity} /> : null}
+                  {inlineCount > 0 ? (
+                    <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                      {inlineCount} inline
+                    </span>
+                  ) : null}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="flex flex-col divide-y divide-border/50">
+                  {ordered.map((comment) => (
+                    <CommentCard
+                      key={comment.id}
+                      comment={comment}
+                      onAdd={onAddComments ? (item) => onAddComments([item]) : undefined}
+                    />
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          );
+        })}
+      </Accordion>
     </section>
   );
 }

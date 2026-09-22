@@ -23,6 +23,7 @@ import { useWorktreeStore } from "@/store/worktree-store";
 import { makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { useUiModeStore } from "@/store/ui-mode-store";
+import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import {
@@ -346,6 +347,8 @@ export function GlobalTabBar() {
   const handleCloseThreadTab = async (id: string) => {
     if (closingTabIdsRef.current.has(id)) return;
     closingTabIdsRef.current.add(id);
+    // Closing stops the run too; that stop is not a completion to announce.
+    useThreadCompletionStore.getState().dismissThread(id);
     try {
       const wasActive = id === (snapshotThreadId ?? activeThreadId);
       const nextState = await window.omni.tabs.close(id);

@@ -35,10 +35,14 @@ function rotateIfNeeded(file: string, incomingBytes: number): void {
   if (logSize + incomingBytes <= MAX_BYTES) return;
   try {
     renameSync(file, `${file}.1`);
-  } catch {
-    // Nothing to rotate yet (or it vanished); the append recreates it.
+    logSize = 0;
+  } catch (err) {
+    // Nothing to rotate (it vanished): the append recreates an empty file, so
+    // the counter resets. Any other failure (e.g. a Windows lock) keeps the
+    // real size — resetting it would let the oversized file grow while only
+    // new bytes are accounted; this way rotation retries on the next append.
+    if ((err as NodeJS.ErrnoException | null)?.code === "ENOENT") logSize = 0;
   }
-  logSize = 0;
 }
 
 /** Timestamped main-process log, mirrored to stdout. Never throws. */

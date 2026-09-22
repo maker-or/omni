@@ -62,6 +62,13 @@ export interface WorkspaceGitStatus {
   checks: WorkspacePrCheck[];
   /** Rich detail for the open PR, or the merged one when nothing is open. */
   pr: WorkspacePr | null;
+  /**
+   * Freshness of the GitHub-derived fields above. Local git fields remain
+   * live even when this is stale or unavailable.
+   */
+  prDataState: "fresh" | "stale" | "unavailable";
+  /** Time of the last successful GitHub response used by this status. */
+  prUpdatedAt: number | null;
 }
 
 export type WorkspacePrCheckState = "pending" | "passing" | "failing" | "skipped";
