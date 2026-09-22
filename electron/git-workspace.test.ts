@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  BASE_FETCH_INTERVAL_MS,
   commitWorkspace,
   getWorkspaceGitStatus,
   initProjectRepo,
@@ -11,6 +12,8 @@ import {
   mergeWorkspaceBranch,
   parseGitHubRepo,
   parseNumstat,
+  refreshBaseBranch,
+  resetBaseFetchesForTests,
   resolvePrWithCache,
   summarizeChecks,
   summarizePrNodes,
@@ -127,6 +130,120 @@ describe("getWorkspaceGitStatus", () => {
     expect(status.upstream).toBe("origin/side");
     expect(status.ahead).toBe(0);
     expect(status.aheadOfBase).toBe(1);
+  });
+
+  test("counts commits on a local base branch the workspace lacks, with no fetch", async () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(dir, "a.txt"), "base");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "base"]);
+    git(dir, ["checkout", "-b", "side"]);
+    git(dir, ["checkout", "main"]);
+    writeFileSync(join(dir, "b.txt"), "moved on");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "main moved"]);
+    git(dir, ["checkout", "side"]);
+    const status = await getWorkspaceGitStatus(dir);
+    expect(status.baseBranch).toBe("main");
+    expect(status.behindBase).toBe(1);
+    expect(status.aheadOfBase).toBe(0);
+    expect(status.baseFetchedAt).toBeNull();
+  });
+});
+
+/**
+ * A bare origin plus two clones: `work` is the user's workspace, `other` is
+ * a teammate who pushes to main behind their back.
+ */
+function setUpTeamRepo(): { work: string; other: string } {
+  git(dir, ["init", "--bare", "--initial-branch=main", "origin.git"]);
+  const origin = join(dir, "origin.git");
+  const work = join(dir, "work");
+  mkdirSync(work);
+  initProjectRepo(work, { name: "Test", email: "test@example.com" });
+  writeFileSync(join(work, "a.txt"), "base");
+  git(work, ["add", "-A"]);
+  git(work, ["commit", "-m", "base"]);
+  git(work, ["remote", "add", "origin", origin]);
+  git(work, ["push", "-u", "origin", "main"]);
+  git(work, ["remote", "set-head", "origin", "main"]);
+  git(work, ["checkout", "-b", "side"]);
+  git(dir, ["clone", "--quiet", origin, "other"]);
+  return { work, other: join(dir, "other") };
+}
+
+function teammatePushes(other: string, file: string): void {
+  writeFileSync(join(other, file), "teammate");
+  git(other, ["add", "-A"]);
+  git(other, ["commit", "-m", `teammate adds ${file}`]);
+  git(other, ["push", "--quiet", "origin", "main"]);
+}
+
+describe("base branch fetch", () => {
+  afterEach(() => {
+    resetBaseFetchesForTests();
+  });
+
+  test("a teammate's push to main shows up as behindBase after a fetch", async () => {
+    const { work, other } = setUpTeamRepo();
+    teammatePushes(other, "b.txt");
+    // Nothing has fetched yet: the remote-tracking ref is still at "base".
+    const before = await getWorkspaceGitStatus(work);
+    expect(before.baseBranch).toBe("origin/main");
+    expect(before.behindBase).toBe(0);
+    await refreshBaseBranch(work, { base: "origin/main", upstream: null }, { force: true });
+    const after = await getWorkspaceGitStatus(work);
+    expect(after.behindBase).toBe(1);
+    expect(after.aheadOfBase).toBe(0);
+    expect(after.baseFetchedAt).not.toBeNull();
+  });
+
+  test("status kicks off a fetch in the background and the next poll sees it", async () => {
+    const { work, other } = setUpTeamRepo();
+    teammatePushes(other, "b.txt");
+    resetBaseFetchesForTests();
+    const first = await getWorkspaceGitStatus(work);
+    expect(first.behindBase).toBe(0);
+    // The fetch started by the poll above is still running; await it via the
+    // throttle (same window, so this returns the in-flight promise).
+    await refreshBaseBranch(work, { base: "origin/main", upstream: null });
+    const second = await getWorkspaceGitStatus(work);
+    expect(second.behindBase).toBe(1);
+  });
+
+  test("fetches are throttled per workspace until forced", async () => {
+    const { work, other } = setUpTeamRepo();
+    const now = Date.now();
+    await refreshBaseBranch(work, { base: "origin/main", upstream: null }, { force: true, now });
+    teammatePushes(other, "b.txt");
+    // Inside the interval: no network round-trip, so the ref does not move.
+    await refreshBaseBranch(work, { base: "origin/main", upstream: null }, { now: now + 1_000 });
+    expect(git(work, ["rev-list", "--count", "HEAD..origin/main"])).toBe("0");
+    await refreshBaseBranch(
+      work,
+      { base: "origin/main", upstream: null },
+      { now: now + BASE_FETCH_INTERVAL_MS + 1 },
+    );
+    expect(git(work, ["rev-list", "--count", "HEAD..origin/main"])).toBe("1");
+  });
+
+  test("an unreachable origin resolves without throwing and leaves fetchedAt null", async () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(dir, "a.txt"), "base");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "base"]);
+    git(dir, ["remote", "add", "origin", join(dir, "does-not-exist.git")]);
+    await expect(
+      refreshBaseBranch(dir, { base: "origin/main", upstream: null }, { force: true }),
+    ).resolves.toBeUndefined();
+    const status = await getWorkspaceGitStatus(dir);
+    expect(status.baseFetchedAt).toBeNull();
+  });
+
+  test("nothing under origin/ means no fetch at all", async () => {
+    await expect(
+      refreshBaseBranch(dir, { base: "main", upstream: null }, { force: true }),
+    ).resolves.toBeUndefined();
   });
 });
 

@@ -35,6 +35,20 @@ export interface WorkspaceGitStatus {
    * for a PR" — `ahead` alone reads 0 for both once in sync.
    */
   aheadOfBase: number;
+  /**
+   * Commits on the base branch this branch does not have yet — "the team
+   * has new changes". Measured against the local remote-tracking ref, so it
+   * only moves after a fetch; `baseFetchedAt` says how current that is.
+   */
+  behindBase: number;
+  /** Ref the base counts are measured against, e.g. "origin/main". */
+  baseBranch: string | null;
+  /**
+   * Time of the last successful background fetch of the base branch for this
+   * workspace, or null when none has completed (no remote, offline, or not
+   * yet attempted).
+   */
+  baseFetchedAt: number | null;
   staged: number;
   unstaged: number;
   untracked: number;

@@ -78,8 +78,10 @@ function actionLabel(kind: string): string {
  * - ready:   PR open, tree clean, checks green — merge is the next step
  * - merged:  the branch's PR landed — archive the workspace or continue on
  *            a fresh branch
+ * - stale:   no PR and nothing of the user's own to save or share, but the
+ *            base branch has moved on — catching up is the next step
  */
-export type HeaderTone = "neutral" | "action" | "ready" | "merged";
+export type HeaderTone = "neutral" | "action" | "ready" | "merged" | "stale";
 
 /** Shared tone gradients: the panel header and the sidebar's active workspace
  *  card both paint from this map so the two stay in lockstep. */
@@ -88,15 +90,28 @@ export const HEADER_TONE_GRADIENT: Record<HeaderTone, string> = {
   action: "from-[#FFAA4F] via-[#6F5121] to-[#6F5121]/0",
   ready: "from-[#088139] via-[#114526] to-[#114526]/0",
   merged: "from-violet-500/80 via-violet-900/25 to-violet-900/0",
+  stale: "from-[#5CA8FF] via-[#1F3F66] to-[#1F3F66]/0",
 };
 
 function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone {
-  if (!status.openPrNumber) return status.mergedPrNumber ? "merged" : "neutral";
+  if (!status.openPrNumber) {
+    if (status.mergedPrNumber) return "merged";
+    // An idle workspace the team has moved past: the only thing to do here
+    // is catch up. With unsaved or unpushed work the header stays neutral
+    // and the primary button (save/share) keeps the user's own work first.
+    const idle = dirtyCount === 0 && status.ahead === 0;
+    return idle && status.behindBase > 0 ? "stale" : "neutral";
+  }
   if (status.isDraftPr) return "action";
   if (dirtyCount > 0 || status.ahead > 0) return "action";
   if (status.checksState === "passing") return "ready";
   if (status.checksState === "none" || status.checksState === "unknown") return "ready";
   return "action";
+}
+
+/** Plain-language name for the base branch a workspace branched from. */
+function baseBranchLabel(status: WorkspaceGitStatus): string {
+  return status.baseBranch?.replace(/^origin\//, "") ?? "main";
 }
 
 /** Why PR creation is unavailable, or null when it is possible. */
@@ -587,7 +602,7 @@ export function WorkspaceControlPanel({
     if (status.behind > 0) {
       items.push({
         key: "behind",
-        label: `${status.behind} commit${status.behind === 1 ? "" : "s"} behind upstream`,
+        label: `Someone pushed ${status.behind} ${status.behind === 1 ? "change" : "changes"} to this branch that you don’t have yet`,
       });
     }
     if (status.checksState === "pending") items.push({ key: "checks", label: "Checks running" });
@@ -989,6 +1004,17 @@ export function WorkspaceControlPanel({
             </div>
 
             <div className="flex flex-col gap-3 px-4 pt-3">
+              {status.behindBase > 0 ? (
+                <p
+                  className="rounded-md bg-sky-500/10 px-2.5 py-2 text-[11px] leading-4 text-sky-400"
+                  role="status"
+                  data-pipper-id="workspace-behind-base"
+                >
+                  The team has {status.behindBase} new{" "}
+                  {status.behindBase === 1 ? "change" : "changes"} on {baseBranchLabel(status)} that
+                  this workspace doesn’t have yet.
+                </p>
+              ) : null}
               {status.prDataState === "stale" ? (
                 <p
                   className="rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-4 text-amber-500"

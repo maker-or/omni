@@ -4,19 +4,15 @@ import {
   CheckCircleIcon,
   CircleNotch,
   GearSix,
-  Monitor,
-  Moon,
-  Rows,
-  Sun,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
+import { ThemePicker } from "@/components/theme-picker";
+import { WorkspaceModePicker } from "@/components/workspace-mode-picker";
 import { createProviderLogoIcon } from "@/components/provider-logos";
 import { Elevated } from "@/lib/elevated";
 import type { IconComponent } from "@/lib/icon-context";
-import { useTheme, type Theme } from "@/lib/theme";
-import { useUiModeStore } from "@/store/ui-mode-store";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
 import { Button } from "@/components/ui/button";
@@ -36,7 +32,6 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
-import { TabItem, Tabs, TabsList } from "@/components/ui/tabs";
 import {
   Accordion,
   AccordionContent,
@@ -44,7 +39,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { Tooltip } from "@/components/ui/tooltip";
 
 function modifierSymbol(): string {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform)
@@ -52,18 +46,11 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-const THEME_TABS: Array<{ value: Theme; label: string; icon: IconComponent }> = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
-];
-
-type SectionId = "appearance" | "agents" | "workspace" | "keyboard" | "power" | "remote";
+type SectionId = "appearance" | "agents" | "keyboard" | "power" | "remote";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
   { id: "agents", label: "Agents" },
-  { id: "workspace", label: "Workspace" },
   { id: "keyboard", label: "Keyboard" },
   { id: "power", label: "Power" },
   { id: "remote", label: "Remote" },
@@ -103,19 +90,23 @@ function SettingRow({
   description,
   children,
 }: {
-  icon: IconComponent;
+  icon?: IconComponent;
   title: string;
-  description: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex min-h-[76px] items-center gap-4 px-4 py-3">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-3 text-muted-foreground shadow-surface-1">
-        <Icon size={18} strokeWidth={1.8} />
-      </div>
+      {Icon && (
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-3 text-muted-foreground shadow-surface-1">
+          <Icon size={18} strokeWidth={1.8} />
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium text-foreground">{title}</div>
-        <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{description}</div>
+        {description && (
+          <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{description}</div>
+        )}
       </div>
       <div className="flex shrink-0 items-center">{children}</div>
     </div>
@@ -336,15 +327,11 @@ function AgentsSettingsSection() {
 const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
   appearance: {
     title: "Appearance",
-    blurb: "Control how Pipper Code looks on your Mac.",
+    blurb: "Control how Pipper Code looks and the layout it opens with.",
   },
   agents: {
     title: "Agents",
     blurb: "Choose which coding agents Pipper can use.",
-  },
-  workspace: {
-    title: "Workspace",
-    blurb: "Shape the layout Pipper opens with.",
   },
   keyboard: {
     title: "Keyboard",
@@ -361,47 +348,17 @@ const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
 };
 
 function AppearanceView() {
-  const { theme, setTheme } = useTheme();
   return (
     <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
-      <SettingRow
-        icon={theme === "light" ? Sun : theme === "dark" ? Moon : Monitor}
-        title="Theme"
-        description="Applies instantly and follows the system when set to System"
-      >
-        <Tabs value={theme} onValueChange={(v) => setTheme(v as Theme)}>
-          <TabsList>
-            {THEME_TABS.map((t) => (
-              <Tooltip key={t.value} content={t.label} side="bottom">
-                <TabItem value={t.value} icon={t.icon} label={t.label} iconOnly />
-              </Tooltip>
-            ))}
-          </TabsList>
-        </Tabs>
-      </SettingRow>
-    </Elevated>
-  );
-}
-
-function WorkspaceView() {
-  const { mode, setMode } = useUiModeStore();
-  return (
-    <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
-      <SettingRow
-        icon={Rows}
-        title="Workspace mode"
-        description={
-          mode === "advanced"
-            ? "Advanced layout with the full control panel"
-            : "Basic layout with the essentials"
-        }
-      >
-        <Switch
-          label={mode === "advanced" ? "Advanced" : "Basic"}
-          checked={mode === "advanced"}
-          onToggle={() => setMode(mode === "advanced" ? "basic" : "advanced")}
-        />
-      </SettingRow>
+      <div className="divide-y divide-border/70">
+        <SettingRow title="Theme">
+          <ThemePicker />
+        </SettingRow>
+        <div className="px-4 py-4">
+          <div className="text-[13px] font-medium text-foreground">Workspace mode</div>
+          <WorkspaceModePicker className="mt-3" />
+        </div>
+      </div>
     </Elevated>
   );
 }
@@ -540,7 +497,6 @@ export function SettingsApp() {
 
                 {section === "appearance" && <AppearanceView />}
                 {section === "agents" && <AgentsSettingsSection />}
-                {section === "workspace" && <WorkspaceView />}
                 {section === "keyboard" && <KeyboardView />}
                 {section === "power" && <PowerView />}
                 {section === "remote" && <RemoteView />}

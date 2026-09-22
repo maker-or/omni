@@ -6,19 +6,33 @@ import {
 } from "./workspace-agent-prompt";
 
 describe("buildCommitPrompt", () => {
+  /** The fenced facts block at the end of the prompt. */
+  const context = (prompt: string): string => prompt.slice(prompt.indexOf("```workspace-context"));
+
   test("commit-only names the branch, forbids hook bypass, and says not to push", () => {
     const prompt = buildCommitPrompt({ branch: "pipper/fix-login", push: false });
-    expect(prompt).toContain("`pipper/fix-login`");
+    expect(
+      prompt.startsWith("Commit the current changes in this workspace on `pipper/fix-login`."),
+    ).toBe(true);
     expect(prompt).toContain("--no-verify");
-    expect(prompt).toContain("Do not push");
-    expect(prompt).not.toContain("push the branch");
+    expect(context(prompt)).toContain("push: false");
+    expect(prompt).toContain("`push: false`, do not push");
   });
 
   test("commit-and-push adds the push step with upstream handling", () => {
     const prompt = buildCommitPrompt({ branch: null, push: true });
     expect(prompt).toContain("the current branch");
+    expect(prompt).toContain("and push.");
     expect(prompt).toContain("push the branch to origin, setting the upstream");
-    expect(prompt).not.toContain("Do not push");
+    expect(context(prompt)).toContain("push: true");
+  });
+
+  test("attaches the shared rules and the commit skill to the message", () => {
+    // Skills are attached at click time, never discovered by the agent.
+    const prompt = buildCommitPrompt({ branch: "b", push: false });
+    expect(prompt).toContain("Never rewrite published history");
+    expect(prompt).toContain("Write a concise commit message");
+    expect(prompt).not.toContain("---\nname:");
   });
 
   test("stages an explicit path list and never blanket-stages", () => {
@@ -27,11 +41,10 @@ describe("buildCommitPrompt", () => {
       push: false,
       files: ["src/a.ts", "docs/readme.md"],
     });
-    expect(prompt).toContain("Stage exactly these paths");
-    expect(prompt).toContain("- src/a.ts");
-    expect(prompt).toContain("- docs/readme.md");
-    expect(prompt).not.toMatch(/stage everything/i);
-    expect(prompt).not.toContain("git add -A");
+    expect(prompt).toContain("stage exactly those paths");
+    expect(context(prompt)).toContain("files-list-complete: true");
+    expect(context(prompt)).toContain("files-to-stage:\n- src/a.ts\n- docs/readme.md");
+    expect(context(prompt)).not.toContain("git add");
   });
 
   test("an unignored credential never reaches the staging list", () => {
@@ -42,15 +55,20 @@ describe("buildCommitPrompt", () => {
       push: true,
       files: ["src/a.ts", ".env", "config/service-account.json", "deploy/id_rsa"],
     });
-    const stagingBlock = prompt.split("Never stage files")[0] ?? "";
-    expect(stagingBlock).toContain("- src/a.ts");
-    expect(stagingBlock).not.toContain(".env");
-    expect(stagingBlock).not.toContain("service-account.json");
-    expect(stagingBlock).not.toContain("id_rsa");
+    const facts = context(prompt);
+    const staging = facts.slice(
+      facts.indexOf("files-to-stage:"),
+      facts.indexOf("files-that-look-like-secrets:"),
+    );
+    expect(staging).toContain("- src/a.ts");
+    expect(staging).not.toContain(".env");
+    expect(staging).not.toContain("service-account.json");
+    expect(staging).not.toContain("id_rsa");
     // ...and the agent is told explicitly to keep them out.
     expect(prompt).toContain("must stay out of the commit");
-    expect(prompt).toContain("- .env");
-    expect(prompt).toContain("- deploy/id_rsa");
+    expect(facts).toContain(
+      "files-that-look-like-secrets:\n- .env\n- config/service-account.json\n- deploy/id_rsa",
+    );
   });
 
   test("a truncated file list falls back to a review-first instruction", () => {
@@ -60,7 +78,9 @@ describe("buildCommitPrompt", () => {
       files: ["src/a.ts"],
       truncated: true,
     });
-    expect(prompt).not.toContain("Stage exactly these paths");
+    const facts = context(prompt);
+    expect(facts).toContain("files-list-complete: false");
+    expect(facts).not.toContain("files-to-stage");
     expect(prompt).toContain("Run `git status` first and review every changed path");
     expect(prompt).toContain("Never stage files that hold secrets");
   });
@@ -120,6 +140,8 @@ describe("buildPrCommentsPrompt", () => {
     expect(prompt).toContain("Unused variable here.");
     expect(prompt).toContain("author=@coderabbitai\nLooks good overall.");
     expect(prompt).toContain("Do not commit.");
+    // The skill hands the user back to the panel's Save button instead of pushing itself.
+    expect(prompt).toContain("Save changes");
   });
 
   test("fences comment bodies as untrusted data that cannot widen the task", () => {

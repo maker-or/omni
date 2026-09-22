@@ -719,6 +719,83 @@ async function lookupPr(
 }
 
 /**
+ * How often a polled workspace re-fetches its base branch (and upstream)
+ * from origin. Fetching is the only way "the team has new changes" can ever
+ * be noticed; it is throttled per worktree so the 15s status poll does not
+ * become a 15s network round-trip.
+ */
+export const BASE_FETCH_INTERVAL_MS = 2 * 60_000;
+const BASE_FETCH_TIMEOUT_MS = 30_000;
+
+type BaseFetch = {
+  startedAt: number;
+  inFlight: Promise<void> | null;
+  /** Last successful completion, kept across later failures (offline). */
+  fetchedAt: number | null;
+};
+
+const baseFetches = new Map<string, BaseFetch>();
+
+/** Branch names under `origin/` worth refreshing for this workspace. */
+function originRefsToFetch(base: string | null, upstream: string | null): string[] {
+  const refs = new Set<string>();
+  for (const ref of [base, upstream]) {
+    if (ref?.startsWith("origin/")) refs.add(ref.slice("origin/".length));
+  }
+  return [...refs];
+}
+
+/**
+ * Throttled background `git fetch origin <base> [<upstream>]` for a
+ * workspace. Never rejects and never blocks the caller for long: status
+ * kicks it off and the *next* poll sees the moved remote-tracking refs.
+ * `force` bypasses the interval for user-initiated refreshes. Resolves when
+ * the fetch (if any) has finished, so callers that must act on current
+ * refs — and tests — can await it.
+ */
+export function refreshBaseBranch(
+  worktreePath: string,
+  refs: { base: string | null; upstream: string | null },
+  options: { force?: boolean; now?: number } = {},
+): Promise<void> {
+  const branches = originRefsToFetch(refs.base, refs.upstream);
+  if (branches.length === 0) return Promise.resolve();
+  const now = options.now ?? Date.now();
+  const entry = baseFetches.get(worktreePath) ?? { startedAt: 0, inFlight: null, fetchedAt: null };
+  if (entry.inFlight) return entry.inFlight;
+  if (!options.force && now - entry.startedAt < BASE_FETCH_INTERVAL_MS) return Promise.resolve();
+  entry.startedAt = now;
+  entry.inFlight = execFileAsync(
+    gitBinary(),
+    ["fetch", "--quiet", "--no-tags", "origin", ...branches],
+    {
+      cwd: worktreePath,
+      encoding: "utf8",
+      // No credential or host-key prompts can be answered from a background
+      // process; fail fast instead of wedging on a hidden prompt.
+      env: { ...foreignGitEnv(), GIT_TERMINAL_PROMPT: "0" },
+      timeout: BASE_FETCH_TIMEOUT_MS,
+    },
+  )
+    .then(() => {
+      entry.fetchedAt = Date.now();
+    })
+    .catch(() => {
+      // Offline, no auth, or a locked ref: the next interval retries.
+    })
+    .finally(() => {
+      entry.inFlight = null;
+    });
+  baseFetches.set(worktreePath, entry);
+  return entry.inFlight;
+}
+
+/** Test seam: forget fetch throttling so a fresh temp repo starts cold. */
+export function resetBaseFetchesForTests(): void {
+  baseFetches.clear();
+}
+
+/**
  * Coalesces concurrent status requests per worktree. A caller that arrives
  * while a run is in flight shares one queued follow-up run, so its answer
  * reflects state no older than its own request — a post-action refresh can
@@ -776,6 +853,9 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
     ahead: 0,
     behind: 0,
     aheadOfBase: 0,
+    behindBase: 0,
+    baseBranch: null,
+    baseFetchedAt: null,
     staged: 0,
     unstaged: 0,
     untracked: 0,
@@ -811,10 +891,16 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
     const branch = !branchRaw || branchRaw === "HEAD" ? null : branchRaw;
     const upstream = upstreamRaw || null;
     const { files, truncated, staged, unstaged, untracked } = statusSummary;
+    // Deliberately not awaited: a fetch is a network round-trip that must
+    // not stall the poll. This status reads whatever the last fetch left in
+    // the remote-tracking refs; the next poll picks up this one's result.
+    void refreshBaseBranch(worktreePath, { base, upstream });
     // Round 2: reads that depend on round 1, plus the gh network round-trip.
-    const [baseCount, counts, lineStats, prLookup] = await Promise.all([
+    const [baseCount, behindBaseCount, counts, lineStats, prLookup] = await Promise.all([
       // Commits beyond the base branch: what a PR would contain.
       base ? tryGitAsync(worktreePath, ["rev-list", "--count", `${base}..HEAD`]) : null,
+      // Commits on the base this branch lacks: what "Get latest" would bring in.
+      base ? tryGitAsync(worktreePath, ["rev-list", "--count", `HEAD..${base}`]) : null,
       upstream
         ? tryGitAsync(worktreePath, ["rev-list", "--left-right", "--count", "HEAD...@{u}"])
         : null,
@@ -825,6 +911,8 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
     ]);
     const pr = prLookup.summary;
     const aheadOfBase = baseCount && Number.isFinite(Number(baseCount)) ? Number(baseCount) : 0;
+    const behindBase =
+      behindBaseCount && Number.isFinite(Number(behindBaseCount)) ? Number(behindBaseCount) : 0;
     let ahead = 0;
     let behind = 0;
     if (upstream) {
@@ -854,6 +942,9 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
       ahead,
       behind,
       aheadOfBase,
+      behindBase,
+      baseBranch: base,
+      baseFetchedAt: baseFetches.get(worktreePath)?.fetchedAt ?? null,
       staged,
       unstaged,
       untracked,
