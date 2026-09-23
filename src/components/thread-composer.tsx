@@ -448,7 +448,7 @@ export function ThreadComposer({
   const inlineEditor = (
     <div
       ref={inlineEditorRef}
-      className="block min-h-11 max-h-[76px] min-w-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
+      className="block min-h-11 min-w-0 flex-1 cursor-text overflow-x-hidden px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
@@ -549,7 +549,12 @@ export function ThreadComposer({
   return (
     <div className={cn("flex items-center gap-3", className)} data-pipper-id="thread-composer">
       {turnMarker ? (
-        <div className="flex shrink-0 items-center" data-pipper-id="composer-turn-marker">
+        // self-start + pt-1.5 keeps the marker on the composer's first text
+        // line as the input grows, instead of centring on the whole box.
+        <div
+          className="flex shrink-0 items-center self-start pt-1.5"
+          data-pipper-id="composer-turn-marker"
+        >
           {turnMarker}
         </div>
       ) : null}

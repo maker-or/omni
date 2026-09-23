@@ -806,7 +806,7 @@ export function AdvancedShell() {
                     {hiddenWorkspaceCount > 0 ? (
                       <button
                         type="button"
-                        className="flex h-8 w-full items-center justify-center gap-2 rounded-md text-[12px] text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
+                        className="flex mt-2 h-8 w-full items-center justify-center gap-2 rounded-md text-[12px] text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
                         onClick={() => loadMoreWorkspaces(activeProject.id)}
                       >
                         <CaretDown size={14} />
@@ -830,13 +830,6 @@ export function AdvancedShell() {
                 >
                   <FolderPlus size={16} />
                   New project
-                </button>
-                <button
-                  type="button"
-                  aria-label="Filter projects"
-                  className="grid size-8 shrink-0 place-items-center rounded-md text-neutral-400 outline-none transition-colors duration-80 hover:bg-white/10 hover:text-neutral-100"
-                >
-                  <FunnelSimple size={16} />
                 </button>
               </div>
             </SidebarFooter>

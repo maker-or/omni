@@ -443,25 +443,15 @@ export function SettingsApp() {
     <SidebarProvider defaultOpen width="15rem">
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-1 text-foreground">
         <header
-          className="flex h-[52px] shrink-0 items-center justify-center border-b border-border/60 bg-surface-2/80 select-none"
+          className="flex h-[52px] shrink-0 items-center justify-center border-b border-border/60 select-none"
           style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-        >
-          <span className="inline-flex items-center gap-2 text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-            <GearSix size={16} className="text-muted-foreground" />
-            Settings
-          </span>
-        </header>
+        ></header>
 
         <div className="flex min-h-0 flex-1">
           <Sidebar collapsible="none" rail={false} variant="sidebar" side="left">
-            <SidebarHeader>
-              <div className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-                Pipper Code
-              </div>
-            </SidebarHeader>
+            <SidebarHeader></SidebarHeader>
             <SidebarContent>
               <SidebarGroup>
-                <SidebarGroupLabel>General</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {NAV_ITEMS.map((item) => (
