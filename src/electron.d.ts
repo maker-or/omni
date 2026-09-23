@@ -42,6 +42,14 @@ import type {
 } from "../../contracts/monitor.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../../contracts/sleepless.ts";
 import type {
+  BriefAgentPromptRequest,
+  BriefConnection,
+  BriefOpenRequest,
+  BriefSettingsPatch,
+  BriefSettingsView,
+  BriefStatus,
+} from "../../contracts/brief.ts";
+import type {
   ThreadBenchmarkIngestedTurn,
   ThreadBenchmarkMode,
   ThreadBenchmarkOpenPath,
@@ -86,6 +94,18 @@ declare global {
         refresh: () => Promise<SleeplessStatus | null>;
         openSystemSettings: () => Promise<void>;
         onStatusChanged: (callback: (status: SleeplessStatus) => void) => () => void;
+      };
+      brief: {
+        getStatus: () => Promise<BriefStatus>;
+        getSettings: () => Promise<BriefSettingsView>;
+        updateSettings: (patch: BriefSettingsPatch) => Promise<BriefSettingsView>;
+        getConnections: () => Promise<BriefConnection[]>;
+        connect: (source: string) => Promise<void>;
+        takePendingOpen: () => Promise<BriefOpenRequest | null>;
+        ackOpen: () => Promise<void>;
+        onOpen: (callback: (request: BriefOpenRequest) => void) => () => void;
+        onStatus: (callback: (status: BriefStatus) => void) => () => void;
+        onAgentPrompt: (callback: (request: BriefAgentPromptRequest) => void) => () => void;
       };
       remote: {
         getInfo: () => Promise<{

@@ -45,6 +45,9 @@ export default defineConfig({
       format: "es",
     },
     resolve: {
+      // One React for the renderer even when a parent checkout (e.g. a git
+      // worktree nested in the main repo, see `server.fs.allow`) also has one.
+      dedupe: ["react", "react-dom"],
       alias: [
         {
           find: /^@\/(.*)$/,

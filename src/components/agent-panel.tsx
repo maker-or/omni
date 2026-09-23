@@ -782,6 +782,19 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     requestAnimationFrame(() => composerTextareaRef.current?.focus());
   }, [draft, projectsList, activeProject, setDraftAgent]);
 
+  // A seeded draft (e.g. "Review with Pipper" from the Morning Brief) fills the
+  // composer once per seeding. Separate from the bootstrap above because a
+  // draft replaced within one render never passes through null.
+  const appliedSeedIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!draft?.seedText || draft.seedId == null) return;
+    if (appliedSeedIdRef.current === draft.seedId) return;
+    appliedSeedIdRef.current = draft.seedId;
+    const seed = draft.seedText;
+    setDraftContent((current) => setFreeText(current, seed));
+    requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }, [draft?.seedId, draft?.seedText]);
+
   // External chrome (title-bar project switcher) can change draft.projectId;
   // keep the composer chip in sync without wiping free text. Also clear agent
   // when the project identity changes so @agent is offered again.

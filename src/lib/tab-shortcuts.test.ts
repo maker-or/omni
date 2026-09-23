@@ -22,6 +22,14 @@ function keyEvent(partial: Partial<KeyboardEvent> & Pick<KeyboardEvent, "key">):
 }
 
 describe("global tab number shortcuts", () => {
+  test("browser tabs (e.g. the Morning Brief) are numbered after terminals", () => {
+    expect(tabValuesInBarOrder(["thread-a"], ["term-1"], "terminal:", ["b1"], "browser:")).toEqual([
+      "thread-a",
+      "terminal:term-1",
+      "browser:b1",
+    ]);
+  });
+
   test("numbers tabs left to right: threads, then terminals", () => {
     expect(tabValuesInBarOrder(["thread-a", "thread-b"], ["term-1"], "terminal:")).toEqual([
       "thread-a",

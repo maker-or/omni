@@ -9,6 +9,7 @@ import type { DraftState } from "../../contracts/composer.ts";
  *   store / open-tabs machinery). When the thread has diffs open it renders
  *   as a 40:60 conversation | diff split; otherwise it fills 100% width.
  * - `terminal` — a single terminal session, filling 100% width.
+ * - `browser` — one embedded-browser tab (e.g. the Morning Brief), 100% width.
  *
  * Agent threads and terminals share one tab strip in the header. Only the
  * mode + which terminal is active live here; the active *thread* identity
@@ -19,18 +20,21 @@ import type { DraftState } from "../../contracts/composer.ts";
  * Chrome (title-bar project name, file tree, etc.) must read draft.projectId
  * rather than ambient activeProject while a draft is active.
  */
-export type WorkspaceMode = "agent" | "terminal";
+export type WorkspaceMode = "agent" | "terminal" | "browser";
 
 export type BeginDraftOptions = {
   /** Soft-default project chip from ambient active project. */
   projectId?: string | null;
   previousActiveProjectId?: string | null;
   worktreePath?: string | null;
+  /** Free text to prefill into the composer (e.g. a Morning Brief hand-off). */
+  seedText?: string | null;
 };
 
 interface WorkspaceViewState {
   mode: WorkspaceMode;
   activeTerminalId: string | null;
+  activeBrowserTabId: string | null;
   /**
    * Optimistic switch target while `switchThread` is in flight. The header
    * sets it the instant a tab is clicked so the conversation can show a
@@ -52,6 +56,8 @@ interface WorkspaceViewState {
   showAgent: () => void;
   showTerminal: (sessionId: string) => void;
   setActiveTerminalId: (sessionId: string | null) => void;
+  showBrowser: (tabId: string) => void;
+  setActiveBrowserTabId: (tabId: string | null) => void;
   requestThread: (threadId: string | null) => void;
   beginDraft: (options?: BeginDraftOptions) => void;
   endDraft: () => void;
@@ -65,9 +71,12 @@ interface WorkspaceViewState {
   markDraftUserEditedProject: () => void;
 }
 
+let seedCounter = 0;
+
 export const useWorkspaceViewStore = create<WorkspaceViewState>((set, get) => ({
   mode: "agent",
   activeTerminalId: null,
+  activeBrowserTabId: null,
   requestedThreadId: null,
   draft: null,
   draftCompletionThreadId: null,
@@ -75,6 +84,8 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set, get) => ({
   showAgent: () => set({ mode: "agent" }),
   showTerminal: (sessionId) => set({ mode: "terminal", activeTerminalId: sessionId }),
   setActiveTerminalId: (sessionId) => set({ activeTerminalId: sessionId }),
+  showBrowser: (tabId) => set({ mode: "browser", activeBrowserTabId: tabId }),
+  setActiveBrowserTabId: (tabId) => set({ activeBrowserTabId: tabId }),
   requestThread: (threadId) => set({ requestedThreadId: threadId }),
 
   beginDraft: (options = {}) => {
@@ -88,7 +99,8 @@ export const useWorkspaceViewStore = create<WorkspaceViewState>((set, get) => ({
         agentId: null,
         modelId: null,
         worktreePath: options.worktreePath ?? null,
-        dirty: false,
+        dirty: Boolean(options.seedText?.trim()),
+        ...(options.seedText ? { seedText: options.seedText, seedId: ++seedCounter } : {}),
         previousActiveProjectId: options.previousActiveProjectId ?? null,
         softDefaultProject: Boolean(projectId),
       },

@@ -5,6 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ChatCircleIcon,
   FolderPlusIcon,
+  GlobeIcon,
+  NewspaperIcon,
   PlusIcon,
   TerminalWindowIcon,
   WarningIcon,
@@ -22,6 +24,8 @@ import { useAgentStore } from "@/store/agent-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { useBrowserStore } from "@/store/browser-store";
+import { openBriefTab } from "@/lib/morning-brief";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import {
@@ -41,6 +45,7 @@ import {
 } from "@/lib/tab-shortcuts";
 
 const TERMINAL_TAB_PREFIX = "terminal:";
+const BROWSER_TAB_PREFIX = "browser:";
 
 // Stable component identity — a fresh function reference remounts the icon on
 // every unrelated re-render (e.g. streaming), restarting the CSS pulse.
@@ -64,10 +69,11 @@ function getProjectIconComponent(name: string) {
 }
 
 /**
- * The single, global tab strip that lives in the title bar. It merges the two
- * kinds of "global" views into one row:
+ * The single, global tab strip that lives in the title bar. It merges the
+ * "global" views into one row:
  *   - agent threads (persisted, backed by open-tabs)
  *   - terminals (ephemeral, backed by the in-memory terminal store)
+ *   - embedded-browser tabs, including the Morning Brief (in-memory)
  *
  * "New thread" opens a draft composer (no session spawn). Creation happens on
  * first send in AgentPanel.
@@ -103,6 +109,13 @@ export function GlobalTabBar() {
   const createSession = useTerminalStore((state) => state.createSession);
   const closeSession = useTerminalStore((state) => state.closeSession);
   const initializeGlobalListener = useTerminalStore((state) => state.initializeGlobalListener);
+
+  const browserTabs = useBrowserStore((state) => state.tabs);
+  const closeBrowserTab = useBrowserStore((state) => state.closeTab);
+  const openBrowserTab = useBrowserStore((state) => state.openTab);
+  const activeBrowserTabId = useWorkspaceViewStore((state) => state.activeBrowserTabId);
+  const showBrowser = useWorkspaceViewStore((state) => state.showBrowser);
+  const setActiveBrowserTabId = useWorkspaceViewStore((state) => state.setActiveBrowserTabId);
 
   const selectedWorktreePathByProject = useWorktreeStore(
     (state) => state.selectedWorktreePathByProject,
@@ -335,9 +348,11 @@ export function GlobalTabBar() {
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       if (!wasActive) return;
       if (nextState.activeThreadId) {
-        await handleSelectThread(nextState.activeThreadId, mode !== "terminal");
+        await handleSelectThread(nextState.activeThreadId, mode === "agent");
       } else {
         requestThread(null);
+        // The browser stays in front; the agent view picks up a draft later.
+        if (mode === "browser") return;
         const sessions = useTerminalStore.getState().sessions;
         const referencedTerminalId = useWorkspaceViewStore.getState().activeTerminalId;
         const terminalId = sessions.some((session) => session.id === referencedTerminalId)
@@ -433,14 +448,46 @@ export function GlobalTabBar() {
     }
   };
 
+  /** Leaving the browser with nothing else open falls back to a thread or a draft. */
+  const showFallbackAfterGlobalView = () => {
+    const targetThreadId = snapshotThreadId ?? activeThreadId ?? orderedOpenThreads[0]?.id;
+    if (orderedOpenThreads.length > 0 && targetThreadId) {
+      showAgent();
+      return;
+    }
+    const project = activeProject;
+    const worktreePath = project
+      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+      : null;
+    beginDraft({
+      projectId: project?.id ?? null,
+      previousActiveProjectId: project?.id ?? null,
+      worktreePath,
+    });
+    showAgent();
+  };
+
+  const handleCloseBrowser = (id: string) => {
+    const wasViewBrowser = mode === "browser" && activeBrowserTabId === id;
+    const next = closeBrowserTab(id);
+    if (activeBrowserTabId !== id) return;
+    if (wasViewBrowser && next) showBrowser(next);
+    else if (wasViewBrowser) {
+      setActiveBrowserTabId(null);
+      showFallbackAfterGlobalView();
+    } else setActiveBrowserTabId(next);
+  };
+
   // Draft is tab-less: use a sentinel that matches no TabItem so nothing highlights.
   const selectedThreadId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId ?? "";
   const selectedTabValue =
-    mode === "terminal" && activeTerminalId
-      ? `${TERMINAL_TAB_PREFIX}${activeTerminalId}`
-      : draft
-        ? "__draft__"
-        : selectedThreadId;
+    mode === "browser" && activeBrowserTabId
+      ? `${BROWSER_TAB_PREFIX}${activeBrowserTabId}`
+      : mode === "terminal" && activeTerminalId
+        ? `${TERMINAL_TAB_PREFIX}${activeTerminalId}`
+        : draft
+          ? "__draft__"
+          : selectedThreadId;
 
   const orderedTabValues = useMemo(
     () =>
@@ -448,8 +495,10 @@ export function GlobalTabBar() {
         visibleOpenThreads.map((thread) => thread.id),
         terminalTabs.map((session) => session.id),
         TERMINAL_TAB_PREFIX,
+        browserTabs.map((tab) => tab.id),
+        BROWSER_TAB_PREFIX,
       ),
-    [visibleOpenThreads, terminalTabs],
+    [visibleOpenThreads, terminalTabs, browserTabs],
   );
 
   const handleTabChangeRef = useRef<(value: string) => void>(() => {});
@@ -461,6 +510,10 @@ export function GlobalTabBar() {
     beginRendererInteraction("tab-click");
     if (value.startsWith(TERMINAL_TAB_PREFIX)) {
       handleSelectTerminal(value.slice(TERMINAL_TAB_PREFIX.length));
+      return;
+    }
+    if (value.startsWith(BROWSER_TAB_PREFIX)) {
+      showBrowser(value.slice(BROWSER_TAB_PREFIX.length));
       return;
     }
     const highlightPaint = new Promise<number>((resolve) => {
@@ -508,6 +561,7 @@ export function GlobalTabBar() {
     const currentMode = useWorkspaceViewStore.getState().mode;
     const currentDraft = useWorkspaceViewStore.getState().draft;
     const curTerminalId = useWorkspaceViewStore.getState().activeTerminalId;
+    const curBrowserTabId = useWorkspaceViewStore.getState().activeBrowserTabId;
     const curThreadId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId;
 
     if (currentDraft) {
@@ -521,6 +575,11 @@ export function GlobalTabBar() {
 
     if (currentMode === "terminal" && curTerminalId) {
       handleCloseTerminal(curTerminalId);
+      return;
+    }
+
+    if (currentMode === "browser" && curBrowserTabId) {
+      handleCloseBrowser(curBrowserTabId);
       return;
     }
 
@@ -638,6 +697,18 @@ export function GlobalTabBar() {
               data-pipper-id={`terminal-tab-${session.id}`}
             />
           ))}
+          {browserTabs.map((tab, idx) => (
+            <TabItem
+              key={tab.id}
+              index={visibleOpenThreads.length + terminalTabs.length + idx}
+              value={`${BROWSER_TAB_PREFIX}${tab.id}`}
+              label={tab.title}
+              scrollLabelOnHover
+              icon={tab.kind === "brief" ? NewspaperIcon : GlobeIcon}
+              onClose={() => handleCloseBrowser(tab.id)}
+              data-pipper-id={`browser-tab-${tab.id}`}
+            />
+          ))}
         </TabsList>
 
         <div className="relative shrink-0" style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>
@@ -675,9 +746,27 @@ export function GlobalTabBar() {
                   icon={ChatCircleIcon}
                   onSelect={handleNewThread}
                 />
-                <DropdownSeparator />
                 <MenuItem
                   index={2}
+                  label="New browser tab"
+                  icon={GlobeIcon}
+                  onSelect={() => {
+                    setIsDropdownOpen(false);
+                    showBrowser(openBrowserTab("about:blank"));
+                  }}
+                />
+                <MenuItem
+                  index={3}
+                  label="Morning brief"
+                  icon={NewspaperIcon}
+                  onSelect={() => {
+                    setIsDropdownOpen(false);
+                    openBriefTab();
+                  }}
+                />
+                <DropdownSeparator />
+                <MenuItem
+                  index={4}
                   label="New project"
                   icon={FolderPlusIcon}
                   onSelect={async () => {
