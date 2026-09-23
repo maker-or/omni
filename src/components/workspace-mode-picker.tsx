@@ -125,10 +125,33 @@ function AdvancedPreview({ scheme }: { scheme: "light" | "dark" }) {
   );
 }
 
-/** Visual layout chooser mirroring the theme picker. */
-export function WorkspaceModePicker({ className }: { className?: string }) {
-  const { mode, setMode } = useUiModeStore();
+/**
+ * Visual layout chooser mirroring the theme picker.
+ *
+ * Uncontrolled by default: reads and writes the persisted UI mode store.
+ * Pass `value`/`onChange` to drive a local selection instead — onboarding
+ * uses this to defer committing the choice until the user continues.
+ */
+export function WorkspaceModePicker({
+  className,
+  value,
+  onChange,
+}: {
+  className?: string;
+  value?: UiMode;
+  onChange?: (mode: UiMode) => void;
+}) {
+  const { mode: storedMode, setMode } = useUiModeStore();
   const { resolvedTheme } = useTheme();
+
+  const mode = value ?? storedMode;
+  const select = (next: UiMode) => {
+    if (onChange) {
+      onChange(next);
+      return;
+    }
+    setMode(next);
+  };
 
   return (
     <div
@@ -143,7 +166,7 @@ export function WorkspaceModePicker({ className }: { className?: string }) {
           value={option.value}
           label={option.label}
           selected={mode === option.value}
-          onSelect={() => setMode(option.value)}
+          onSelect={() => select(option.value)}
           className="min-w-0 flex-1"
         >
           {option.value === "basic" ? (

@@ -25,7 +25,6 @@ import {
   listBranches,
   listWorktrees,
   removeWorktree,
-  removeWorktreeDependencies,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
@@ -35,6 +34,7 @@ import {
   commitWorkspace,
   configureGithubPrSnapshotCache,
   createWorkspacePr,
+  getProjectRepoState,
   getWorkspaceGitStatus,
   initProjectRepo,
   markWorkspacePrReady,
@@ -1653,7 +1653,7 @@ function registerIpc(): void {
   // Merge the open GitHub PR for the workspace branch (checks-gated in the UI).
   ipcMain.handle("git:mergePr", async (_event, input: { projectId: string; path: string }) => {
     const target = resolveWorkspaceTarget(input.projectId, input.path);
-    const status = await getWorkspaceGitStatus(target.path);
+    const status = await getWorkspaceGitStatus(target.path, { force: true });
     if (status.prDataState !== "fresh") {
       throw new Error("GitHub could not be refreshed. Reconnect before merging.");
     }
@@ -1669,7 +1669,7 @@ function registerIpc(): void {
   // Draft PR → ready for review. Checks-agnostic: it only flips the GitHub flag.
   ipcMain.handle("git:markPrReady", async (_event, input: { projectId: string; path: string }) => {
     const target = resolveWorkspaceTarget(input.projectId, input.path);
-    const status = await getWorkspaceGitStatus(target.path);
+    const status = await getWorkspaceGitStatus(target.path, { force: true });
     if (status.prDataState !== "fresh") {
       throw new Error("GitHub could not be refreshed. Reconnect before updating the pull request.");
     }
@@ -1679,51 +1679,41 @@ function registerIpc(): void {
     return { ok: true as const, message };
   });
 
+  // Whether a project root can host a workspace worktree. Read by the
+  // create-workspace dialog before it offers a name, so a project with no
+  // repo (or no commits) gets its fix instead of a raw git error.
+  ipcMain.handle("git:projectRepoState", (_event, projectId: string) => {
+    const project = getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    return getProjectRepoState(project.path);
+  });
+
   ipcMain.handle(
     "git:init",
     (_event, input: { projectId: string; name?: string | null; email?: string | null }) => {
       const project = getProject(input.projectId);
       if (!project) throw new Error(`Project not found: ${input.projectId}`);
-      initProjectRepo(project.path, { name: input.name, email: input.email });
-      return { ok: true as const, message: "Git repository initialized." };
-    },
-  );
-
-  // Archive = park the workspace: drop installed deps to free disk, keep
-  // everything else. The archived flag itself lives in the renderer.
-  ipcMain.handle("worktrees:archive", (_event, input: { projectId: string; path: string }) => {
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
-    if (target.isProjectRoot) throw new Error("The project root cannot be archived.");
-    const { removed } = removeWorktreeDependencies(target.path);
-    logMain(`[Main] worktrees:archive path=${target.path} depsRemoved=${removed}`);
-    return {
-      ok: true as const,
-      message: removed ? "Workspace archived; dependencies removed." : "Workspace archived.",
-    };
-  });
-
-  // Restore = bring deps back (same installer as create). Unlike create this
-  // waits for the install: the renderer only un-archives on success, so a
-  // failed install leaves the workspace parked instead of half-restored.
-  ipcMain.handle(
-    "worktrees:restore",
-    async (_event, input: { projectId: string; path: string }) => {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
-      if (target.isProjectRoot) throw new Error("The project root cannot be restored.");
-      const outcome = await installWorktreeDependencies(
-        input.projectId,
-        target.path,
-        target.workspaceName ?? "Workspace",
-      );
-      if (outcome.status === "failed") {
-        throw new Error(outcome.message ?? `${outcome.manager ?? "Dependency"} install failed.`);
+      const state = getProjectRepoState(project.path);
+      // `ready` and `broken` are refused before the action runs: one is already
+      // usable and the other must never have a repository created inside it
+      // (see WorkspaceRepoState). Only `absent` and `unborn` have a fix here.
+      if (state === "ready") throw new Error("This project is already a git repository.");
+      if (state === "broken") {
+        throw new Error(
+          "This project's git state could not be read. The folder may have been moved or removed outside Pipper.",
+        );
       }
+      initProjectRepo(project.path, { name: input.name, email: input.email });
+      captureAnalytics("project_git_initialized", {
+        windowType: "main",
+        properties: { project_id: project.id },
+      });
       return {
         ok: true as const,
         message:
-          outcome.status === "installed"
-            ? "Workspace restored; dependencies installed."
-            : "Workspace restored.",
+          state === "unborn"
+            ? "Initial commit created."
+            : "Git repository initialized with an initial commit.",
       };
     },
   );

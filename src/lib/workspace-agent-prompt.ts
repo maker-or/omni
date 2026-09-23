@@ -103,6 +103,37 @@ export function buildCommitPrompt(input: {
   });
 }
 
+/**
+ * Catch a workspace up with its base branch, via the agent.
+ *
+ * Merging is delegated rather than run as a plain `git merge` because the
+ * interesting case is the conflicted one: resolving it needs to understand
+ * both sides, re-run the project's checks, and explain the result — none of
+ * which the panel can do. The protocol lives in `skills/git/get-latest.md`.
+ */
+export function buildGetLatestPrompt(input: {
+  branch: string | null;
+  /** Ref the base counts were measured against, e.g. "origin/main". */
+  baseBranch: string | null;
+  /** Commits on the base this workspace does not have yet. */
+  behindBase: number;
+  /** Uncommitted paths that must be committed before the merge. */
+  files?: string[];
+}): string {
+  const base = input.baseBranch ?? "origin/main";
+  const files = input.files ?? [];
+  return composeSkillPrompt({
+    skill: "get-latest",
+    task: `Bring this workspace up to date with ${base.replace(/^origin\//, "")}.`,
+    context: contextBlock({
+      branch: input.branch,
+      "base-ref": base,
+      "commits-behind-base": input.behindBase,
+      "uncommitted-paths": files,
+    }),
+  });
+}
+
 const COMMENT_OPEN = "<<<pr-comment";
 const COMMENT_CLOSE = ">>>";
 

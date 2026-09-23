@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
-import type { WorkspaceGitActionResult, WorkspaceGitStatus } from "../contracts/git.ts";
+import type {
+  ProjectRepoState,
+  WorkspaceGitActionResult,
+  WorkspaceGitStatus,
+} from "../contracts/git.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../contracts/threads.ts";
 import type {
   AcpBridgeEvent,
@@ -211,10 +215,6 @@ const api = {
       branch: string;
     }): Promise<{ thread: Thread; worktree: Worktree }> =>
       ipcRenderer.invoke("worktrees:switchBranch", input),
-    archive: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
-      ipcRenderer.invoke("worktrees:archive", input),
-    restore: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
-      ipcRenderer.invoke("worktrees:restore", input),
     continue: (input: { projectId: string; path: string }): Promise<Worktree> =>
       ipcRenderer.invoke("worktrees:continue", input),
   },
@@ -241,6 +241,8 @@ const api = {
       ipcRenderer.invoke("git:mergePr", input),
     markPrReady: (input: { projectId: string; path: string }): Promise<WorkspaceGitActionResult> =>
       ipcRenderer.invoke("git:markPrReady", input),
+    projectRepoState: (projectId: string): Promise<ProjectRepoState> =>
+      ipcRenderer.invoke("git:projectRepoState", projectId),
     init: (input: {
       projectId: string;
       name?: string | null;

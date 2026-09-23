@@ -14,6 +14,13 @@ export interface Worktree {
   head: string;
   /** True when this entry is the project's configured root checkout. */
   isProjectRoot?: boolean;
+  /**
+   * The checkout is gone: git reports the entry as prunable, or its directory
+   * no longer exists. Git keeps listing such entries until
+   * `git worktree prune`, so `listWorktrees` drops them — nothing can run
+   * there. Only the raw porcelain parse ever reports this as true.
+   */
+  missing?: boolean;
   /** Git-derived label for this workspace (the default branch for the root). */
   workspaceName?: string;
   /**

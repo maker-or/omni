@@ -1,8 +1,9 @@
 import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type {
+  ProjectRepoState,
   WorkspaceGitFile,
   WorkspaceGitStatus,
   WorkspacePr,
@@ -424,23 +425,104 @@ function writePrSnapshot(
   }
 }
 
-/** Stale-while-revalidate policy, exported so fallback semantics stay unit-testable. */
+/**
+ * How long a GitHub PR snapshot is served without asking GitHub again.
+ *
+ * Local git state is free (subprocesses) and polled often so the panel feels
+ * live; GitHub is metered — one PR query measured at 2 GraphQL points, so a
+ * 15s poll would burn ~480 of an account's 5,000 points per hour for a single
+ * visible workspace, before the user's own `gh` usage. PR/check/comment state
+ * also changes on the order of minutes, not seconds, so within this window the
+ * cached snapshot is served as-is and no request is made.
+ */
+export const PR_REFRESH_INTERVAL_MS = 3 * 60_000;
+
+/**
+ * Stale-while-revalidate policy, exported so fallback semantics stay
+ * unit-testable.
+ *
+ * A snapshot younger than `ttlMs` is returned without contacting GitHub and
+ * still counts as `fresh`: it is the last successful response, recent enough
+ * to act on. `force` skips that window for user-initiated work that must see
+ * current data (merge, mark ready, create PR).
+ */
 export async function resolvePrWithCache(
   repository: string,
   branch: string,
   fetchSummary: () => Promise<PrSummary>,
-  now = Date.now(),
+  options: { now?: number; force?: boolean; ttlMs?: number } = {},
 ): Promise<PrLookup> {
+  const now = options.now ?? Date.now();
+  const ttlMs = options.ttlMs ?? PR_REFRESH_INTERVAL_MS;
+  const cached = readPrSnapshot(repository, branch);
+  if (!options.force && cached && now - cached.updatedAt < ttlMs) {
+    return { summary: cached.summary, dataState: "fresh", updatedAt: cached.updatedAt };
+  }
   try {
     const summary = await fetchSummary();
     writePrSnapshot(repository, branch, summary, now);
     return { summary, dataState: "fresh", updatedAt: now };
   } catch {
-    const cached = readPrSnapshot(repository, branch);
     return cached
       ? { summary: cached.summary, dataState: "stale", updatedAt: cached.updatedAt }
       : { summary: NO_PR, dataState: "unavailable", updatedAt: null };
   }
+}
+
+type PrRefresh = {
+  startedAt: number;
+  inFlight: Promise<void> | null;
+  /** The last completed attempt failed — what makes cached data "stale". */
+  failed: boolean;
+};
+
+const prRefreshes = new Map<string, PrRefresh>();
+
+function prRefreshKey(repository: string, branch: string): string {
+  return `${repository}\0${branch}`;
+}
+
+/**
+ * Throttled, non-blocking PR refresh.
+ *
+ * GitHub answers in ~1s while the whole local git read takes ~70ms, so the
+ * network must never sit on the critical path of a status query. The caller
+ * serves whatever snapshot is cached and this brings the next one in.
+ * Never rejects; a failure is recorded so the cached data reads as stale.
+ */
+function refreshPrSnapshot(
+  repository: string,
+  branch: string,
+  fetchSummary: () => Promise<PrSummary>,
+  now = Date.now(),
+): void {
+  const key = prRefreshKey(repository, branch);
+  const entry = prRefreshes.get(key) ?? { startedAt: 0, inFlight: null, failed: false };
+  if (entry.inFlight) return;
+  if (now - entry.startedAt < PR_REFRESH_INTERVAL_MS) return;
+  entry.startedAt = now;
+  entry.inFlight = fetchSummary()
+    .then((summary) => {
+      writePrSnapshot(repository, branch, summary, Date.now());
+      entry.failed = false;
+    })
+    .catch(() => {
+      entry.failed = true;
+    })
+    .finally(() => {
+      entry.inFlight = null;
+    });
+  prRefreshes.set(key, entry);
+}
+
+/** True while a background refresh for this branch is in flight. */
+function isPrRefreshing(repository: string, branch: string): boolean {
+  return prRefreshes.get(prRefreshKey(repository, branch))?.inFlight != null;
+}
+
+/** Test seam: forget refresh throttling and failure flags. */
+export function resetPrRefreshesForTests(): void {
+  prRefreshes.clear();
 }
 
 const PR_BODY_MAX = 20_000;
@@ -679,33 +761,28 @@ export function summarizePrNodes(nodes: GhPrNode[]): PrSummary {
  * last merged one. Never throws — `gh` auth/network failures read as
  * "no PR known". The caller gates on `isGhAvailable()`.
  */
-async function lookupPr(
+/** The metered GitHub round-trip, isolated so callers can choose when to pay it. */
+function fetchPrSummary(
   cwd: string,
-  branch: string | null,
-  remoteUrl: string | null,
-): Promise<PrLookup> {
-  const repo = remoteUrl ? parseGitHubRepo(remoteUrl) : null;
-  if (!branch || !repo) {
-    return { summary: NO_PR, dataState: "unavailable", updatedAt: null };
-  }
-  const repository = `${repo.owner}/${repo.name}`;
-  return resolvePrWithCache(repository, branch, async () => {
-    const out = await gh(
-      cwd,
-      [
-        "api",
-        "graphql",
-        "-f",
-        `query=${PR_QUERY}`,
-        "-f",
-        `owner=${repo.owner}`,
-        "-f",
-        `name=${repo.name}`,
-        "-f",
-        `branch=${branch}`,
-      ],
-      30_000,
-    );
+  repo: { owner: string; name: string },
+  branch: string,
+): Promise<PrSummary> {
+  return gh(
+    cwd,
+    [
+      "api",
+      "graphql",
+      "-f",
+      `query=${PR_QUERY}`,
+      "-f",
+      `owner=${repo.owner}`,
+      "-f",
+      `name=${repo.name}`,
+      "-f",
+      `branch=${branch}`,
+    ],
+    30_000,
+  ).then((out) => {
     const parsed = JSON.parse(out) as {
       errors?: unknown[];
       data?: { repository?: { pullRequests?: { nodes?: GhPrNode[] } | null } | null };
@@ -719,12 +796,66 @@ async function lookupPr(
 }
 
 /**
+ * PR state for a branch, served from cache.
+ *
+ * Only `force` (a user action that must see current data) waits for GitHub.
+ * Every other caller gets the cached snapshot immediately and triggers a
+ * throttled background refresh, so a ~1s network round-trip never delays a
+ * ~70ms local git read. `refreshing` tells the panel a newer answer is on its
+ * way so it can re-read shortly instead of waiting for the next poll.
+ */
+async function lookupPr(
+  cwd: string,
+  branch: string | null,
+  remoteUrl: string | null,
+  options: { force?: boolean; published?: boolean } = {},
+): Promise<PrLookup & { refreshing: boolean }> {
+  const repo = remoteUrl ? parseGitHubRepo(remoteUrl) : null;
+  if (!branch || !repo) {
+    return { summary: NO_PR, dataState: "unavailable", updatedAt: null, refreshing: false };
+  }
+  const repository = `${repo.owner}/${repo.name}`;
+  const fetchSummary = () => fetchPrSummary(cwd, repo, branch);
+
+  if (options.force) {
+    const resolved = await resolvePrWithCache(repository, branch, fetchSummary, { force: true });
+    return { ...resolved, refreshing: false };
+  }
+
+  const cached = readPrSnapshot(repository, branch);
+  // A branch that has never been published cannot have a pull request. Most
+  // workspaces in a multi-worktree flow sit here, so skipping the query
+  // removes the bulk of the API traffic. Once a snapshot exists we keep
+  // refreshing it, so a branch whose upstream config was dropped is not lost.
+  if (!options.published && !cached) {
+    return { summary: NO_PR, dataState: "unavailable", updatedAt: null, refreshing: false };
+  }
+
+  refreshPrSnapshot(repository, branch, fetchSummary);
+  const refreshing = isPrRefreshing(repository, branch);
+  if (!cached) {
+    return { summary: NO_PR, dataState: "unavailable", updatedAt: null, refreshing };
+  }
+  return {
+    summary: cached.summary,
+    // Age alone is not staleness: a snapshot past its window with a refresh
+    // under way is still the last good answer. Only a failed attempt earns
+    // the warning (and blocks the actions that require current data).
+    dataState: prRefreshes.get(prRefreshKey(repository, branch))?.failed ? "stale" : "fresh",
+    updatedAt: cached.updatedAt,
+    refreshing,
+  };
+}
+
+/**
  * How often a polled workspace re-fetches its base branch (and upstream)
  * from origin. Fetching is the only way "the team has new changes" can ever
- * be noticed; it is throttled per worktree so the 15s status poll does not
- * become a 15s network round-trip.
+ * be noticed; it is throttled per worktree so the status poll never becomes a
+ * network round-trip. A `git fetch` does not spend GitHub's API quota, but it
+ * is still a remote round-trip per workspace, and a teammate's merge is not
+ * news that needs noticing within seconds.
  */
-export const BASE_FETCH_INTERVAL_MS = 2 * 60_000;
+export const BASE_FETCH_INTERVAL_MS = 5 * 60_000;
 const BASE_FETCH_TIMEOUT_MS = 30_000;
 
 type BaseFetch = {
@@ -810,7 +941,14 @@ type StatusFlight = {
 
 const statusFlights = new Map<string, StatusFlight>();
 
-export function getWorkspaceGitStatus(worktreePath: string): Promise<WorkspaceGitStatus> {
+export function getWorkspaceGitStatus(
+  worktreePath: string,
+  options: { force?: boolean } = {},
+): Promise<WorkspaceGitStatus> {
+  // A forced read must see current GitHub data, so it never shares a flight
+  // that may already be serving a cached snapshot. These are user-initiated
+  // and rare, so the extra run costs nothing in practice.
+  if (options.force) return computeWorkspaceGitStatus(worktreePath, true);
   const flight = statusFlights.get(worktreePath);
   if (!flight) return startStatusFlight(worktreePath);
   flight.queued ??= flight.active.then(
@@ -839,15 +977,46 @@ function startStatusFlight(worktreePath: string): Promise<WorkspaceGitStatus> {
 }
 
 /**
+ * Classify a path whose `git rev-parse` probe failed.
+ *
+ * Repository metadata does not always sit at the probed path: a project
+ * registered at a repository subdirectory points at `<checkout>/packages/app`
+ * while `.git` lives at the checkout root, and a linked worktree's `.git` is a
+ * file at the worktree root. So walk up looking for a `.git` entry rather than
+ * checking only the probed path — otherwise a failed probe on a real checkout
+ * reads as `absent` and the UI offers to initialize a nested repository inside
+ * the existing one.
+ *
+ * A `.git` entry means this path was set up as a repository: a directory for
+ * an ordinary checkout, or a file holding `gitdir:` for a linked worktree.
+ * When one is present and git still refuses to answer, the repository exists
+ * and something else is wrong (pruned worktree admin dir, moved checkout,
+ * spawn failure, timeout) — never an invitation to create a repository. Only
+ * a path with no repository metadata anywhere above it is genuinely `absent`.
+ */
+function repoStateForFailedProbe(worktreePath: string): "absent" | "broken" {
+  let current = worktreePath;
+  for (;;) {
+    if (existsSync(join(current, ".git"))) return "broken";
+    const parent = dirname(current);
+    if (parent === current) return "absent";
+    current = parent;
+  }
+}
+
+/**
  * Full git picture for one workspace worktree. Never throws — degrades to
- * isRepo:false. Async end to end: this is polled by the panel, and a slow
+ * a non-`ready` repoState. Async end to end: this is polled by the panel, and a slow
  * `gh` round-trip must not stall every other IPC in the app. Independent
  * reads run in two parallel rounds instead of a serial chain of ~10 spawns.
  */
-async function computeWorkspaceGitStatus(worktreePath: string): Promise<WorkspaceGitStatus> {
+async function computeWorkspaceGitStatus(
+  worktreePath: string,
+  forcePrRefresh = false,
+): Promise<WorkspaceGitStatus> {
   const ghAvailable = await isGhAvailable();
   const degraded: WorkspaceGitStatus = {
-    isRepo: false,
+    repoState: "broken",
     branch: null,
     upstream: null,
     ahead: 0,
@@ -873,10 +1042,15 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
     pr: null,
     prDataState: "unavailable",
     prUpdatedAt: null,
+    prRefreshing: false,
   };
   try {
+    // The directory itself is gone: broken, not "no repo here". Offering to
+    // initialize one would target a path that does not exist.
     if (!existsSync(worktreePath)) return degraded;
-    if ((await tryGitAsync(worktreePath, ["rev-parse", "--git-dir"])) === null) return degraded;
+    if ((await tryGitAsync(worktreePath, ["rev-parse", "--git-dir"])) === null) {
+      return { ...degraded, repoState: repoStateForFailedProbe(worktreePath) };
+    }
     // Round 1: every read that depends only on the worktree.
     const [branchRaw, upstreamRaw, base, statusSummary, origin, combinedNumstat, repoRoot] =
       await Promise.all([
@@ -906,8 +1080,16 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
         : null,
       collectLineStats(worktreePath, files, combinedNumstat, repoRoot ?? worktreePath),
       origin.host === "github.com" && ghAvailable
-        ? lookupPr(worktreePath, branch, origin.url)
-        : { summary: NO_PR, dataState: "unavailable" as const, updatedAt: null },
+        ? lookupPr(worktreePath, branch, origin.url, {
+            force: forcePrRefresh,
+            published: upstream !== null,
+          })
+        : {
+            summary: NO_PR,
+            dataState: "unavailable" as const,
+            updatedAt: null,
+            refreshing: false,
+          },
     ]);
     const pr = prLookup.summary;
     const aheadOfBase = baseCount && Number.isFinite(Number(baseCount)) ? Number(baseCount) : 0;
@@ -936,7 +1118,7 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
       };
     });
     return {
-      isRepo: true,
+      repoState: "ready",
       branch,
       upstream,
       ahead,
@@ -962,6 +1144,7 @@ async function computeWorkspaceGitStatus(worktreePath: string): Promise<Workspac
       pr: pr.pr,
       prDataState: prLookup.dataState,
       prUpdatedAt: prLookup.updatedAt,
+      prRefreshing: prLookup.refreshing,
     };
   } catch {
     return degraded;
@@ -1133,16 +1316,66 @@ export function mergeWorkspaceBranch(projectPath: string, branch: string): strin
   return base;
 }
 
-/** Initialize a fresh repo at the project path and wire the user's identity. */
+/**
+ * Whether the project root can host a workspace worktree. A worktree branches
+ * from a commit, so a repository with no commits (`unborn`) is as unusable as
+ * no repository at all — but its fix is an initial commit, not an init.
+ */
+export function getProjectRepoState(projectPath: string): ProjectRepoState {
+  // The directory itself is gone: broken, not "no repo here". Offering to
+  // initialize one would target a path that does not exist.
+  if (!existsSync(projectPath)) return "broken";
+  if (tryGit(projectPath, ["rev-parse", "--git-dir"]) === null) {
+    return repoStateForFailedProbe(projectPath);
+  }
+  return tryGit(projectPath, ["rev-parse", "--verify", "--quiet", "HEAD"]) === null
+    ? "unborn"
+    : "ready";
+}
+
+/**
+ * Make the project root a repository a workspace can branch from: initialize
+ * one when none exists, wire the user's identity, and create the initial
+ * commit when the repository has no commits yet.
+ *
+ * The commit is load-bearing, not cosmetic: `git worktree add` needs a commit
+ * to branch from, so a repository with no commits cannot host a workspace.
+ * Existing project files are included so a new workspace starts from them.
+ */
 export function initProjectRepo(
   projectPath: string,
   identity: { name?: string | null; email?: string | null },
   defaultBranch = "main",
 ): void {
   if (!existsSync(projectPath)) throw new Error(`Project path does not exist: ${projectPath}`);
-  git(projectPath, ["init", "-b", defaultBranch]);
+  const isRepo = tryGit(projectPath, ["rev-parse", "--git-dir"]) !== null;
+  // Re-running `git init` on a live repository rewrites HEAD and the local
+  // identity config. The UI only offers this for a project with no repo or no
+  // commits, so reaching here with commits means the caller is acting on
+  // stale state.
+  if (isRepo && tryGit(projectPath, ["rev-parse", "--verify", "--quiet", "HEAD"]) !== null) {
+    throw new Error("This project is already a git repository.");
+  }
+  if (!isRepo) git(projectPath, ["init", "-b", defaultBranch]);
   if (identity.name) git(projectPath, ["config", "user.name", identity.name]);
   if (identity.email) git(projectPath, ["config", "user.email", identity.email]);
+  createInitialCommit(projectPath);
+}
+
+/**
+ * Stage everything and commit. `--allow-empty` so a project with no files yet
+ * still gets the commit a worktree needs. Fails fast with a readable error
+ * instead of git's "Author identity unknown" wall — env-provided identity
+ * (CI, tests) counts, same rule git applies.
+ */
+function createInitialCommit(projectPath: string): void {
+  if (tryGit(projectPath, ["var", "GIT_AUTHOR_IDENT"]) === null) {
+    throw new Error(
+      "Git identity is missing: set user.name and user.email (repo-local config or global) before initializing.",
+    );
+  }
+  git(projectPath, ["add", "-A"]);
+  git(projectPath, ["commit", "--allow-empty", "-m", "Initial commit"]);
 }
 
 function assertInsideRepo(cwd: string): void {

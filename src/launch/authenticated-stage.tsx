@@ -9,8 +9,8 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSelector } from "@/components/agent-selector";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { SleeplessOnboarding } from "@/components/sleepless-onboarding";
-import { UiModeSelector } from "@/components/ui-mode-selector";
-import { hasSavedUiMode, useUiModeStore, type UiMode } from "@/store/ui-mode-store";
+import { WorkspaceModePicker } from "@/components/workspace-mode-picker";
+import { useUiModeStore, type UiMode } from "@/store/ui-mode-store";
 import { trackOnboarding } from "./onboarding-analytics";
 
 interface AuthenticatedStageProps {
@@ -29,6 +29,7 @@ type LaunchStage = "agent" | "sleepless" | "shortcuts" | "mode" | "list" | "add"
 const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
 const SLEEPLESS_ONBOARDING_STORAGE_KEY = "pipper.launch.sleeplessConfigured";
 const SHORTCUTS_ONBOARDING_STORAGE_KEY = "pipper.launch.shortcutsShown";
+const MODE_ONBOARDING_STORAGE_KEY = "pipper.launch.modeChosen";
 
 function isOnboardingFlagSet(key: string): boolean {
   try {
@@ -56,10 +57,17 @@ export function AuthenticatedStage({
 }: AuthenticatedStageProps) {
   const selectedAgentIds = useAgentRegistryStore((s) => s.selectedAgentIds);
   const loadAgents = useAgentRegistryStore((s) => s.load);
+  const currentUiMode = useUiModeStore((s) => s.mode);
   const setUiMode = useUiModeStore((s) => s.setMode);
+  const [pendingMode, setPendingMode] = useState<UiMode>(currentUiMode);
 
   const continueAfterMode = (mode: UiMode) => {
     setUiMode(mode);
+    try {
+      sessionStorage.setItem(MODE_ONBOARDING_STORAGE_KEY, "1");
+    } catch {
+      // ignore sessionStorage errors
+    }
     setStage("list");
   };
 
@@ -93,10 +101,8 @@ export function AuthenticatedStage({
       if (!isOnboardingFlagSet(SHORTCUTS_ONBOARDING_STORAGE_KEY)) {
         return "shortcuts";
       }
-      try {
-        if (!hasSavedUiMode()) return "mode";
-      } catch {
-        // ignore sessionStorage errors
+      if (!isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY)) {
+        return "mode";
       }
     }
     return "list";
@@ -151,7 +157,7 @@ export function AuthenticatedStage({
                 } catch {
                   // ignore
                 }
-                setStage(hasSavedUiMode() ? "list" : "mode");
+                setStage(isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY) ? "list" : "mode");
               }}
             />
           </>
@@ -176,7 +182,7 @@ export function AuthenticatedStage({
                 setStage("shortcuts");
                 return;
               }
-              setStage(hasSavedUiMode() ? "list" : "mode");
+              setStage(isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY) ? "list" : "mode");
             }}
           />
         ) : stage === "shortcuts" ? (
@@ -212,14 +218,34 @@ export function AuthenticatedStage({
                 } catch {
                   // ignore
                 }
-                setStage(hasSavedUiMode() ? "list" : "mode");
+                setStage(isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY) ? "list" : "mode");
               }}
             >
               Continue
             </Button>
           </div>
         ) : stage === "mode" ? (
-          <UiModeSelector onContinue={continueAfterMode} />
+          <div className="flex flex-col gap-5">
+            <header className="flex flex-col gap-1">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                How do you want to work?
+              </h1>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Basic keeps one simple chat layout. Advanced creates a separate workspace for every
+                thread, so you can work on multiple features in parallel. You can change this later
+                in settings.
+              </p>
+            </header>
+            <WorkspaceModePicker value={pendingMode} onChange={setPendingMode} />
+            <Button
+              type="button"
+              size="md"
+              className="w-full"
+              onClick={() => continueAfterMode(pendingMode)}
+            >
+              Continue
+            </Button>
+          </div>
         ) : stage === "list" ? (
           <>
             <header className="flex flex-col gap-1 pb-2 border-b border-border">

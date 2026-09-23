@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Archive,
   CaretDown,
   DotsThree,
   FolderPlus,
@@ -12,6 +11,7 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import type { Project } from "../../contracts/projects.ts";
+import type { ProjectRepoState } from "../../contracts/git.ts";
 import type { Worktree } from "../../contracts/worktrees.ts";
 import { orderWorktreesForDisplay } from "../../contracts/worktrees.ts";
 import { AgentView } from "@/components/agent-view";
@@ -21,7 +21,7 @@ import { TerminalSession } from "@/components/terminal-session";
 import { ThreadCompletionDock } from "@/components/thread-completion-dock";
 import {
   WorkspaceControlPanel,
-  HEADER_TONE_GRADIENT,
+  HEADER_TONE_COLOR,
   type HeaderTone,
 } from "@/components/workspace-control-panel";
 import { Toaster } from "@/components/ui/toaster";
@@ -36,6 +36,8 @@ import { useWorktreeStore } from "@/store/worktree-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { cn } from "@/lib/utils";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
+import { ProviderLogo } from "@/components/provider-logos";
+import { useRunningAgentsByWorkspace } from "@/lib/running-agents";
 
 /** Workspaces shown for a project before the "Load more" affordance appears. */
 const WORKSPACE_PAGE_SIZE = 6;
@@ -44,6 +46,11 @@ const WORKSPACE_PAGE_SIZE = 6;
  *  masonry rather than a uniform table — picked by workspace path. */
 const CARD_HEIGHTS = [128, 168, 144, 188, 132, 160, 116, 176];
 
+/** Agent marks shown on a card before collapsing the rest into "+N". */
+const MAX_RUNNING_AGENT_MARKS = 4;
+
+const EMPTY_AGENT_IDS: string[] = [];
+
 function cardHeight(path: string, selected: boolean): number {
   let hash = 0;
   for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) >>> 0;
@@ -51,20 +58,50 @@ function cardHeight(path: string, selected: boolean): number {
   return selected ? base + 24 : base;
 }
 
+/**
+ * Inset shadow for the active workspace card: the workspace's state colour,
+ * cast inward from all four edges. It replaces the old gradient fill, so the
+ * card keeps the parent background and only its state reads in colour.
+ *
+ * Two stacked shadows shape the falloff the way a single blur cannot: a
+ * near-edge band, then a deep glow that reaches toward the centre over the
+ * parent colour. No border ring — the state reads purely as a soft inward
+ * bleed from all four edges.
+ */
+function activeCardShadow(tone: HeaderTone): string {
+  const color = HEADER_TONE_COLOR[tone];
+  return [`inset 0 0 22px 2px ${color}8c`, `inset 0 0 48px 8px ${color}4d`].join(", ");
+}
+
 function WorkspaceNameDialog({
   project,
   isCreating,
   error,
+  repoState,
+  isInitializing,
   onCancel,
   onSubmit,
+  onInitialize,
+  onRetryRepoState,
 }: {
   project: Project;
   isCreating: boolean;
   error: string | null;
+  /** null while the project's repo state is still being read. */
+  repoState: ProjectRepoState | null;
+  isInitializing: boolean;
   onCancel: () => void;
   onSubmit: (name: string) => void;
+  onInitialize: () => void;
+  onRetryRepoState: () => void;
 }) {
   const [name, setName] = useState("");
+  // Both mean "a workspace cannot branch yet": no repository, or one with no
+  // commits. The fix differs by wording only — the action behind both buttons
+  // is `git:init`, which initializes and/or makes the initial commit.
+  const needsRepoSetup = repoState === "absent" || repoState === "unborn";
+  const initLabel = repoState === "unborn" ? "Create initial commit" : "Initialize git repository";
+  const initBusyLabel = repoState === "unborn" ? "Committing…" : "Initializing…";
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4">
@@ -77,7 +114,7 @@ function WorkspaceNameDialog({
           className="p-5"
           onSubmit={(event) => {
             event.preventDefault();
-            if (name.trim()) onSubmit(name.trim());
+            if (repoState === "ready" && name.trim()) onSubmit(name.trim());
           }}
         >
           <div className="mb-4 flex flex-col gap-1">
@@ -86,16 +123,38 @@ function WorkspaceNameDialog({
               Create an isolated workspace in {project.name}.
             </p>
           </div>
-          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-foreground">
-            Workspace name
-            <input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Fix login redirect"
-              className="h-9 rounded-md border border-border bg-surface-2 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-foreground/50 focus:ring-1 focus:ring-ring"
-            />
-          </label>
+          {repoState === null ? (
+            <p className="text-xs leading-5 text-muted-foreground">Checking git setup…</p>
+          ) : repoState === "broken" ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Couldn’t read this project’s git state. The folder may have been moved or removed
+              outside Pipper.
+            </p>
+          ) : needsRepoSetup ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs leading-5 text-muted-foreground">
+                {repoState === "absent"
+                  ? "This project isn’t using git yet. Workspaces are git worktrees, so Pipper needs to create a repository first."
+                  : "This project’s repository has no commits yet. Workspaces branch from a commit, so Pipper needs an initial commit first."}
+              </p>
+              <p className="text-[11px] leading-4 text-muted-foreground/70">
+                {repoState === "absent"
+                  ? "Initializing creates the repository and commits this project’s files so the new workspace starts from them."
+                  : "This project’s files will be included in the initial commit."}
+              </p>
+            </div>
+          ) : (
+            <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-foreground">
+              Workspace name
+              <input
+                autoFocus
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Fix login redirect"
+                className="h-9 rounded-md border border-border bg-surface-2 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-foreground/50 focus:ring-1 focus:ring-ring"
+              />
+            </label>
+          )}
           {error && (
             <p className="mt-3 text-xs leading-5 text-destructive" role="alert">
               {error}
@@ -105,9 +164,30 @@ function WorkspaceNameDialog({
             <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" size="sm" disabled={!name.trim() || isCreating}>
-              Create workspace
-            </Button>
+            {repoState === "broken" ? (
+              <Button type="button" variant="ghost" size="sm" onClick={onRetryRepoState}>
+                Try again
+              </Button>
+            ) : needsRepoSetup ? (
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={isInitializing}
+                onClick={onInitialize}
+              >
+                {isInitializing ? initBusyLabel : initLabel}
+              </Button>
+            ) : repoState === "ready" ? (
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={!name.trim() || isCreating}
+              >
+                Create workspace
+              </Button>
+            ) : null}
           </div>
         </form>
       </Elevated>
@@ -167,22 +247,50 @@ function ProjectTabs({
 }
 
 /** A single workspace rendered as a card in the grid. */
+/**
+ * Agent marks for the threads currently mid-turn in a workspace — the only
+ * signal that work is happening somewhere other than the workspace on screen.
+ * One mark per distinct agent, capped so a busy workspace cannot push the
+ * name out of the way.
+ */
+function RunningAgents({ agentIds }: { agentIds: string[] }) {
+  if (agentIds.length === 0) return null;
+  const shown = agentIds.slice(0, MAX_RUNNING_AGENT_MARKS);
+  const overflow = agentIds.length - shown.length;
+  const label =
+    agentIds.length === 1 ? "1 agent running here" : `${agentIds.length} agents running here`;
+  return (
+    <span
+      className="mt-auto flex items-center gap-1 pt-2"
+      title={label}
+      aria-label={label}
+      data-pipper-id="workspace-running-agents"
+    >
+      {shown.map((agentId) => (
+        <ProviderLogo key={agentId} provider={agentId} size={13} className="opacity-90" />
+      ))}
+      {overflow > 0 ? (
+        <span className="text-[10px] font-semibold tabular-nums opacity-70">+{overflow}</span>
+      ) : null}
+    </span>
+  );
+}
+
 function WorkspaceCard({
   worktree,
   selected,
   tone = "neutral",
-  archived,
+  runningAgentIds = EMPTY_AGENT_IDS,
   onSelect,
-  onArchive,
   onDelete,
 }: {
   worktree: Worktree;
   selected: boolean;
   /** Git-state tone of the selected workspace — mirrors the panel header. */
   tone?: HeaderTone;
-  archived?: boolean;
+  /** Agents mid-turn in this workspace right now. */
+  runningAgentIds?: string[];
   onSelect: () => void;
-  onArchive?: () => void;
   onDelete?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -222,36 +330,24 @@ function WorkspaceCard({
           event.preventDefault();
           setMenuOpen((open) => !open);
         }}
-        style={{ minHeight: cardHeight(worktree.path, selected) }}
+        style={{
+          minHeight: cardHeight(worktree.path, selected),
+          boxShadow: selected ? activeCardShadow(tone) : undefined,
+        }}
         className={cn(
           "relative flex w-full flex-col overflow-hidden rounded-2xl p-3 text-left outline-none",
           "transition-[background-color,color,box-shadow] duration-80",
           "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
           selected
-            ? cn(
-                "bg-linear-to-b shadow-surface-4 ring-1",
-                HEADER_TONE_GRADIENT[tone],
-                tone === "neutral" ? "text-foreground ring-black/5" : "text-white ring-white/15",
-              )
-            : archived
-              ? "border border-dashed border-foreground/15 bg-transparent text-neutral-500 hover:bg-foreground/5"
-              : "bg-[#262626] text-neutral-400 hover:bg-[#303030] hover:text-neutral-100",
+            ? "bg-surface-1 text-foreground"
+            : "bg-[#262626] text-neutral-400 hover:bg-[#303030] hover:text-neutral-100",
         )}
       >
-        <span
-          className={cn(
-            "line-clamp-3 pr-5 text-[13px] font-medium leading-snug",
-            selected && tone !== "neutral" && "drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]",
-          )}
-        >
+        <span className="line-clamp-3 pr-5 text-[13px] font-medium leading-snug">
           {name}
           {selected && <span className="sr-only"> (active workspace)</span>}
         </span>
-        {archived && (
-          <span className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] opacity-80">
-            Archived
-          </span>
-        )}
+        <RunningAgents agentIds={runningAgentIds} />
       </button>
       <button
         type="button"
@@ -278,16 +374,6 @@ function WorkspaceCard({
           data-pipper-id="workspace-context-menu"
           className="absolute right-1 top-full z-50 mt-1 w-44 rounded-lg border border-border p-1"
         >
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-hover hover:text-foreground"
-            onClick={() => {
-              setMenuOpen(false);
-              onArchive?.();
-            }}
-          >
-            <Archive size={14} /> {archived ? "Restore workspace" : "Archive workspace"}
-          </button>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-hover hover:text-foreground"
@@ -321,6 +407,15 @@ export function AdvancedShell() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [worktreesByProject, setWorktreesByProject] = useState<Record<string, Worktree[]>>({});
   const [dialogProject, setDialogProject] = useState<Project | null>(null);
+  // Whether the dialog's project can host a worktree (and its fix when it
+  // cannot). null while the read is in flight.
+  const [dialogRepoState, setDialogRepoState] = useState<ProjectRepoState | null>(null);
+  const [dialogRepoError, setDialogRepoError] = useState<string | null>(null);
+  const [isInitializingRepo, setIsInitializingRepo] = useState(false);
+  // The dialog's project, readable from async callbacks after render state has
+  // moved on; null when the dialog is closed. Doubles as the stale-response
+  // guard: a read that resolves after the dialog moved on is dropped.
+  const dialogProjectRef = useRef<Project | null>(null);
   // Git-state tone of the selected workspace, reported by the control panel,
   // used to tint the active card with the panel's gradient.
   const [selectedTone, setSelectedTone] = useState<HeaderTone>("neutral");
@@ -335,13 +430,6 @@ export function AdvancedShell() {
   const loadMoreWorkspaces = (projectId: string) => {
     setExpandedWorkspaceProjects((current) => new Set(current).add(projectId));
   };
-  const [archivedKeys, setArchivedKeys] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(window.localStorage.getItem("pipper.archived-workspaces") ?? "[]"));
-    } catch {
-      return new Set();
-    }
-  });
 
   const selectedPath = activeProject
     ? normalizeWorkspacePath(selectedWorktreePathByProject[activeProject.id], activeProject.path)
@@ -453,18 +541,92 @@ export function AdvancedShell() {
     // A failure from an earlier attempt (possibly another project) must not
     // greet the user before they have typed anything.
     clearWorktreeError();
+    setDialogRepoError(null);
+    setDialogRepoState(null);
+    setIsInitializingRepo(false);
+    dialogProjectRef.current = project;
     setDialogProject(project);
+    void checkDialogRepoState(project.id);
   };
   const closeWorkspaceDialog = () => {
+    dialogProjectRef.current = null;
     clearWorktreeError();
+    setDialogRepoError(null);
+    setDialogRepoState(null);
+    setIsInitializingRepo(false);
     setDialogProject(null);
+  };
+
+  /**
+   * Read whether the dialog's project can host a worktree. A failed read is
+   * never "no repo": the dialog must not offer to initialize a repository it
+   * could not inspect.
+   */
+  const checkDialogRepoState = async (projectId: string) => {
+    if (!window.omni?.git?.projectRepoState) {
+      // Preload predates the git bridge (needs app restart, not just HMR).
+      setDialogRepoState("broken");
+      setDialogRepoError("Git bridge missing — restart the app (bun run dev) to load it.");
+      return;
+    }
+    try {
+      const state = await window.omni.git.projectRepoState(projectId);
+      if (dialogProjectRef.current?.id !== projectId) return;
+      setDialogRepoState(state);
+      // A create failure ("Not a git repository…") is superseded by the
+      // setup prompt it produced; keeping both would show a raw git error
+      // above the button that fixes it.
+      if (state !== "ready") clearWorktreeError();
+    } catch (err) {
+      if (dialogProjectRef.current?.id !== projectId) return;
+      setDialogRepoState("broken");
+      setDialogRepoError(
+        err instanceof Error ? err.message : "Could not read this project’s git state.",
+      );
+    }
+  };
+
+  /** Initialize the project's repository (or its initial commit) and re-read. */
+  const initializeDialogRepo = async () => {
+    const project = dialogProjectRef.current;
+    if (!project || isInitializingRepo) return;
+    const stillActive = () => dialogProjectRef.current?.id === project.id;
+    setIsInitializingRepo(true);
+    setDialogRepoError(null);
+    try {
+      const user = await window.omni.launch.getUser().catch(() => null);
+      // Identity comes from the signed-in account; stored as repo-local config
+      // so global git identity is never touched.
+      await window.omni.git.init({
+        projectId: project.id,
+        name: user?.name,
+        email: user?.email,
+      });
+      if (!stillActive()) return;
+      await checkDialogRepoState(project.id);
+      if (!stillActive()) return;
+      // The project root is a real workspace now — surface it in the sidebar
+      // without waiting for the next project switch.
+      await reloadWorkspaces(project);
+    } catch (err) {
+      if (!stillActive()) return;
+      setDialogRepoError(err instanceof Error ? err.message : "Could not initialize git.");
+    } finally {
+      if (stillActive()) setIsInitializingRepo(false);
+    }
   };
 
   const createWorkspace = async (name: string) => {
     if (!dialogProject) return;
     const project = dialogProject;
     const worktree = await createWorktree(project.id, name);
-    if (!worktree) return;
+    if (!worktree) {
+      // Creation can fail because the project is no longer a usable repo
+      // (removed, or left with no commits). Re-read the state so the dialog
+      // offers the fix instead of stranding the user on a raw git error.
+      void checkDialogRepoState(project.id);
+      return;
+    }
     setDialogProject(null);
     // The worktree exists on disk now — show it before anything that can
     // still fail (switching, renaming), so the sidebar never hides a real
@@ -496,53 +658,6 @@ export function AdvancedShell() {
     await loadWorktrees(project.id);
   };
 
-  const workspaceKey = (projectId: string, path: string) => `${projectId}:${path}`;
-  // Mirror the archived set to storage whenever it changes. Mutations below
-  // are functional updates, so long-running flows (restore can take minutes)
-  // never overwrite a change made in the meantime with a stale snapshot.
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("pipper.archived-workspaces", JSON.stringify([...archivedKeys]));
-    } catch {
-      // Keep the current session state when storage is unavailable.
-    }
-  }, [archivedKeys]);
-  const setArchived = (key: string, archived: boolean) =>
-    setArchivedKeys((current) => {
-      if (current.has(key) === archived) return current;
-      const next = new Set(current);
-      if (archived) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-  const archiveWorkspace = async (project: Project, worktree: Worktree) => {
-    if (worktree.isProjectRoot) return;
-    // Free the disk first (node_modules); the archived flag is only set once
-    // that succeeded so a failed cleanup never leaves a "phantom" archive.
-    await window.omni.worktrees.archive({ projectId: project.id, path: worktree.path });
-    if (project.id === activeProject?.id && worktree.path === selectedPath) {
-      await switchWorktree(project.id, project.path);
-    }
-    setArchived(workspaceKey(project.id, worktree.path), true);
-  };
-  const restoreWorkspace = async (project: Project, worktree: Worktree) => {
-    const key = workspaceKey(project.id, worktree.path);
-    // Optimistic: the row moves back immediately while deps reinstall (that
-    // can take minutes). `restore` resolves only once the install finished;
-    // on failure the workspace is parked again so "restored" always means
-    // "usable".
-    setArchived(key, false);
-    try {
-      await window.omni.worktrees.restore({ projectId: project.id, path: worktree.path });
-    } catch (err) {
-      setArchived(key, true);
-      toast({
-        icon: <Archive weight="duotone" className="size-5 text-destructive" />,
-        title: "Workspace restore failed",
-        description: err instanceof Error ? err.message : "Dependencies could not be installed.",
-      });
-    }
-  };
   /** After "Continue" the worktree is on a new branch — refresh git-derived rows. */
   const reloadWorkspaces = async (project: Project) => {
     const items = await window.omni.worktrees.list(project.id).catch(() => null);
@@ -564,7 +679,6 @@ export function AdvancedShell() {
     )
       return;
     await window.omni.worktrees.delete({ projectId: project.id, path: worktree.path });
-    setArchived(workspaceKey(project.id, worktree.path), false);
     setWorktreesByProject((current) => ({
       ...current,
       [project.id]: (current[project.id] ?? []).filter((item) => item.path !== worktree.path),
@@ -579,15 +693,11 @@ export function AdvancedShell() {
   };
 
   // Workspaces for the active project — only the active project's grid renders.
+  const runningAgents = useRunningAgentsByWorkspace(activeProject);
   const visibleWorktrees = activeProject
     ? (worktreesByProject[activeProject.id] ?? []).filter((worktree) => !worktree.isProjectRoot)
     : [];
-  const activeWorktrees = visibleWorktrees.filter(
-    (worktree) => !archivedKeys.has(workspaceKey(activeProject?.id ?? "", worktree.path)),
-  );
-  const archivedWorktrees = visibleWorktrees.filter((worktree) =>
-    archivedKeys.has(workspaceKey(activeProject?.id ?? "", worktree.path)),
-  );
+  const activeWorktrees = visibleWorktrees;
   const workspacesExpanded = activeProject
     ? expandedWorkspaceProjects.has(activeProject.id)
     : false;
@@ -663,7 +773,7 @@ export function AdvancedShell() {
               <div className="min-h-0 flex-1 overflow-y-auto px-2">
                 {activeProject ? (
                   <>
-                    {activeWorktrees.length === 0 && archivedWorktrees.length === 0 ? (
+                    {activeWorktrees.length === 0 ? (
                       <button
                         type="button"
                         className="flex min-h-[7rem] w-full items-center justify-center rounded-2xl border border-dashed border-border text-[13px] text-muted-foreground/70 transition-colors duration-80 hover:bg-surface-2 hover:text-foreground"
@@ -681,8 +791,12 @@ export function AdvancedShell() {
                               worktree={worktree}
                               selected={isSelected}
                               tone={isSelected ? selectedTone : "neutral"}
+                              runningAgentIds={
+                                runningAgents.get(
+                                  normalizeWorkspacePath(worktree.path, activeProject.path),
+                                ) ?? EMPTY_AGENT_IDS
+                              }
                               onSelect={() => void selectWorkspace(activeProject, worktree.path)}
-                              onArchive={() => void archiveWorkspace(activeProject, worktree)}
                               onDelete={() => void deleteWorkspace(activeProject, worktree)}
                             />
                           );
@@ -698,26 +812,6 @@ export function AdvancedShell() {
                         <CaretDown size={14} />
                         Load more ({hiddenWorkspaceCount})
                       </button>
-                    ) : null}
-                    {archivedWorktrees.length > 0 ? (
-                      <div className="mt-3">
-                        <div className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60">
-                          Archived
-                        </div>
-                        <div className="columns-2 gap-2">
-                          {archivedWorktrees.map((worktree) => (
-                            <WorkspaceCard
-                              key={`archived-${worktree.path}`}
-                              worktree={worktree}
-                              selected={false}
-                              archived
-                              onSelect={() => void selectWorkspace(activeProject, worktree.path)}
-                              onArchive={() => void restoreWorkspace(activeProject, worktree)}
-                              onDelete={() => void deleteWorkspace(activeProject, worktree)}
-                            />
-                          ))}
-                        </div>
-                      </div>
                     ) : null}
                   </>
                 ) : (
@@ -800,9 +894,9 @@ export function AdvancedShell() {
                   worktreePath={selectedPath}
                   workspaceName={selectedWorkspaceName}
                   onToneChange={setSelectedTone}
-                  onArchive={
+                  onDelete={
                     activeProject && selectedWorktree && !selectedWorktree.isProjectRoot
-                      ? () => archiveWorkspace(activeProject, selectedWorktree)
+                      ? () => deleteWorkspace(activeProject, selectedWorktree)
                       : undefined
                   }
                   onContinued={activeProject ? () => reloadWorkspaces(activeProject) : undefined}
@@ -816,9 +910,13 @@ export function AdvancedShell() {
         <WorkspaceNameDialog
           project={dialogProject}
           isCreating={isCreating}
-          error={worktreeError}
+          error={dialogRepoError ?? worktreeError}
+          repoState={dialogRepoState}
+          isInitializing={isInitializingRepo}
           onCancel={closeWorkspaceDialog}
           onSubmit={(name) => void createWorkspace(name)}
+          onInitialize={() => void initializeDialogRepo()}
+          onRetryRepoState={() => void checkDialogRepoState(dialogProject.id)}
         />
       )}
     </SidebarProvider>

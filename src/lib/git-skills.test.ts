@@ -64,7 +64,7 @@ describe("composeSkillPrompt", () => {
   });
 
   test("every scenario gets the shared rules", () => {
-    for (const skill of ["commit", "address-review"] as const) {
+    for (const skill of ["commit", "address-review", "get-latest"] as const) {
       const prompt = composeSkillPrompt({ skill, task: "t", context: "" });
       expect(prompt, skill).toContain("--no-verify");
       expect(prompt, skill).toContain("plain-English report");

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowsClockwise,
   ArrowUpRight,
   CheckCircle,
   DotsThreeVertical,
@@ -20,6 +21,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
   buildCommitPrompt,
+  buildGetLatestPrompt,
   buildPrCommentsPrompt,
   sendWorkspaceAgentPrompt,
 } from "@/lib/workspace-agent-prompt";
@@ -27,7 +29,65 @@ import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import { WorkspacePrDetail, type PrStatusItem } from "@/components/workspace-pr-detail";
 import { SplitButton, type SplitMenuItem } from "@/components/workspace-split-button";
 
-const POLL_MS = 15000;
+/**
+ * Local git poll. Only reads the worktree (subprocesses, no network and no
+ * API quota), but each tick spawns ~10 git processes, and the panel re-reads
+ * immediately after every action anyway — so a slower tick costs nothing the
+ * user notices. GitHub data rides its own, much longer cadence
+ * (`PR_REFRESH_INTERVAL_MS` in electron/git-workspace.ts).
+ */
+const POLL_MS = 30_000;
+
+/**
+ * Follow-up read after a status arrives with a GitHub refresh in flight, so
+ * PR data lands about a second after the workspace paints rather than on the
+ * next poll.
+ */
+const PR_FOLLOW_UP_MS = 1_500;
+
+/**
+ * Last known status per workspace, so switching back to one paints instantly
+ * instead of showing "Reading git state…" while git is re-read.
+ *
+ * Bounded and keyed by project + worktree: a workspace's controls must never
+ * render against another workspace's state, and an unbounded map would keep
+ * every workspace ever visited alive for the session. Insertion order makes
+ * this an LRU — re-inserting on write moves an entry to the end.
+ */
+const STATUS_CACHE_LIMIT = 12;
+const statusCache = new Map<string, WorkspaceGitStatus>();
+
+function statusCacheKey(projectId: string, worktreePath: string): string {
+  return `${projectId}\u0000${worktreePath}`;
+}
+
+function readCachedStatus(projectId: string | null, worktreePath: string | null) {
+  if (!projectId || !worktreePath) return null;
+  return statusCache.get(statusCacheKey(projectId, worktreePath)) ?? null;
+}
+
+function writeCachedStatus(
+  projectId: string | null,
+  worktreePath: string | null,
+  status: WorkspaceGitStatus,
+): void {
+  if (!projectId || !worktreePath) return;
+  // Only a good read is worth remembering. A degraded snapshot (`broken` /
+  // `absent`) is usually a passing hiccup (spawn failure, timeout, an index
+  // lock held by the agent mid-commit), and the panel re-fetches on every
+  // poll anyway — caching it would re-paint "couldn't read git state" on every
+  // return to this workspace until a clean read lands, making a healthy
+  // checkout look dead.
+  if (status.repoState !== "ready") return;
+  const key = statusCacheKey(projectId, worktreePath);
+  statusCache.delete(key);
+  statusCache.set(key, status);
+  while (statusCache.size > STATUS_CACHE_LIMIT) {
+    const oldest = statusCache.keys().next().value;
+    if (oldest === undefined) break;
+    statusCache.delete(oldest);
+  }
+}
 
 function notify(kind: "ok" | "error", title: string, description?: string) {
   toast({
@@ -49,6 +109,8 @@ function actionLabel(kind: string): string {
       return "Commit handed to agent";
     case "commitPush":
       return "Commit and push handed to agent";
+    case "getLatest":
+      return "Catching up handed to agent";
     case "push":
       return "Pushed";
     case "pr":
@@ -59,8 +121,6 @@ function actionLabel(kind: string): string {
       return "Merged";
     case "ready":
       return "Ready for review";
-    case "archive":
-      return "Workspace archived";
     case "continue":
       return "New branch started";
     case "init":
@@ -76,7 +136,7 @@ function actionLabel(kind: string): string {
  * - action:  PR open but something blocks merging (dirty tree, draft,
  *            checks running or failing)
  * - ready:   PR open, tree clean, checks green — merge is the next step
- * - merged:  the branch's PR landed — archive the workspace or continue on
+ * - merged:  the branch's PR landed — delete the workspace or continue on
  *            a fresh branch
  * - stale:   no PR and nothing of the user's own to save or share, but the
  *            base branch has moved on — catching up is the next step
@@ -93,6 +153,17 @@ export const HEADER_TONE_GRADIENT: Record<HeaderTone, string> = {
   stale: "from-[#5CA8FF] via-[#1F3F66] to-[#1F3F66]/0",
 };
 
+/** Solid tone colours, used where the state has to read as a colour rather
+ *  than a fill (the sidebar active workspace card's inset shadow). Based on
+ *  each gradient's `from` colour, tuned a touch darker for the glow. */
+export const HEADER_TONE_COLOR: Record<HeaderTone, string> = {
+  neutral: "#a1a1aa",
+  action: "#E08A2E",
+  ready: "#088139",
+  merged: "#8b5cf6",
+  stale: "#5CA8FF",
+};
+
 function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone {
   if (!status.openPrNumber) {
     if (status.mergedPrNumber) return "merged";
@@ -100,13 +171,26 @@ function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone 
     // is catch up. With unsaved or unpushed work the header stays neutral
     // and the primary button (save/share) keeps the user's own work first.
     const idle = dirtyCount === 0 && status.ahead === 0;
-    return idle && status.behindBase > 0 ? "stale" : "neutral";
+    return idle && hasTeamChanges(status) ? "stale" : "neutral";
   }
   if (status.isDraftPr) return "action";
   if (dirtyCount > 0 || status.ahead > 0) return "action";
   if (status.checksState === "passing") return "ready";
   if (status.checksState === "none" || status.checksState === "unknown") return "ready";
   return "action";
+}
+
+/**
+ * Whether the base branch carries work this workspace still needs.
+ *
+ * A merged workspace is always "behind" its base and has nothing to catch up
+ * on: once its own PR lands, the base contains that very work (plus the merge
+ * commit), so `behindBase` counts the workspace's own landed changes.
+ */
+export function hasTeamChanges(status: WorkspaceGitStatus): boolean {
+  if (status.behindBase === 0) return false;
+  const merged = !status.openPrNumber && status.mergedPrNumber !== null;
+  return !merged;
 }
 
 /** Plain-language name for the base branch a workspace branched from. */
@@ -121,6 +205,9 @@ function prBlocker(status: WorkspaceGitStatus): string | null {
   if (status.prDataState !== "fresh") return "Refresh GitHub before creating a PR";
   return null;
 }
+
+/** Git work currently delegated to this workspace's agent thread. */
+type AgentTask = "commit" | "commitPush" | "getLatest";
 
 type PanelTab = "check" | "changes";
 
@@ -169,20 +256,21 @@ export function WorkspaceControlPanel({
   project,
   worktreePath,
   workspaceName,
-  onArchive,
   onContinued,
   onToneChange,
+  onDelete,
 }: {
   project: Project | null;
   worktreePath: string | null;
   workspaceName: string | null;
-  /** Archive the selected workspace (shell owns the archived flag). Absent for the root. */
-  onArchive?: () => Promise<void> | void;
+  /** Parked by the user: catch-up prompts stay quiet until it is restored. */
   /** Fired after "Continue" moved the worktree onto a new branch. */
   onContinued?: () => Promise<void> | void;
   /** Reports the current header tone so the shell can tint the active
    *  workspace card with the matching gradient. */
   onToneChange?: (tone: HeaderTone) => void;
+  /** Delete the selected workspace. Absent for the project root. */
+  onDelete?: () => Promise<void> | void;
 }) {
   const [status, setStatus] = useState<WorkspaceGitStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -197,8 +285,10 @@ export function WorkspaceControlPanel({
   const [changesMenuOpen, setChangesMenuOpen] = useState(false);
   const changesMenuButtonRef = useRef<HTMLButtonElement>(null);
   const changesMenuRef = useRef<HTMLDivElement>(null);
+  /** Consecutive `broken` reads while a good status is on screen. */
+  const brokenReadsRef = useRef(0);
   /** Agent turn we handed a commit to; cleared when that turn settles. */
-  const [agentTask, setAgentTask] = useState<"commit" | "commitPush" | null>(null);
+  const [agentTask, setAgentTask] = useState<AgentTask | null>(null);
   const diffFiles = useDiffStore((state) => state.files);
   const diffOrder = useDiffStore((state) => state.order);
   const diffThreadId = useDiffStore((state) => state.threadId);
@@ -223,13 +313,17 @@ export function WorkspaceControlPanel({
    * objects would re-render the whole panel (and re-fire the tone effect)
    * for nothing.
    */
-  const applyStatus = useCallback((next: WorkspaceGitStatus | null) => {
-    setStatus((prev) => {
-      const value = next && prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
-      statusRef.current = value;
-      return value;
-    });
-  }, []);
+  const applyStatus = useCallback(
+    (next: WorkspaceGitStatus | null) => {
+      setStatus((prev) => {
+        const value = next && prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        statusRef.current = value;
+        return value;
+      });
+      if (next) writeCachedStatus(project?.id ?? null, worktreePath, next);
+    },
+    [project?.id, worktreePath],
+  );
 
   const refresh = useCallback(async () => {
     if (!project || !worktreePath) {
@@ -250,6 +344,16 @@ export function WorkspaceControlPanel({
     try {
       const next = await window.omni.git.status({ projectId: project.id, path: worktreePath });
       if (generation !== generationRef.current) return;
+      // A `broken` read can be a passing hiccup (spawn failure, timeout, an
+      // index lock held by the agent mid-commit). Replacing a working panel
+      // with an error on the first one makes routine git activity look like
+      // a dead workspace, so absorb a single blip and act on the second.
+      if (next.repoState === "broken" && statusRef.current?.repoState === "ready") {
+        brokenReadsRef.current += 1;
+        if (brokenReadsRef.current < 2) return;
+      } else {
+        brokenReadsRef.current = 0;
+      }
       applyStatus(next);
     } catch (err) {
       if (generation !== generationRef.current) return;
@@ -264,10 +368,15 @@ export function WorkspaceControlPanel({
 
   useEffect(() => {
     generationRef.current += 1;
-    // Drop the previous workspace's status immediately: until the fresh read
+    brokenReadsRef.current = 0;
+    // Paint this workspace's last known status immediately when we have one:
+    // a cold read is ~70ms of git but the panel would otherwise blank out on
+    // every switch. Keyed by project + worktree, so this can only ever show
+    // the selected workspace's own state, never the previous one's.
+    // Otherwise drop the previous workspace's status: until the fresh read
     // lands, its PR/branch controls would otherwise stay rendered and
     // interactive while every handler already targets the new worktree.
-    applyStatus(null);
+    applyStatus(readCachedStatus(project?.id ?? null, worktreePath));
     setError(null);
     setNotice(null);
     setAgentTask(null);
@@ -277,7 +386,18 @@ export function WorkspaceControlPanel({
     setChangesMenuOpen(false);
     setPrTitle(workspaceName ?? "");
     void refresh();
-  }, [refresh, workspaceName, applyStatus]);
+  }, [refresh, workspaceName, applyStatus, project?.id, worktreePath]);
+
+  // A status that arrived with a GitHub refresh in flight has a newer answer
+  // moments away; re-read once rather than leaving the PR section empty until
+  // the next poll.
+  useEffect(() => {
+    if (!status?.prRefreshing) return;
+    const id = setTimeout(() => {
+      if (!document.hidden) void refresh();
+    }, PR_FOLLOW_UP_MS);
+    return () => clearTimeout(id);
+  }, [status?.prRefreshing, status?.prUpdatedAt, refresh]);
 
   useEffect(() => {
     if (!project || !worktreePath) return;
@@ -355,9 +475,14 @@ export function WorkspaceControlPanel({
   );
 
   const dirtyCount = (status?.staged ?? 0) + (status?.unstaged ?? 0) + (status?.untracked ?? 0);
+  // A repository can only be created for the project itself; a worktree
+  // always belongs to one already.
+  const isProjectRoot = normalizeWorkspacePath(worktreePath, project?.path ?? null) === null;
   const unpushed = status?.ahead ?? 0;
+  const behind = status ? hasTeamChanges(status) : false;
   const busy = action !== null || agentTask !== null;
-  const tone: HeaderTone = status?.isRepo ? headerTone(status, dirtyCount) : "neutral";
+  const tone: HeaderTone =
+    status?.repoState === "ready" ? headerTone(status, dirtyCount) : "neutral";
   // Default tab follows what the tone is about: merge/check state → Check,
   // local work → Changes.
   const tab: PanelTab =
@@ -433,9 +558,20 @@ export function WorkspaceControlPanel({
    * reject. The prompt lands in this workspace's thread; git state is
    * re-read once the agent's turn ends.
    */
-  const delegateCommit = (push: boolean) => {
-    if (!project || !worktreePath || !status || dirtyCount === 0 || busy) return;
-    const kind = push ? "commitPush" : "commit";
+  /**
+   * Hand a git task to this workspace's agent thread. Merging, conflict
+   * resolution and commits all run there rather than as raw git calls: the
+   * repo's hooks and the conflicted case need judgement the panel can't
+   * apply, and the user can watch it happen in the thread.
+   */
+  const delegateToAgent = (input: {
+    kind: AgentTask;
+    title: string;
+    message: string;
+    pending: string;
+  }) => {
+    if (!project || !worktreePath || busy) return;
+    const { kind } = input;
     setShowPrForm(false);
     setError(null);
     setNotice(null);
@@ -452,17 +588,12 @@ export function WorkspaceControlPanel({
     void sendWorkspaceAgentPrompt({
       project,
       worktreePath,
-      title: workspaceName ? `${workspaceName}: commit` : "Commit",
-      message: buildCommitPrompt({
-        branch: status.branch,
-        push,
-        files: status.files.map((file) => file.path),
-        truncated: status.truncated,
-      }),
+      title: input.title,
+      message: input.message,
     })
       .then(({ turn }) => {
         if (stale()) return;
-        setNotice(push ? "Agent is committing and pushing…" : "Agent is committing…");
+        setNotice(input.pending);
         notify(
           "ok",
           actionLabel(kind),
@@ -483,6 +614,36 @@ export function WorkspaceControlPanel({
         notify("error", `${actionLabel(kind)} failed`, message);
         setAgentTask(null);
       });
+  };
+
+  const delegateCommit = (push: boolean) => {
+    if (!status || dirtyCount === 0) return;
+    delegateToAgent({
+      kind: push ? "commitPush" : "commit",
+      title: workspaceName ? `${workspaceName}: commit` : "Commit",
+      message: buildCommitPrompt({
+        branch: status.branch,
+        push,
+        files: status.files.map((file) => file.path),
+        truncated: status.truncated,
+      }),
+      pending: push ? "Agent is committing and pushing…" : "Agent is committing…",
+    });
+  };
+
+  const delegateGetLatest = () => {
+    if (!status) return;
+    delegateToAgent({
+      kind: "getLatest",
+      title: workspaceName ? `${workspaceName}: get latest` : "Get latest",
+      message: buildGetLatestPrompt({
+        branch: status.branch,
+        baseBranch: status.baseBranch,
+        behindBase: status.behindBase,
+        files: status.files.map((file) => file.path),
+      }),
+      pending: "Agent is catching this workspace up…",
+    });
   };
 
   const runPush = () => {
@@ -628,17 +789,11 @@ export function WorkspaceControlPanel({
     return items;
   };
 
-  const runArchive = () => {
-    if (!onArchive || busy) return;
-    if (
-      !window.confirm(
-        "Archive this workspace? Installed dependencies are removed to free disk; chats and git history are kept.",
-      )
-    )
-      return;
-    void runAction("archive", async () => {
-      await onArchive();
-      return { message: "Workspace archived." };
+  const runDelete = () => {
+    if (!onDelete || busy) return;
+    void runAction("delete", async () => {
+      await onDelete();
+      return { message: "Workspace deleted." };
     });
   };
 
@@ -689,6 +844,22 @@ export function WorkspaceControlPanel({
               onPrimary: () => {},
             };
 
+  /** Primary slot when the base has moved and catching up is the next step. */
+  const getLatestPrimary = {
+    label: agentTask === "getLatest" ? "Getting latest…" : "Get latest",
+    title: "Ask the agent to bring this workspace up to date with the base branch",
+    disabled: busy,
+    onPrimary: delegateGetLatest,
+  };
+
+  const getLatestMenuItem: SplitMenuItem = {
+    label: "Get latest",
+    icon: <ArrowsClockwise size={14} />,
+    disabled: busy,
+    title: "Ask the agent to bring this workspace up to date with the base branch",
+    onSelect: delegateGetLatest,
+  };
+
   const commitMenuItem: SplitMenuItem = {
     label: "Commit",
     icon: <GitCommit size={14} />,
@@ -702,19 +873,21 @@ export function WorkspaceControlPanel({
       // Fresh worktree, nothing happened yet: no action button. It appears
       // once there is anything to act on — dirty files, unpushed commits, or
       // a pushed branch that still needs a PR.
-      if (dirtyCount === 0 && unpushed === 0 && status.aheadOfBase === 0) return null;
+      if (dirtyCount === 0 && unpushed === 0 && status.aheadOfBase === 0 && !behind) return null;
       const blocker = prBlocker(status);
       // Pushed and clean: the next step is the PR, so it takes the primary slot
       // (and drops out of the menu — no point listing it twice).
-      const prIsPrimary = dirtyCount === 0 && unpushed === 0 && !agentTask;
-      const primary = prIsPrimary
-        ? {
-            label: action === "pr" ? "Creating…" : "Create a PR",
-            title: blocker ?? "Open a pull request for this branch",
-            disabled: busy || blocker !== null,
-            onPrimary: () => openPrForm(false),
-          }
-        : commitPushPrimary(status);
+      const prIsPrimary = dirtyCount === 0 && unpushed === 0 && !behind && !agentTask;
+      const primary = behind
+        ? getLatestPrimary
+        : prIsPrimary
+          ? {
+              label: action === "pr" ? "Creating…" : "Create a PR",
+              title: blocker ?? "Open a pull request for this branch",
+              disabled: busy || blocker !== null,
+              onPrimary: () => openPrForm(false),
+            }
+          : commitPushPrimary(status);
       const localMergeBlocked =
         dirtyCount > 0
           ? "Commit your changes first"
@@ -727,6 +900,7 @@ export function WorkspaceControlPanel({
           {...primary}
           menuDisabled={busy}
           items={[
+            ...(behind ? [] : [getLatestMenuItem]),
             commitMenuItem,
             ...(prIsPrimary
               ? []
@@ -815,12 +989,12 @@ export function WorkspaceControlPanel({
         tone="action"
         {...commitPushPrimary(status)}
         menuDisabled={busy}
-        items={[commitMenuItem, ...readyItem]}
+        items={[...(behind ? [getLatestMenuItem] : []), commitMenuItem, ...readyItem]}
       />
     );
   };
 
-  /** Merged state: Archive (primary) + Continue (secondary) side by side. */
+  /** Merged state: the work landed — continue on a new branch, or delete. */
   const renderMergedActions = () => (
     <div className="flex shrink-0 items-center gap-1">
       <button
@@ -834,16 +1008,16 @@ export function WorkspaceControlPanel({
       </button>
       <button
         type="button"
-        disabled={busy || !onArchive}
+        disabled={busy || !onDelete}
         title={
-          onArchive
-            ? "Archive this workspace and remove its installed dependencies"
-            : "The project root cannot be archived"
+          onDelete
+            ? "Delete this workspace, its branch checkout and its chats"
+            : "The project root cannot be deleted"
         }
-        onClick={runArchive}
+        onClick={runDelete}
         className="flex h-7 items-center rounded-full bg-violet-200/90 px-3 text-[12px] font-semibold text-violet-950 transition-colors hover:bg-violet-100 disabled:opacity-50"
       >
-        {action === "archive" ? "Archiving…" : "Archive"}
+        {action === "delete" ? "Deleting…" : "Delete"}
       </button>
     </div>
   );
@@ -876,10 +1050,40 @@ export function WorkspaceControlPanel({
               </Button>
             )}
           </div>
-        ) : !status.isRepo ? (
+        ) : status.repoState === "broken" ? (
+          // The repository exists but git would not answer for this path.
+          // Initializing one here would act on the wrong tree and cannot fix
+          // it, so the only offer is a retry.
           <div className="flex flex-col gap-2 px-4 pt-3">
             <p className="text-xs leading-5 text-muted-foreground">
-              This workspace is not inside a git repository.
+              Couldn’t read this workspace’s git state. The folder may have been moved or removed
+              outside Pipper.
+            </p>
+            {error ? (
+              <p className="text-[11px] leading-4 text-destructive" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={loading}
+              onClick={() => void refresh()}
+            >
+              {loading ? "Checking…" : "Try again"}
+            </Button>
+          </div>
+        ) : status.repoState === "absent" && !isProjectRoot ? (
+          // `absent` in a worktree is not reachable through normal use, but a
+          // worktree is never the place to create a repository.
+          <p className="px-4 pt-3 text-xs leading-5 text-muted-foreground">
+            Couldn’t read this workspace’s git state.
+          </p>
+        ) : status.repoState === "absent" ? (
+          <div className="flex flex-col gap-2 px-4 pt-3">
+            <p className="text-xs leading-5 text-muted-foreground">
+              This project isn’t using git yet.
             </p>
             <Button
               type="button"
@@ -1004,16 +1208,27 @@ export function WorkspaceControlPanel({
             </div>
 
             <div className="flex flex-col gap-3 px-4 pt-3">
-              {status.behindBase > 0 ? (
-                <p
-                  className="rounded-md bg-sky-500/10 px-2.5 py-2 text-[11px] leading-4 text-sky-400"
+              {hasTeamChanges(status) ? (
+                <div
+                  className="flex items-center gap-2 rounded-md bg-sky-500/10 px-2.5 py-2"
                   role="status"
                   data-pipper-id="workspace-behind-base"
                 >
-                  The team has {status.behindBase} new{" "}
-                  {status.behindBase === 1 ? "change" : "changes"} on {baseBranchLabel(status)} that
-                  this workspace doesn’t have yet.
-                </p>
+                  <p className="min-w-0 flex-1 text-[11px] leading-4 text-sky-400">
+                    The team has {status.behindBase} new{" "}
+                    {status.behindBase === 1 ? "change" : "changes"} on {baseBranchLabel(status)}{" "}
+                    that this workspace doesn’t have yet.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={delegateGetLatest}
+                    title="Ask the agent to bring this workspace up to date with the base branch"
+                    className="flex h-6 shrink-0 items-center rounded-full bg-sky-400/90 px-2.5 text-[11px] font-semibold text-sky-950 transition-colors hover:bg-sky-300 disabled:opacity-50"
+                  >
+                    {agentTask === "getLatest" ? "Getting…" : "Get latest"}
+                  </button>
+                </div>
               ) : null}
               {status.prDataState === "stale" ? (
                 <p

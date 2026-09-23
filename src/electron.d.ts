@@ -1,6 +1,10 @@
 import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts/worktrees.ts";
-import type { WorkspaceGitActionResult, WorkspaceGitStatus } from "../../contracts/git.ts";
+import type {
+  ProjectRepoState,
+  WorkspaceGitActionResult,
+  WorkspaceGitStatus,
+} from "../../contracts/git.ts";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type {
   AcpAgentDescriptor,
@@ -166,6 +170,7 @@ declare global {
           projectId: string;
           path: string;
         }) => Promise<WorkspaceGitActionResult>;
+        projectRepoState: (projectId: string) => Promise<ProjectRepoState>;
         init: (input: {
           projectId: string;
           name?: string | null;

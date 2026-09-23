@@ -20,6 +20,7 @@ export type IntentCategory =
 export type AnalyticsEventName =
   | "app_opened"
   | "project_created"
+  | "project_git_initialized"
   | "worktree_created"
   | "workspace_switched"
   // advanced workspace git panel

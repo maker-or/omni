@@ -6,14 +6,17 @@ import { join } from "node:path";
 import {
   BASE_FETCH_INTERVAL_MS,
   commitWorkspace,
+  getProjectRepoState,
   getWorkspaceGitStatus,
   initProjectRepo,
   isGhAvailable,
   mergeWorkspaceBranch,
   parseGitHubRepo,
   parseNumstat,
+  PR_REFRESH_INTERVAL_MS,
   refreshBaseBranch,
   resetBaseFetchesForTests,
+  resetPrRefreshesForTests,
   resolvePrWithCache,
   summarizeChecks,
   summarizePrNodes,
@@ -45,10 +48,46 @@ afterEach(() => {
 });
 
 describe("getWorkspaceGitStatus", () => {
-  test("non-repo degrades to isRepo:false without throwing", async () => {
+  test("a plain directory reports an absent repo, without throwing", async () => {
     const status = await getWorkspaceGitStatus(dir);
-    expect(status.isRepo).toBe(false);
+    expect(status.repoState).toBe("absent");
     expect(status.branch).toBeNull();
+  });
+
+  test("a repository subdirectory whose metadata git cannot read is broken, not absent", async () => {
+    // A project registered at a repository subdirectory has no `.git` at the
+    // probed path — the metadata lives at an ancestor. A failed probe there
+    // must not read as "no repository", which would offer to initialize a
+    // nested repository inside the existing one.
+    const parent = join(dir, "parent");
+    const child = join(parent, "packages", "app");
+    mkdirSync(child, { recursive: true });
+    writeFileSync(join(parent, ".git"), "gitdir: /nonexistent\n");
+    expect((await getWorkspaceGitStatus(child)).repoState).toBe("broken");
+  });
+
+  test("a worktree whose admin dir was pruned reads as broken, not absent", async () => {
+    // Regression: both states were one `isRepo:false`, so an orphaned
+    // worktree offered "Initialize git repo" inside an existing repository.
+    const project = join(dir, "project");
+    mkdirSync(project);
+    initProjectRepo(project, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(project, "a.txt"), "hi");
+    git(project, ["add", "-A"]);
+    git(project, ["commit", "-m", "init"]);
+    const work = join(dir, "w1");
+    git(project, ["worktree", "add", work, "-b", "feat"]);
+    expect((await getWorkspaceGitStatus(work)).repoState).toBe("ready");
+
+    rmSync(join(project, ".git", "worktrees", "w1"), { recursive: true, force: true });
+    const status = await getWorkspaceGitStatus(work);
+    expect(status.repoState).toBe("broken");
+    expect(existsSync(join(work, ".git"))).toBe(true);
+  });
+
+  test("a deleted workspace directory reads as broken, not absent", async () => {
+    const gone = join(dir, "never-existed");
+    expect((await getWorkspaceGitStatus(gone)).repoState).toBe("broken");
   });
 
   test("clean repo reports branch with zero counts", async () => {
@@ -57,7 +96,7 @@ describe("getWorkspaceGitStatus", () => {
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "init"]);
     const status = await getWorkspaceGitStatus(dir);
-    expect(status.isRepo).toBe(true);
+    expect(status.repoState).toBe("ready");
     expect(status.branch).toBe("main");
     expect(status.upstream).toBeNull();
     expect(status.staged + status.unstaged + status.untracked).toBe(0);
@@ -148,6 +187,68 @@ describe("getWorkspaceGitStatus", () => {
     expect(status.behindBase).toBe(1);
     expect(status.aheadOfBase).toBe(0);
     expect(status.baseFetchedAt).toBeNull();
+  });
+});
+
+describe("project repo state and initialization", () => {
+  test("a plain directory is absent; a missing one is broken", () => {
+    expect(getProjectRepoState(dir)).toBe("absent");
+    expect(getProjectRepoState(join(dir, "never-existed"))).toBe("broken");
+  });
+
+  test("a repository with no commits is unborn, not ready", () => {
+    git(dir, ["init", "-b", "main"]);
+    expect(getProjectRepoState(dir)).toBe("unborn");
+  });
+
+  test("a repository with a commit is ready", () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(getProjectRepoState(dir)).toBe("ready");
+  });
+
+  test("repository metadata git cannot read is broken, not absent", () => {
+    // A `.git` entry pointing nowhere: git refuses to answer, but the
+    // directory was set up as a repository — initializing one here would act
+    // on the wrong tree.
+    writeFileSync(join(dir, ".git"), "gitdir: /nonexistent\n");
+    expect(getProjectRepoState(dir)).toBe("broken");
+  });
+
+  test("initialization leaves a commit a worktree can branch from", () => {
+    // Regression: `git worktree add` needs a commit. A repository that is
+    // only `git init`-ed has no HEAD, so every workspace create failed right
+    // after the user was told the repository had been initialized.
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(git(dir, ["rev-parse", "--verify", "HEAD"])).toBeTruthy();
+    expect(git(dir, ["log", "--oneline", "-1"])).toContain("Initial commit");
+  });
+
+  test("the initial commit includes the project's existing files", () => {
+    writeFileSync(join(dir, "a.txt"), "hello");
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(git(dir, ["show", "--stat", "--oneline", "HEAD"])).toContain("a.txt");
+    expect(git(dir, ["status", "--porcelain"])).toBe("");
+  });
+
+  test("an empty project still gets the commit a worktree needs", () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(git(dir, ["status", "--porcelain"])).toBe("");
+    expect(git(dir, ["rev-parse", "--verify", "HEAD"])).toBeTruthy();
+  });
+
+  test("finishes an existing repository that has no commits", () => {
+    git(dir, ["init", "-b", "trunk"]);
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(getProjectRepoState(dir)).toBe("ready");
+    // The repository's own branch is kept; only the missing commit is added.
+    expect(git(dir, ["branch", "--show-current"])).toBe("trunk");
+  });
+
+  test("refuses to re-initialize a repository that already has commits", () => {
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(() => initProjectRepo(dir, { name: "Test", email: "test@example.com" })).toThrow(
+      "already a git repository",
+    );
   });
 });
 
@@ -334,7 +435,9 @@ describe("resolvePrWithCache", () => {
       { number: 42, url: "https://github.com/owner/repo/pull/42", state: "OPEN" },
     ]);
 
-    const fresh = await resolvePrWithCache(repository, "feature", async () => freshSummary, 1000);
+    const fresh = await resolvePrWithCache(repository, "feature", async () => freshSummary, {
+      now: 1000,
+    });
     expect(fresh).toMatchObject({
       dataState: "fresh",
       updatedAt: 1000,
@@ -347,13 +450,47 @@ describe("resolvePrWithCache", () => {
       async () => {
         throw new Error("network down");
       },
-      2000,
+      { now: 2000, force: true },
     );
     expect(stale).toMatchObject({
       dataState: "stale",
       updatedAt: 1000,
       summary: { number: 42 },
     });
+  });
+
+  test("serves a recent snapshot without asking GitHub again", async () => {
+    // The metered call is the one worth avoiding: PR state changes on the
+    // order of minutes, so within the window the last response is reused.
+    const repository = `owner/ttl-${Date.now()}`;
+    let calls = 0;
+    const fetchSummary = async () => {
+      calls += 1;
+      return summarizePrNodes([
+        { number: 7, url: "https://github.com/owner/repo/pull/7", state: "OPEN" },
+      ]);
+    };
+
+    await resolvePrWithCache(repository, "feature", fetchSummary, { now: 1000, ttlMs: 60_000 });
+    expect(calls).toBe(1);
+
+    const cached = await resolvePrWithCache(repository, "feature", fetchSummary, {
+      now: 30_000,
+      ttlMs: 60_000,
+    });
+    expect(calls).toBe(1);
+    expect(cached).toMatchObject({ dataState: "fresh", updatedAt: 1000, summary: { number: 7 } });
+
+    // Past the window it asks again...
+    await resolvePrWithCache(repository, "feature", fetchSummary, { now: 70_000, ttlMs: 60_000 });
+    expect(calls).toBe(2);
+    // ...and `force` ignores the window entirely.
+    await resolvePrWithCache(repository, "feature", fetchSummary, {
+      now: 70_001,
+      ttlMs: 60_000,
+      force: true,
+    });
+    expect(calls).toBe(3);
   });
 
   test("reports unavailable when refresh fails before any successful response", async () => {
@@ -363,13 +500,60 @@ describe("resolvePrWithCache", () => {
       async () => {
         throw new Error("offline");
       },
-      2000,
+      { now: 2000 },
     );
     expect(result).toMatchObject({
       dataState: "unavailable",
       updatedAt: null,
       summary: { number: null, pr: null },
     });
+  });
+});
+
+describe("refreshPrSnapshot throttling", () => {
+  afterEach(() => {
+    resetPrRefreshesForTests();
+  });
+
+  test("a slow GitHub response never delays the status read", async () => {
+    // The whole point of the background refresh: local git answers in ~70ms
+    // while GitHub takes ~1s, so a status read must not await the network.
+    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(dir, "a.txt"), "hi");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "init"]);
+    git(dir, ["remote", "add", "origin", "https://github.com/owner/repo.git"]);
+
+    const startedAt = Date.now();
+    const status = await getWorkspaceGitStatus(dir);
+    // No upstream and no cached snapshot: no query is even attempted, and the
+    // read certainly does not sit on a network round-trip.
+    expect(status.repoState).toBe("ready");
+    expect(status.prDataState).toBe("unavailable");
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+  });
+
+  test("a cached snapshot past its window still reads fresh while refreshing", async () => {
+    const repository = `owner/bg-${Date.now()}`;
+    await resolvePrWithCache(
+      repository,
+      "feature",
+      async () =>
+        summarizePrNodes([
+          { number: 5, url: "https://github.com/owner/repo/pull/5", state: "OPEN" },
+        ]),
+      { now: 1000 },
+    );
+    // Age alone is not staleness: only a failed attempt earns the warning.
+    const aged = await resolvePrWithCache(
+      repository,
+      "feature",
+      async () => {
+        throw new Error("still trying");
+      },
+      { now: 1000 + PR_REFRESH_INTERVAL_MS + 1 },
+    );
+    expect(aged).toMatchObject({ dataState: "stale", summary: { number: 5 } });
   });
 });
 

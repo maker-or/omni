@@ -16,9 +16,37 @@ export interface WorkspaceGitFile {
   deletions: number | null;
 }
 
+/**
+ * Whether git state could be read for a workspace.
+ * - `ready`: git answered; every field below is meaningful.
+ * - `absent`: there is genuinely no repository at this path. Initializing
+ *   one is the legitimate fix, and only here.
+ * - `broken`: the path carries repository metadata but git would not answer
+ *   — an orphaned worktree admin dir, a moved checkout, or a transient
+ *   failure (spawn error, timeout, lock contention). The repository exists,
+ *   so never offer to initialize one: it cannot help and would act on the
+ *   wrong tree.
+ *
+ * These were one boolean until a worktree whose admin directory had been
+ * pruned reported "not a git repository" and the panel offered to create
+ * one inside an existing repo.
+ */
+export type WorkspaceRepoState = "ready" | "absent" | "broken";
+
+/**
+ * Whether a *project root* can host a workspace worktree — read before
+ * creating one, when the project root is not yet a workspace.
+ *
+ * Extends `WorkspaceRepoState` with `unborn`: the repository exists but has
+ * no commits, so `git worktree add` has no commit to branch from and every
+ * workspace create fails. It is a distinct state because the fix is an
+ * initial commit, not an init — folding it into `absent` would offer to
+ * initialize a repository that already exists.
+ */
+export type ProjectRepoState = WorkspaceRepoState | "unborn";
+
 export interface WorkspaceGitStatus {
-  /** False when the path is not inside a git repo (or git is missing). */
-  isRepo: boolean;
+  repoState: WorkspaceRepoState;
   branch: string | null;
   /** Upstream of the current branch, e.g. "origin/pipper/foo". */
   upstream: string | null;
@@ -83,6 +111,13 @@ export interface WorkspaceGitStatus {
   prDataState: "fresh" | "stale" | "unavailable";
   /** Time of the last successful GitHub response used by this status. */
   prUpdatedAt: number | null;
+  /**
+   * A background GitHub refresh is in flight, so a newer answer is coming
+   * shortly. GitHub is never awaited by a status read — it answers in ~1s
+   * against ~70ms for all local git — so the panel paints local state now and
+   * re-reads soon after instead of waiting for its next poll.
+   */
+  prRefreshing: boolean;
 }
 
 export type WorkspacePrCheckState = "pending" | "passing" | "failing" | "skipped";

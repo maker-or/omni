@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir, userInfo } from "node:os";
 import { join, normalize } from "node:path";
 import { realpathSync } from "node:fs";
+import { initProjectRepo } from "./git-workspace.ts";
 import {
   continueWorktreeOnNewBranch,
   createWorktree,
@@ -23,7 +24,6 @@ import {
   listWorktrees,
   parseWorktreePorcelain,
   removeWorktree,
-  removeWorktreeDependencies,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
@@ -202,6 +202,20 @@ describe("createWorktree", () => {
     ).toThrow();
   });
 
+  test("a project freshly initialized by initProjectRepo can host a workspace", () => {
+    // Regression: the init offered for a non-git project must leave a commit
+    // behind, or this next step fails with "invalid reference: HEAD".
+    const fresh = join(root, "fresh");
+    mkdirSync(fresh, { recursive: true });
+    writeFileSync(join(fresh, "app.txt"), "hello");
+    initProjectRepo(fresh, { name: "Test", email: "test@example.com" });
+
+    const worktree = createWorktree({ projectPath: fresh, projectId: PROJECT_ID, name: "First" });
+
+    // The workspace starts from the project's files, not an empty checkout.
+    expect(readFileSync(join(worktree.path, "app.txt"), "utf8")).toBe("hello");
+  });
+
   test("a project nested inside a repository maps to the same subdirectory of the new checkout", () => {
     const nestedProject = join(projectPath, "packages", "app");
     mkdirSync(nestedProject, { recursive: true });
@@ -283,6 +297,20 @@ describe("listWorktrees / isLiveWorktree", () => {
     expect(isLiveWorktree(join(root, "does-not-exist"), projectPath)).toBe(false);
   });
 
+  test("a worktree whose folder is gone never reaches the listing", () => {
+    // Regression: git keeps listing a removed checkout as prunable, so it
+    // showed up as an ordinary workspace whose panel then reported "not a git
+    // repository" and offered to initialize one inside the existing repo.
+    // `createWorktree` invalidates the listing cache, so the read below is a
+    // fresh one and no TTL wait is needed.
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "ghost" });
+    rmSync(worktree.path, { recursive: true, force: true });
+    const all = listWorktrees(projectPath);
+    expect(all.some((w) => w.path === worktree.path)).toBe(false);
+    // The root survives: the UI must always resolve exactly one.
+    expect(all.filter((w) => w.isProjectRoot)).toHaveLength(1);
+  });
+
   test("always resolves one annotated root, even when the path doesn't match an entry", () => {
     // Project added as a subdirectory of the repo: canonical(subdir) matches no
     // worktree path, so the root must fall back to git's first (main) entry —
@@ -354,6 +382,35 @@ describe("listWorktrees / isLiveWorktree", () => {
   });
 });
 
+describe("parseWorktreePorcelain prunable", () => {
+  test("flags an entry git reports as prunable", () => {
+    // Regression: the marker was dropped, so a worktree whose folder had been
+    // removed was listed as an ordinary workspace and its panel offered to
+    // initialize a git repository inside the existing one.
+    const parsed = parseWorktreePorcelain(
+      [
+        "worktree /repo",
+        "HEAD abc",
+        "branch refs/heads/main",
+        "",
+        "worktree /gone",
+        "HEAD def",
+        "branch refs/heads/feat",
+        "prunable gitdir file points to non-existent location",
+        "",
+      ].join("\n"),
+    );
+    expect(parsed.map((entry) => entry.missing)).toEqual([false, true]);
+  });
+
+  test("a bare prunable line counts too", () => {
+    const parsed = parseWorktreePorcelain(
+      ["worktree /gone", "HEAD def", "detached", "prunable", ""].join("\n"),
+    );
+    expect(parsed[0]?.missing).toBe(true);
+  });
+});
+
 describe("parseWorktreePorcelain", () => {
   test("parses paths, HEADs, branches, and detached entries", () => {
     const out = [
@@ -368,8 +425,8 @@ describe("parseWorktreePorcelain", () => {
     ].join("\n");
     const parsed = parseWorktreePorcelain(out);
     expect(parsed).toEqual([
-      { path: "/repo/main", head: "abc123", branch: "main" },
-      { path: "/repo/wt", head: "def456", branch: null },
+      { path: "/repo/main", head: "abc123", branch: "main", missing: false },
+      { path: "/repo/wt", head: "def456", branch: null, missing: false },
     ]);
   });
 });
@@ -448,17 +505,5 @@ describe("continueWorktreeOnNewBranch", () => {
       /uncommitted changes/,
     );
     expect(git(worktree.path, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("pipper/dirty");
-  });
-});
-
-describe("removeWorktreeDependencies", () => {
-  test("removes node_modules only and reports whether anything was removed", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Deps" });
-    expect(removeWorktreeDependencies(worktree.path)).toEqual({ removed: false });
-    mkdirSync(join(worktree.path, "node_modules", "pkg"), { recursive: true });
-    writeFileSync(join(worktree.path, "node_modules", "pkg", "index.js"), "");
-    expect(removeWorktreeDependencies(worktree.path)).toEqual({ removed: true });
-    expect(existsSync(join(worktree.path, "node_modules"))).toBe(false);
-    expect(existsSync(join(worktree.path, "README.md"))).toBe(true);
   });
 });

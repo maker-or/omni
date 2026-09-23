@@ -615,12 +615,14 @@ export function parseWorktreePorcelain(stdout: string): Worktree[] {
   let path: string | null = null;
   let head = "";
   let branch: string | null = null;
+  let prunable = false;
 
   const flush = () => {
-    if (path) worktrees.push({ path, head, branch });
+    if (path) worktrees.push({ path, head, branch, missing: prunable });
     path = null;
     head = "";
     branch = null;
+    prunable = false;
   };
 
   for (const raw of stdout.split("\n")) {
@@ -640,6 +642,11 @@ export function parseWorktreePorcelain(stdout: string): Worktree[] {
       branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
     } else if (line === "detached") {
       branch = null;
+    } else if (line === "prunable" || line.startsWith("prunable ")) {
+      // Git's own verdict that this checkout is gone; the reason follows on
+      // the same line for some causes (e.g. "gitdir file points to non-existent
+      // location"). Either way the entry is unusable.
+      prunable = true;
     }
   }
   flush();
@@ -676,9 +683,13 @@ export function listWorktrees(projectPath: string): Worktree[] {
     // than handing out a path that doesn't exist (git status, terminals and
     // thread cwds would all fail on it).
     const nested = subpath ? join(worktree.path, subpath) : worktree.path;
+    const path = canonical(existsSync(nested) ? nested : worktree.path);
     return {
       ...worktree,
-      path: canonical(existsSync(nested) ? nested : worktree.path),
+      path,
+      // Git only marks an entry prunable once it notices; a directory removed
+      // out from under it reads as present until then.
+      missing: worktree.missing || !existsSync(path),
     };
   });
   // git lists the main working tree first; use it as the root when the project
@@ -690,21 +701,27 @@ export function listWorktrees(projectPath: string): Worktree[] {
     ? resolveRepositoryDefaultBranch(projectPath, rootEntry.branch)
     : null;
 
-  const result = worktrees.map((worktree) => {
-    // Identity, not path comparison: guarantees exactly one root entry even when
-    // canonicalization differs, so the UI always resolves a current workspace.
-    const isProjectRoot = worktree === rootEntry;
-    return {
-      ...worktree,
-      isProjectRoot,
-      workspaceName: isProjectRoot
-        ? (rootLabel ?? worktree.branch ?? "main")
-        : (worktree.path.split(/[\\/]/).filter(Boolean).at(-1) ?? "worktree"),
-      // Git lists linked worktrees in readdir order (arbitrary) — stamp the
-      // directory creation time so UIs can sort newest-first deterministically.
-      createdAtMs: isProjectRoot ? undefined : dirBirthMs(worktree.path),
-    };
-  });
+  const result = worktrees
+    // A checkout that is gone is not a workspace: nothing can run there, and
+    // git keeps listing it until `git worktree prune`. Drop it so it never
+    // reaches the sidebar, a thread cwd, or a git status read. The root is
+    // never dropped — the UI must always resolve exactly one.
+    .filter((worktree) => !worktree.missing || worktree === rootEntry)
+    .map((worktree) => {
+      // Identity, not path comparison: guarantees exactly one root entry even when
+      // canonicalization differs, so the UI always resolves a current workspace.
+      const isProjectRoot = worktree === rootEntry;
+      return {
+        ...worktree,
+        isProjectRoot,
+        workspaceName: isProjectRoot
+          ? (rootLabel ?? worktree.branch ?? "main")
+          : (worktree.path.split(/[\\/]/).filter(Boolean).at(-1) ?? "worktree"),
+        // Git lists linked worktrees in readdir order (arbitrary) — stamp the
+        // directory creation time so UIs can sort newest-first deterministically.
+        createdAtMs: isProjectRoot ? undefined : dirBirthMs(worktree.path),
+      };
+    });
   worktreeCache.set(cacheKey, { expiresAt: Date.now() + WORKTREE_CACHE_TTL_MS, value: result });
   return result;
 }
@@ -870,18 +887,6 @@ export function continueWorktreeOnNewBranch(projectPath: string, worktreePath: s
   const next = listWorktrees(projectPath).find((worktree) => samePath(worktree.path, target.path));
   if (!next) throw new Error("Worktree disappeared after switching branches");
   return next;
-}
-
-/**
- * Archive-time cleanup: drop the worktree's installed dependencies so parked
- * workspaces stop costing disk. Source, git state and chats are untouched;
- * restoring reinstalls. Only the well-known Node layout is handled.
- */
-export function removeWorktreeDependencies(worktreePath: string): { removed: boolean } {
-  const target = join(worktreePath, "node_modules");
-  if (!existsSync(target)) return { removed: false };
-  rmSync(target, { recursive: true, force: true });
-  return { removed: true };
 }
 
 /** Remove a linked worktree and its Omni-generated branch. The project root is

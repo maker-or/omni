@@ -1,6 +1,7 @@
 import commonSkill from "../../skills/git/_common.md?raw";
 import commitSkill from "../../skills/git/commit.md?raw";
 import addressReviewSkill from "../../skills/git/address-review.md?raw";
+import getLatestSkill from "../../skills/git/get-latest.md?raw";
 
 /**
  * Scenario guidance for git tasks the workspace panel hands to an agent.
@@ -12,11 +13,12 @@ import addressReviewSkill from "../../skills/git/address-review.md?raw";
  * supplies the facts (branch, files, comments) as a fenced context block so
  * the prose stays generic and the data stays structured.
  */
-export type GitSkillId = "commit" | "address-review";
+export type GitSkillId = "commit" | "address-review" | "get-latest";
 
 const SKILLS: Record<GitSkillId, string> = {
   commit: commitSkill,
   "address-review": addressReviewSkill,
+  "get-latest": getLatestSkill,
 };
 
 const CONTEXT_FENCE = "workspace-context";
