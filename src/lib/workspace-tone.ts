@@ -86,12 +86,13 @@ export const HEADER_TONE_FILL: Record<HeaderTone, string> = {
  * deepened for the disc and lightened for the glyph, so a filled badge reads
  * as a bright mark on a dark field.
  */
-export function toneIdentity(tone: HeaderTone): { bg: string; ink: string } {
+export function toneIdentity(tone: HeaderTone): { bg: string; ink: string; ring: string } {
   const color = HEADER_TONE_COLOR[tone];
   return {
     bg: `color-mix(in srgb, ${color} 68%, black)`,
     // Mostly the tone, only a touch of white — a lighter shade of the same
     // hue, not a white glyph.
     ink: `color-mix(in srgb, ${color} 62%, white)`,
+    ring: `color-mix(in srgb, ${color} 85%, transparent)`,
   };
 }

@@ -21,8 +21,8 @@ describe("chat message rendering contracts", () => {
     );
 
     expect(html).toContain("line-clamp-3");
-    expect(html).toContain("bg-[#26B25A]");
-    expect(html).toContain("text-[#052E16]");
+    expect(html).toContain("background-color:#26B25A");
+    expect(html).toContain("color:#052E16");
     expect(html).toContain("size-24 object-cover");
     expect(html.indexOf('aria-label="Open diagram.png"')).toBeLessThan(
       html.indexOf("A long user prompt"),

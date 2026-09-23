@@ -4,7 +4,7 @@ import { memo } from "react";
 import { StopIcon } from "@phosphor-icons/react";
 import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { toneIdentity } from "@/lib/workspace-tone";
+import { type HeaderTone, toneIdentity } from "@/lib/workspace-tone";
 import { useWorkspaceTone } from "@/lib/workspace-tone-context";
 
 interface ConversationTurnIdentityProps {
@@ -37,40 +37,49 @@ function UserIdentityMark({ fill, ink }: { fill: string; ink: string }) {
   );
 }
 
-const ASSISTANT_IDENTITY_MARK = (
-  <svg
-    width="29"
-    height="29"
-    viewBox="0 0 29 29"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    className="block size-full"
-    aria-hidden="true"
-    focusable="false"
-  >
-    <rect x="0.5" y="0.5" width="28" height="27.5397" rx="13.7698" fill="#FFAA4F" />
-    <rect x="0.5" y="0.5" width="28" height="27.5397" rx="13.7698" stroke="#B1620D" />
-    <path
-      d="M12.7546 7.47987C13.6048 6.27201 15.3952 6.27201 16.2454 7.47987V7.47987C16.6712 8.08491 17.38 8.42625 18.1185 8.38194V8.38194C19.5929 8.29349 20.7092 9.69335 20.2949 11.1111V11.1111C20.0874 11.8212 20.2625 12.5882 20.7576 13.138V13.138C21.746 14.2356 21.3476 15.9812 19.9808 16.5412V16.5412C19.2962 16.8217 18.8057 17.4368 18.6845 18.1667V18.1667C18.4427 19.6238 16.8295 20.4006 15.5395 19.6812V19.6812C14.8934 19.3209 14.1066 19.3209 13.4605 19.6812V19.6812C12.1705 20.4006 10.5573 19.6238 10.3155 18.1667V18.1667C10.1943 17.4368 9.70381 16.8217 9.01919 16.5412V16.5412C7.65244 15.9812 7.25402 14.2356 8.24243 13.138V13.138C8.73755 12.5882 8.9126 11.8212 8.70507 11.1111V11.1111C8.29075 9.69335 9.4071 8.29349 10.8815 8.38194V8.38194C11.62 8.42625 12.3288 8.08491 12.7546 7.47987V7.47987Z"
-      fill="#B1620D"
-    />
-  </svg>
-);
+function AssistantIdentityMark({ fill, ink }: { fill: string; ink: string }) {
+  return (
+    <svg
+      width="29"
+      height="29"
+      viewBox="0 0 29 29"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="block size-full"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="0.5" y="0.5" width="28" height="27.5397" rx="13.7698" fill={fill} />
+      <rect x="0.5" y="0.5" width="28" height="27.5397" rx="13.7698" stroke={ink} />
+      <path
+        d="M12.7546 7.47987C13.6048 6.27201 15.3952 6.27201 16.2454 7.47987V7.47987C16.6712 8.08491 17.38 8.42625 18.1185 8.38194V8.38194C19.5929 8.29349 20.7092 9.69335 20.2949 11.1111V11.1111C20.0874 11.8212 20.2625 12.5882 20.7576 13.138V13.138C21.746 14.2356 21.3476 15.9812 19.9808 16.5412V16.5412C19.2962 16.8217 18.8057 17.4368 18.6845 18.1667V18.1667C18.4427 19.6238 16.8295 20.4006 15.5395 19.6812V19.6812C14.8934 19.3209 14.1066 19.3209 13.4605 19.6812V19.6812C12.1705 20.4006 10.5573 19.6238 10.3155 18.1667V18.1667C10.1943 17.4368 9.70381 16.8217 9.01919 16.5412V16.5412C7.65244 15.9812 7.25402 14.2356 8.24243 13.138V13.138C8.73755 12.5882 8.9126 11.8212 8.70507 11.1111V11.1111C8.29075 9.69335 9.4071 8.29349 10.8815 8.38194V8.38194C11.62 8.42625 12.3288 8.08491 12.7546 7.47987V7.47987Z"
+        fill={ink}
+      />
+    </svg>
+  );
+}
 
-const assistantIdentityClass =
-  "relative flex shrink-0 items-center justify-center rounded-full text-[#B1620D]";
+const assistantIdentityClass = "relative flex shrink-0 items-center justify-center rounded-full";
 const identityEmphasisClass = {
   quiet: "size-7",
   composer: "size-8",
 } as const;
 
+/** Assistant's disc colours: the workspace tone when in scope, else its own
+ *  identity orange. */
+function assistantIdentityColors(tone: HeaderTone | null) {
+  return tone ? toneIdentity(tone) : { bg: "#FFAA4F", ink: "#B1620D", ring: "#B1620D" };
+}
+
 function StreamingAssistantIdentity({
   isStopping,
   onStop,
+  colors,
   className,
 }: {
   isStopping: boolean;
   onStop: () => void;
+  colors: { bg: string; ink: string; ring: string };
   className?: string;
 }) {
   const reduceMotion = useReducedMotion();
@@ -78,10 +87,11 @@ function StreamingAssistantIdentity({
   return (
     <motion.button
       type="button"
+      style={{ backgroundColor: colors.bg, color: colors.ink }}
       className={cn(
         assistantIdentityClass,
         "size-7",
-        "group cursor-pointer bg-[#FFAA4F] outline-none ring-1 ring-inset ring-[#B1620D] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait",
+        "group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait",
         className,
       )}
       data-pipper-id="assistant-turn-stop"
@@ -111,7 +121,7 @@ function StreamingAssistantIdentity({
               : "scale-100 opacity-100 group-hover:scale-75 group-hover:opacity-0 group-focus-visible:scale-75 group-focus-visible:opacity-0",
           )}
         >
-          {ASSISTANT_IDENTITY_MARK}
+          <AssistantIdentityMark fill={colors.bg} ink={colors.ink} />
         </span>
         <StopIcon
           size={13}
@@ -139,11 +149,9 @@ const ConversationTurnIdentity = memo(function ConversationTurnIdentity({
   const workspaceTone = useWorkspaceTone();
 
   if (role === "user") {
-    // The composer's turn marker mirrors the active workspace's git state;
-    // every other user mark keeps the identity's default green. Dark disc,
+    // The user mark mirrors the active workspace's git state. Dark disc,
     // light glyph — the inverse polarity of the flat action buttons.
-    const tone = emphasis === "composer" ? workspaceTone : null;
-    const { bg, ink } = toneIdentity(tone ?? "ready");
+    const { bg, ink } = toneIdentity(workspaceTone ?? "ready");
     return (
       <span
         className={cn("block shrink-0", identityEmphasisClass[emphasis], className)}
@@ -154,6 +162,8 @@ const ConversationTurnIdentity = memo(function ConversationTurnIdentity({
     );
   }
 
+  const colors = assistantIdentityColors(workspaceTone);
+
   if (!isStreaming || !onStop) {
     return (
       <span
@@ -161,13 +171,18 @@ const ConversationTurnIdentity = memo(function ConversationTurnIdentity({
         data-pipper-id="assistant-turn-identity"
         aria-hidden="true"
       >
-        {ASSISTANT_IDENTITY_MARK}
+        <AssistantIdentityMark fill={colors.bg} ink={colors.ink} />
       </span>
     );
   }
 
   return (
-    <StreamingAssistantIdentity isStopping={isStopping} onStop={onStop} className={className} />
+    <StreamingAssistantIdentity
+      isStopping={isStopping}
+      onStop={onStop}
+      colors={colors}
+      className={className}
+    />
   );
 });
 

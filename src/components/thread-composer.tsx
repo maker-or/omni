@@ -20,6 +20,8 @@ import {
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { ProviderLogo } from "@/components/provider-logos";
 import { cn } from "@/lib/utils";
+import { toneIdentity } from "@/lib/workspace-tone";
+import { useWorkspaceTone } from "@/lib/workspace-tone-context";
 import type {
   ComposerContent,
   ComposerEntityToken,
@@ -122,6 +124,10 @@ export function ThreadComposer({
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = externalTextareaRef ?? internalRef;
   const mentionFrameRef = useRef<number | null>(null);
+  // Caret follows the workspace's git-state tone (light shade of the same
+  // hue); falls back to the identity green when no tone is in scope.
+  const workspaceTone = useWorkspaceTone();
+  const caretColor = workspaceTone ? toneIdentity(workspaceTone).ink : "#26B25A";
   const entities = useMemo(
     () =>
       getEntityTokens(content).filter(
@@ -540,7 +546,7 @@ export function ThreadComposer({
         contentEditable={!disabled}
         tabIndex={0}
         className="inline-block min-w-[2px] cursor-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none align-middle empty:before:inline-block empty:before:align-middle empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:pointer-events-none empty:before:content-[attr(data-placeholder)]"
-        style={{ caretColor: "#26B25A" }}
+        style={{ caretColor }}
         data-placeholder={resolvedPlaceholder}
       />
     </div>
