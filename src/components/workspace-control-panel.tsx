@@ -141,28 +141,17 @@ function actionLabel(kind: string): string {
  * - stale:   no PR and nothing of the user's own to save or share, but the
  *            base branch has moved on — catching up is the next step
  */
-export type HeaderTone = "neutral" | "action" | "ready" | "merged" | "stale";
+import { type HeaderTone, HEADER_TONE_FILL, toneInsetShadow, toneWash } from "@/lib/workspace-tone";
 
-/** Shared tone gradients: the panel header and the sidebar's active workspace
- *  card both paint from this map so the two stay in lockstep. */
-export const HEADER_TONE_GRADIENT: Record<HeaderTone, string> = {
-  neutral: "from-zinc-300/50 via-zinc-600/20 to-zinc-600/0",
-  action: "from-[#FFAA4F] via-[#6F5121] to-[#6F5121]/0",
-  ready: "from-[#088139] via-[#114526] to-[#114526]/0",
-  merged: "from-violet-500/80 via-violet-900/25 to-violet-900/0",
-  stale: "from-[#5CA8FF] via-[#1F3F66] to-[#1F3F66]/0",
-};
-
-/** Solid tone colours, used where the state has to read as a colour rather
- *  than a fill (the sidebar active workspace card's inset shadow). Based on
- *  each gradient's `from` colour, tuned a touch darker for the glow. */
-export const HEADER_TONE_COLOR: Record<HeaderTone, string> = {
-  neutral: "#a1a1aa",
-  action: "#E08A2E",
-  ready: "#088139",
-  merged: "#8b5cf6",
-  stale: "#5CA8FF",
-};
+// Re-exported so existing consumers keep importing the tone vocabulary from
+// this component; the source of truth is `@/lib/workspace-tone`.
+export {
+  type HeaderTone,
+  HEADER_TONE_GRADIENT,
+  HEADER_TONE_COLOR,
+  toneInsetShadow,
+  toneWash,
+} from "@/lib/workspace-tone";
 
 function headerTone(status: WorkspaceGitStatus, dirtyCount: number): HeaderTone {
   if (!status.openPrNumber) {
@@ -896,7 +885,7 @@ export function WorkspaceControlPanel({
             : null;
       return (
         <SplitButton
-          tone="neutral"
+          tone={tone}
           {...primary}
           menuDisabled={busy}
           items={[
@@ -944,7 +933,8 @@ export function WorkspaceControlPanel({
               : "Refresh GitHub before merging"
           }
           onClick={runMergePr}
-          className="flex h-7 shrink-0 items-center rounded-full bg-emerald-300/90 px-3.5 text-[12px] font-semibold text-emerald-950 transition-colors hover:bg-emerald-200 disabled:opacity-50"
+          className="flex h-7 shrink-0 items-center rounded-full px-3.5 text-[12px] font-semibold text-emerald-950 transition-[filter] hover:brightness-105 disabled:opacity-50"
+          style={{ backgroundColor: HEADER_TONE_FILL.ready }}
         >
           {action === "mergePr" ? "Merging…" : "Merge"}
         </button>
@@ -986,7 +976,7 @@ export function WorkspaceControlPanel({
       : [];
     return (
       <SplitButton
-        tone="action"
+        tone={tone}
         {...commitPushPrimary(status)}
         menuDisabled={busy}
         items={[...(behind ? [getLatestMenuItem] : []), commitMenuItem, ...readyItem]}
@@ -1015,7 +1005,8 @@ export function WorkspaceControlPanel({
             : "The project root cannot be deleted"
         }
         onClick={runDelete}
-        className="flex h-7 items-center rounded-full bg-violet-200/90 px-3 text-[12px] font-semibold text-violet-950 transition-colors hover:bg-violet-100 disabled:opacity-50"
+        className="flex h-7 items-center rounded-full px-3 text-[12px] font-semibold text-violet-950 transition-[filter] hover:brightness-105 disabled:opacity-50"
+        style={{ backgroundColor: HEADER_TONE_FILL.merged }}
       >
         {action === "delete" ? "Deleting…" : "Delete"}
       </button>
@@ -1107,15 +1098,30 @@ export function WorkspaceControlPanel({
           </div>
         ) : (
           <>
-            {/* Gradient state header: PR pill + state action, Check/Changes
-                tabs. Sticky with an opaque surface-1 base so it stays put
-                while the tab content scrolls beneath it. */}
+            {/* State header: PR pill + state action, Check/Changes tabs.
+                Sticky with an opaque surface-1 base so it stays put while the
+                tab content scrolls beneath it. The git state reads as an
+                inset glow (same tone as the sidebar's active workspace card)
+                rather than a gradient fill, so the header keeps the parent
+                background; the controls sit on top of the glow unaffected.
+                The glow lives on a layer behind the content and is masked
+                away toward the bottom edge, so the header flows into the
+                body instead of casting a band across it. The header's own
+                background is a smooth tone wash over surface-1 (not flat
+                black) that eases out at the same bottom edge. */}
             <div
-              className={cn(
-                "sticky top-0 z-20 shrink-0 rounded-tr-[16px] bg-surface-1 bg-linear-to-b px-4 pb-8 pt-4",
-                HEADER_TONE_GRADIENT[tone],
-              )}
+              className="sticky top-0 z-20 shrink-0 rounded-tr-[16px] bg-surface-1 px-4 pb-8 pt-4"
+              style={{ backgroundImage: toneWash(tone) }}
             >
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 -z-10 rounded-tr-[16px]"
+                style={{
+                  boxShadow: toneInsetShadow(tone),
+                  maskImage: "linear-gradient(to bottom, #000 60%, transparent 100%)",
+                  WebkitMaskImage: "linear-gradient(to bottom, #000 60%, transparent 100%)",
+                }}
+              />
               <div className="flex flex-wrap items-center gap-2">
                 {prPill(status)}
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">

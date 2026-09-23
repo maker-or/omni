@@ -4,7 +4,6 @@ import {
   CaretDown,
   DotsThree,
   FolderPlus,
-  FunnelSimple,
   GitBranch,
   Plus,
   SidebarSimple,
@@ -21,7 +20,7 @@ import { TerminalSession } from "@/components/terminal-session";
 import { ThreadCompletionDock } from "@/components/thread-completion-dock";
 import {
   WorkspaceControlPanel,
-  HEADER_TONE_COLOR,
+  toneInsetShadow,
   type HeaderTone,
 } from "@/components/workspace-control-panel";
 import { Toaster } from "@/components/ui/toaster";
@@ -38,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import { ProviderLogo } from "@/components/provider-logos";
 import { useRunningAgentsByWorkspace } from "@/lib/running-agents";
+import { WorkspaceToneProvider } from "@/lib/workspace-tone-context";
 
 /** Workspaces shown for a project before the "Load more" affordance appears. */
 const WORKSPACE_PAGE_SIZE = 6;
@@ -56,21 +56,6 @@ function cardHeight(path: string, selected: boolean): number {
   for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) >>> 0;
   const base = CARD_HEIGHTS[hash % CARD_HEIGHTS.length];
   return selected ? base + 24 : base;
-}
-
-/**
- * Inset shadow for the active workspace card: the workspace's state colour,
- * cast inward from all four edges. It replaces the old gradient fill, so the
- * card keeps the parent background and only its state reads in colour.
- *
- * Two stacked shadows shape the falloff the way a single blur cannot: a
- * near-edge band, then a deep glow that reaches toward the centre over the
- * parent colour. No border ring — the state reads purely as a soft inward
- * bleed from all four edges.
- */
-function activeCardShadow(tone: HeaderTone): string {
-  const color = HEADER_TONE_COLOR[tone];
-  return [`inset 0 0 22px 2px ${color}8c`, `inset 0 0 48px 8px ${color}4d`].join(", ");
 }
 
 function WorkspaceNameDialog({
@@ -332,7 +317,7 @@ function WorkspaceCard({
         }}
         style={{
           minHeight: cardHeight(worktree.path, selected),
-          boxShadow: selected ? activeCardShadow(tone) : undefined,
+          boxShadow: selected ? toneInsetShadow(tone) : undefined,
         }}
         className={cn(
           "relative flex w-full flex-col overflow-hidden rounded-2xl p-3 text-left outline-none",
@@ -717,201 +702,203 @@ export function AdvancedShell() {
   const hiddenWorkspaceCount = activeWorktrees.length - shownWorktrees.length;
 
   return (
-    <SidebarProvider
-      open={leftSidebarOpen}
-      onOpenChange={setLeftSidebarOpen}
-      persist={false}
-      shortcut={null}
-      width="20rem"
-    >
-      <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-surface-1 text-foreground">
-        <DiffIngestor />
-        <Toaster />
-        {/* Reaching the left edge slides the docked rail back in. It is a
+    <WorkspaceToneProvider tone={selectedTone}>
+      <SidebarProvider
+        open={leftSidebarOpen}
+        onOpenChange={setLeftSidebarOpen}
+        persist={false}
+        shortcut={null}
+        width="20rem"
+      >
+        <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-surface-1 text-foreground">
+          <DiffIngestor />
+          <Toaster />
+          {/* Reaching the left edge slides the docked rail back in. It is a
             plain hover target, not the design-system peek overlay, so the
             panel arrives as the real column instead of a floating card. */}
-        {!leftSidebarOpen ? (
-          <div
-            className="group/left-edge absolute inset-y-0 left-0 z-40 w-6"
-            onPointerEnter={() => setLeftSidebarOpen(true)}
-          >
-            <span
-              aria-hidden="true"
-              className="absolute inset-y-0 left-0 w-px bg-border opacity-0 transition-opacity duration-80 group-hover/left-edge:opacity-100"
-            />
-          </div>
-        ) : null}
-        <div className="flex min-h-0 flex-1">
-          <Sidebar collapsible="offcanvas" rail={false}>
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex shrink-0 items-center justify-end px-2 pt-3">
-                <SidebarTrigger size="icon-sm" aria-label="Collapse workspace sidebar">
-                  <SidebarSimple size={16} />
-                </SidebarTrigger>
-              </div>
-              <div className="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
-                <div className="min-w-0 flex-1">
-                  <ProjectTabs
-                    projects={projects}
-                    activeProjectId={activeProject?.id}
-                    onSelect={(project) => void openProject(project)}
-                  />
-                </div>
-                {activeProject && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0"
-                    aria-label={`New workspace in ${activeProject.name}`}
-                    onClick={() => openWorkspaceDialog(activeProject)}
-                  >
-                    <Plus size={16} />
-                  </Button>
-                )}
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-2">
-                {activeProject ? (
-                  <>
-                    {activeWorktrees.length === 0 ? (
-                      <button
-                        type="button"
-                        className="flex min-h-[7rem] w-full items-center justify-center rounded-2xl border border-dashed border-border text-[13px] text-muted-foreground/70 transition-colors duration-80 hover:bg-surface-2 hover:text-foreground"
-                        onClick={() => openWorkspaceDialog(activeProject)}
-                      >
-                        <Plus size={16} className="mr-1.5" /> New workspace
-                      </button>
-                    ) : (
-                      <div className="columns-2 gap-2">
-                        {shownWorktrees.map((worktree) => {
-                          const isSelected = worktree.path === selectedPath;
-                          return (
-                            <WorkspaceCard
-                              key={worktree.path}
-                              worktree={worktree}
-                              selected={isSelected}
-                              tone={isSelected ? selectedTone : "neutral"}
-                              runningAgentIds={
-                                runningAgents.get(
-                                  normalizeWorkspacePath(worktree.path, activeProject.path),
-                                ) ?? EMPTY_AGENT_IDS
-                              }
-                              onSelect={() => void selectWorkspace(activeProject, worktree.path)}
-                              onDelete={() => void deleteWorkspace(activeProject, worktree)}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-                    {hiddenWorkspaceCount > 0 ? (
-                      <button
-                        type="button"
-                        className="flex mt-2 h-8 w-full items-center justify-center gap-2 rounded-md text-[12px] text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
-                        onClick={() => loadMoreWorkspaces(activeProject.id)}
-                      >
-                        <CaretDown size={14} />
-                        Load more ({hiddenWorkspaceCount})
-                      </button>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="px-1 py-2 text-[13px] text-muted-foreground/70">
-                    Select a project to see its workspaces.
-                  </p>
-                )}
-              </div>
+          {!leftSidebarOpen ? (
+            <div
+              className="group/left-edge absolute inset-y-0 left-0 z-40 w-6"
+              onPointerEnter={() => setLeftSidebarOpen(true)}
+            >
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 w-px bg-border opacity-0 transition-opacity duration-80 group-hover/left-edge:opacity-100"
+              />
             </div>
-            <SidebarFooter className="border-t border-white/5 bg-[#1a1a1a] p-2">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="flex h-8 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-400 outline-none transition-colors duration-80 hover:bg-white/10 hover:text-neutral-100"
-                  onClick={() => void window.omni.launch.show("add")}
-                >
-                  <FolderPlus size={16} />
-                  New project
-                </button>
-              </div>
-            </SidebarFooter>
-          </Sidebar>
-
-          <SidebarProvider
-            open={rightSidebarOpen}
-            onOpenChange={setRightSidebarOpen}
-            persist={false}
-            shortcut={null}
-            width="24rem"
-            mobileBreakpoint={1024}
-            className="min-h-0 min-w-0 flex-1"
-          >
-            <main className="relative flex min-w-0 flex-1 overflow-hidden">
-              <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <div className="flex h-12 shrink-0 items-center gap-2 bg-surface-1 px-3">
-                  <div className="mx-auto mt-2 min-w-0 max-w-[1000px] px-4">
-                    <GlobalTabBar />
-                  </div>
-                  <SidebarTrigger
-                    size="icon-sm"
-                    className="mt-2 shrink-0"
-                    aria-label="Toggle workspace panel"
-                  >
-                    <SidebarSimple size={16} className="-scale-x-100" />
+          ) : null}
+          <div className="flex min-h-0 flex-1">
+            <Sidebar collapsible="offcanvas" rail={false}>
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex shrink-0 items-center justify-end px-2 pt-3">
+                  <SidebarTrigger size="icon-sm" aria-label="Collapse workspace sidebar">
+                    <SidebarSimple size={16} />
                   </SidebarTrigger>
                 </div>
-                <div className="relative min-h-0 flex-1 overflow-hidden">
-                  <AgentView />
-                  {terminalSessions.map((session) => {
-                    const active = showTerminalView && activeTerminalId === session.id;
-                    return (
-                      <div
-                        key={session.id}
-                        className={cn(
-                          "absolute inset-0 z-30 bg-surface-1 p-2",
-                          active ? "visible" : "invisible pointer-events-none",
-                        )}
-                      >
-                        <TerminalSession
-                          sessionId={session.id}
-                          cwd={session.cwd}
-                          isActive={active}
-                        />
-                      </div>
-                    );
-                  })}
+                <div className="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
+                  <div className="min-w-0 flex-1">
+                    <ProjectTabs
+                      projects={projects}
+                      activeProjectId={activeProject?.id}
+                      onSelect={(project) => void openProject(project)}
+                    />
+                  </div>
+                  {activeProject && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0"
+                      aria-label={`New workspace in ${activeProject.name}`}
+                      onClick={() => openWorkspaceDialog(activeProject)}
+                    >
+                      <Plus size={16} />
+                    </Button>
+                  )}
                 </div>
-                <ThreadCompletionDock projects={projects} />
-              </section>
-              <Sidebar side="right" collapsible="offcanvas" rail={false}>
-                <WorkspaceControlPanel
-                  project={activeProject}
-                  worktreePath={selectedPath}
-                  workspaceName={selectedWorkspaceName}
-                  onToneChange={setSelectedTone}
-                  onDelete={
-                    activeProject && selectedWorktree && !selectedWorktree.isProjectRoot
-                      ? () => deleteWorkspace(activeProject, selectedWorktree)
-                      : undefined
-                  }
-                  onContinued={activeProject ? () => reloadWorkspaces(activeProject) : undefined}
-                />
-              </Sidebar>
-            </main>
-          </SidebarProvider>
+                <div className="min-h-0 flex-1 overflow-y-auto px-2">
+                  {activeProject ? (
+                    <>
+                      {activeWorktrees.length === 0 ? (
+                        <button
+                          type="button"
+                          className="flex min-h-[7rem] w-full items-center justify-center rounded-2xl border border-dashed border-border text-[13px] text-muted-foreground/70 transition-colors duration-80 hover:bg-surface-2 hover:text-foreground"
+                          onClick={() => openWorkspaceDialog(activeProject)}
+                        >
+                          <Plus size={16} className="mr-1.5" /> New workspace
+                        </button>
+                      ) : (
+                        <div className="columns-2 gap-2">
+                          {shownWorktrees.map((worktree) => {
+                            const isSelected = worktree.path === selectedPath;
+                            return (
+                              <WorkspaceCard
+                                key={worktree.path}
+                                worktree={worktree}
+                                selected={isSelected}
+                                tone={isSelected ? selectedTone : "neutral"}
+                                runningAgentIds={
+                                  runningAgents.get(
+                                    normalizeWorkspacePath(worktree.path, activeProject.path),
+                                  ) ?? EMPTY_AGENT_IDS
+                                }
+                                onSelect={() => void selectWorkspace(activeProject, worktree.path)}
+                                onDelete={() => void deleteWorkspace(activeProject, worktree)}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                      {hiddenWorkspaceCount > 0 ? (
+                        <button
+                          type="button"
+                          className="flex mt-2 h-8 w-full items-center justify-center gap-2 rounded-md text-[12px] text-muted-foreground transition-colors duration-80 hover:bg-hover hover:text-foreground"
+                          onClick={() => loadMoreWorkspaces(activeProject.id)}
+                        >
+                          <CaretDown size={14} />
+                          Load more ({hiddenWorkspaceCount})
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="px-1 py-2 text-[13px] text-muted-foreground/70">
+                      Select a project to see its workspaces.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <SidebarFooter className="border-t border-white/5 bg-[#1a1a1a] p-2">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="flex h-8 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-400 outline-none transition-colors duration-80 hover:bg-white/10 hover:text-neutral-100"
+                    onClick={() => void window.omni.launch.show("add")}
+                  >
+                    <FolderPlus size={16} />
+                    New project
+                  </button>
+                </div>
+              </SidebarFooter>
+            </Sidebar>
+
+            <SidebarProvider
+              open={rightSidebarOpen}
+              onOpenChange={setRightSidebarOpen}
+              persist={false}
+              shortcut={null}
+              width="24rem"
+              mobileBreakpoint={1024}
+              className="min-h-0 min-w-0 flex-1"
+            >
+              <main className="relative flex min-w-0 flex-1 overflow-hidden">
+                <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  <div className="flex h-12 shrink-0 items-center gap-2 bg-surface-1 px-3">
+                    <div className="mx-auto mt-2 min-w-0 max-w-[1000px] px-4">
+                      <GlobalTabBar />
+                    </div>
+                    <SidebarTrigger
+                      size="icon-sm"
+                      className="mt-2 shrink-0"
+                      aria-label="Toggle workspace panel"
+                    >
+                      <SidebarSimple size={16} className="-scale-x-100" />
+                    </SidebarTrigger>
+                  </div>
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                    <AgentView />
+                    {terminalSessions.map((session) => {
+                      const active = showTerminalView && activeTerminalId === session.id;
+                      return (
+                        <div
+                          key={session.id}
+                          className={cn(
+                            "absolute inset-0 z-30 bg-surface-1 p-2",
+                            active ? "visible" : "invisible pointer-events-none",
+                          )}
+                        >
+                          <TerminalSession
+                            sessionId={session.id}
+                            cwd={session.cwd}
+                            isActive={active}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <ThreadCompletionDock projects={projects} />
+                </section>
+                <Sidebar side="right" collapsible="offcanvas" rail={false}>
+                  <WorkspaceControlPanel
+                    project={activeProject}
+                    worktreePath={selectedPath}
+                    workspaceName={selectedWorkspaceName}
+                    onToneChange={setSelectedTone}
+                    onDelete={
+                      activeProject && selectedWorktree && !selectedWorktree.isProjectRoot
+                        ? () => deleteWorkspace(activeProject, selectedWorktree)
+                        : undefined
+                    }
+                    onContinued={activeProject ? () => reloadWorkspaces(activeProject) : undefined}
+                  />
+                </Sidebar>
+              </main>
+            </SidebarProvider>
+          </div>
         </div>
-      </div>
-      {dialogProject && (
-        <WorkspaceNameDialog
-          project={dialogProject}
-          isCreating={isCreating}
-          error={dialogRepoError ?? worktreeError}
-          repoState={dialogRepoState}
-          isInitializing={isInitializingRepo}
-          onCancel={closeWorkspaceDialog}
-          onSubmit={(name) => void createWorkspace(name)}
-          onInitialize={() => void initializeDialogRepo()}
-          onRetryRepoState={() => void checkDialogRepoState(dialogProject.id)}
-        />
-      )}
-    </SidebarProvider>
+        {dialogProject && (
+          <WorkspaceNameDialog
+            project={dialogProject}
+            isCreating={isCreating}
+            error={dialogRepoError ?? worktreeError}
+            repoState={dialogRepoState}
+            isInitializing={isInitializingRepo}
+            onCancel={closeWorkspaceDialog}
+            onSubmit={(name) => void createWorkspace(name)}
+            onInitialize={() => void initializeDialogRepo()}
+            onRetryRepoState={() => void checkDialogRepoState(dialogProject.id)}
+          />
+        )}
+      </SidebarProvider>
+    </WorkspaceToneProvider>
   );
 }

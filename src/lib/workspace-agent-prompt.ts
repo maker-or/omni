@@ -5,7 +5,7 @@ import { useAgentStore } from "@/store/agent-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { selectThread } from "@/lib/thread-actions";
-import { composeSkillPrompt, contextBlock } from "@/lib/git-skills";
+import { composeSkillPrompt, contextBlock, encodeContextString } from "@/lib/git-skills";
 
 /**
  * Hand a task to the agent in a workspace's own thread. Reuses the thread
@@ -157,8 +157,10 @@ export function buildPrCommentsPrompt(input: {
       ? `Address this review comment from PR #${input.prNumber}.`
       : `Address these ${input.comments.length} review comments from PR #${input.prNumber}.`;
   const blocks = input.comments.map((comment) => {
+    // The path is repository-controlled and may carry newlines, which would
+    // let it end the header line and forge text outside the fenced body.
     const where = comment.path
-      ? ` on ${comment.path}${comment.line ? `:${comment.line}` : ""}`
+      ? ` on ${encodeContextString(comment.path)}${comment.line ? `:${comment.line}` : ""}`
       : "";
     const body = comment.body.trim().split(COMMENT_CLOSE).join("> > >");
     return `${COMMENT_OPEN} author=@${comment.author}${where}\n${body}\n${COMMENT_CLOSE}`;

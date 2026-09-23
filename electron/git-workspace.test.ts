@@ -21,6 +21,7 @@ import {
   summarizeChecks,
   summarizePrNodes,
   summarizeStatusPorcelain,
+  type PrSummary,
 } from "./git-workspace.ts";
 
 const GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
@@ -491,6 +492,45 @@ describe("resolvePrWithCache", () => {
       force: true,
     });
     expect(calls).toBe(3);
+  });
+
+  test("an older response that lands late never overwrites a newer one", async () => {
+    // A background refresh starts, the user merges (forced read), and the
+    // background answer arrives after the forced one. The pre-merge answer
+    // must not replace the post-merge snapshot.
+    const repository = `owner/race-${Date.now()}`;
+    const open = summarizePrNodes([
+      { number: 9, url: "https://github.com/owner/repo/pull/9", state: "OPEN" },
+    ]);
+    const merged = summarizePrNodes([
+      { number: 9, url: "https://github.com/owner/repo/pull/9", state: "MERGED" },
+    ]);
+    let releaseOlder!: () => void;
+    const older = resolvePrWithCache(
+      repository,
+      "feature",
+      () => new Promise<PrSummary>((resolve) => (releaseOlder = () => resolve(open))),
+      { now: 1000, force: true },
+    );
+    const newer = await resolvePrWithCache(repository, "feature", async () => merged, {
+      now: 2000,
+      force: true,
+    });
+    expect(newer.summary.mergedNumber).toBe(9);
+
+    releaseOlder();
+    // The late caller is handed the newer snapshot, not its own stale answer.
+    expect((await older).summary).toEqual(merged);
+    const cached = await resolvePrWithCache(
+      repository,
+      "feature",
+      async () => {
+        throw new Error("should be served from cache");
+      },
+      { now: 3000 },
+    );
+    expect(cached).toMatchObject({ dataState: "fresh", updatedAt: 2000 });
+    expect(cached.summary).toEqual(merged);
   });
 
   test("reports unavailable when refresh fails before any successful response", async () => {

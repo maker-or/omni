@@ -402,12 +402,45 @@ function readPrSnapshot(
   }
 }
 
+/**
+ * Request ordering per `repository\0branch`.
+ *
+ * A forced read (merge, mark ready) and a background refresh can be in flight
+ * for the same branch at once, and GitHub may answer them in either order. A
+ * background request that started before a merge but lands after the forced
+ * read would otherwise overwrite the post-merge snapshot with pre-merge state
+ * that reads as "fresh". Every request takes a sequence number when it starts,
+ * and a response is only written when nothing newer has been written already.
+ */
+const prRequestOrder = new Map<string, { started: number; written: number }>();
+
+function beginPrRequest(repository: string, branch: string): number {
+  const key = prSnapshotKey(repository, branch);
+  const order = prRequestOrder.get(key) ?? { started: 0, written: 0 };
+  order.started += 1;
+  prRequestOrder.set(key, order);
+  return order.started;
+}
+
+/** True when no request that started after `requestId` has been written. */
+function isCurrentPrRequest(repository: string, branch: string, requestId: number): boolean {
+  return requestId > (prRequestOrder.get(prSnapshotKey(repository, branch))?.written ?? 0);
+}
+
+/**
+ * Write a GitHub response, unless a newer request's response is already
+ * cached. Returns whether it was written.
+ */
 function writePrSnapshot(
   repository: string,
   branch: string,
   summary: PrSummary,
   updatedAt: number,
-): void {
+  requestId: number,
+): boolean {
+  if (!isCurrentPrRequest(repository, branch, requestId)) return false;
+  const order = prRequestOrder.get(prSnapshotKey(repository, branch));
+  if (order) order.written = requestId;
   const snapshotJson = JSON.stringify(summary);
   const key = prSnapshotKey(repository, branch);
   // Refresh insertion order as a tiny in-memory LRU mirroring the disk cap.
@@ -423,6 +456,7 @@ function writePrSnapshot(
   } catch {
     // The fresh response is still usable when persistence is unavailable.
   }
+  return true;
 }
 
 /**
@@ -458,9 +492,15 @@ export async function resolvePrWithCache(
   if (!options.force && cached && now - cached.updatedAt < ttlMs) {
     return { summary: cached.summary, dataState: "fresh", updatedAt: cached.updatedAt };
   }
+  const requestId = beginPrRequest(repository, branch);
   try {
     const summary = await fetchSummary();
-    writePrSnapshot(repository, branch, summary, now);
+    if (!writePrSnapshot(repository, branch, summary, now, requestId)) {
+      // A request that started after this one already answered; its snapshot
+      // is the newer truth.
+      const newer = readPrSnapshot(repository, branch);
+      if (newer) return { summary: newer.summary, dataState: "fresh", updatedAt: newer.updatedAt };
+    }
     return { summary, dataState: "fresh", updatedAt: now };
   } catch {
     return cached
@@ -501,13 +541,16 @@ function refreshPrSnapshot(
   if (entry.inFlight) return;
   if (now - entry.startedAt < PR_REFRESH_INTERVAL_MS) return;
   entry.startedAt = now;
+  const requestId = beginPrRequest(repository, branch);
   entry.inFlight = fetchSummary()
     .then((summary) => {
-      writePrSnapshot(repository, branch, summary, Date.now());
+      writePrSnapshot(repository, branch, summary, Date.now(), requestId);
       entry.failed = false;
     })
     .catch(() => {
-      entry.failed = true;
+      // A failure that a newer, successful request has already superseded
+      // must not mark that newer snapshot stale.
+      if (isCurrentPrRequest(repository, branch, requestId)) entry.failed = true;
     })
     .finally(() => {
       entry.inFlight = null;
@@ -523,6 +566,7 @@ function isPrRefreshing(repository: string, branch: string): boolean {
 /** Test seam: forget refresh throttling and failure flags. */
 export function resetPrRefreshesForTests(): void {
   prRefreshes.clear();
+  prRequestOrder.clear();
 }
 
 const PR_BODY_MAX = 20_000;
@@ -819,6 +863,10 @@ async function lookupPr(
 
   if (options.force) {
     const resolved = await resolvePrWithCache(repository, branch, fetchSummary, { force: true });
+    // A forced success is the newest answer, so an earlier background
+    // failure no longer makes the cached data stale.
+    const entry = prRefreshes.get(prRefreshKey(repository, branch));
+    if (entry && resolved.dataState === "fresh") entry.failed = false;
     return { ...resolved, refreshing: false };
   }
 

@@ -1,40 +1,51 @@
-import commonSkill from "../../skills/git/_common.md?raw";
-import commitSkill from "../../skills/git/commit.md?raw";
-import addressReviewSkill from "../../skills/git/address-review.md?raw";
-import getLatestSkill from "../../skills/git/get-latest.md?raw";
+import { getGroupPreamble, getSkill } from "@/lib/skill-bundle";
+
+export { stripFrontmatter } from "@/lib/skill-bundle";
 
 /**
  * Scenario guidance for git tasks the workspace panel hands to an agent.
  *
- * Skills are markdown files under `skills/git/`, bundled into the renderer
+ * Skills are markdown files under `skills/git/`, bundled by `skill-bundle`
  * and attached to the prompt at the moment the user clicks — the agent is
  * never expected to discover them on disk. `_common.md` is prepended to every
  * scenario; the scenario file carries the task-specific protocol; the caller
  * supplies the facts (branch, files, comments) as a fenced context block so
  * the prose stays generic and the data stays structured.
+ *
+ * Adding a scenario: drop `skills/git/<id>.md` (see skills/README.md) and add
+ * its id here. The bundle test fails if an id has no file behind it.
  */
-export type GitSkillId = "commit" | "address-review" | "get-latest";
-
-const SKILLS: Record<GitSkillId, string> = {
-  commit: commitSkill,
-  "address-review": addressReviewSkill,
-  "get-latest": getLatestSkill,
-};
+export const GIT_SKILL_IDS = ["commit", "address-review", "get-latest"] as const;
+export type GitSkillId = (typeof GIT_SKILL_IDS)[number];
 
 const CONTEXT_FENCE = "workspace-context";
-
-/** Drop a leading `---` YAML frontmatter block; the agent only needs the body. */
-export function stripFrontmatter(text: string): string {
-  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text);
-  return (match ? text.slice(match[0].length) : text).trim();
-}
 
 export type ContextValue = string | number | boolean | null | undefined | string[];
 
 /**
+ * Encode a string value as a single-line JSON string literal.
+ *
+ * Values here are repository-controlled (file paths, branch names), and git
+ * allows newlines and backticks in paths. Written raw, a crafted filename
+ * could close the fence or forge extra fields and instructions for a
+ * commit-capable agent. JSON escapes every control character, so each value
+ * stays on its own line; backticks are escaped too so no value can ever
+ * spell a fence.
+ */
+export function encodeContextString(value: string): string {
+  return JSON.stringify(value).replace(/`/g, "\\u0060");
+}
+
+function encodeContextValue(value: string | number | boolean): string {
+  return typeof value === "string" ? encodeContextString(value) : String(value);
+}
+
+/**
  * Render caller-supplied facts as a fenced block the skill prose refers to
- * by key. Lists render one item per line; empty lists and nullish values are
- * omitted so the agent never sees a key with nothing behind it.
+ * by key. Strings are JSON string literals (see `encodeContextString`);
+ * numbers and booleans are bare. Lists render one item per line; empty lists
+ * and nullish values are omitted so the agent never sees a key with nothing
+ * behind it.
  */
 export function contextBlock(fields: Record<string, ContextValue>): string {
   const lines: string[] = [];
@@ -42,12 +53,19 @@ export function contextBlock(fields: Record<string, ContextValue>): string {
     if (value == null) continue;
     if (Array.isArray(value)) {
       if (value.length === 0) continue;
-      lines.push(`${key}:`, ...value.map((item) => `- ${item}`));
+      lines.push(`${key}:`, ...value.map((item) => `- ${encodeContextString(item)}`));
       continue;
     }
-    lines.push(`${key}: ${value}`);
+    lines.push(`${key}: ${encodeContextValue(value)}`);
   }
   return ["```" + CONTEXT_FENCE, ...lines, "```"].join("\n");
+}
+
+/** The shared git rules. Their absence would drop the hard safety rules from every task, so it throws. */
+function gitPreamble(): string {
+  const preamble = getGroupPreamble("git");
+  if (!preamble) throw new Error("skills/git/_common.md is missing from the skill bundle.");
+  return preamble.body;
 }
 
 /**
@@ -64,9 +82,9 @@ export function composeSkillPrompt(input: {
   return [
     input.task,
     "",
-    stripFrontmatter(commonSkill),
+    gitPreamble(),
     "",
-    stripFrontmatter(SKILLS[input.skill]),
+    getSkill(`git/${input.skill}`).body,
     "",
     input.context,
   ].join("\n");

@@ -44,7 +44,7 @@ describe("buildCommitPrompt", () => {
     });
     expect(prompt).toContain("stage exactly those paths");
     expect(context(prompt)).toContain("files-list-complete: true");
-    expect(context(prompt)).toContain("files-to-stage:\n- src/a.ts\n- docs/readme.md");
+    expect(context(prompt)).toContain('files-to-stage:\n- "src/a.ts"\n- "docs/readme.md"');
     expect(context(prompt)).not.toContain("git add");
   });
 
@@ -61,14 +61,14 @@ describe("buildCommitPrompt", () => {
       facts.indexOf("files-to-stage:"),
       facts.indexOf("files-that-look-like-secrets:"),
     );
-    expect(staging).toContain("- src/a.ts");
+    expect(staging).toContain('- "src/a.ts"');
     expect(staging).not.toContain(".env");
     expect(staging).not.toContain("service-account.json");
     expect(staging).not.toContain("id_rsa");
     // ...and the agent is told explicitly to keep them out.
     expect(prompt).toContain("must stay out of the commit");
     expect(facts).toContain(
-      "files-that-look-like-secrets:\n- .env\n- config/service-account.json\n- deploy/id_rsa",
+      'files-that-look-like-secrets:\n- ".env"\n- "config/service-account.json"\n- "deploy/id_rsa"',
     );
   });
 
@@ -137,7 +137,7 @@ describe("buildPrCommentsPrompt", () => {
       ],
     });
     expect(prompt).toContain("Address these 2 review comments from PR #16");
-    expect(prompt).toContain("author=@greptile-apps on electron/worktree-manager.ts:735");
+    expect(prompt).toContain('author=@greptile-apps on "electron/worktree-manager.ts":735');
     expect(prompt).toContain("Unused variable here.");
     expect(prompt).toContain("author=@coderabbitai\nLooks good overall.");
     expect(prompt).toContain("Do not commit.");
@@ -188,7 +188,7 @@ describe("buildGetLatestPrompt", () => {
       files: [],
     });
     expect(prompt.startsWith("Bring this workspace up to date with main.")).toBe(true);
-    expect(context(prompt)).toContain("base-ref: origin/main");
+    expect(context(prompt)).toContain('base-ref: "origin/main"');
     expect(context(prompt)).toContain("commits-behind-base: 3");
   });
 
@@ -212,12 +212,12 @@ describe("buildGetLatestPrompt", () => {
       behindBase: 2,
       files: ["src/a.ts", "src/b.ts"],
     });
-    expect(context(prompt)).toContain("uncommitted-paths:\n- src/a.ts\n- src/b.ts");
+    expect(context(prompt)).toContain('uncommitted-paths:\n- "src/a.ts"\n- "src/b.ts"');
     expect(prompt).toContain("Never stash");
   });
 
   test("falls back to origin/main when no base was resolved", () => {
     const prompt = buildGetLatestPrompt({ branch: "b", baseBranch: null, behindBase: 1 });
-    expect(context(prompt)).toContain("base-ref: origin/main");
+    expect(context(prompt)).toContain('base-ref: "origin/main"');
   });
 });
