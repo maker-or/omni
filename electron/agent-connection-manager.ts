@@ -942,6 +942,44 @@ export class AgentConnectionManager {
     return this.lifecycle.active?.authRequiredMessage ?? null;
   }
 
+  /**
+   * Record a genuine "not signed in" signal. Only an ACP `auth_required`
+   * rejection proves it — advertising `authMethods` at `initialize` does not —
+   * so every session phase records it the same way for `authMessage()` and the
+   * renderer's persistent auth banner.
+   */
+  private recordAuthRequired(live: LiveConnection, error: unknown): void {
+    if (!isAuthRequiredError(error)) return;
+    const descriptor = getAgentDescriptor(live.agentId);
+    live.authRequiredMessage =
+      descriptor?.authHint ??
+      `${descriptor?.displayName ?? live.agentId} requires authentication. Please sign in from your terminal first.`;
+  }
+
+  /**
+   * A snapshot-restored Antigravity thread stays displayable when its agent
+   * session cannot be established — a legacy `pipper-agy-` id the official
+   * server cannot resume, a missing install, a sign-in failure. Removing the
+   * runtime would blank the transcript the user opened the project for, so
+   * keep it with `agentReady: false` (prompts reject via `waitForThreadReady`)
+   * and drop any partial replay so a later retry does not append onto it.
+   * Other agents keep the existing eviction: their fallback chain already
+   * tried load → resume → new, so a failure there is a dead placeholder.
+   */
+  private preserveSnapshotRuntimeAfterFailure(
+    threadId: string,
+    runtime: ThreadSessionRuntime | undefined,
+  ): boolean {
+    if (!runtime || runtime.agentReady !== false || !runtime.snapshotRestored) return false;
+    if (runtime.agentId !== "antigravity-acp") return false;
+    runtime.replaySlice = undefined;
+    runtime.replayToolPayloads = undefined;
+    this.threadActivationGenerations.delete(threadId);
+    this.endThreadLoad(threadId);
+    this.pushState(threadId);
+    return true;
+  }
+
   private buildSessionState(threadId: string): AcpSessionState {
     const runtime = this.sessions.get(threadId);
     const thread = getThread(threadId);
@@ -1104,14 +1142,31 @@ export class AgentConnectionManager {
 
   async authenticateAgent(agentId: string, methodId: string): Promise<void> {
     const live = await this.acquireConnection(agentId);
-    if (!live.authMethods.some((method) => method.id === methodId))
-      throw new Error("This authentication method is not offered by the agent.");
+    const method = live.authMethods.find((candidate) => candidate.id === methodId);
+    if (!method || ("type" in method && method.type === "terminal"))
+      throw new Error("This authentication method cannot be started from Pipper.");
     await requestWithTimeout(
       live.agent.request(acp.methods.agent.authenticate, { methodId }),
       5 * 60_000,
       "agent/authenticate",
     );
     live.authRequiredMessage = null;
+    // A thread whose restore failed with `auth_required` is still snapshot-only.
+    // Now that credentials exist, re-run its activation in the background so
+    // signing in unblocks the thread it was requested from. Not awaited: the
+    // caller's button state must not hang on a slow re-activation.
+    const threadId = this.activeThreadId;
+    const runtime = threadId ? this.sessions.get(threadId) : undefined;
+    if (
+      threadId &&
+      runtime?.agentReady === false &&
+      runtime.agentId === agentId &&
+      !this.loadingSessionThreads.has(threadId)
+    ) {
+      void this.switchThread(threadId).catch((error) => {
+        console.warn(`[agent-auth] retry activation for ${threadId} failed:`, error);
+      });
+    }
   }
 
   async switchAgent(agentId: string): Promise<LiveConnection> {
@@ -1713,12 +1768,7 @@ export class AgentConnectionManager {
     } catch (err) {
       // A genuine "not signed in" surfaces here as an ACP `auth_required`
       // error — the only reliable signal — so record it for `authMessage()`.
-      if (isAuthRequiredError(err)) {
-        const descriptor = getAgentDescriptor(live.agentId);
-        live.authRequiredMessage =
-          descriptor?.authHint ??
-          `${descriptor?.displayName ?? live.agentId} requires authentication. Please sign in from your terminal first.`;
-      }
+      this.recordAuthRequired(live, err);
       attached.release();
       throw err;
     }
@@ -1783,9 +1833,14 @@ export class AgentConnectionManager {
         "session/load",
       );
     } catch (err) {
+      // A restore that needs sign-in is the same persistent signal as a new
+      // session: without this the renderer hides the transient switch error
+      // and shows nothing lasting to act on.
+      this.recordAuthRequired(live, err);
       attached.release();
       throw err;
     }
+    live.authRequiredMessage = null;
     attached.bind(result?.sessionId ?? sessionId);
     return {
       sessionId: result?.sessionId ?? sessionId,
@@ -1811,9 +1866,11 @@ export class AgentConnectionManager {
         "session/resume",
       );
     } catch (err) {
+      this.recordAuthRequired(live, err);
       attached.release();
       throw err;
     }
+    live.authRequiredMessage = null;
     attached.bind(result?.sessionId ?? prevSessionId);
     return {
       sessionId: result?.sessionId ?? prevSessionId,
@@ -1900,7 +1957,17 @@ export class AgentConnectionManager {
     // switchThread reconciles the persisted workspace to the activated
     // thread's cwd, so header/tabs/terminals agree after restart and after
     // project switches.
-    await this.switchThreadInternal(thread.id, "restore", signal);
+    try {
+      await this.switchThreadInternal(thread.id, "restore", signal);
+    } catch (error) {
+      // A snapshot-restored thread must not block project launch: the user
+      // needs the workspace open to read its saved history and start a
+      // replacement thread (e.g. a legacy `pipper-agy-` id the official
+      // Antigravity server cannot resume). The failure is still recorded on
+      // the switch monitor and the transcript stays displayable.
+      if (!this.sessions.get(thread.id)?.snapshotRestored) throw error;
+      console.warn(`[thread-restore] opening ${thread.id} snapshot-only:`, error);
+    }
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
@@ -2082,6 +2149,7 @@ export class AgentConnectionManager {
         );
       }
     } catch (error) {
+      if (this.preserveSnapshotRuntimeAfterFailure(threadId, runtime)) throw error;
       if (runtime?.agentReady === false) {
         this.sessions.remove(threadId);
         this.endThreadLoad(threadId);
@@ -2232,22 +2300,28 @@ export class AgentConnectionManager {
         runtime.agentReady = true;
         if (!runtime.slice.isStreaming) this.scheduleSnapshot(runtime);
       } catch (err) {
-        // No session could be established — remove the placeholder so a
-        // retry doesn't silently reuse a dead runtime.
-        this.sessions.remove(threadId);
-        this.monitorObserver?.onSessionCacheEvent?.({
-          timestamp: Date.now(),
-          action: "evict",
-          threadId,
-          agentSessionId: runtime.agentSessionId,
-          agentId: runtime.agentId,
-          trigger: "switch_load",
-          cachedSessionCount: this.sessions.size,
-          openTabCount: 0,
-          cachedThreadIds: [...this.sessions.keys()],
-          reason: "Session establishment failed",
-        });
-        this.threadActivationGenerations.delete(threadId);
+        // A snapshot-restored Antigravity thread keeps its runtime: the
+        // restored transcript is the user's only access to that history, and
+        // evicting it here is what blanked the view. Everything else is a
+        // placeholder with nothing to lose.
+        if (!this.preserveSnapshotRuntimeAfterFailure(threadId, runtime)) {
+          // No session could be established — remove the placeholder so a
+          // retry doesn't silently reuse a dead runtime.
+          this.sessions.remove(threadId);
+          this.monitorObserver?.onSessionCacheEvent?.({
+            timestamp: Date.now(),
+            action: "evict",
+            threadId,
+            agentSessionId: runtime.agentSessionId,
+            agentId: runtime.agentId,
+            trigger: "switch_load",
+            cachedSessionCount: this.sessions.size,
+            openTabCount: 0,
+            cachedThreadIds: [...this.sessions.keys()],
+            reason: "Session establishment failed",
+          });
+          this.threadActivationGenerations.delete(threadId);
+        }
         throw err;
       } finally {
         this.endThreadLoad(threadId);

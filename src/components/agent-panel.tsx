@@ -14,6 +14,7 @@ import { ChatMessage } from "@/components/ui/chat-message";
 import { ThreadComposer, initialDraftContent } from "@/components/thread-composer";
 import { ConversationTurnIdentity } from "@/components/conversation-turn-identity";
 import { AgentRuntimeControls } from "@/components/agent-runtime-controls";
+import { AgentAuthActions } from "@/components/agent-auth-actions";
 import type { MentionProvider } from "@/components/mention-popover";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
@@ -651,6 +652,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     snapshot,
     error: agentError,
     isConnecting,
+    authMethods,
     uiRequest,
     uiRequestQueue,
     subagentRuns,
@@ -2006,6 +2008,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const emptyStateSubject = currentProject?.name ?? "your project";
+  // Antigravity sign-in failures are rendered as the persistent auth banner
+  // above (with in-place sign-in buttons), not as a dismissible switch error.
   const visibleAgentError =
     agentError &&
     agentError !== dismissedAgentError &&
@@ -2486,6 +2490,21 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                   )}
                 >
                   <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+                    {snapshot?.authRequiredMessage && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-500">
+                        <WarningIcon className="mt-0.5 size-4 shrink-0" />
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <span className="block">{snapshot.authRequiredMessage}</span>
+                          {snapshot.agentId && (
+                            <AgentAuthActions
+                              agentId={snapshot.agentId}
+                              methods={authMethods}
+                              onAuthenticated={() => refresh()}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {visibleAgentError && (
                       <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
                         <WarningIcon className="mt-0.5 size-4 shrink-0" />

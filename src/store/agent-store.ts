@@ -9,6 +9,7 @@ import type {
   AcpSessionState,
   AcpToolCallState,
   AgentCapabilities,
+  AuthMethod,
   AvailableCommand,
   SessionConfigOption,
   SubagentRunSnapshot,
@@ -101,7 +102,8 @@ interface AgentState {
   /** Incremental slice for the active session (mirrors main; applied optimistically). */
   slice: AcpSessionSlice;
   agentCapabilities: AgentCapabilities | null;
-  authMethods: Array<{ id: string; name?: string | null }>;
+  /** Sign-in methods the active connection advertises (ACP `authMethods`). */
+  authMethods: AuthMethod[];
   /** Thread IDs whose agent is currently streaming, across all open threads. */
   runningThreadIds: string[];
   /** Latest tool-call map for every known thread, including background threads. */
@@ -172,10 +174,12 @@ let threadSwitchQueue: Promise<void> = Promise.resolve();
 let pendingThreadTarget: string | null = null;
 let latestRefreshId = 0;
 // Main activation can spend up to 10s on initialize plus three 10s session
-// phases (load, resume, new). Keep the renderer pending until that budget has
-// elapsed so a late session-state cannot surprise the user after a false error.
+// phases (load, resume, new), and Antigravity's first-use install alone waits
+// up to 180s for its download. Keep the renderer pending until that whole
+// budget has elapsed so a late session-state cannot surprise the user after a
+// false error.
 // Read lazily: Node tests import this module without a preload `window.omni`.
-const DEFAULT_THREAD_SWITCH_TIMEOUT_MS = 60_000;
+const DEFAULT_THREAD_SWITCH_TIMEOUT_MS = 240_000;
 
 function threadSwitchTimeoutMs(): number {
   const benchmark = typeof window === "undefined" ? undefined : window.omni?.benchmark;

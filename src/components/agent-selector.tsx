@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { createProviderLogoIcon } from "@/components/provider-logos";
+import { AgentAuthActions } from "@/components/agent-auth-actions";
 import { cn } from "@/lib/utils";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 
@@ -322,8 +323,6 @@ function AgentSetupCard({
   result: AgentProbeResult;
   onRetry: () => void;
 }) {
-  const [authenticating, setAuthenticating] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
   const BrandIcon = useMemo(
     () => createProviderLogoIcon(agentLogoKey(descriptor), descriptor.displayName),
     [descriptor.id, descriptor.icon, descriptor.name, descriptor.displayName],
@@ -351,19 +350,6 @@ function AgentSetupCard({
     }
   };
 
-  const authenticate = async (methodId: string) => {
-    setAuthenticating(true);
-    setAuthError(null);
-    try {
-      await window.omni.agent.authenticate(descriptor.id, methodId);
-      onRetry();
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Sign-in failed.");
-    } finally {
-      setAuthenticating(false);
-    }
-  };
-
   return (
     <Card selected={status === "ready"} data-pipper-id={`agent-setup-card-${descriptor.id}`}>
       <CardMedia icon={BrandIcon} />
@@ -376,22 +362,12 @@ function AgentSetupCard({
           </p>
         )}
         {result.status === "needs-auth" && descriptor.id === "antigravity-acp" && (
-          <div className="flex flex-wrap gap-2">
-            {result.authMethods?.map((method) => (
-              <Button
-                key={method.id}
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={authenticating}
-                onClick={() => void authenticate(method.id)}
-              >
-                {authenticating ? "Signing in…" : method.name || method.id}
-              </Button>
-            ))}
-          </div>
+          <AgentAuthActions
+            agentId={descriptor.id}
+            methods={result.authMethods}
+            onAuthenticated={onRetry}
+          />
         )}
-        {authError && <p className="text-xs text-destructive">{authError}</p>}
       </CardHeader>
       <CardFooter>
         {status === "probing" ? (

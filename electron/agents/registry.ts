@@ -131,7 +131,7 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: [],
     icon: "antigravity",
     docsUrl: "https://antigravity.google/docs/ide/extensions/zed/",
-    authHint: "Sign in to Google Antigravity from Pipper's setup card.",
+    authHint: "Sign in to Google Antigravity to continue.",
     installHint: "Pipper downloads Google's official ACP server on first use.",
     installKind: "binary",
     detectCommands: ["agy_acp_server.par", "agy_acp_server.exe"],

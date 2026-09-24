@@ -11,7 +11,10 @@ import type {
 } from "../contracts/monitor.ts";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
 import { resolveAgentSpawn } from "./agents/registry.ts";
-import { ensureAntigravityInstalled } from "./agents/antigravity-official.ts";
+import {
+  ANTIGRAVITY_INSTALL_WAIT_MS,
+  waitForAntigravityInstall,
+} from "./agents/antigravity-official.ts";
 import type { TerminalManager } from "./terminal-manager.ts";
 
 const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
@@ -277,7 +280,25 @@ export class ConnectionLifecycle {
   }
 
   private async spawnAndInitialize(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
-    if (descriptor.id === "antigravity-acp") await ensureAntigravityInstalled();
+    if (descriptor.id === "antigravity-acp") {
+      // First use downloads Google's server (~107 MiB). Bound the wait to the
+      // download's own budget so a slow install fails with a retryable message
+      // instead of letting the renderer's thread-switch timeout fire first and
+      // then receive the thread after it already reported failure.
+      const installed = await waitForAntigravityInstall(ANTIGRAVITY_INSTALL_WAIT_MS).catch(
+        (error) => {
+          throw new Error(
+            `Antigravity could not be installed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        },
+      );
+      if (!installed)
+        throw new Error(
+          "Antigravity is still downloading for first use. Try again once the download finishes.",
+        );
+    }
     const { command, args, env } = resolveAgentSpawn(descriptor);
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
     const child = spawn(command, args, {
