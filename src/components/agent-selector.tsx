@@ -322,6 +322,8 @@ function AgentSetupCard({
   result: AgentProbeResult;
   onRetry: () => void;
 }) {
+  const [authenticating, setAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const BrandIcon = useMemo(
     () => createProviderLogoIcon(agentLogoKey(descriptor), descriptor.displayName),
     [descriptor.id, descriptor.icon, descriptor.name, descriptor.displayName],
@@ -349,11 +351,47 @@ function AgentSetupCard({
     }
   };
 
+  const authenticate = async (methodId: string) => {
+    setAuthenticating(true);
+    setAuthError(null);
+    try {
+      await window.omni.agent.authenticate(descriptor.id, methodId);
+      onRetry();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Sign-in failed.");
+    } finally {
+      setAuthenticating(false);
+    }
+  };
+
   return (
     <Card selected={status === "ready"} data-pipper-id={`agent-setup-card-${descriptor.id}`}>
       <CardMedia icon={BrandIcon} />
       <CardHeader>
         <CardTitle>{descriptor.displayName}</CardTitle>
+        {descriptor.id === "antigravity-acp" && (
+          <p className="text-xs text-muted-foreground">
+            Google’s official ACP server is downloaded to Pipper’s cache on first use. Sign in here
+            to use its interactive tool approvals.
+          </p>
+        )}
+        {result.status === "needs-auth" && descriptor.id === "antigravity-acp" && (
+          <div className="flex flex-wrap gap-2">
+            {result.authMethods?.map((method) => (
+              <Button
+                key={method.id}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={authenticating}
+                onClick={() => void authenticate(method.id)}
+              >
+                {authenticating ? "Signing in…" : method.name || method.id}
+              </Button>
+            ))}
+          </div>
+        )}
+        {authError && <p className="text-xs text-destructive">{authError}</p>}
       </CardHeader>
       <CardFooter>
         {status === "probing" ? (

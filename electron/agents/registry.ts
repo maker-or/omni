@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
+import { antigravityRelease, installedAntigravityPath } from "./antigravity-official.ts";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
 
 interface RegistryFile {
@@ -125,19 +126,15 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     id: "antigravity-acp",
     name: "antigravity",
     displayName: "Antigravity",
-    description: "Google Antigravity CLI via ACP adapter (stdio JSON-RPC).",
-    command: "npx",
+    description: "Google's official ACP agent, installed into Pipper's cache on first use.",
+    command: "agy_acp_server.par",
     args: [],
     icon: "antigravity",
-    docsUrl: "https://antigravity.google/docs",
-    authHint: "Run `agy` in your terminal to sign in (or set GEMINI_API_KEY) before connecting.",
-    installHint: "npm install -g antigravity-acp  (or use npx on first launch)",
-    installKind: "npx",
-    npmPackage: "antigravity-acp",
-    detectCommands: ["antigravity-acp", "agy-acp"],
-    env: {
-      AGY_EXTRA_ARGS: "--dangerously-skip-permissions",
-    },
+    docsUrl: "https://antigravity.google/docs/ide/extensions/zed/",
+    authHint: "Sign in to Google Antigravity from Pipper's setup card.",
+    installHint: "Pipper downloads Google's official ACP server on first use.",
+    installKind: "binary",
+    detectCommands: ["agy_acp_server.par", "agy_acp_server.exe"],
   },
   {
     id: "devin-acp",
@@ -316,6 +313,18 @@ export function probeAgentAvailability(agent: AcpAgentDescriptor): AcpAgentDescr
     };
   }
 
+  if (base.id === "antigravity-acp") {
+    const release = antigravityRelease();
+    return {
+      ...base,
+      available: Boolean(release),
+      resolvedCommand: installedAntigravityPath(),
+      statusMessage: release
+        ? "Google's official ACP server downloads to Pipper's cache on first use."
+        : `Official Antigravity ACP is not supported on ${process.platform} ${process.arch}.`,
+    };
+  }
+
   // Cursor's CLI binary is literally named `agent`, a name other unrelated CLIs also
   // install (e.g. Grok). A generic PATH lookup can silently pick one of those instead,
   // which then hangs forever because it doesn't speak ACP — so resolve it separately
@@ -452,6 +461,18 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
     return {
       command: process.execPath.includes("Electron") ? "node" : process.execPath,
       args: [script],
+      env,
+    };
+  }
+
+  if (agent.id === "antigravity-acp") {
+    const binary = installedAntigravityPath();
+    if (!binary || !existsSync(binary))
+      throw new Error("Google Antigravity ACP is not installed in Pipper's cache yet.");
+    delete env.AGY_EXTRA_ARGS;
+    return {
+      command: binary,
+      args: [...(antigravityRelease()?.args ?? [])],
       env,
     };
   }

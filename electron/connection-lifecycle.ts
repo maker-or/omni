@@ -11,6 +11,7 @@ import type {
 } from "../contracts/monitor.ts";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
 import { resolveAgentSpawn } from "./agents/registry.ts";
+import { ensureAntigravityInstalled } from "./agents/antigravity-official.ts";
 import type { TerminalManager } from "./terminal-manager.ts";
 
 const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
@@ -276,6 +277,7 @@ export class ConnectionLifecycle {
   }
 
   private async spawnAndInitialize(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
+    if (descriptor.id === "antigravity-acp") await ensureAntigravityInstalled();
     const { command, args, env } = resolveAgentSpawn(descriptor);
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
     const child = spawn(command, args, {

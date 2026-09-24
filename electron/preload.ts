@@ -334,6 +334,8 @@ const api = {
     > => ipcRenderer.invoke("agent:getModelCatalogs"),
     probeAgent: (agentId: string): Promise<AgentProbeResult> =>
       ipcRenderer.invoke("agent:probeAgent", agentId),
+    authenticate: (agentId: string, methodId: string): Promise<void> =>
+      ipcRenderer.invoke("agent:authenticate", agentId, methodId),
     switchAgent: (agentId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchAgent", agentId),
     getPreferredAgentId: (): Promise<string> => ipcRenderer.invoke("agent:getPreferredAgentId"),

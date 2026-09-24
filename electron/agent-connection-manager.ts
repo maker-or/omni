@@ -1102,6 +1102,18 @@ export class AgentConnectionManager {
     return this.lifecycle.acquire(descriptor);
   }
 
+  async authenticateAgent(agentId: string, methodId: string): Promise<void> {
+    const live = await this.acquireConnection(agentId);
+    if (!live.authMethods.some((method) => method.id === methodId))
+      throw new Error("This authentication method is not offered by the agent.");
+    await requestWithTimeout(
+      live.agent.request(acp.methods.agent.authenticate, { methodId }),
+      5 * 60_000,
+      "agent/authenticate",
+    );
+    live.authRequiredMessage = null;
+  }
+
   async switchAgent(agentId: string): Promise<LiveConnection> {
     this.emit({
       type: "session-state",
@@ -1380,9 +1392,10 @@ export class AgentConnectionManager {
         this.emit({
           type: "thread-tool-calls",
           threadId: runtime.threadId,
-          toolCalls: changedToolCall
-            ? { [updateToolCallId]: changedToolCall }
-            : runtime.slice.toolCalls,
+          toolCalls:
+            changedToolCall && updateToolCallId
+              ? { [updateToolCallId]: changedToolCall }
+              : runtime.slice.toolCalls,
           replace: !changedToolCall,
         });
       } else {
@@ -1455,6 +1468,7 @@ export class AgentConnectionManager {
 
     void this.requestPrompt(live, runtime, prompt.blocks, prompt.streamingBehavior)
       .then((result) => {
+        live.authRequiredMessage = null;
         this.settleRuntime(runtime);
         this.captureAnalytics?.("turn_completed", {
           ...agentProps,
@@ -1485,6 +1499,11 @@ export class AgentConnectionManager {
         prompt.resolve(result);
       })
       .catch((error) => {
+        if (isAuthRequiredError(error)) {
+          live.authRequiredMessage =
+            getAgentDescriptor(live.agentId)?.authHint ?? "Sign in to your agent CLI, then retry.";
+          this.prompts.rejectQueued(runtime.threadId, live.authRequiredMessage);
+        }
         this.settleRuntime(runtime);
         this.captureAnalytics?.("turn_failed", {
           ...agentProps,
@@ -1583,7 +1602,7 @@ export class AgentConnectionManager {
 
   /**
    * Normalize and sanitize session config options. Some third-party ACP adapters
-   * (e.g. antigravity-acp) leak raw tab-separated output from CLI discovery (`id\tDisplay Name`).
+   * Some legacy adapters leak raw tab-separated output from CLI discovery (`id\tDisplay Name`).
    * Clean them so modelId matches what the CLI expects and UI renders clean names.
    */
   private sanitizeConfigOptions(
@@ -1639,7 +1658,8 @@ export class AgentConnectionManager {
     live: LiveConnection,
     options: SessionConfigOption[],
   ): SessionConfigOption[] {
-    const sanitized = this.sanitizeConfigOptions(options);
+    const sanitized =
+      live.agentId === "antigravity-acp" ? options : this.sanitizeConfigOptions(options);
     const ms = live.modelState;
     const models = ms?.availableModels ?? [];
     if (models.length === 0) return sanitized;
@@ -1710,50 +1730,32 @@ export class AgentConnectionManager {
       (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
     );
 
-    // If an agent (e.g. antigravity-acp) provided a raw/tab-separated default model,
-    // explicitly sync the clean model back to the adapter session so it doesn't
-    // pass the raw tab-separated string to its CLI subprocess.
-    const modelOpt = configOptions.find((o) => o.category === "model" || o.id === "model");
-    if (modelOpt && typeof modelOpt.currentValue === "string") {
-      const rawOpt = (
-        (result.configOptions as SessionConfigOption[] | null | undefined) ?? []
-      ).find((o) => o.category === "model" || o.id === "model");
-      if (
-        live.agentId.includes("antigravity") ||
-        (typeof rawOpt?.currentValue === "string" && rawOpt.currentValue.includes("\t"))
-      ) {
-        try {
-          await requestWithTimeout(
-            live.agent.request(acp.methods.agent.session.setConfigOption, {
-              sessionId: result.sessionId,
-              configId: modelOpt.id,
-              value: modelOpt.currentValue as never,
-            }),
-            ACP_SWITCH_PHASE_TIMEOUT_MS,
-            "session/set_config_option",
-          );
-        } catch {
-          // best-effort sync
-        }
-      }
-    }
-
-    // For antigravity-acp, also ensure mode is initialized to bypassPermissions
-    // so tool executions never deadlock waiting on headless stdin.
-    const modeOpt = configOptions.find((o) => o.category === "mode" || o.id === "mode");
-    if (modeOpt && live.agentId.includes("antigravity")) {
+    // Preserve the compatibility sync for other adapters that leak tab-separated
+    // defaults. Official Antigravity ACP values remain opaque and are never rewritten.
+    const rawModel = result.configOptions?.find(
+      (option) => option.category === "model" || option.id === "model",
+    );
+    const cleanModel = configOptions.find(
+      (option) => option.category === "model" || option.id === "model",
+    );
+    if (
+      live.agentId !== "antigravity-acp" &&
+      typeof rawModel?.currentValue === "string" &&
+      rawModel.currentValue.includes("\t") &&
+      cleanModel
+    ) {
       try {
         await requestWithTimeout(
           live.agent.request(acp.methods.agent.session.setConfigOption, {
             sessionId: result.sessionId,
-            configId: modeOpt.id,
-            value: "bypassPermissions" as never,
+            configId: cleanModel.id,
+            value: cleanModel.currentValue,
           }),
           ACP_SWITCH_PHASE_TIMEOUT_MS,
           "session/set_config_option",
         );
       } catch {
-        // best-effort sync
+        /* compatibility sync is best effort */
       }
     }
 
@@ -1801,7 +1803,7 @@ export class AgentConnectionManager {
     try {
       result = await requestWithTimeout(
         live.agent.request(acp.methods.agent.session.resume, {
-          prevSessionId,
+          sessionId: prevSessionId,
           cwd,
           mcpServers: attached.servers as never,
         } as never),
@@ -2070,7 +2072,7 @@ export class AgentConnectionManager {
         try {
           await raceActivation(this.switchAgent(thread.agent_id), signal);
         } catch (err) {
-          if (isActivationSuperseded(err)) throw err;
+          if (isActivationSuperseded(err) || thread.agent_id === "antigravity-acp") throw err;
           await raceActivation(this.ensureConnection(this.preferredAgentId), signal);
         }
       } else {
@@ -2142,6 +2144,10 @@ export class AgentConnectionManager {
         let sessionId = thread.agent_session_id;
         let configOptions: SessionConfigOption[] = [];
         try {
+          if (live.agentId === "antigravity-acp" && sessionId?.startsWith("pipper-agy-"))
+            throw new Error(
+              "This Antigravity thread used Pipper's earlier CLI bridge. Its saved history is preserved, but the official ACP server cannot resume that CLI session. Start a new Antigravity thread to continue.",
+            );
           const loaded = await raceActivation(this.sessionLoad(live, cwd, sessionId), signal);
           if (this.threadActivationGenerations.get(threadId) !== generation) {
             throw new Error(`Stale activation for thread ${threadId}`);
@@ -2156,6 +2162,9 @@ export class AgentConnectionManager {
           // Same rule when superseded: nobody is waiting on this thread, so
           // abandon instead of establishing sessions behind the newer request.
           if (isActivationSuperseded(err)) throw err;
+          // Antigravity session IDs belong to a specific implementation. A failed
+          // restore must leave its snapshot and identity intact.
+          if (live.agentId === "antigravity-acp") throw err;
           // Agent restarted — try resume. A failed load may have streamed a
           // partial replay before erroring; drop it so the fallback path
           // doesn't append onto half a timeline.
@@ -2178,7 +2187,11 @@ export class AgentConnectionManager {
             configOptions = resumed.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
           } catch (err) {
-            if (isActivationSuperseded(err)) throw err;
+            if (
+              isActivationSuperseded(err) ||
+              (err instanceof Error && /timed out/i.test(err.message))
+            )
+              throw err;
             const created = await raceActivation(this.sessionNew(live, cwd), signal);
             onPhase("session_new");
             sessionId = created.sessionId;
@@ -2810,7 +2823,10 @@ export class AgentConnectionManager {
     const rawResultOptions =
       (result.configOptions as SessionConfigOption[] | null | undefined) ??
       runtime.slice.configOptions;
-    const options = this.sanitizeConfigOptions(rawResultOptions);
+    const options =
+      owner.agentId === "antigravity-acp"
+        ? rawResultOptions
+        : this.sanitizeConfigOptions(rawResultOptions);
     runtime.slice = { ...runtime.slice, configOptions: options };
     this.pushState(threadId);
     return options;
