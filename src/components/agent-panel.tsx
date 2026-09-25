@@ -14,6 +14,7 @@ import { ChatMessage } from "@/components/ui/chat-message";
 import { ThreadComposer, initialDraftContent } from "@/components/thread-composer";
 import { ConversationTurnIdentity } from "@/components/conversation-turn-identity";
 import { AgentRuntimeControls } from "@/components/agent-runtime-controls";
+import { AgentAuthBanner } from "@/components/agent-auth-actions";
 import type { MentionProvider } from "@/components/mention-popover";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
@@ -581,6 +582,33 @@ function cleanRuntimeStatusText(text: string | null | undefined): string | null 
   return cleaned ? cleaned : null;
 }
 
+function isAntigravityAuthFailure(message: string): boolean {
+  return /auth(?:entication)?[\s_-]*(?:required|failed)|not authenticated|sign in to .*antigravity/i.test(
+    message,
+  );
+}
+
+function sendFailureToast(
+  error: unknown,
+  agentId: string | null | undefined,
+  fallbackTitle: string,
+) {
+  if (
+    agentId === "antigravity-acp" &&
+    error instanceof Error &&
+    isAntigravityAuthFailure(error.message)
+  ) {
+    return {
+      title: "Antigravity not authenticated",
+      description: "Sign in to Antigravity, then try again.",
+    };
+  }
+  return {
+    title: fallbackTitle,
+    description: error instanceof Error ? error.message : "The agent did not accept the message.",
+  };
+}
+
 export function getRuntimeStatusItems(snapshot: AgentPanelSnapshot | null): string[] {
   if (!snapshot) return [];
 
@@ -624,6 +652,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     snapshot,
     error: agentError,
     isConnecting,
+    authMethods,
     uiRequest,
     uiRequestQueue,
     subagentRuns,
@@ -1587,18 +1616,18 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         message: check.text,
         images: newImages.length ? newImages : undefined,
       }).catch((err) => {
+        const failure = sendFailureToast(err, check.agentId, "Send failed");
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
-          title: "Send failed",
-          description: err instanceof Error ? err.message : "The agent did not accept the message.",
+          ...failure,
         });
       });
       setAttachedFiles([]);
     } catch (err) {
+      const failure = sendFailureToast(err, check.agentId, "Create thread failed");
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Create thread failed",
-        description: err instanceof Error ? err.message : "The thread was not created.",
+        ...failure,
       });
     } finally {
       setIsSubmitting(false);
@@ -1703,10 +1732,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                 streamingBehavior: isStreaming ? streamingBehavior : undefined,
               });
       sendOp.catch((err) => {
+        const failure = sendFailureToast(
+          err,
+          snapshot?.agentId,
+          editState ? "Edit failed" : "Send failed",
+        );
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
-          title: editState ? "Edit failed" : "Send failed",
-          description: err instanceof Error ? err.message : "The agent did not accept the message.",
+          ...failure,
         });
       });
       if (useAgentStore.getState().state?.threadId === operationThreadId) {
@@ -1722,10 +1755,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       }
       setStreamingBehavior("followUp");
     } catch (err) {
+      const failure = sendFailureToast(
+        err,
+        snapshot?.agentId,
+        editState ? "Edit failed" : "Send failed",
+      );
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
-        title: editState ? "Edit failed" : "Send failed",
-        description: err instanceof Error ? err.message : "The agent did not accept the message.",
+        ...failure,
       });
     } finally {
       setIsSubmitting(false);
@@ -1971,7 +2008,17 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
 
   const currentProject = projectsList.find((p) => p.id === snapshot?.projectId) || activeProject;
   const emptyStateSubject = currentProject?.name ?? "your project";
-  const visibleAgentError = agentError && agentError !== dismissedAgentError ? agentError : null;
+  // Antigravity sign-in failures are rendered as the persistent auth banner
+  // above (with in-place sign-in buttons), not as a dismissible switch error.
+  // Suppress the raw error only when that banner actually renders; a text
+  // match without an auth_required message must stay visible.
+  const authBannerVisible = Boolean(snapshot?.authRequiredMessage);
+  const visibleAgentError =
+    agentError &&
+    agentError !== dismissedAgentError &&
+    !(snapshot?.agentId === "antigravity-acp" && authBannerVisible)
+      ? agentError
+      : null;
   const runtimeControlsDisabled =
     isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
   const composerDisabled = isDraftMode
@@ -2446,6 +2493,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                   )}
                 >
                   <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+                    {snapshot?.authRequiredMessage && (
+                      <AgentAuthBanner
+                        message={snapshot.authRequiredMessage}
+                        agentId={snapshot.agentId}
+                        methods={authMethods}
+                        onAuthenticated={() => refresh()}
+                      />
+                    )}
                     {visibleAgentError && (
                       <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
                         <WarningIcon className="mt-0.5 size-4 shrink-0" />

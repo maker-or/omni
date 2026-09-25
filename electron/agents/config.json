@@ -108,19 +108,15 @@
       "id": "antigravity-acp",
       "name": "antigravity",
       "displayName": "Antigravity",
-      "description": "Google Antigravity CLI via ACP adapter (stdio JSON-RPC).",
-      "command": "npx",
+      "description": "Google's official ACP agent, installed into Pipper's cache on first use.",
+      "command": "agy_acp_server.par",
       "args": [],
       "icon": "antigravity",
-      "docsUrl": "https://antigravity.google/docs",
-      "authHint": "Run `agy` in your terminal to sign in (or set GEMINI_API_KEY) before connecting.",
-      "installHint": "npm install -g antigravity-acp  (or use npx on first launch)",
-      "installKind": "npx",
-      "npmPackage": "antigravity-acp",
-      "detectCommands": ["antigravity-acp", "agy-acp"],
-      "env": {
-        "AGY_EXTRA_ARGS": "--dangerously-skip-permissions"
-      }
+      "docsUrl": "https://antigravity.google/docs/ide/extensions/zed/",
+      "authHint": "Sign in to Google Antigravity to continue.",
+      "installHint": "Pipper downloads Google's official ACP server on first use.",
+      "installKind": "binary",
+      "detectCommands": ["agy_acp_server.par", "agy_acp_server.exe"]
     },
     {
       "id": "devin-acp",
@@ -147,7 +143,7 @@
       "installKind": "mock",
       "docsUrl": "",
       "authHint": "",
-      "installHint": "Bundled with Pipper — always available."
+      "installHint": "Bundled with Pipper \u2014 always available."
     }
   ],
   "defaultAgentId": "codex-acp"

@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { createProviderLogoIcon } from "@/components/provider-logos";
+import { AgentAuthActions } from "@/components/agent-auth-actions";
 import { cn } from "@/lib/utils";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 
@@ -354,6 +355,19 @@ function AgentSetupCard({
       <CardMedia icon={BrandIcon} />
       <CardHeader>
         <CardTitle>{descriptor.displayName}</CardTitle>
+        {descriptor.id === "antigravity-acp" && (
+          <p className="text-xs text-muted-foreground">
+            Google’s official ACP server is downloaded to Pipper’s cache on first use. Sign in here
+            to use its interactive tool approvals.
+          </p>
+        )}
+        {result.status === "needs-auth" && descriptor.id === "antigravity-acp" && (
+          <AgentAuthActions
+            agentId={descriptor.id}
+            methods={result.authMethods}
+            onAuthenticated={onRetry}
+          />
+        )}
       </CardHeader>
       <CardFooter>
         {status === "probing" ? (

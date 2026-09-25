@@ -95,7 +95,9 @@ describe("activation snapshot", () => {
 
     const streamed = events.find((event) => event.type === "session-update");
     expect(
-      streamed?.type === "session-update" ? streamed.update.rawOutput : undefined,
+      streamed?.type === "session-update" && "rawOutput" in streamed.update
+        ? streamed.update.rawOutput
+        : undefined,
     ).toBeUndefined();
     const leanMap = events.find((event) => event.type === "thread-tool-calls");
     expect(
