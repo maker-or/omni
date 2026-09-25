@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import type { BriefDocument } from "../../contracts/brief.ts";
-import { renderBriefPage, safeUrl } from "./render.ts";
+import { BRIEF_SOURCES, type BriefDocument } from "../../contracts/brief.ts";
+import { CONNECTOR_SVGS, connectorSvg, renderBriefPage, safeUrl, sourceBadge } from "./render.ts";
 
 function doc(overrides: Partial<BriefDocument> = {}): BriefDocument {
   return {
@@ -72,5 +72,28 @@ describe("brief HTML", () => {
     expect(html).toContain('data-theme="dark"');
     expect(html).toContain('data-connect="slack"');
     expect(html).toContain("jev-1.13.0");
+  });
+
+  test("provides SVG connector icons with unified 24x24 viewBox for all brief sources", () => {
+    for (const source of BRIEF_SOURCES) {
+      const svg = CONNECTOR_SVGS[source];
+      expect(svg).toBeDefined();
+      expect(svg).toContain('viewBox="0 0 24 24"');
+      expect(svg).toContain('width="24"');
+      expect(svg).toContain('height="24"');
+      expect(svg).toContain('fill="currentColor"');
+
+      const badge = sourceBadge(source);
+      expect(badge).toContain(`class="src ${source}"`);
+      expect(badge).toContain("<svg");
+    }
+
+    expect(connectorSvg("calendar")).toBe(CONNECTOR_SVGS.googlecalendar);
+    expect(connectorSvg("calender")).toBe(CONNECTOR_SVGS.googlecalendar);
+    expect(connectorSvg("googlecalendar")).toBe(CONNECTOR_SVGS.googlecalendar);
+    expect(connectorSvg("gmail")).toBe(CONNECTOR_SVGS.gmail);
+    expect(connectorSvg("github")).toBe(CONNECTOR_SVGS.github);
+    expect(connectorSvg("linear")).toBe(CONNECTOR_SVGS.linear);
+    expect(connectorSvg("slack")).toBe(CONNECTOR_SVGS.slack);
   });
 });

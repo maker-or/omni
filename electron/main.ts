@@ -2425,6 +2425,8 @@ app.whenReady().then(async () => {
       const user = getAuthenticatedUserForLaunch();
       return user ? { id: user.provider_user_id, name: user.name ?? null } : null;
     },
+    getSelectedAgentIds: () => getSelectedAgentIds(),
+    runAcpPrompt: (opts) => requireAgentManager().runHeadlessPrompt(opts),
   });
 
   logStartupMilestone("launch-state:read:start");

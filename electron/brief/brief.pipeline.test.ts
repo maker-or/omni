@@ -167,7 +167,10 @@ let service: InstanceType<typeof BriefService>;
 const opened: Array<{ url: string; activate: boolean }> = [];
 const drafts: string[] = [];
 
-function makeService(keys = { composio: "ak_test", typesafe: "ts_test", anthropic: null }) {
+function makeService(
+  keys = { composio: "ak_test", typesafe: "ts_test", anthropic: null },
+  overrides: Partial<ConstructorParameters<typeof BriefService>[0]> = {},
+) {
   return new BriefService({
     store: new BriefStore(dir),
     envKeys: keys,
@@ -186,6 +189,7 @@ function makeService(keys = { composio: "ak_test", typesafe: "ts_test", anthropi
     notify: () => {},
     broadcastStatus: () => {},
     now: () => NOW,
+    ...overrides,
   });
 }
 
@@ -299,5 +303,77 @@ describe("Morning Brief pipeline", () => {
     expect(executed).toHaveLength(0);
     const html = await (await page("/today")).text();
     expect(html).toContain("a Composio API key");
+  });
+
+  test("cycles through onboarding ACP providers using default models until brief generation succeeds", async () => {
+    service.dispose();
+    const providerAttempts: string[] = [];
+    const runAcpPrompt = vi.fn(async (opts: { agentId: string; promptText: string }) => {
+      providerAttempts.push(opts.agentId);
+      if (opts.agentId === "claude-agent-acp") {
+        throw new Error("Provider rate limit reached");
+      }
+      if (
+        /infer what this person works on/i.test(opts.promptText) ||
+        /\{ focus: string \}/i.test(opts.promptText)
+      ) {
+        return JSON.stringify({ focus: "Sam Rivera is an engineering lead on Omni." });
+      }
+      return JSON.stringify({
+        headline: "Fix token refresh race before noon",
+        summary: "Focus on PR 42. Team is blocked.",
+        items: [
+          {
+            id: "github:pr:42",
+            title: "Fix token refresh race",
+            why: "Blocks deployment today.",
+            reply_draft: null,
+          },
+        ],
+        push: {
+          id: "github:pr:42",
+          pitch: "Pipper can write the unit test and verify the fix.",
+          agent_prompt: "Review acme/api#42 and test token expiry edge cases",
+        },
+        agenda_notes: [],
+      });
+    });
+
+    service = makeService(
+      { composio: "ak_test", typesafe: "ts_test", anthropic: null },
+      {
+        getSelectedAgentIds: () => ["claude-agent-acp", "codex-acp"],
+        runAcpPrompt,
+      },
+    );
+
+    const doc = await service.generate("launch");
+    expect(doc).not.toBeNull();
+    // Claude failed, so it cycled to Codex which succeeded with its default model:
+    expect(doc!.writer).toBe("acp:Codex");
+    expect(doc!.headline).toBe("Fix token refresh race before noon");
+
+    const res = await page("/today");
+    const html = await res.text();
+    expect(html).toContain("written with Codex");
+    expect(providerAttempts).toContain("claude-agent-acp");
+    expect(providerAttempts).toContain("codex-acp");
+  });
+
+  test("serves connector SVGs with image/svg+xml over pipper-brief scheme", async () => {
+    service = makeService();
+    const res = await page("/svg/gmail.svg");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/svg+xml");
+    const svg = await res.text();
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('viewBox="0 0 24 24"');
+
+    const calRes = await page("/svg/calendar.svg");
+    expect(calRes.status).toBe(200);
+    expect(await calRes.text()).toContain("<svg");
+
+    const notFound = await page("/svg/nonexistent.svg");
+    expect(notFound.status).toBe(404);
   });
 });

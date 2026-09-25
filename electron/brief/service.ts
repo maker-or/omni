@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import {
   BRIEF_HOST,
@@ -29,6 +31,7 @@ import {
 import { ComposioGateway } from "./composio.ts";
 import { triageSignals, type JevClient } from "./jev.ts";
 import {
+  connectorSvg,
   renderBriefPage,
   renderErrorPage,
   renderProgressPage,
@@ -39,9 +42,9 @@ import { decideOnLaunch, nextScheduledRun, shouldRunScheduled } from "./schedule
 import { rankSignals, selectForBrief } from "./scoring.ts";
 import type { BriefStore } from "./store.ts";
 import {
-  AnthropicWriter,
-  ClaudeCliWriter,
+  buildCandidateWriters,
   firstSuccessful,
+  type AcpPromptRunner,
   type WriterBackend,
   type WrittenBrief,
 } from "./writer.ts";
@@ -76,6 +79,10 @@ export interface BriefServiceDeps {
   getUser: () => { id: string | null; name: string | null } | null;
   /** Absolute path to a usable `claude` CLI, or null. */
   resolveClaudeBinary: () => string | null;
+  /** Agent IDs selected during onboarding. */
+  getSelectedAgentIds?: () => string[];
+  /** Headless prompt runner for ACP agents. */
+  runAcpPrompt?: AcpPromptRunner;
   openExternal: (url: string) => void;
   /**
    * Ask the main window to show the brief in the embedded browser. `activate`
@@ -193,11 +200,13 @@ export class BriefService {
   }
 
   private writers(keys: BriefKeys): WriterBackend[] {
-    const backends: WriterBackend[] = [];
-    if (keys.anthropic) backends.push(new AnthropicWriter(keys.anthropic));
-    const claude = this.deps.resolveClaudeBinary();
-    if (claude) backends.push(new ClaudeCliWriter(claude, process.env));
-    return backends;
+    return buildCandidateWriters({
+      selectedAgentIds: this.deps.getSelectedAgentIds?.() ?? [],
+      runAcpPrompt: this.deps.runAcpPrompt,
+      anthropicApiKey: keys.anthropic,
+      claudeBinary: this.deps.resolveClaudeBinary(),
+      env: process.env,
+    });
   }
 
   async getSettingsView(): Promise<BriefSettingsView> {
@@ -209,7 +218,10 @@ export class BriefService {
       openOnLaunch: settings.openOnLaunch,
       hasComposioKey: Boolean(keys.composio),
       hasTypesafeKey: Boolean(keys.typesafe),
-      hasWriterKey: Boolean(keys.anthropic) || Boolean(this.deps.resolveClaudeBinary()),
+      hasWriterKey:
+        Boolean(this.deps.runAcpPrompt) ||
+        Boolean(keys.anthropic) ||
+        Boolean(this.deps.resolveClaudeBinary()),
       composioKeySource: settings.composioApiKey ? "settings" : keys.composio ? "env" : "none",
       typesafeKeySource: settings.typesafeApiKey ? "settings" : keys.typesafe ? "env" : "none",
     };
@@ -559,6 +571,47 @@ export class BriefService {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (path.startsWith("/api/")) return this.handleApi(path.slice(5), request);
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    if (path.startsWith("/svg/")) {
+      const rawName = path
+        .slice(5)
+        .replace(/\.svg$/, "")
+        .toLowerCase();
+      const candidates = [
+        rawName,
+        rawName === "googlecalendar" ? "calendar" : "",
+        rawName === "calendar" ? "calender" : "",
+        rawName === "calender" ? "calendar" : "",
+      ].filter(Boolean);
+
+      for (const candidate of candidates) {
+        try {
+          const filePath = fileURLToPath(new URL(`./svg/${candidate}.svg`, import.meta.url));
+          if (existsSync(filePath)) {
+            const content = readFileSync(filePath, "utf8");
+            return new Response(content, {
+              status: 200,
+              headers: {
+                "Content-Type": "image/svg+xml; charset=utf-8",
+                "Cache-Control": "public, max-age=86400",
+              },
+            });
+          }
+        } catch {
+          // Fall through to in-memory connectorSvg
+        }
+      }
+      const svg = connectorSvg(rawName);
+      if (svg) {
+        return new Response(svg.replace(/currentColor/g, "#1B1F23"), {
+          status: 200,
+          headers: {
+            "Content-Type": "image/svg+xml; charset=utf-8",
+            "Cache-Control": "public, max-age=86400",
+          },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    }
     if (path === "/" || path === "/today") return html(await this.renderToday());
     const dated = /^\/(\d{4}-\d{2}-\d{2})$/.exec(path);
     if (dated) {

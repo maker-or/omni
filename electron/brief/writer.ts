@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { execFile } from "node:child_process";
 import { z } from "zod";
+import { resolveBriefCandidateProviders } from "../../contracts/brief.ts";
 
 /**
  * The "regular LLM" half of the brief: it reasons about who the user is (the
@@ -195,6 +196,92 @@ export class ClaudeCliWriter implements WriterBackend {
 }`;
     return WrittenBriefSchema.parse(await this.run(WRITE_SYSTEM, input, shape));
   }
+}
+
+// ── ACP Agent Writer ────────────────────────────────────────────────────────
+
+export type AcpPromptRunner = (options: {
+  agentId: string;
+  promptText: string;
+  timeoutMs?: number;
+}) => Promise<string>;
+
+export class AcpWriter implements WriterBackend {
+  readonly name: string;
+  readonly agentId: string;
+  readonly displayName: string;
+  private readonly runner: AcpPromptRunner;
+
+  constructor(options: { agentId: string; displayName?: string; runner: AcpPromptRunner }) {
+    this.agentId = options.agentId;
+    this.displayName = options.displayName ?? options.agentId;
+    this.runner = options.runner;
+    this.name = `acp:${this.displayName}`;
+  }
+
+  private async run(system: string, input: string, shape: string): Promise<unknown> {
+    const promptText = `${system}\n\nRespond with ONLY a JSON object matching this TypeScript shape, no prose:\n${shape}\n\n---\n${input}`;
+    const rawOutput = await this.runner({
+      agentId: this.agentId,
+      promptText,
+      timeoutMs: 150_000,
+    });
+    return extractJson(rawOutput);
+  }
+
+  async focus(input: string): Promise<FocusOutput> {
+    return FocusSchema.parse(await this.run(FOCUS_SYSTEM, input, "{ focus: string }"));
+  }
+
+  async write(input: string): Promise<WrittenBrief> {
+    const shape = `{
+  headline: string;
+  summary: string;
+  items: { id: string; title: string; why: string; reply_draft: string | null }[];
+  push: { id: string; pitch: string; agent_prompt: string | null } | null;
+  agenda_notes: { id: string; note: string }[];
+}`;
+    return WrittenBriefSchema.parse(await this.run(WRITE_SYSTEM, input, shape));
+  }
+}
+
+/**
+ * Builds candidate writer backends for the Morning Brief.
+ * If an ACP runner is provided, generates backends cycling through each user-selected
+ * agent provider (or all supported providers) using each agent's default model.
+ * Appends Anthropic API and Claude CLI backends as fallbacks if configured.
+ */
+export function buildCandidateWriters(options: {
+  selectedAgentIds?: readonly string[];
+  runAcpPrompt?: AcpPromptRunner;
+  anthropicApiKey?: string | null;
+  claudeBinary?: string | null;
+  env?: NodeJS.ProcessEnv;
+}): WriterBackend[] {
+  const backends: WriterBackend[] = [];
+
+  if (options.runAcpPrompt) {
+    const candidates = resolveBriefCandidateProviders(options.selectedAgentIds);
+    for (const candidate of candidates) {
+      backends.push(
+        new AcpWriter({
+          agentId: candidate.agentId,
+          displayName: candidate.displayName,
+          runner: options.runAcpPrompt,
+        }),
+      );
+    }
+  }
+
+  if (options.anthropicApiKey) {
+    backends.push(new AnthropicWriter(options.anthropicApiKey));
+  }
+
+  if (options.claudeBinary) {
+    backends.push(new ClaudeCliWriter(options.claudeBinary, options.env ?? process.env));
+  }
+
+  return backends;
 }
 
 /** Try each backend in order; returns null when every backend failed. */

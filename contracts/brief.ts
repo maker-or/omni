@@ -244,3 +244,87 @@ export interface BriefAgentPromptRequest {
 export const BRIEF_SCHEME = "pipper-brief";
 export const BRIEF_HOST = "brief";
 export const BRIEF_LATEST_URL = `${BRIEF_SCHEME}://${BRIEF_HOST}/today`;
+
+export interface BriefAgentProviderConfig {
+  agentId: string;
+  provider: string;
+  displayName: string;
+}
+
+/**
+ * Supported ACP agent providers.
+ * Used by the Morning Brief writer to cycle through the user's selected providers using each agent's default model.
+ */
+export const SUPPORTED_BRIEF_PROVIDERS: Record<string, BriefAgentProviderConfig> = {
+  "claude-agent-acp": {
+    agentId: "claude-agent-acp",
+    provider: "anthropic",
+    displayName: "Claude",
+  },
+  "codex-acp": {
+    agentId: "codex-acp",
+    provider: "openai",
+    displayName: "Codex",
+  },
+  "gemini-acp": {
+    agentId: "gemini-acp",
+    provider: "google",
+    displayName: "Gemini",
+  },
+  "cursor-acp": {
+    agentId: "cursor-acp",
+    provider: "cursor",
+    displayName: "Cursor",
+  },
+  "grok-acp": {
+    agentId: "grok-acp",
+    provider: "xai",
+    displayName: "Grok",
+  },
+  "copilot-acp": {
+    agentId: "copilot-acp",
+    provider: "github",
+    displayName: "Copilot",
+  },
+  "opencode-acp": {
+    agentId: "opencode-acp",
+    provider: "opencode",
+    displayName: "OpenCode",
+  },
+  "antigravity-acp": {
+    agentId: "antigravity-acp",
+    provider: "antigravity",
+    displayName: "Antigravity",
+  },
+  "devin-acp": {
+    agentId: "devin-acp",
+    provider: "devin",
+    displayName: "Devin",
+  },
+};
+
+export type BriefCandidateProvider = BriefAgentProviderConfig;
+
+/**
+ * Returns candidate providers for the given user-selected agent IDs.
+ * Cycles through each provider chosen during onboarding with its default model.
+ * If no selected agent IDs are given, falls back to all supported providers.
+ */
+export function resolveBriefCandidateProviders(
+  selectedAgentIds: readonly string[] = [],
+): BriefCandidateProvider[] {
+  const chosenIds = selectedAgentIds.filter((id) => id in SUPPORTED_BRIEF_PROVIDERS);
+  const targetIds = chosenIds.length > 0 ? chosenIds : Object.keys(SUPPORTED_BRIEF_PROVIDERS);
+
+  const candidates: BriefCandidateProvider[] = [];
+  for (const agentId of targetIds) {
+    const config = SUPPORTED_BRIEF_PROVIDERS[agentId];
+    if (config) {
+      candidates.push(config);
+    }
+  }
+  return candidates;
+}
+
+/** Backwards-compatible alias for resolveBriefCandidateProviders. */
+export const resolveBriefCandidateModels = resolveBriefCandidateProviders;

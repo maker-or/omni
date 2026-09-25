@@ -20,6 +20,7 @@ import {
 } from "../../contracts/brief.ts";
 import { BriefService, type BriefKeys } from "./service.ts";
 import { BriefStore } from "./store.ts";
+import type { AcpPromptRunner } from "./writer.ts";
 
 /**
  * Electron wiring for the Morning Brief: the `pipper-brief://` scheme inside
@@ -116,6 +117,8 @@ export interface BriefIntegrationOptions {
   getMainWindow: () => BrowserWindow | null;
   getTheme: () => "light" | "dark" | "system";
   getUser: () => { id: string | null; name: string | null } | null;
+  getSelectedAgentIds?: () => string[];
+  runAcpPrompt?: AcpPromptRunner;
 }
 
 export interface BriefIntegration {
@@ -152,6 +155,8 @@ export function installBrief(options: BriefIntegrationOptions): BriefIntegration
     getTheme: options.getTheme,
     getUser: options.getUser,
     resolveClaudeBinary,
+    getSelectedAgentIds: options.getSelectedAgentIds,
+    runAcpPrompt: options.runAcpPrompt,
     openExternal: (url) => {
       if (isHttpUrl(url)) void shell.openExternal(url);
     },
