@@ -201,16 +201,26 @@ export async function ensureAntigravityInstalled(
     const lockPath = `${root}.lock`;
     const lockNonce = randomUUID();
     let lock: Awaited<ReturnType<typeof open>> | null = null;
-    for (let attempt = 0; attempt < LOCK_WAIT_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < LOCK_WAIT_ATTEMPTS && !lock; attempt++) {
+      let created: Awaited<ReturnType<typeof open>> | null = null;
       try {
-        lock = await open(lockPath, "wx", 0o600);
-        await lock.writeFile(lockNonce);
-        break;
+        created = await open(lockPath, "wx", 0o600);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         if (await isInstalled(release)) return join(root, release.executable);
         await reclaimStaleLock(lockPath);
         await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_INTERVAL_MS));
+        continue;
+      }
+      try {
+        await created.writeFile(lockNonce);
+        lock = created;
+      } catch (error) {
+        // We own a brand-new lock but cannot stamp it. Close and remove it so a
+        // retry is not stranded behind a fresh lock until it goes stale.
+        await created.close().catch(() => {});
+        await rm(lockPath, { force: true });
+        throw error;
       }
     }
     if (!lock) throw new Error("Timed out waiting for Antigravity installation.");

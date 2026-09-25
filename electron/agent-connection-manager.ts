@@ -972,6 +972,18 @@ export class AgentConnectionManager {
   ): boolean {
     if (!runtime || runtime.agentReady !== false || !runtime.snapshotRestored) return false;
     if (runtime.agentId !== "antigravity-acp") return false;
+    // A prompt queued onto the in-flight load was appended optimistically; the
+    // failed load never delivered it, so it must not be published as history.
+    const pending = runtime.pendingLocalEntries ?? [];
+    if (pending.length > 0) {
+      const pendingIds = new Set(pending.map((entry) => entry.id));
+      runtime.slice = {
+        ...runtime.slice,
+        entries: runtime.slice.entries.filter((entry) => !pendingIds.has(entry.id)),
+        isStreaming: false,
+      };
+    }
+    runtime.pendingLocalEntries = [];
     runtime.replaySlice = undefined;
     runtime.replayToolPayloads = undefined;
     this.threadActivationGenerations.delete(threadId);
@@ -1290,6 +1302,18 @@ export class AgentConnectionManager {
         threadId: null,
         update,
       });
+      return;
+    }
+
+    // A preserved snapshot runtime has no activation owning its session: a
+    // failed or superseded session/load can keep streaming, and those updates
+    // must not be written into the restored transcript as live content. Only a
+    // new activation (which marks the thread loading) may receive them again.
+    if (
+      runtime.agentReady === false &&
+      runtime.snapshotRestored &&
+      !this.loadingSessionThreads.has(runtime.threadId)
+    ) {
       return;
     }
 
@@ -1960,6 +1984,9 @@ export class AgentConnectionManager {
     try {
       await this.switchThreadInternal(thread.id, "restore", signal);
     } catch (error) {
+      // A newer activation superseded this one: the caller must not treat the
+      // abandoned switch as a completed launch.
+      if (isActivationSuperseded(error)) throw error;
       // A snapshot-restored thread must not block project launch: the user
       // needs the workspace open to read its saved history and start a
       // replacement thread (e.g. a legacy `pipper-agy-` id the official
@@ -1967,6 +1994,15 @@ export class AgentConnectionManager {
       // the switch monitor and the transcript stays displayable.
       if (!this.sessions.get(thread.id)?.snapshotRestored) throw error;
       console.warn(`[thread-restore] opening ${thread.id} snapshot-only:`, error);
+      // switchThreadCore's reconciliation never ran, so a snapshot-only launch
+      // must still select the thread's workspace and give it an open tab.
+      await Promise.all([
+        updateWorkspaceSelection(
+          project.id,
+          this.resolveThreadCwd(thread.worktree_path, project.path),
+        ),
+        recordThreadSwitch(thread.id),
+      ]);
     }
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
@@ -2694,7 +2730,16 @@ export class AgentConnectionManager {
     if (!runtime) throw new Error("No session for thread");
     let appendedWhileLoading = false;
     if (runtime.agentReady === false || this.loadingSessionThreads.has(threadId)) {
-      if (appendUserMessage && (input.message || input.images?.length)) {
+      // Only append optimistically while a load is actually in progress. An
+      // unready runtime with no load is a failed restore kept for its snapshot
+      // (see preserveSnapshotRuntimeAfterFailure); it can never accept the
+      // prompt, so reject before writing a phantom user turn into the restored
+      // history or leaving isStreaming set.
+      if (
+        this.loadingSessionThreads.has(threadId) &&
+        appendUserMessage &&
+        (input.message || input.images?.length)
+      ) {
         const nextSlice = appendLocalUserMessage(
           runtime.slice,
           input.message ?? "",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { WarningIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import type { AuthMethod } from "../../contracts/acp.ts";
 
@@ -66,6 +67,35 @@ export function AgentAuthActions({
         </Button>
       ))}
       {authError && <p className="text-xs text-destructive">{authError}</p>}
+    </div>
+  );
+}
+
+/**
+ * Persistent sign-in notice for the workspace. A failed session restore that
+ * needs authentication keeps this visible (unlike a dismissible switch error),
+ * with the agent's advertised sign-in methods inline.
+ */
+export function AgentAuthBanner({
+  message,
+  agentId,
+  methods,
+  onAuthenticated,
+}: {
+  message: string;
+  agentId: string | null;
+  methods: AuthMethod[] | null | undefined;
+  onAuthenticated?: () => void | Promise<void>;
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-500">
+      <WarningIcon className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <span className="block">{message}</span>
+        {agentId && (
+          <AgentAuthActions agentId={agentId} methods={methods} onAuthenticated={onAuthenticated} />
+        )}
+      </div>
     </div>
   );
 }
