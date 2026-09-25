@@ -40,6 +40,14 @@ import type {
 import type { MonitorService } from "./monitor/service.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
 import type {
+  BriefAgentPromptRequest,
+  BriefConnection,
+  BriefOpenRequest,
+  BriefSettingsPatch,
+  BriefSettingsView,
+  BriefStatus,
+} from "../contracts/brief.ts";
+import type {
   ThreadBenchmarkIngestedTurn,
   ThreadBenchmarkMode,
   ThreadBenchmarkOpenPath,
@@ -99,6 +107,35 @@ const api = {
         callback(status);
       ipcRenderer.on("sleepless:statusChanged", listener);
       return () => ipcRenderer.removeListener("sleepless:statusChanged", listener);
+    },
+  },
+  brief: {
+    getStatus: (): Promise<BriefStatus> => ipcRenderer.invoke("brief:getStatus"),
+    getSettings: (): Promise<BriefSettingsView> => ipcRenderer.invoke("brief:getSettings"),
+    updateSettings: (patch: BriefSettingsPatch): Promise<BriefSettingsView> =>
+      ipcRenderer.invoke("brief:updateSettings", patch),
+    getConnections: (): Promise<BriefConnection[]> => ipcRenderer.invoke("brief:getConnections"),
+    connect: (source: string): Promise<void> => ipcRenderer.invoke("brief:connect", source),
+    /** Open request that fired before this renderer subscribed (cold start). */
+    takePendingOpen: (): Promise<BriefOpenRequest | null> =>
+      ipcRenderer.invoke("brief:takePendingOpen"),
+    ackOpen: (): Promise<void> => ipcRenderer.invoke("brief:ackOpen"),
+    onOpen: (callback: (request: BriefOpenRequest) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: BriefOpenRequest) =>
+        callback(request);
+      ipcRenderer.on("brief:open", listener);
+      return () => ipcRenderer.removeListener("brief:open", listener);
+    },
+    onStatus: (callback: (status: BriefStatus) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: BriefStatus) => callback(status);
+      ipcRenderer.on("brief:status", listener);
+      return () => ipcRenderer.removeListener("brief:status", listener);
+    },
+    onAgentPrompt: (callback: (request: BriefAgentPromptRequest) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: BriefAgentPromptRequest) =>
+        callback(request);
+      ipcRenderer.on("brief:agentPrompt", listener);
+      return () => ipcRenderer.removeListener("brief:agentPrompt", listener);
     },
   },
   remote: {

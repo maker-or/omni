@@ -240,8 +240,23 @@ export class AgentConnectionManager {
   private snapshotWritesDisabled = false;
   /** Per-session filesystem containment for agent reads/writes/terminals. */
   private readonly workspaceGuard = new WorkspaceGuard();
+  /** Headless sessions (e.g. Morning Brief) receiving private session updates. */
+  private readonly headlessSessions = new Map<
+    string,
+    {
+      onUpdate: (update: SessionUpdate) => void;
+    }
+  >();
   private readonly permissions = new PermissionCoordinator({
-    autoResponse: (params) => this.subagents.autoPermissionResponse(params),
+    autoResponse: (params) => {
+      if (this.headlessSessions.has(params.sessionId)) {
+        const options = params.options ?? [];
+        const allow = options.find((o) => o.kind === "allow_once") ?? options[0];
+        if (!allow) return { outcome: { outcome: "cancelled" } };
+        return { outcome: { outcome: "selected", optionId: allow.optionId } };
+      }
+      return this.subagents.autoPermissionResponse(params);
+    },
     findThreadBySessionId: (sessionId) => this.findThreadBySessionId(sessionId),
     emit: (event) => this.emit(event),
     notifyIfHidden: (notification) => this.notifyIfHidden(notification),
@@ -1102,6 +1117,98 @@ export class AgentConnectionManager {
     return this.lifecycle.acquire(descriptor);
   }
 
+  /**
+   * Run a prompt to completion against an isolated headless ACP session.
+   * Chunks are accumulated privately without leaking to thread timelines or the renderer.
+   * Used by features like Morning Brief that need LLM inference from supported agents.
+   */
+  async runHeadlessPrompt(options: {
+    agentId: string;
+    promptText: string;
+    timeoutMs?: number;
+    cwd?: string;
+  }): Promise<string> {
+    const { agentId, promptText, timeoutMs = 150_000 } = options;
+    const live = await this.acquireConnection(agentId);
+    const cwd =
+      options.cwd ??
+      this.getActiveCwd() ??
+      (this.activeProjectId
+        ? (getProject(this.activeProjectId)?.path ?? process.cwd())
+        : process.cwd());
+    const attached = await this.sessionMcpServers(live, cwd);
+    let sessionId: string | null = null;
+    let slice: AcpSessionSlice = createEmptySessionSlice();
+
+    try {
+      // ACP agent creates session configured with its default model
+      const created = (await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.new, {
+          cwd,
+          mcpServers: attached.servers as never,
+        }),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "agent/headless-session-new",
+      )) as { sessionId: string; configOptions?: SessionConfigOption[] | null };
+
+      sessionId = created.sessionId;
+      attached.bind(sessionId);
+
+      this.headlessSessions.set(sessionId, {
+        onUpdate: (update) => {
+          slice = applySessionUpdate(slice, update);
+        },
+      });
+
+      const promptBlocks: ContentBlock[] = [{ type: "text", text: promptText }];
+      let timedOut = false;
+
+      const promptResult = await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.prompt, {
+          sessionId,
+          prompt: promptBlocks,
+        }),
+        timeoutMs,
+        "agent/headless-session-prompt",
+        () => {
+          timedOut = true;
+          void live.agent.notify(acp.methods.agent.session.cancel, { sessionId }).catch(() => {});
+        },
+      );
+
+      if (timedOut) {
+        throw new Error(`Headless prompt for agent ${agentId} timed out after ${timeoutMs}ms`);
+      }
+
+      slice = applyTurnStop(slice);
+      let text = slice.entries
+        .filter((entry) => entry.type === "agent_text")
+        .map((entry) => entry.text)
+        .join("")
+        .trim();
+
+      if (!text && promptResult && typeof promptResult === "object" && "text" in promptResult) {
+        text = String((promptResult as { text?: unknown }).text || "").trim();
+      }
+
+      return text;
+    } finally {
+      if (sessionId) {
+        this.headlessSessions.delete(sessionId);
+        try {
+          await requestWithTimeout(
+            live.agent.request(acp.methods.agent.session.close, { sessionId }),
+            ACP_SWITCH_PHASE_TIMEOUT_MS,
+            "agent/headless-session-close",
+          );
+        } catch {
+          // best effort
+        }
+      }
+      attached.release();
+    }
+  }
+
   async switchAgent(agentId: string): Promise<LiveConnection> {
     this.emit({
       type: "session-state",
@@ -1205,6 +1312,11 @@ export class AgentConnectionManager {
 
   private async handleSessionUpdate(sessionId: string, update: SessionUpdate): Promise<void> {
     const startedAt = performance.now();
+    const headless = this.headlessSessions.get(sessionId);
+    if (headless) {
+      headless.onUpdate(update);
+      return;
+    }
     // Headless subagent sessions accumulate into their run's slice; their
     // streaming must not leak into thread timelines or the renderer.
     if (this.subagents.handleSessionUpdate(sessionId, update)) return;

@@ -1,4 +1,5 @@
 import { Keyboard, Monitor, Moon, Sun } from "lucide-react";
+import { MorningBriefSettings } from "@/components/morning-brief-settings";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -129,6 +130,22 @@ export function SettingsApp() {
                 </span>
               </SettingRow>
             </div>
+          </section>
+
+          <section aria-labelledby="brief-heading" className="mt-7">
+            <h2
+              id="brief-heading"
+              className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70"
+            >
+              Morning Brief
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-surface-2 shadow-surface-2">
+              <MorningBriefSettings />
+            </div>
+            <p className="mt-2 px-1 text-[10px] leading-4 text-muted-foreground/70">
+              Tools connect through Composio; Jev by TypeSafe decides what matters. Nothing is sent
+              on your behalf without a click in the brief.
+            </p>
           </section>
 
           <section aria-labelledby="power-heading" className="mt-7">

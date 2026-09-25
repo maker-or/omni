@@ -63,6 +63,10 @@ export type DraftState = {
   previousActiveProjectId: string | null;
   /** Soft-default project chip was auto-inserted from ambient active project. */
   softDefaultProject: boolean;
+  /** Composer free text to seed once when the draft opens. */
+  seedText?: string | null;
+  /** Unique per seeding, so the same text seeded twice is applied twice. */
+  seedId?: number;
 };
 
 /** Renderer → main payload when a draft is committed on send. */

@@ -18,8 +18,14 @@ export function tabValuesInBarOrder(
   threadIds: readonly string[],
   terminalIds: readonly string[],
   terminalPrefix: string,
+  browserIds: readonly string[] = [],
+  browserPrefix = "browser:",
 ): string[] {
-  return [...threadIds, ...terminalIds.map((id) => `${terminalPrefix}${id}`)];
+  return [
+    ...threadIds,
+    ...terminalIds.map((id) => `${terminalPrefix}${id}`),
+    ...browserIds.map((id) => `${browserPrefix}${id}`),
+  ];
 }
 
 export function tabValueAtShortcutIndex(

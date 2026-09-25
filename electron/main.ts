@@ -90,6 +90,11 @@ import type {
 prependStandardPaths();
 
 import { getPipperLibraryPath } from "./paths";
+import {
+  installBrief,
+  registerBriefScheme,
+  type BriefIntegration,
+} from "./brief/electron-integration.ts";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 import { launchLauncherInstaller } from "./launcher-update-install.ts";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
@@ -279,6 +284,9 @@ if (benchmarkEnabled && process.env.PIPPER_DEV_USER_DATA_PATH) {
   app.setPath("userData", devUserDataPath);
 }
 
+// Custom schemes must be registered before the app is ready.
+registerBriefScheme();
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -374,6 +382,7 @@ let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
 let remoteServer: RemoteServer | null = null;
+let briefIntegration: BriefIntegration | null = null;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -388,6 +397,8 @@ function startDeferredStartupWork(): void {
   deferredStartupWorkStarted = true;
 
   initializeMonitorService();
+  // First paint is done: the Morning Brief may now generate and auto-open.
+  briefIntegration?.onMainWindowReady();
   void sleeplessController?.initialize().catch((error) => {
     console.error("[Sleepless] Initialization failed:", error);
   });
@@ -839,6 +850,9 @@ async function createMainWindow(): Promise<void> {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      // The embedded browser (Morning Brief, links) uses <webview>; every
+      // attach is locked down in brief/electron-integration.ts.
+      webviewTag: true,
     },
   });
 
@@ -2404,6 +2418,16 @@ app.whenReady().then(async () => {
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
   });
   registerIpc();
+  briefIntegration = installBrief({
+    getMainWindow: () => mainWindow,
+    getTheme: () => currentTheme,
+    getUser: () => {
+      const user = getAuthenticatedUserForLaunch();
+      return user ? { id: user.provider_user_id, name: user.name ?? null } : null;
+    },
+    getSelectedAgentIds: () => getSelectedAgentIds(),
+    runAcpPrompt: (opts) => requireAgentManager().runHeadlessPrompt(opts),
+  });
 
   logStartupMilestone("launch-state:read:start");
   const state = await readLaunchState();
@@ -2500,6 +2524,7 @@ app.on("will-quit", (event) => {
   });
   killAllPtyProcesses("Quit");
   monitorService?.stop();
+  briefIntegration?.dispose();
 
   void (async () => {
     try {
