@@ -177,6 +177,37 @@ describe("closeThreadTab workspace peers", () => {
   });
 });
 
+describe("removeThreadTabs", () => {
+  test("drops every listed tab in one write and picks the next active by MRU", async () => {
+    const { openThreadTab, recordThreadSwitch, removeThreadTabs, readOpenTabsState } =
+      await import("./open-tabs.ts");
+    await openThreadTab("keep-old");
+    await openThreadTab("keep-mru");
+    await openThreadTab("ws-a");
+    await openThreadTab("ws-b");
+    await recordThreadSwitch("keep-mru");
+    await recordThreadSwitch("ws-a");
+    await recordThreadSwitch("ws-b");
+
+    const state = await removeThreadTabs(["ws-a", "ws-b", "never-open"]);
+    expect(state.openThreadIds).toEqual(["keep-mru", "keep-old"]);
+    expect(state.activeThreadId).toBe("keep-mru");
+    expect(state.threadSwitchHistory).not.toContain("ws-a");
+    expect(state.threadSwitchHistory).not.toContain("ws-b");
+    // Persisted, not just returned.
+    expect(await readOpenTabsState()).toEqual(state);
+  });
+
+  test("keeps the active tab when it is not among the removed ones", async () => {
+    const { openThreadTab, removeThreadTabs } = await import("./open-tabs.ts");
+    await openThreadTab("gone");
+    await openThreadTab("active");
+    const state = await removeThreadTabs(["gone"]);
+    expect(state.openThreadIds).toEqual(["active"]);
+    expect(state.activeThreadId).toBe("active");
+  });
+});
+
 describe("concurrent tab mutations", () => {
   test("closing two different tabs at the same time removes both, not just the last writer's", async () => {
     const { openThreadTab, closeThreadTab, readOpenTabsState } = await import("./open-tabs.ts");

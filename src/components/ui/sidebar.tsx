@@ -13,7 +13,7 @@ import {
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { spring, exitFallbackMs } from "@/lib/springs";
+import { spring } from "@/lib/springs";
 import { useSurface, SurfaceProvider } from "@/lib/surface-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,6 +24,10 @@ import {
   type SidebarVariant,
   type SidebarCollapsible,
 } from "@/components/ui/sidebar-core";
+
+// Sidebar exits are intentionally short; keep a timer fallback for throttled
+// windows where animation callbacks may not fire.
+const exitFallbackMs = () => 450;
 
 // ─── Mobile sheet ────────────────────────────────────────────────────────────
 //
@@ -82,7 +86,7 @@ function SidebarSheet({ side, open, onClose, children }: SidebarSheetProps) {
   // Fallback: rAF-driven animation callbacks stall in throttled tabs.
   useEffect(() => {
     if (!closing) return;
-    const id = setTimeout(finishClose, exitFallbackMs(spring.moderate));
+    const id = setTimeout(finishClose, exitFallbackMs());
     return () => clearTimeout(id);
   }, [closing, finishClose]);
 

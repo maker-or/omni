@@ -14,16 +14,20 @@ import { execFileSync } from "node:child_process";
 import { tmpdir, userInfo } from "node:os";
 import { join, normalize } from "node:path";
 import { realpathSync } from "node:fs";
+import { initProjectRepo } from "./git-workspace.ts";
 import {
+  continueWorktreeOnNewBranch,
   createWorktree,
   isLiveWorktree,
   listBranches,
   listChildWorktrees,
   listWorktrees,
   parseWorktreePorcelain,
+  removeWorktree,
   resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
+  worktreePathFor,
 } from "./worktree-manager.ts";
 
 // Git hooks export GIT_DIR/GIT_INDEX_FILE and related variables for the
@@ -197,6 +201,84 @@ describe("createWorktree", () => {
       createWorktree({ projectPath: notRepo, projectId: PROJECT_ID, name: "x" }),
     ).toThrow();
   });
+
+  test("a project freshly initialized by initProjectRepo can host a workspace", () => {
+    // Regression: the init offered for a non-git project must leave a commit
+    // behind, or this next step fails with "invalid reference: HEAD".
+    const fresh = join(root, "fresh");
+    mkdirSync(fresh, { recursive: true });
+    writeFileSync(join(fresh, "app.txt"), "hello");
+    initProjectRepo(fresh, { name: "Test", email: "test@example.com" });
+
+    const worktree = createWorktree({ projectPath: fresh, projectId: PROJECT_ID, name: "First" });
+
+    // The workspace starts from the project's files, not an empty checkout.
+    expect(readFileSync(join(worktree.path, "app.txt"), "utf8")).toBe("hello");
+  });
+
+  test("a project nested inside a repository maps to the same subdirectory of the new checkout", () => {
+    const nestedProject = join(projectPath, "packages", "app");
+    mkdirSync(nestedProject, { recursive: true });
+    writeFileSync(join(nestedProject, "package.json"), "{}");
+    writeFileSync(join(projectPath, ".env"), "SECRET=1");
+    writeFileSync(join(nestedProject, ".env"), "APP_SECRET=1");
+    git(projectPath, ["add", "-A"]);
+    git(projectPath, ["commit", "-m", "add package"]);
+
+    const worktree = createWorktree({
+      projectPath: nestedProject,
+      projectId: PROJECT_ID,
+      name: "nested-project",
+    });
+
+    // The checkout is the whole repo, but the workspace (thread cwd, deps,
+    // env seed) is the project's own directory inside it.
+    expect(worktree.path).toBe(
+      realPath(join(worktreePathFor(PROJECT_ID, "nested-project"), "packages", "app")),
+    );
+    expect(worktree.branch).toBe("pipper/nested-project");
+    expect(existsSync(join(worktree.path, "package.json"))).toBe(true);
+    expect(readFileSync(join(worktree.path, ".env"), "utf8")).toBe("APP_SECRET=1");
+
+    // Listing is consistent with creation: the root entry *is* the project
+    // path and the linked entry is the mapped subdirectory.
+    const all = listWorktrees(nestedProject);
+    expect(all.find((w) => w.isProjectRoot)?.path).toBe(realPath(nestedProject));
+    expect(all.some((w) => w.path === worktree.path)).toBe(true);
+    expect(isLiveWorktree(worktree.path, nestedProject)).toBe(true);
+
+    // Removal resolves the checkout root from the mapped path.
+    removeWorktree(nestedProject, worktree.path, PROJECT_ID);
+    expect(existsSync(worktreePathFor(PROJECT_ID, "nested-project"))).toBe(false);
+    expect(listChildWorktrees(nestedProject)).toEqual([]);
+  });
+
+  test("a linked checkout missing the project subdirectory lists as its root, not a dead path", () => {
+    const nestedProject = join(projectPath, "packages", "app");
+    mkdirSync(nestedProject, { recursive: true });
+    writeFileSync(join(nestedProject, "package.json"), "{}");
+    git(projectPath, ["add", "-A"]);
+    git(projectPath, ["commit", "-m", "add package"]);
+
+    createWorktree({
+      projectPath: nestedProject,
+      projectId: PROJECT_ID,
+      name: "predates-subdir",
+    });
+    const checkoutRoot = worktreePathFor(PROJECT_ID, "predates-subdir");
+
+    // Simulate a checkout on a branch that predates packages/app: the mapped
+    // subdirectory does not exist in this worktree.
+    rmSync(join(checkoutRoot, "packages"), { recursive: true, force: true });
+
+    const entry = listWorktrees(nestedProject).find((w) => !w.isProjectRoot);
+    expect(entry).toBeDefined();
+    // The listing must fall back to the checkout root — a non-existent nested
+    // path would be accepted by resolveWorkspaceTarget and handed to git
+    // status, terminals and thread cwds, all of which would fail on it.
+    expect(entry?.path).toBe(realPath(checkoutRoot));
+    expect(existsSync(entry?.path ?? "")).toBe(true);
+  });
 });
 
 describe("listWorktrees / isLiveWorktree", () => {
@@ -213,6 +295,20 @@ describe("listWorktrees / isLiveWorktree", () => {
     });
     expect(isLiveWorktree(worktree.path, projectPath)).toBe(true);
     expect(isLiveWorktree(join(root, "does-not-exist"), projectPath)).toBe(false);
+  });
+
+  test("a worktree whose folder is gone never reaches the listing", () => {
+    // Regression: git keeps listing a removed checkout as prunable, so it
+    // showed up as an ordinary workspace whose panel then reported "not a git
+    // repository" and offered to initialize one inside the existing repo.
+    // `createWorktree` invalidates the listing cache, so the read below is a
+    // fresh one and no TTL wait is needed.
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "ghost" });
+    rmSync(worktree.path, { recursive: true, force: true });
+    const all = listWorktrees(projectPath);
+    expect(all.some((w) => w.path === worktree.path)).toBe(false);
+    // The root survives: the UI must always resolve exactly one.
+    expect(all.filter((w) => w.isProjectRoot)).toHaveLength(1);
   });
 
   test("always resolves one annotated root, even when the path doesn't match an entry", () => {
@@ -258,6 +354,61 @@ describe("listWorktrees / isLiveWorktree", () => {
     expect(switched.isProjectRoot).toBe(true);
     expect(git(projectPath, ["branch", "--show-current"])).toBe("feature/header");
   });
+
+  test("removes a linked worktree and its generated branch", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "remove-me" });
+
+    const removed = removeWorktree(projectPath, worktree.path, PROJECT_ID);
+
+    expect(removed.path).toBe(worktree.path);
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(listChildWorktrees(projectPath)).toEqual([]);
+    expect(git(projectPath, ["branch", "--list", "pipper/remove-me"])).toBe("");
+  });
+
+  test("preserves a user-managed branch when removing its worktree", () => {
+    const branch = "feature/preserve-me";
+    const worktree = createWorktree({
+      projectPath,
+      projectId: PROJECT_ID,
+      name: "external-worktree",
+      branch,
+    });
+
+    removeWorktree(projectPath, worktree.path, PROJECT_ID);
+
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(git(projectPath, ["branch", "--list", branch])).toBe(branch);
+  });
+});
+
+describe("parseWorktreePorcelain prunable", () => {
+  test("flags an entry git reports as prunable", () => {
+    // Regression: the marker was dropped, so a worktree whose folder had been
+    // removed was listed as an ordinary workspace and its panel offered to
+    // initialize a git repository inside the existing one.
+    const parsed = parseWorktreePorcelain(
+      [
+        "worktree /repo",
+        "HEAD abc",
+        "branch refs/heads/main",
+        "",
+        "worktree /gone",
+        "HEAD def",
+        "branch refs/heads/feat",
+        "prunable gitdir file points to non-existent location",
+        "",
+      ].join("\n"),
+    );
+    expect(parsed.map((entry) => entry.missing)).toEqual([false, true]);
+  });
+
+  test("a bare prunable line counts too", () => {
+    const parsed = parseWorktreePorcelain(
+      ["worktree /gone", "HEAD def", "detached", "prunable", ""].join("\n"),
+    );
+    expect(parsed[0]?.missing).toBe(true);
+  });
 });
 
 describe("parseWorktreePorcelain", () => {
@@ -274,8 +425,8 @@ describe("parseWorktreePorcelain", () => {
     ].join("\n");
     const parsed = parseWorktreePorcelain(out);
     expect(parsed).toEqual([
-      { path: "/repo/main", head: "abc123", branch: "main" },
-      { path: "/repo/wt", head: "def456", branch: null },
+      { path: "/repo/main", head: "abc123", branch: "main", missing: false },
+      { path: "/repo/wt", head: "def456", branch: null, missing: false },
     ]);
   });
 });
@@ -328,5 +479,31 @@ describe("resolveInstallCommand", () => {
   test("a bare package.json falls back to npm", () => {
     writeFileSync(join(dir, "package.json"), "{}");
     expect(resolveInstallCommand(dir)?.manager).toBe("npm");
+  });
+});
+
+describe("continueWorktreeOnNewBranch", () => {
+  test("starts a fresh generated branch off main in the same directory", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Feature" });
+    writeFileSync(join(worktree.path, "work.txt"), "done");
+    git(worktree.path, ["add", "-A"]);
+    git(worktree.path, ["commit", "-m", "feature work"]);
+    // Simulate the merge landing on main.
+    git(projectPath, ["merge", "--no-ff", worktree.branch!]);
+
+    const next = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    expect(next.path).toBe(worktree.path);
+    expect(next.branch).toBe("pipper/feature-2");
+    expect(git(worktree.path, ["rev-parse", "HEAD"])).toBe(git(projectPath, ["rev-parse", "main"]));
+    expect(existsSync(join(worktree.path, "work.txt"))).toBe(true);
+  });
+
+  test("refuses a dirty worktree", () => {
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Dirty" });
+    writeFileSync(join(worktree.path, "wip.txt"), "wip");
+    expect(() => continueWorktreeOnNewBranch(projectPath, worktree.path)).toThrow(
+      /uncommitted changes/,
+    );
+    expect(git(worktree.path, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("pipper/dirty");
   });
 });

@@ -234,6 +234,21 @@ export function getDb(): DatabaseSync {
     );
   `);
 
+  // Last-known-good GitHub PR data. This is a display cache: local git stays
+  // authoritative, while the cached remote slice keeps the workflow panel
+  // useful during network/auth outages and across app restarts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS github_pr_snapshots (
+      repository TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (repository, branch)
+    );
+    CREATE INDEX IF NOT EXISTS idx_github_pr_snapshots_updated_at
+      ON github_pr_snapshots(updated_at ASC);
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
@@ -288,6 +303,56 @@ export function getDb(): DatabaseSync {
 export function closeDb(): void {
   db?.close();
   db = null;
+}
+
+export interface GithubPrSnapshotRecord {
+  snapshotJson: string;
+  updatedAt: number;
+}
+
+export function getGithubPrSnapshot(
+  repository: string,
+  branch: string,
+): GithubPrSnapshotRecord | null {
+  const row = getDb()
+    .prepare(
+      `SELECT snapshot_json, updated_at
+       FROM github_pr_snapshots
+       WHERE repository = ? AND branch = ?`,
+    )
+    .get(repository, branch) as { snapshot_json: string; updated_at: number } | undefined;
+  return row ? { snapshotJson: row.snapshot_json, updatedAt: row.updated_at } : null;
+}
+
+export function saveGithubPrSnapshot(
+  repository: string,
+  branch: string,
+  snapshotJson: string,
+  updatedAt: number,
+): void {
+  const database = getDb();
+  database
+    .prepare(
+      `INSERT INTO github_pr_snapshots (repository, branch, snapshot_json, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(repository, branch) DO UPDATE SET
+         snapshot_json = excluded.snapshot_json,
+         updated_at = excluded.updated_at`,
+    )
+    .run(repository, branch, snapshotJson, updatedAt);
+  // Branch names are effectively unbounded over an install's lifetime. Keep
+  // enough history for active work without allowing cached comments/bodies to
+  // grow the database forever.
+  database
+    .prepare(
+      `DELETE FROM github_pr_snapshots
+       WHERE rowid IN (
+         SELECT rowid FROM github_pr_snapshots
+         ORDER BY updated_at DESC
+         LIMIT -1 OFFSET 200
+       )`,
+    )
+    .run();
 }
 
 export interface AuthUserRecord {

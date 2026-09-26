@@ -9,6 +9,8 @@ import { AmbientPixelField } from "@/components/ambient-pixel-field";
 import { AgentSelector } from "@/components/agent-selector";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { SleeplessOnboarding } from "@/components/sleepless-onboarding";
+import { WorkspaceModePicker } from "@/components/workspace-mode-picker";
+import { useUiModeStore, type UiMode } from "@/store/ui-mode-store";
 import { trackOnboarding } from "./onboarding-analytics";
 
 interface AuthenticatedStageProps {
@@ -22,11 +24,12 @@ interface AuthenticatedStageProps {
   handleProjectCreated: (project: Project) => void;
 }
 
-type LaunchStage = "agent" | "sleepless" | "shortcuts" | "list" | "add";
+type LaunchStage = "agent" | "sleepless" | "shortcuts" | "mode" | "list" | "add";
 
 const AGENT_PICK_STORAGE_KEY = "pipper.launch.agentPicked";
 const SLEEPLESS_ONBOARDING_STORAGE_KEY = "pipper.launch.sleeplessConfigured";
 const SHORTCUTS_ONBOARDING_STORAGE_KEY = "pipper.launch.shortcutsShown";
+const MODE_ONBOARDING_STORAGE_KEY = "pipper.launch.modeChosen";
 
 function isOnboardingFlagSet(key: string): boolean {
   try {
@@ -54,6 +57,19 @@ export function AuthenticatedStage({
 }: AuthenticatedStageProps) {
   const selectedAgentIds = useAgentRegistryStore((s) => s.selectedAgentIds);
   const loadAgents = useAgentRegistryStore((s) => s.load);
+  const currentUiMode = useUiModeStore((s) => s.mode);
+  const setUiMode = useUiModeStore((s) => s.setMode);
+  const [pendingMode, setPendingMode] = useState<UiMode>(currentUiMode);
+
+  const continueAfterMode = (mode: UiMode) => {
+    setUiMode(mode);
+    try {
+      sessionStorage.setItem(MODE_ONBOARDING_STORAGE_KEY, "1");
+    } catch {
+      // ignore sessionStorage errors
+    }
+    setStage("list");
+  };
 
   const [stage, setStage] = useState<LaunchStage>(() => {
     if (typeof window !== "undefined") {
@@ -71,8 +87,11 @@ export function AuthenticatedStage({
       if (stageParam === "shortcuts") {
         return "shortcuts";
       }
-      // First-run funnel: agent → sleepless → shortcuts → list. Returning
-      // users who completed an earlier step resume at the next unfinished one.
+      if (stageParam === "mode") {
+        return "mode";
+      }
+      // First-run funnel: agent → sleepless → shortcuts → mode → list.
+      // Returning users who completed an earlier step resume at the next unfinished one.
       if (!isOnboardingFlagSet(AGENT_PICK_STORAGE_KEY)) {
         return "agent";
       }
@@ -81,6 +100,9 @@ export function AuthenticatedStage({
       }
       if (!isOnboardingFlagSet(SHORTCUTS_ONBOARDING_STORAGE_KEY)) {
         return "shortcuts";
+      }
+      if (!isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY)) {
+        return "mode";
       }
     }
     return "list";
@@ -107,7 +129,7 @@ export function AuthenticatedStage({
           "w-full z-10 rounded-2xl p-8 flex flex-col gap-6",
           stage === "agent"
             ? "max-w-3xl"
-            : stage === "sleepless" || stage === "shortcuts"
+            : stage === "sleepless" || stage === "shortcuts" || stage === "mode"
               ? "max-w-xl"
               : "max-w-md",
         )}
@@ -126,13 +148,16 @@ export function AuthenticatedStage({
                     return;
                   }
                   if (sessionStorage.getItem(SHORTCUTS_ONBOARDING_STORAGE_KEY) !== "1") {
-                    setStage("shortcuts");
-                    return;
+                    try {
+                      sessionStorage.setItem(SHORTCUTS_ONBOARDING_STORAGE_KEY, "1");
+                    } catch {
+                      // ignore
+                    }
                   }
                 } catch {
                   // ignore
                 }
-                setStage("list");
+                setStage(isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY) ? "list" : "mode");
               }}
             />
           </>
@@ -153,26 +178,36 @@ export function AuthenticatedStage({
               } catch {
                 // ignore
               }
-              if (sessionStorage.getItem(SHORTCUTS_ONBOARDING_STORAGE_KEY) !== "1") {
+              if (!isOnboardingFlagSet(SHORTCUTS_ONBOARDING_STORAGE_KEY)) {
                 setStage("shortcuts");
                 return;
               }
-              setStage("list");
+              setStage(isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY) ? "list" : "mode");
             }}
           />
         ) : stage === "shortcuts" ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             <header className="flex flex-col gap-1">
               <h1 className="text-xl font-bold tracking-tight">Keyboard shortcuts</h1>
-              <p className="text-xs text-muted-foreground">
-                Press <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
-                <kbd className="rounded border border-border px-1">T</kbd> for a new thread,{" "}
-                <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
-                <kbd className="rounded border border-border px-1">W</kbd> to close a tab,{" "}
-                <kbd className="rounded border border-border px-1">{modifierSymbol()}</kbd>+
-                <kbd className="rounded border border-border px-1">1–9</kbd> to switch tabs.
-              </p>
+              <p className="text-xs text-muted-foreground">A few moves worth knowing.</p>
             </header>
+            <ul className="flex flex-col gap-2">
+              {[
+                { action: "New thread", keys: `${modifierSymbol()}T` },
+                { action: "Close tab", keys: `${modifierSymbol()}W` },
+                { action: "Switch tabs", keys: `${modifierSymbol()}1–9` },
+              ].map(({ action, keys }) => (
+                <li
+                  key={action}
+                  className="flex items-center gap-3.5 rounded-xl border border-border/50 bg-surface-1/40 py-2.5 pl-3 pr-3.5"
+                >
+                  <kbd className="inline-flex h-8 min-w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 px-2.5 font-sans text-sm font-medium text-foreground">
+                    {keys}
+                  </kbd>
+                  <span className="text-sm text-foreground">{action}</span>
+                </li>
+              ))}
+            </ul>
             <Button
               type="button"
               size="md"
@@ -183,8 +218,30 @@ export function AuthenticatedStage({
                 } catch {
                   // ignore
                 }
-                setStage("list");
+                setStage(isOnboardingFlagSet(MODE_ONBOARDING_STORAGE_KEY) ? "list" : "mode");
               }}
+            >
+              Continue
+            </Button>
+          </div>
+        ) : stage === "mode" ? (
+          <div className="flex flex-col gap-5">
+            <header className="flex flex-col gap-1">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                How do you want to work?
+              </h1>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Basic keeps one simple chat layout. Advanced creates a separate workspace for every
+                thread, so you can work on multiple features in parallel. You can change this later
+                in settings.
+              </p>
+            </header>
+            <WorkspaceModePicker value={pendingMode} onChange={setPendingMode} />
+            <Button
+              type="button"
+              size="md"
+              className="w-full"
+              onClick={() => continueAfterMode(pendingMode)}
             >
               Continue
             </Button>
