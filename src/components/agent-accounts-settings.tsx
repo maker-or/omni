@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { LogIn, Plus, Trash2, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LogIn, Plus, RefreshCw, Trash2, Users } from "lucide-react";
 import { useAgentInstancesStore } from "@/store/agent-instances-store";
-import type { AcpAgentInstance, AgentAccountSchema } from "../../contracts/acp.ts";
+import type {
+  AcpAgentInstance,
+  AgentAccountSchema,
+  AgentProbeResult,
+} from "../../contracts/acp.ts";
 
 function envHint(instance: AcpAgentInstance, schema: AgentAccountSchema): string | null {
   const names = (instance.env ?? []).map((entry) => entry.name);
@@ -11,34 +15,104 @@ function envHint(instance: AcpAgentInstance, schema: AgentAccountSchema): string
   return null;
 }
 
+interface StatusView {
+  label: string;
+  textClass: string;
+  dotClass: string;
+}
+
+function statusView(result: AgentProbeResult | undefined, probing: boolean): StatusView {
+  if (probing) {
+    return {
+      label: "Checking…",
+      textClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground/60",
+    };
+  }
+  if (!result) {
+    return {
+      label: "Not checked",
+      textClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground/40",
+    };
+  }
+  switch (result.status) {
+    case "ready":
+      return { label: "Signed in", textClass: "text-emerald-600", dotClass: "bg-emerald-500" };
+    case "needs-auth":
+      return { label: "Sign-in required", textClass: "text-amber-600", dotClass: "bg-amber-500" };
+    case "needs-install":
+      return { label: "Not installed", textClass: "text-amber-600", dotClass: "bg-amber-500" };
+    case "error":
+      return { label: "Check failed", textClass: "text-destructive", dotClass: "bg-red-500" };
+    default:
+      return {
+        label: "Unknown",
+        textClass: "text-muted-foreground",
+        dotClass: "bg-muted-foreground/60",
+      };
+  }
+}
+
+function StatusPill({ result, probing }: { result?: AgentProbeResult; probing: boolean }) {
+  const view = statusView(result, probing);
+  return (
+    <span
+      title={result?.message ?? undefined}
+      className={`inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium ${view.textClass}`}
+    >
+      <span className={`size-1.5 rounded-full ${view.dotClass}`} />
+      {view.label}
+    </span>
+  );
+}
+
 function AccountRow({
   instance,
   schema,
+  result,
+  probing,
   onRemove,
   onSignIn,
+  onCheck,
 }: {
   instance: AcpAgentInstance;
   schema: AgentAccountSchema;
+  result?: AgentProbeResult;
+  probing: boolean;
   onRemove: (id: string) => void;
   onSignIn: (id: string) => void;
+  onCheck: (id: string) => void;
 }) {
   const isDefault = instance.id === instance.driverId;
   const hint = envHint(instance, schema);
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium text-foreground">
-          {instance.displayName}
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-foreground">
+            {instance.displayName}
+          </span>
           {isDefault ? (
-            <span className="ml-2 rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
               DEFAULT
             </span>
           ) : null}
+          <StatusPill result={result} probing={probing} />
         </div>
         {hint ? (
           <div className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">{hint}</div>
         ) : null}
       </div>
+      <button
+        type="button"
+        aria-label={`Check ${instance.displayName} sign-in status`}
+        onClick={() => onCheck(instance.id)}
+        disabled={probing}
+        className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-surface-3 hover:text-foreground disabled:opacity-50"
+      >
+        <RefreshCw className={`size-4 ${probing ? "animate-spin" : ""}`} strokeWidth={1.8} />
+      </button>
       {schema.supportsLogin ? (
         <button
           type="button"
@@ -115,19 +189,98 @@ function AddAccountForm({
   );
 }
 
+/** How long to keep polling for sign-in completion after launching a login. */
+const SIGNIN_POLL_INTERVAL_MS = 3_000;
+const SIGNIN_POLL_MAX_ATTEMPTS = 40;
+
 /**
  * Settings section for managing provider accounts. Lets the user add a second
  * account for a driver (isolated via its credential-root env var) without
- * touching the default ambient login.
+ * touching the default ambient login. Each account shows a live sign-in status
+ * (probed via a throwaway ACP session), and is polled after launching login so
+ * completion is visible in the app rather than only in the terminal.
  */
 export function AgentAccountsSettings() {
   const { instances, schemas, error, load, create, remove, launchLogin } = useAgentInstancesStore();
   const [addingDriverId, setAddingDriverId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [probeResults, setProbeResults] = useState<Record<string, AgentProbeResult>>({});
+  const [probingIds, setProbingIds] = useState<Set<string>>(() => new Set());
+  const probedRef = useRef<Set<string>>(new Set());
+  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const check = useCallback(async (id: string): Promise<AgentProbeResult | null> => {
+    if (!window.omni?.agent?.probeAgent) return null;
+    setProbingIds((prev) => new Set(prev).add(id));
+    try {
+      const result = await window.omni.agent.probeAgent(id);
+      setProbeResults((prev) => ({ ...prev, [id]: result }));
+      return result;
+    } catch (err) {
+      const result: AgentProbeResult = {
+        agentId: id,
+        status: "error",
+        message: err instanceof Error ? err.message : "Check failed",
+      };
+      setProbeResults((prev) => ({ ...prev, [id]: result }));
+      return result;
+    } finally {
+      setProbingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, []);
+
+  const stopPolling = useCallback((id: string) => {
+    const timer = pollTimers.current.get(id);
+    if (timer) {
+      clearInterval(timer);
+      pollTimers.current.delete(id);
+    }
+  }, []);
+
+  const startPolling = useCallback(
+    (id: string) => {
+      stopPolling(id);
+      let attempts = 0;
+      const timer = setInterval(() => {
+        attempts += 1;
+        void check(id).then((result) => {
+          if (result?.status === "ready" || attempts >= SIGNIN_POLL_MAX_ATTEMPTS) {
+            stopPolling(id);
+          }
+        });
+      }, SIGNIN_POLL_INTERVAL_MS);
+      pollTimers.current.set(id, timer);
+    },
+    [check, stopPolling],
+  );
+
+  // Stop any in-flight polling when the component unmounts.
+  useEffect(() => {
+    const timers = pollTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearInterval(timer);
+      timers.clear();
+    };
+  }, []);
+
+  // Probe each account once so its status is visible without manual action.
+  useEffect(() => {
+    void (async () => {
+      for (const instance of instances) {
+        if (probedRef.current.has(instance.id)) continue;
+        probedRef.current.add(instance.id);
+        await check(instance.id);
+      }
+    })();
+  }, [instances, check]);
 
   const multiAccountSchemas = useMemo(
     () => schemas.filter((schema) => schema.supportsMultipleAccounts),
@@ -135,6 +288,7 @@ export function AgentAccountsSettings() {
   );
 
   const handleRemove = async (id: string) => {
+    stopPolling(id);
     try {
       await remove(id);
     } catch {
@@ -146,7 +300,8 @@ export function AgentAccountsSettings() {
     try {
       const result = await launchLogin(id);
       if (result.opened) {
-        setNotice("A terminal opened — finish signing in there, then restart Pipper.");
+        setNotice("Finish signing in the terminal window — status updates here automatically.");
+        startPolling(id);
       } else {
         try {
           await navigator.clipboard?.writeText(result.command);
@@ -165,7 +320,7 @@ export function AgentAccountsSettings() {
     input: { displayName: string; secret?: string },
   ) => {
     try {
-      await create({
+      const created = await create({
         driverId: schema.driverId,
         displayName: input.displayName,
         env:
@@ -179,6 +334,9 @@ export function AgentAccountsSettings() {
           ? "Account added. Click Sign in to authenticate it."
           : "Account added.",
       );
+      // A newly created account has no probe result yet.
+      void check(created.id);
+      probedRef.current.add(created.id);
     } catch {
       // Store surfaces the error.
     }
@@ -224,8 +382,11 @@ export function AgentAccountsSettings() {
                   key={instance.id}
                   instance={instance}
                   schema={schema}
+                  result={probeResults[instance.id]}
+                  probing={probingIds.has(instance.id)}
                   onRemove={handleRemove}
                   onSignIn={handleSignIn}
+                  onCheck={(id) => void check(id)}
                 />
               ))}
               {addingDriverId === schema.driverId ? (
