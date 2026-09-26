@@ -103,6 +103,11 @@ function AccountRow({
         {hint ? (
           <div className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">{hint}</div>
         ) : null}
+        {result && result.status !== "ready" && result.message ? (
+          <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
+            {result.message}
+          </div>
+        ) : null}
       </div>
       <button
         type="button"
@@ -207,40 +212,59 @@ export function AgentAccountsSettings() {
   const [probeResults, setProbeResults] = useState<Record<string, AgentProbeResult>>({});
   const [probingIds, setProbingIds] = useState<Set<string>>(() => new Set());
   const probedRef = useRef<Set<string>>(new Set());
-  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const pollTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const inFlight = useRef<Map<string, Promise<AgentProbeResult | null>>>(new Map());
+  /** Serializes probes so only one provider CLI is spawned at a time. */
+  const probeQueue = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const check = useCallback(async (id: string): Promise<AgentProbeResult | null> => {
-    if (!window.omni?.agent?.probeAgent) return null;
-    setProbingIds((prev) => new Set(prev).add(id));
-    try {
-      const result = await window.omni.agent.probeAgent(id);
-      setProbeResults((prev) => ({ ...prev, [id]: result }));
-      return result;
-    } catch (err) {
-      const result: AgentProbeResult = {
-        agentId: id,
-        status: "error",
-        message: err instanceof Error ? err.message : "Check failed",
-      };
-      setProbeResults((prev) => ({ ...prev, [id]: result }));
-      return result;
-    } finally {
-      setProbingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
+  const check = useCallback((id: string): Promise<AgentProbeResult | null> => {
+    const existing = inFlight.current.get(id);
+    if (existing) return existing;
+    const run = async (): Promise<AgentProbeResult | null> => {
+      if (!window.omni?.agent?.probeAgent) return null;
+      setProbingIds((prev) => new Set(prev).add(id));
+      try {
+        const result = await window.omni.agent.probeAgent(id);
+        setProbeResults((prev) => ({ ...prev, [id]: result }));
+        return result;
+      } catch (err) {
+        const result: AgentProbeResult = {
+          agentId: id,
+          status: "error",
+          message: err instanceof Error ? err.message : "Check failed",
+        };
+        setProbeResults((prev) => ({ ...prev, [id]: result }));
+        return result;
+      } finally {
+        setProbingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    };
+    // Queue behind any in-flight probe: concurrent agent spawns race on shared
+    // resources (auth files, login ports) and produce spurious failures.
+    const promise = probeQueue.current.then(run, run);
+    probeQueue.current = promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight.current.set(id, promise);
+    void promise.finally(() => {
+      if (inFlight.current.get(id) === promise) inFlight.current.delete(id);
+    });
+    return promise;
   }, []);
 
   const stopPolling = useCallback((id: string) => {
     const timer = pollTimers.current.get(id);
     if (timer) {
-      clearInterval(timer);
+      clearTimeout(timer);
       pollTimers.current.delete(id);
     }
   }, []);
@@ -249,14 +273,19 @@ export function AgentAccountsSettings() {
     (id: string) => {
       stopPolling(id);
       let attempts = 0;
-      const timer = setInterval(() => {
+      // Self-scheduling: wait for each probe to finish before the next, so a
+      // slow agent can't stack up overlapping processes.
+      const tick = async () => {
         attempts += 1;
-        void check(id).then((result) => {
-          if (result?.status === "ready" || attempts >= SIGNIN_POLL_MAX_ATTEMPTS) {
-            stopPolling(id);
-          }
-        });
-      }, SIGNIN_POLL_INTERVAL_MS);
+        const result = await check(id);
+        if (result?.status === "ready" || attempts >= SIGNIN_POLL_MAX_ATTEMPTS) {
+          stopPolling(id);
+          return;
+        }
+        const timer = setTimeout(() => void tick(), SIGNIN_POLL_INTERVAL_MS);
+        pollTimers.current.set(id, timer);
+      };
+      const timer = setTimeout(() => void tick(), 1_500);
       pollTimers.current.set(id, timer);
     },
     [check, stopPolling],
@@ -266,7 +295,7 @@ export function AgentAccountsSettings() {
   useEffect(() => {
     const timers = pollTimers.current;
     return () => {
-      for (const timer of timers.values()) clearInterval(timer);
+      for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
     };
   }, []);
@@ -281,6 +310,19 @@ export function AgentAccountsSettings() {
       }
     })();
   }, [instances, check]);
+
+  // Re-check when the user comes back to the app — e.g. after finishing a
+  // sign-in that was started outside Pipper's own "Sign in" button.
+  useEffect(() => {
+    const onFocus = () => {
+      for (const instance of instances) {
+        if (probeResults[instance.id]?.status === "ready") continue;
+        void check(instance.id);
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [instances, probeResults, check]);
 
   const multiAccountSchemas = useMemo(
     () => schemas.filter((schema) => schema.supportsMultipleAccounts),

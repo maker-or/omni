@@ -2270,9 +2270,15 @@ function registerIpc(): void {
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
   ipcMain.handle("agent:getModelCatalogs", () => requireAgentManager().getModelCatalogs());
-  ipcMain.handle("agent:probeAgent", (_event, agentId: string) =>
-    probeAgentById(agentId, { clientVersion: app.getVersion() }),
-  );
+  ipcMain.handle("agent:probeAgent", async (_event, agentId: string) => {
+    const result = await probeAgentById(agentId, { clientVersion: app.getVersion() });
+    if (result.status !== "ready") {
+      console.warn(
+        `[probe] ${agentId}: ${result.status}${result.message ? ` — ${result.message}` : ""}`,
+      );
+    }
+    return result;
+  });
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
   );
