@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { app, safeStorage } from "electron";
 import type {
@@ -226,6 +227,23 @@ export function profileDirForInstance(driverId: string, instanceId: string): str
 }
 
 /**
+ * Some CLIs (notably Codex) refuse to start when their credential-root env var
+ * points at a path that doesn't exist yet. Create it eagerly on account
+ * creation and again before spawn/login so older accounts self-heal.
+ */
+export function ensureInstanceProfileDirs(instance: AcpAgentInstance): void {
+  const profileVar = PROFILE_ENV_BY_DRIVER[instance.driverId];
+  if (!profileVar) return;
+  const entry = (instance.env ?? []).find((item) => item.name === profileVar);
+  if (!entry?.value) return;
+  try {
+    mkdirSync(entry.value, { recursive: true });
+  } catch {
+    // Surfaced by the CLI at login/spawn time with a clearer message.
+  }
+}
+
+/**
  * Default env for a fresh non-default account: point the driver's credential
  * root at a Pipper-owned directory. Returns `[]` for key/token-based providers.
  */
@@ -278,7 +296,9 @@ export function createAgentInstance(input: AcpAgentInstanceInput): AcpAgentInsta
       row.created_at,
       row.updated_at,
     );
-  return rowToInstance(row);
+  const instance = rowToInstance(row);
+  ensureInstanceProfileDirs(instance);
+  return instance;
 }
 
 export function updateAgentInstance(
@@ -317,6 +337,7 @@ export function updateAgentInstance(
       updated.updatedAt ?? Date.now(),
       id,
     );
+  ensureInstanceProfileDirs(updated);
   return updated;
 }
 
@@ -386,6 +407,9 @@ export function resolveAgentInstanceDescriptor(instanceId: string): AcpAgentDesc
   if (!instance || !instance.enabled) return null;
   const driver = driverDescriptorById().get(instance.driverId);
   if (!driver) return null;
+  // Self-heal the credential root for accounts created before dirs were
+  // materialized, so the CLI doesn't refuse to start.
+  ensureInstanceProfileDirs(instance);
   return materialize(instance, driver);
 }
 

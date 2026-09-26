@@ -68,6 +68,7 @@ import {
   listAgentAccountSchemas,
   getAgentInstance,
   redactInstance,
+  ensureInstanceProfileDirs,
   buildInstanceLoginCommand,
   createAgentInstance,
   updateAgentInstance,
@@ -470,6 +471,9 @@ async function launchInstanceLogin(
 ): Promise<{ command: string; opened: boolean }> {
   const instance = getAgentInstance(instanceId);
   if (!instance) throw new Error(`Unknown account: ${instanceId}`);
+  // The CLI (e.g. Codex) errors if its credential root doesn't exist, so make
+  // sure the profile directory is present before launching sign-in.
+  ensureInstanceProfileDirs(instance);
   const command = buildInstanceLoginCommand(instance);
   if (!command) {
     throw new Error("This provider signs in with an API key, not a browser login.");

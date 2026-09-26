@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
@@ -105,6 +105,9 @@ describe("agent instances", () => {
     const created = mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
     const profileVar = (created.env ?? []).find((entry) => entry.name === "CODEX_HOME");
     expect(profileVar?.value).toContain("accounts");
+    // The CLI refuses to start if the credential root doesn't exist, so the
+    // directory must be materialized at creation time.
+    expect(existsSync(profileVar?.value ?? "")).toBe(true);
     // The default instance keeps the ambient login (no forced profile dir).
     const defaultInstance = mod.getAgentInstance("codex-acp");
     expect(defaultInstance?.env).toBeUndefined();
