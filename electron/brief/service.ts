@@ -571,6 +571,24 @@ export class BriefService {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (path.startsWith("/api/")) return this.handleApi(path.slice(5), request);
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    if (path === "/art.jpg" || path === "/raguenez.jpg") {
+      const artCandidates = [
+        fileURLToPath(new URL("./raguenez.jpg", import.meta.url)),
+        fileURLToPath(new URL("../../public/raguenez.jpg", import.meta.url)),
+      ];
+      for (const candidate of artCandidates) {
+        if (existsSync(candidate)) {
+          return new Response(readFileSync(candidate), {
+            status: 200,
+            headers: {
+              "Content-Type": "image/jpeg",
+              "Cache-Control": "public, max-age=86400",
+            },
+          });
+        }
+      }
+      return new Response("Artwork not found", { status: 404 });
+    }
     if (path.startsWith("/svg/")) {
       const rawName = path
         .slice(5)
