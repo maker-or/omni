@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import { ConversationTurnIdentity } from "@/components/conversation-turn-identity";
+import { toneIdentity } from "@/lib/workspace-tone";
 
 describe("conversation turn identity", () => {
   test("uses the shared user identity as a noninteractive marker", () => {
@@ -10,7 +11,7 @@ describe("conversation turn identity", () => {
     );
 
     expect(html).toContain('data-pipper-id="user-turn-identity"');
-    expect(html).toContain('fill="#26B25A"');
+    expect(html).toContain(`fill="${toneIdentity("ready").bg}"`);
     expect(html).toContain("size-7");
     expect(html).not.toContain("opacity-60");
     expect(html).not.toContain("saturate-50");

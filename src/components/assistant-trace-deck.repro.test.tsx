@@ -17,8 +17,8 @@ test("thinking part with markdown separator renders bold text, no literal commen
       open={true}
     />,
   );
-  expect(html).toContain("<strong>Resolving ref callback collision for labels</strong>");
-  expect(html).toContain("<strong>Refining style typing with React.CSSProperties</strong>");
+  expect(html).toMatch(/<strong[^>]*>Resolving ref callback collision for labels<\/strong>/);
+  expect(html).toMatch(/<strong[^>]*>Refining style typing with React\.CSSProperties<\/strong>/);
   expect(html).not.toContain("&lt;!--");
   expect(html).not.toContain("<!-- -->");
 });

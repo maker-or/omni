@@ -50,6 +50,7 @@ import {
   SoccerBall as SoccerBallIcon,
   Spade as SpadeIcon,
   Train as TrainIcon,
+  type IconWeight,
 } from "@phosphor-icons/react";
 
 const ICONS = [
@@ -134,8 +135,16 @@ export const IconPicker = forwardRef<HTMLButtonElement, IconPickerProps>(
 
 IconPicker.displayName = "IconPicker";
 
-export function ProjectIcon({ name, className }: { name: string | null; className?: string }) {
+export function ProjectIcon({
+  name,
+  className,
+  weight,
+}: {
+  name: string | null;
+  className?: string;
+  weight?: IconWeight;
+}) {
   const item = ICONS.find((i) => i.name === name);
   const Icon = item?.icon ?? GhostIcon;
-  return <Icon className={className} />;
+  return <Icon className={className} weight={weight} />;
 }

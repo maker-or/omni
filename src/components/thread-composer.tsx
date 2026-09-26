@@ -20,6 +20,8 @@ import {
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { ProviderLogo } from "@/components/provider-logos";
 import { cn } from "@/lib/utils";
+import { toneIdentity } from "@/lib/workspace-tone";
+import { useWorkspaceTone } from "@/lib/workspace-tone-context";
 import type {
   ComposerContent,
   ComposerEntityToken,
@@ -80,6 +82,12 @@ export type ThreadComposerProps = {
   hideSendButton?: boolean;
   /** Extra key handling after mention keys are processed. */
   onTextareaKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+  /**
+   * Hide the @project chip (advanced workspace UI: the selected workspace
+   * already fixes the project, so the chip is redundant). The project entity
+   * stays in content when present — it is just not rendered or deletable.
+   */
+  hideProjectChip?: boolean;
 };
 
 export function ThreadComposer({
@@ -111,11 +119,22 @@ export function ThreadComposer({
   appearance = "surface",
   hideSendButton = false,
   onTextareaKeyDown,
+  hideProjectChip = false,
 }: ThreadComposerProps) {
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = externalTextareaRef ?? internalRef;
   const mentionFrameRef = useRef<number | null>(null);
-  const entities = useMemo(() => getEntityTokens(content), [content]);
+  // Caret follows the workspace's git-state tone (light shade of the same
+  // hue); falls back to the identity green when no tone is in scope.
+  const workspaceTone = useWorkspaceTone();
+  const caretColor = workspaceTone ? toneIdentity(workspaceTone).ink : "#26B25A";
+  const entities = useMemo(
+    () =>
+      getEntityTokens(content).filter(
+        (entity) => entity.kind !== "agent" && !(hideProjectChip && entity.kind === "project"),
+      ),
+    [content, hideProjectChip],
+  );
   const freeText = useMemo(() => getFreeText(content), [content]);
   const inlineTextRef = useRef<HTMLSpanElement | null>(null);
   const inlineEditorRef = useRef<HTMLDivElement | null>(null);
@@ -409,7 +428,7 @@ export function ThreadComposer({
     [closeMention, filteredItems, mentionIndex, mentionOpen, onTextareaKeyDown, pickItem],
   );
 
-  const resolvedPlaceholder = placeholder ?? mentionPlaceholderHint(mode, content);
+  const resolvedPlaceholder = placeholder ?? mentionPlaceholderHint(mode, content, availability);
 
   const textForSend = extractTextContent(content);
   const canSend = textForSend.length > 0 || files.length > 0;
@@ -435,7 +454,7 @@ export function ThreadComposer({
   const inlineEditor = (
     <div
       ref={inlineEditorRef}
-      className="block min-h-11 max-h-[76px] min-w-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
+      className="block min-h-11 min-w-0 flex-1 cursor-text overflow-x-hidden px-2 py-2 text-[14px] leading-5 text-foreground outline-none"
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
@@ -527,7 +546,7 @@ export function ThreadComposer({
         contentEditable={!disabled}
         tabIndex={0}
         className="inline-block min-w-[2px] cursor-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none align-middle empty:before:inline-block empty:before:align-middle empty:before:max-w-full empty:before:overflow-hidden empty:before:text-ellipsis empty:before:whitespace-nowrap empty:before:text-muted-foreground empty:before:pointer-events-none empty:before:content-[attr(data-placeholder)]"
-        style={{ caretColor: "#26B25A" }}
+        style={{ caretColor }}
         data-placeholder={resolvedPlaceholder}
       />
     </div>
@@ -536,7 +555,12 @@ export function ThreadComposer({
   return (
     <div className={cn("flex items-center gap-3", className)} data-pipper-id="thread-composer">
       {turnMarker ? (
-        <div className="flex shrink-0 items-center" data-pipper-id="composer-turn-marker">
+        // self-start + pt-1.5 keeps the marker on the composer's first text
+        // line as the input grows, instead of centring on the whole box.
+        <div
+          className="flex shrink-0 items-center self-start pt-1.5"
+          data-pipper-id="composer-turn-marker"
+        >
           {turnMarker}
         </div>
       ) : null}
