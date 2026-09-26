@@ -14,8 +14,21 @@ export interface Worktree {
   head: string;
   /** True when this entry is the project's configured root checkout. */
   isProjectRoot?: boolean;
+  /**
+   * The checkout is gone: git reports the entry as prunable, or its directory
+   * no longer exists. Git keeps listing such entries until
+   * `git worktree prune`, so `listWorktrees` drops them — nothing can run
+   * there. Only the raw porcelain parse ever reports this as true.
+   */
+  missing?: boolean;
   /** Git-derived label for this workspace (the default branch for the root). */
   workspaceName?: string;
+  /**
+   * Worktree directory creation time (ms). `git worktree list` emits readdir
+   * order (effectively arbitrary), so UIs sort newest-first on this instead.
+   * Absent for the project root and when the filesystem reports nothing.
+   */
+  createdAtMs?: number;
 }
 
 /**
@@ -34,6 +47,26 @@ export interface CreateWorktreeInput {
   projectId: string;
   /** Human label; used to derive the on-disk dir name and default branch. */
   name: string;
+}
+
+/**
+ * Newest-first for linked worktrees (project root always pins top).
+ * `git worktree list` emits readdir order, so creation order must come from
+ * `createdAtMs`; entries without it keep git's relative order at the end.
+ */
+export function orderWorktreesForDisplay(worktrees: Worktree[]): Worktree[] {
+  const root = worktrees.filter((item) => item.isProjectRoot);
+  const rest = worktrees
+    .filter((item) => !item.isProjectRoot)
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const at = a.item.createdAtMs ?? -1;
+      const bt = b.item.createdAtMs ?? -1;
+      if (at !== bt) return bt - at;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
+  return [...root, ...rest];
 }
 
 /**
