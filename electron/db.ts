@@ -234,6 +234,34 @@ export function getDb(): DatabaseSync {
     );
   `);
 
+  // One row per provider instance (account/configuration). The default
+  // instance for a driver reuses the driver id as its primary key, so legacy
+  // threads and selections resolve unchanged; additional accounts get ids like
+  // `codex-acp:work`. `env_json` holds per-instance environment overrides
+  // (including credential-root paths such as CODEX_HOME).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_instances (
+      id TEXT PRIMARY KEY,
+      driver_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      env_json TEXT,
+      config_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_instances_driver ON agent_instances(driver_id);
+  `);
+
+  // Small key/value store for app-level pointers that don't deserve a column
+  // (e.g. the last-used provider instance).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
@@ -394,4 +422,20 @@ export function getMostRecentAuthUser(): AuthUserRecord | null {
     .prepare("SELECT * FROM auth_users ORDER BY last_seen_at DESC LIMIT 1")
     .get() as AuthUserRecord | undefined;
   return row ?? null;
+}
+
+export function getAppSetting(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as
+    | { value: string | null }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setAppSetting(key: string, value: string | null): void {
+  getDb()
+    .prepare(
+      `INSERT INTO app_settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .run(key, value);
 }

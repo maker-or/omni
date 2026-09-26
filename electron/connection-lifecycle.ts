@@ -121,7 +121,10 @@ async function terminateChildProcess(child: ChildProcessWithoutNullStreams): Pro
 
 export interface LiveConnection {
   connectionId: string;
+  /** Spawn routing key: the provider *instance* id (driver id when default). */
   agentId: string;
+  /** The underlying driver/provider id this instance is a configuration of. */
+  driverId: string;
   agentInfoName: string;
   process: ChildProcessWithoutNullStreams;
   connection: acp.ClientConnection;
@@ -481,6 +484,7 @@ export class ConnectionLifecycle {
     return {
       connectionId,
       agentId: descriptor.id,
+      driverId: descriptor.driverId ?? descriptor.id,
       agentInfoName,
       process: child,
       connection,

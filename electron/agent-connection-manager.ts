@@ -19,7 +19,7 @@ import type {
 import type { OpenTabsState, Thread } from "../contracts/threads.ts";
 import { readOpenTabsState, recordThreadSwitch } from "./open-tabs.ts";
 import { getProject } from "./projects.ts";
-import { getSelectedAgentIds } from "./db.ts";
+import { getAppSetting, setAppSetting, getSelectedAgentIds } from "./db.ts";
 import { setActiveProjectId } from "./session.ts";
 import {
   getThread,
@@ -39,6 +39,7 @@ import {
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
 import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
+import { listAgentInstanceDescriptors } from "./agent-instances.ts";
 import {
   ACP_SWITCH_PHASE_TIMEOUT_MS,
   ConnectionLifecycle,
@@ -91,6 +92,27 @@ import type {
   MonitorSwitchPhase,
   MonitorSwitchRecord,
 } from "../contracts/monitor.ts";
+
+/** Persisted pointer to the last-used provider instance. */
+const PREFERRED_INSTANCE_KEY = "preferred_agent_instance";
+
+function loadPreferredAgentId(): string {
+  try {
+    const stored = getAppSetting(PREFERRED_INSTANCE_KEY);
+    if (stored && getAgentDescriptor(stored)) return stored;
+  } catch {
+    // Database may not be ready in some embedding contexts; fall back.
+  }
+  return getDefaultAgentId();
+}
+
+function persistPreferredAgentId(agentId: string): void {
+  try {
+    setAppSetting(PREFERRED_INSTANCE_KEY, agentId);
+  } catch {
+    // Non-fatal: preference simply won't survive a restart.
+  }
+}
 
 function modelOptionsFromConfig(
   options: SessionConfigOption[] | undefined,
@@ -219,7 +241,7 @@ export class AgentConnectionManager {
   private connecting: Promise<LiveConnection> | null = null;
   private activeProjectId: string | null = null;
   private activeThreadId: string | null = null;
-  private preferredAgentId: string = getDefaultAgentId();
+  private preferredAgentId: string = loadPreferredAgentId();
   private readonly sessions = new ThreadSessionRegistry();
   /**
    * Session replay is delivered as session/update notifications while
@@ -371,8 +393,11 @@ export class AgentConnectionManager {
   }
 
   listAgents(): AcpAgentDescriptor[] {
-    // Always re-probe PATH so onboarding reflects install state.
-    return listRegisteredAgents();
+    // Always re-probe PATH so onboarding reflects install state. When accounts
+    // are configured, surface each instance (default instances reuse the driver
+    // id, so this is a no-op for single-account users).
+    const instances = listAgentInstanceDescriptors();
+    return instances.length ? instances : listRegisteredAgents();
   }
 
   async getModelCatalogs(): Promise<
@@ -384,8 +409,18 @@ export class AgentConnectionManager {
     // needs authentication is skipped; its catalog can still be populated by
     // a later successful session.
     const selectedAgentIds = getSelectedAgentIds();
+    // Selections are provider-level (a driver id or a default instance id), but
+    // catalogs are keyed per instance. Warm every enabled instance whose driver
+    // is selected so accounts added later in Settings have catalogs too.
+    const selectedSet = new Set(selectedAgentIds);
+    const warmIds = new Set(selectedAgentIds);
+    for (const instance of listAgentInstanceDescriptors()) {
+      const driver = instance.driverId ?? instance.id;
+      if (selectedSet.has(instance.id) || selectedSet.has(driver)) warmIds.add(instance.id);
+    }
+    const agentsToWarm = [...warmIds];
     await Promise.all(
-      selectedAgentIds.map(async (agentId) => {
+      agentsToWarm.map(async (agentId) => {
         try {
           await this.acquireConnection(agentId);
         } catch {
@@ -434,7 +469,7 @@ export class AgentConnectionManager {
         ? (getProject(this.activeProjectId)?.path ?? process.cwd())
         : process.cwd());
     await Promise.all(
-      selectedAgentIds.map(async (agentId) => {
+      agentsToWarm.map(async (agentId) => {
         if (result[agentId]?.length) return;
         const live = this.lifecycle.getCached(agentId);
         if (!live) return;
@@ -794,6 +829,7 @@ export class AgentConnectionManager {
       );
     }
     this.preferredAgentId = agentId;
+    persistPreferredAgentId(agentId);
   }
 
   /** Bridge-event output goes through RendererBroadcaster (see that module). */
@@ -1112,6 +1148,7 @@ export class AgentConnectionManager {
     const live = await this.acquireConnection(agentId);
     this.lifecycle.setActive(live);
     this.preferredAgentId = agentId;
+    persistPreferredAgentId(agentId);
     if (previousAgentId && previousAgentId !== live.agentId) {
       this.captureAnalytics?.("agent_switched", {
         from_agent_id: previousAgentId,

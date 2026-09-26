@@ -13,6 +13,27 @@ interface RegistryFile {
 /** Directory of this module (avoid naming `__dirname` — electron-vite injects that). */
 const registryDir = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Resolves a *provider instance* id (e.g. `codex-acp:work`) to a materialized
+ * descriptor whose `id` is the instance id and whose `env` carries the
+ * instance's isolated credential root. Installed by `agent-instances.ts` at
+ * startup so this module stays free of a database dependency (and stays
+ * unit-testable).
+ */
+export type AgentInstanceDescriptorProvider = (instanceId: string) => AcpAgentDescriptor | null;
+let instanceDescriptorProvider: AgentInstanceDescriptorProvider | null = null;
+
+export function setInstanceDescriptorProvider(
+  provider: AgentInstanceDescriptorProvider | null,
+): void {
+  instanceDescriptorProvider = provider;
+}
+
+/** The driver id behind a descriptor (instance descriptors carry `driverId`). */
+export function descriptorDriverId(descriptor: AcpAgentDescriptor): string {
+  return descriptor.driverId ?? descriptor.id;
+}
+
 /** Built-in catalog — used when config.json is missing or incomplete. */
 export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
   {
@@ -420,6 +441,8 @@ export function listRegisteredAgents(): AcpAgentDescriptor[] {
 }
 
 export function getAgentDescriptor(agentId: string): AcpAgentDescriptor | null {
+  const fromInstance = instanceDescriptorProvider?.(agentId);
+  if (fromInstance) return fromInstance;
   return listRegisteredAgents().find((a) => a.id === agentId) ?? null;
 }
 
@@ -456,8 +479,12 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
     };
   }
 
-  // Re-probe so spawn uses latest PATH resolution
-  const probed = probeAgentAvailability(agent);
+  // Re-probe so spawn uses latest PATH resolution. Probe the *driver*
+  // descriptor (id = driverId) rather than the instance id, so driver-specific
+  // binary resolution (e.g. Cursor's `agent` disambiguation) still applies;
+  // the instance only contributes `env`.
+  const probeBase: AcpAgentDescriptor = agent.driverId ? { ...agent, id: agent.driverId } : agent;
+  const probed = probeAgentAvailability(probeBase);
   if (!probed.available) {
     throw new Error(
       probed.statusMessage ??

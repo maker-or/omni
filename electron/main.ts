@@ -42,6 +42,16 @@ import {
 } from "./db";
 import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
+import {
+  installAgentInstanceProvider,
+  listAgentInstancesForRenderer,
+  listAgentAccountSchemas,
+  getAgentInstance,
+  buildInstanceLoginCommand,
+  createAgentInstance,
+  updateAgentInstance,
+  deleteAgentInstance,
+} from "./agent-instances";
 import { AgentManager } from "./agent";
 import { createElectronOsNotifier } from "./os-notifications";
 import { WindowVisibilityGate } from "./window-visibility";
@@ -422,6 +432,46 @@ function requireAgentManager(): AgentManager {
 function requireLauncherUpdateManager(): LauncherUpdateManager {
   if (!launcherUpdateManager) throw new Error("Launcher update manager is not initialized.");
   return launcherUpdateManager;
+}
+
+/**
+ * Launch a provider account's interactive sign-in inside the user's terminal,
+ * with its isolated credential root exported. Pipper never handles the
+ * credentials — the CLI runs its own OAuth flow and owns its storage. Returns
+ * the command so the UI can offer a manual fallback if no terminal opened.
+ */
+async function launchInstanceLogin(
+  instanceId: string,
+): Promise<{ command: string; opened: boolean }> {
+  const instance = getAgentInstance(instanceId);
+  if (!instance) throw new Error(`Unknown account: ${instanceId}`);
+  const command = buildInstanceLoginCommand(instance);
+  if (!command) {
+    throw new Error("This provider signs in with an API key, not a browser login.");
+  }
+  try {
+    if (process.platform === "darwin") {
+      await execFileAsync("osascript", [
+        "-e",
+        `tell application "Terminal" to do script ${JSON.stringify(command)}`,
+        "-e",
+        `tell application "Terminal" to activate`,
+      ]);
+      return { command, opened: true };
+    }
+    if (process.platform === "win32") {
+      await execFileAsync("cmd", ["/c", "start", "", "cmd", "/k", command]);
+      return { command, opened: true };
+    }
+    const child = spawn("x-terminal-emulator", ["-e", "sh", "-c", command], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    return { command, opened: true };
+  } catch {
+    return { command, opened: false };
+  }
 }
 
 /**
@@ -1891,6 +1941,16 @@ function registerIpc(): void {
   ipcMain.handle("agent:setSelectedAgentIds", (_event, agentIds: string[]) => {
     setSelectedAgentIds(agentIds);
   });
+  ipcMain.handle("agent:listInstances", () => listAgentInstancesForRenderer());
+  ipcMain.handle("agent:getAccountSchemas", () => listAgentAccountSchemas());
+  ipcMain.handle("agent:createInstance", (_event, input) => createAgentInstance(input));
+  ipcMain.handle("agent:updateInstance", (_event, id: string, input) =>
+    updateAgentInstance(id, input),
+  );
+  ipcMain.handle("agent:deleteInstance", (_event, id: string) => {
+    deleteAgentInstance(id);
+  });
+  ipcMain.handle("agent:launchInstanceLogin", (_event, id: string) => launchInstanceLogin(id));
   ipcMain.handle("agent:closeThreadSession", (_event, threadId: string) =>
     requireAgentManager().closeThreadSession(threadId),
   );
@@ -2285,6 +2345,9 @@ app.whenReady().then(async () => {
   logStartupMilestone("database:init:start");
   getDb();
   logStartupMilestone("database:init:complete");
+  // Seed per-driver default instances and wire instance→descriptor resolution
+  // into the agent registry before anything spawns an agent.
+  installAgentInstanceProvider();
   await prepareBenchmarkLaunchState();
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {

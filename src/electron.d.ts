@@ -3,6 +3,9 @@ import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import type {
   AcpAgentDescriptor,
+  AcpAgentInstance,
+  AcpAgentInstanceInput,
+  AgentAccountSchema,
   AcpBridgeEvent,
   AcpPromptInput,
   AcpReplacePromptInput,
@@ -212,6 +215,15 @@ declare global {
         ) => Promise<Thread>;
         getSelectedAgentIds: () => Promise<string[]>;
         setSelectedAgentIds: (agentIds: string[]) => Promise<void>;
+        listInstances: () => Promise<AcpAgentInstance[]>;
+        getAccountSchemas: () => Promise<AgentAccountSchema[]>;
+        createInstance: (input: AcpAgentInstanceInput) => Promise<AcpAgentInstance>;
+        updateInstance: (
+          id: string,
+          input: Partial<AcpAgentInstanceInput>,
+        ) => Promise<AcpAgentInstance | null>;
+        deleteInstance: (id: string) => Promise<void>;
+        launchInstanceLogin: (id: string) => Promise<{ command: string; opened: boolean }>;
         setConfigOption: (
           configId: string,
           value: string | boolean,

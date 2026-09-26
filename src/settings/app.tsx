@@ -1,4 +1,5 @@
 import { Keyboard, Monitor, Moon, Sun } from "lucide-react";
+import { AgentAccountsSettings } from "@/components/agent-accounts-settings";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -143,6 +144,22 @@ export function SettingsApp() {
             </div>
             <p className="mt-2 px-1 text-[10px] leading-4 text-muted-foreground/70">
               Requires the Sleepless helper and Login Items permission on macOS.
+            </p>
+          </section>
+
+          <section aria-labelledby="accounts-heading" className="mt-7">
+            <h2
+              id="accounts-heading"
+              className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70"
+            >
+              Accounts
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-surface-2 shadow-surface-2">
+              <AgentAccountsSettings />
+            </div>
+            <p className="mt-2 px-1 text-[10px] leading-4 text-muted-foreground/70">
+              Each account runs in its own isolated configuration directory, so you can use a work
+              and personal subscription side by side.
             </p>
           </section>
 
