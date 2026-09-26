@@ -1,5 +1,6 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { app, safeStorage } from "electron";
 import type {
   AcpAgentDescriptor,
@@ -233,20 +234,66 @@ export function profileDirForInstance(driverId: string, instanceId: string): str
 }
 
 /**
+ * Codex defaults to storing its session in the OS keychain on macOS
+ * (`cli_auth_credentials_store = "auto"`), which the headless ACP adapter
+ * Pipper spawns cannot read — so a successful `codex login` looks
+ * unauthenticated to the app. Force file storage so the login writes
+ * `auth.json` inside the account's CODEX_HOME and the adapter (and probe) see
+ * it. The key is top-level, so it must precede any `[section]` header.
+ */
+const CODEX_CRED_STORE_LINE = 'cli_auth_credentials_store = "file"';
+
+function ensureCodexFileStore(profileDir: string): void {
+  try {
+    const configPath = join(profileDir, "config.toml");
+    let existing = "";
+    try {
+      existing = readFileSync(configPath, "utf8");
+    } catch {
+      existing = "";
+    }
+    if (/^\s*cli_auth_credentials_store\s*=/m.test(existing)) return;
+    const prefix = existing.endsWith("\n") || existing === "" ? existing : `${existing}\n`;
+    writeFileSync(configPath, `${CODEX_CRED_STORE_LINE}\n${prefix}`, "utf8");
+  } catch {
+    // Surfaced by the CLI at login/spawn time with a clearer message.
+  }
+}
+
+/**
  * Some CLIs (notably Codex) refuse to start when their credential-root env var
  * points at a path that doesn't exist yet. Create it eagerly on account
- * creation and again before spawn/login so older accounts self-heal.
+ * creation and again before spawn/login so older accounts self-heal. For Codex
+ * also pin file-based credential storage in the account's config.
  */
 export function ensureInstanceProfileDirs(instance: AcpAgentInstance): void {
   const profileVar = PROFILE_ENV_BY_DRIVER[instance.driverId];
-  if (!profileVar) return;
-  const entry = (instance.env ?? []).find((item) => item.name === profileVar);
+  const entry = profileVar
+    ? (instance.env ?? []).find((item) => item.name === profileVar)
+    : undefined;
   if (!entry?.value) return;
   try {
     mkdirSync(entry.value, { recursive: true });
   } catch {
     // Surfaced by the CLI at login/spawn time with a clearer message.
   }
+  if (instance.driverId === "codex-acp") ensureCodexFileStore(entry.value);
+}
+
+/**
+ * Pin file-based credential storage in the ambient Codex home (the default
+ * account, which has no isolated profile). Only call this on an explicit user
+ * action (sign-in) — never at startup or in tests — so the machine's global
+ * Codex config is not touched implicitly.
+ */
+export function ensureAmbientCodexFileStore(): void {
+  const dir = process.env.CODEX_HOME || join(homedir(), ".codex");
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    // Surfaced by the CLI at login time.
+  }
+  ensureCodexFileStore(dir);
 }
 
 /**

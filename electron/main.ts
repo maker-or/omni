@@ -69,6 +69,7 @@ import {
   getAgentInstance,
   redactInstance,
   ensureInstanceProfileDirs,
+  ensureAmbientCodexFileStore,
   buildInstanceLoginCommand,
   createAgentInstance,
   updateAgentInstance,
@@ -474,6 +475,11 @@ async function launchInstanceLogin(
   // The CLI (e.g. Codex) errors if its credential root doesn't exist, so make
   // sure the profile directory is present before launching sign-in.
   ensureInstanceProfileDirs(instance);
+  // The default Codex account uses the ambient ~/.codex; pin file-based
+  // credential storage there so login writes auth.json the adapter can read.
+  if (instance.driverId === "codex-acp" && instance.id === instance.driverId) {
+    ensureAmbientCodexFileStore();
+  }
   const command = buildInstanceLoginCommand(instance);
   if (!command) {
     throw new Error("This provider signs in with an API key, not a browser login.");

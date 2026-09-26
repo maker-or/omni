@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
@@ -263,5 +263,29 @@ describe("agent instances", () => {
       agent_id: string;
     };
     expect(row.agent_id).toBe("codex-acp");
+  });
+
+  test("pins file-based credential storage in a Codex account home", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    const created = mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
+    const dir = (created.env ?? []).find((entry) => entry.name === "CODEX_HOME")?.value ?? "";
+    const config = readFileSync(join(dir, "config.toml"), "utf8");
+    expect(config).toContain('cli_auth_credentials_store = "file"');
+  });
+
+  test("pins file-based credential storage for the default Codex home", async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), "pipper-codex-home-"));
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const mod = await load();
+      mod.ensureDefaultAgentInstances();
+      mod.ensureAmbientCodexFileStore();
+      const config = readFileSync(join(codexHome, "config.toml"), "utf8");
+      expect(config).toContain('cli_auth_credentials_store = "file"');
+    } finally {
+      delete process.env.CODEX_HOME;
+      rmSync(codexHome, { recursive: true, force: true });
+    }
   });
 });
