@@ -226,17 +226,26 @@ export function AgentAccountsSettings() {
     if (existing) return existing;
     const run = async (): Promise<AgentProbeResult | null> => {
       if (!window.omni?.agent?.probeAgent) return null;
+      const probeOnce = async (): Promise<AgentProbeResult> => {
+        try {
+          return await window.omni.agent.probeAgent(id);
+        } catch (err) {
+          return {
+            agentId: id,
+            status: "error",
+            message: err instanceof Error ? err.message : "Check failed",
+          };
+        }
+      };
       setProbingIds((prev) => new Set(prev).add(id));
       try {
-        const result = await window.omni.agent.probeAgent(id);
-        setProbeResults((prev) => ({ ...prev, [id]: result }));
-        return result;
-      } catch (err) {
-        const result: AgentProbeResult = {
-          agentId: id,
-          status: "error",
-          message: err instanceof Error ? err.message : "Check failed",
-        };
+        let result = await probeOnce();
+        // A CLI that was mid-restart (or briefly contended) can close the ACP
+        // connection; retry once before reporting a failure.
+        if (result.status === "error") {
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          result = await probeOnce();
+        }
         setProbeResults((prev) => ({ ...prev, [id]: result }));
         return result;
       } finally {

@@ -96,8 +96,14 @@ export function buildInstanceLoginCommand(
   if (!profileVar) return login;
   const entry = (instance.env ?? []).find((item) => item.name === profileVar);
   if (!entry?.value) return login;
-  if (platform === "win32") return `set "${profileVar}=${entry.value}" && ${login}`;
-  return `${profileVar}=${shellQuote(entry.value)} ${login}`;
+  if (platform === "win32") {
+    // cmd has no POSIX env prefix; create the dir and set the variable first.
+    return `if not exist "${entry.value}" mkdir "${entry.value}" && set "${profileVar}=${entry.value}" && ${login}`;
+  }
+  // Create the credential root too: some CLIs (Codex) refuse to start when the
+  // directory is missing, and this must work even for accounts created before
+  // the app materialized the directory.
+  return `mkdir -p ${shellQuote(entry.value)} && ${profileVar}=${shellQuote(entry.value)} ${login}`;
 }
 
 function parseEnv(raw: string | null): AcpAgentInstanceEnvVar[] | undefined {
@@ -464,5 +470,10 @@ export function ensureDefaultAgentInstances(): void {
  */
 export function installAgentInstanceProvider(): void {
   ensureDefaultAgentInstances();
+  // Materialize credential roots for every existing account so a directory
+  // missed by an earlier version doesn't make the CLI refuse to start.
+  for (const instance of listAgentInstances()) {
+    ensureInstanceProfileDirs(instance);
+  }
   setInstanceDescriptorProvider((instanceId) => resolveAgentInstanceDescriptor(instanceId));
 }

@@ -182,6 +182,7 @@ describe("agent instances", () => {
     mod.ensureDefaultAgentInstances();
     const created = mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
     const command = mod.buildInstanceLoginCommand(created);
+    expect(command).toContain("mkdir -p");
     expect(command).toContain("CODEX_HOME=");
     expect(command).toContain("codex login");
     // API-key providers have no interactive login.
@@ -193,7 +194,7 @@ describe("agent instances", () => {
     mod.ensureDefaultAgentInstances();
     const created = mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
     const command = mod.buildInstanceLoginCommand(created, "win32");
-    expect(command).toMatch(/^set "CODEX_HOME=.*" && codex login$/);
+    expect(command).toMatch(/^if not exist ".*" mkdir ".*" && set "CODEX_HOME=.*" && codex login$/);
   });
 
   test("rejects an unknown driverId", async () => {
