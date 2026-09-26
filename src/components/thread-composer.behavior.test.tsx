@@ -26,7 +26,10 @@ describe("thread composer presentation", () => {
     expect(html).toContain("flex items-center gap-3");
     expect(html).toContain("caret-color:#26B25A");
     expect(html).toContain("min-h-11");
-    expect(html).toContain("max-h-[76px]");
+    // The composer grows with its content — no fixed max height, so long
+    // input is shown in full instead of scrolling inside a capped box.
+    expect(html).not.toContain("max-h-[76px]");
+    expect(html).not.toContain("overflow-y-auto");
     expect(html).toContain("Identity");
   });
 });

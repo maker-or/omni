@@ -9,7 +9,7 @@ import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
 import { getThread, listThreads } from "./threads.ts";
-import { createWorktree, gitBinary, removeWorktree } from "./worktree-manager.ts";
+import { createWorktree, gitBinary, removeWorktreeBestEffort } from "./worktree-manager.ts";
 import type {
   RemoteModel,
   RemoteProject,
@@ -450,7 +450,7 @@ export class RemoteServer {
           // once the thread row exists the worktree is retained for retry.
           if (worktreePath && !this.threadExistsForWorktree(worktreePath)) {
             console.warn(`[Remote] rolling back worktree: ${worktreePath}`);
-            removeWorktree(project.path, worktreePath, worktreeBranch);
+            removeWorktreeBestEffort(project.path, worktreePath, worktreeBranch);
           }
           throw error;
         }
