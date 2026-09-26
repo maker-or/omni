@@ -46,20 +46,44 @@ export const useAgentInstancesStore = create<AgentInstancesState>((set, get) => 
   },
 
   create: async (input) => {
-    const created = await window.omni.agent.createInstance(input);
-    await get().load();
-    return created;
+    try {
+      const created = await window.omni.agent.createInstance(input);
+      await get().load();
+      return created;
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "Failed to add account" });
+      throw err;
+    }
   },
 
   update: async (id, input) => {
-    await window.omni.agent.updateInstance(id, input);
-    await get().load();
+    try {
+      await window.omni.agent.updateInstance(id, input);
+      await get().load();
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "Failed to update account" });
+      throw err;
+    }
   },
 
   remove: async (id) => {
-    await window.omni.agent.deleteInstance(id);
-    await get().load();
+    try {
+      await window.omni.agent.deleteInstance(id);
+      await get().load();
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "Failed to remove account" });
+      throw err;
+    }
   },
 
   launchLogin: async (id) => window.omni.agent.launchInstanceLogin(id),
 }));
+
+// Accounts are managed from the Settings window but consumed by every window
+// (the main window's composer picker). Reload on a cross-window change so a
+// newly added or removed account shows up without a restart.
+if (typeof window !== "undefined" && window.omni?.agent?.onInstancesChanged) {
+  window.omni.agent.onInstancesChanged(() => {
+    void useAgentInstancesStore.getState().load();
+  });
+}

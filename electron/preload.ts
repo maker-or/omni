@@ -336,6 +336,13 @@ const api = {
     deleteInstance: (id: string): Promise<void> => ipcRenderer.invoke("agent:deleteInstance", id),
     launchInstanceLogin: (id: string): Promise<{ command: string; opened: boolean }> =>
       ipcRenderer.invoke("agent:launchInstanceLogin", id),
+    onInstancesChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("agent:instancesChanged", listener);
+      return () => {
+        ipcRenderer.removeListener("agent:instancesChanged", listener);
+      };
+    },
     setConfigOption: (configId: string, value: string | boolean): Promise<SessionConfigOption[]> =>
       ipcRenderer.invoke("agent:setConfigOption", configId, value),
     respondToPermission: (response: {

@@ -443,6 +443,11 @@ export function listRegisteredAgents(): AcpAgentDescriptor[] {
 export function getAgentDescriptor(agentId: string): AcpAgentDescriptor | null {
   const fromInstance = instanceDescriptorProvider?.(agentId);
   if (fromInstance) return fromInstance;
+  // Once instance storage is configured, a miss means the instance is unknown
+  // or disabled — do NOT fall back to the driver (that would re-enable a
+  // disabled default account). The driver fallback is only for the
+  // uninitialized/legacy state with no provider installed.
+  if (instanceDescriptorProvider) return null;
   return listRegisteredAgents().find((a) => a.id === agentId) ?? null;
 }
 
@@ -467,6 +472,9 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
   env: Record<string, string>;
 } {
   const env = { ...process.env, ...agent.env } as Record<string, string>;
+  // Drop ambient provider credentials for isolated accounts so the child can't
+  // authenticate as the machine's default login instead of the chosen account.
+  for (const name of agent.unsetEnv ?? []) delete env[name];
 
   if (agent.id === "pipper-mock" || agent.installKind === "mock") {
     const mockPath = join(registryDir, "mock-agent.mjs");

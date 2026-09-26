@@ -224,6 +224,7 @@ declare global {
         ) => Promise<AcpAgentInstance | null>;
         deleteInstance: (id: string) => Promise<void>;
         launchInstanceLogin: (id: string) => Promise<{ command: string; opened: boolean }>;
+        onInstancesChanged: (callback: () => void) => () => void;
         setConfigOption: (
           configId: string,
           value: string | boolean,

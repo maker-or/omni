@@ -55,6 +55,13 @@ export interface AcpAgentDescriptor {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /**
+   * Names to delete from the child's environment before spawn. Used to drop
+   * ambient provider credentials (e.g. OPENAI_API_KEY) for an isolated account
+   * so its process cannot silently authenticate as the machine's default
+   * account.
+   */
+  unsetEnv?: string[];
   /** Optional icon key for tab indicators. */
   icon?: string;
   /** Short description for onboarding. */

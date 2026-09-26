@@ -39,7 +39,7 @@ import {
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
 import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
-import { listAgentInstanceDescriptors } from "./agent-instances.ts";
+import { listAgentInstanceDescriptors, hasAgentInstances } from "./agent-instances.ts";
 import {
   ACP_SWITCH_PHASE_TIMEOUT_MS,
   ConnectionLifecycle,
@@ -393,11 +393,38 @@ export class AgentConnectionManager {
   }
 
   listAgents(): AcpAgentDescriptor[] {
-    // Always re-probe PATH so onboarding reflects install state. When accounts
-    // are configured, surface each instance (default instances reuse the driver
-    // id, so this is a no-op for single-account users).
-    const instances = listAgentInstanceDescriptors();
-    return instances.length ? instances : listRegisteredAgents();
+    // Once instance storage is seeded, it is the source of truth: return the
+    // enabled instances even when that list is empty (all accounts disabled).
+    // Only fall back to the raw driver catalog in the uninitialized/legacy
+    // state, so a disabled default account is never re-exposed as selectable.
+    if (hasAgentInstances()) return listAgentInstanceDescriptors();
+    return listRegisteredAgents();
+  }
+
+  /**
+   * Reconcile a removed account: drop its cached sessions, close its process,
+   * and move the preferred pointer off it. Thread rows are re-pointed at the
+   * driver's default instance by `deleteAgentInstance`.
+   */
+  async removeAgentInstance(instanceId: string): Promise<void> {
+    // Collect first: removing entries while iterating the registry would skip
+    // siblings when several threads share the account.
+    const ownedThreadIds: string[] = [];
+    for (const [threadId, runtime] of this.sessions.entries()) {
+      if (runtime.agentId === instanceId) ownedThreadIds.push(threadId);
+    }
+    for (const threadId of ownedThreadIds) {
+      const runtime = this.sessions.get(threadId);
+      if (!runtime) continue;
+      this.permissions.cancelForSession(runtime.agentSessionId);
+      this.prompts.cancelInFlight(threadId, "account removed");
+      this.sessions.remove(threadId);
+    }
+    await this.lifecycle.close(instanceId);
+    if (this.preferredAgentId === instanceId) {
+      this.preferredAgentId = getDefaultAgentId();
+      persistPreferredAgentId(this.preferredAgentId);
+    }
   }
 
   async getModelCatalogs(): Promise<

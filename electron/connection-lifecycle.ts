@@ -278,6 +278,25 @@ export class ConnectionLifecycle {
     );
   }
 
+  /**
+   * Close and forget one instance's transport (e.g. its account was removed),
+   * without touching other instances of the same driver.
+   */
+  async close(agentId: string): Promise<void> {
+    const live = this.connections.get(agentId);
+    if (!live) return;
+    this.connections.delete(agentId);
+    this.intentionalConnectionIds.add(live.connectionId);
+    if (this.activeConnection === live) this.activeConnection = null;
+    try {
+      live.connection.close();
+    } catch {
+      // ignore
+    }
+    await terminateChildProcess(live.process);
+    this.deps.invalidateAgentSessions(agentId);
+  }
+
   private async spawnAndInitialize(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
     const { command, args, env } = resolveAgentSpawn(descriptor);
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);

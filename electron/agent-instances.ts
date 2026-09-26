@@ -45,6 +45,22 @@ export const AUTH_ENV_BY_DRIVER: Record<string, string> = {
 };
 
 /**
+ * Ambient credentials a driver may pick up from the parent environment. For a
+ * non-default (isolated) account these are removed before spawn so the child
+ * cannot fall back to the machine's default login instead of the account the
+ * user configured.
+ */
+const CREDENTIAL_ENV_BY_DRIVER: Record<string, string[]> = {
+  "codex-acp": ["OPENAI_API_KEY", "CODEX_API_KEY"],
+  "claude-agent-acp": ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+  "grok-acp": ["XAI_API_KEY"],
+  "copilot-acp": ["GH_TOKEN", "GITHUB_TOKEN"],
+  "gemini-acp": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  "cursor-acp": ["CURSOR_API_KEY"],
+  "antigravity-acp": ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"],
+};
+
+/**
  * Interactive sign-in command per driver, run once per account inside the
  * user's terminal (never in-process) so the CLI performs its own OAuth flow
  * and owns its credentials. Drivers that authenticate purely via an API key
@@ -66,15 +82,20 @@ function shellQuote(value: string): string {
 /**
  * The shell command a user runs to sign an account in, with its credential
  * root exported inline. Returns null when the driver has no interactive login
- * (API-key providers) so the UI can prompt for a key instead.
+ * (API-key providers) so the UI can prompt for a key instead. Windows shells
+ * don't accept the POSIX `VAR=value cmd` prefix, so build `set "VAR=value" && cmd`.
  */
-export function buildInstanceLoginCommand(instance: AcpAgentInstance): string | null {
+export function buildInstanceLoginCommand(
+  instance: AcpAgentInstance,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
   const login = LOGIN_COMMAND_BY_DRIVER[instance.driverId];
   if (!login) return null;
   const profileVar = PROFILE_ENV_BY_DRIVER[instance.driverId];
   if (!profileVar) return login;
   const entry = (instance.env ?? []).find((item) => item.name === profileVar);
   if (!entry?.value) return login;
+  if (platform === "win32") return `set "${profileVar}=${entry.value}" && ${login}`;
   return `${profileVar}=${shellQuote(entry.value)} ${login}`;
 }
 
@@ -96,14 +117,19 @@ const ENC_PREFIX = "enc:";
 
 function encryptSecret(value: string): string {
   if (!value) return value;
+  let encrypted: Buffer | null = null;
   try {
-    if (safeStorage?.isEncryptionAvailable()) {
-      return ENC_PREFIX + safeStorage.encryptString(value).toString("base64");
-    }
+    if (safeStorage?.isEncryptionAvailable()) encrypted = safeStorage.encryptString(value);
   } catch {
-    // Fall through to plaintext (e.g. unsupported platform).
+    encrypted = null;
   }
-  return value;
+  if (!encrypted) {
+    // Never silently downgrade to plaintext: refuse the write instead.
+    throw new Error(
+      "Secure credential storage is unavailable on this device; refusing to save the secret in plaintext.",
+    );
+  }
+  return ENC_PREFIX + encrypted.toString("base64");
 }
 
 function decryptSecret(value: string): string {
@@ -212,6 +238,9 @@ export function suggestProfileEnv(driverId: string, instanceId: string): AcpAgen
 export function createAgentInstance(input: AcpAgentInstanceInput): AcpAgentInstance {
   const driverId = input.driverId.trim();
   if (!driverId) throw new Error("driverId is required");
+  if (!listRegisteredAgents().some((driver) => driver.id === driverId)) {
+    throw new Error(`Unknown driverId: ${driverId}`);
+  }
   const displayName = input.displayName.trim() || driverId;
   const id = (input.id?.trim() || instanceIdFor(driverId, displayName)).trim();
   // Additional accounts default to an isolated credential root so two logins
@@ -262,7 +291,16 @@ export function updateAgentInstance(
     ...existing,
     displayName: input.displayName?.trim() || existing.displayName,
     enabled: input.enabled ?? existing.enabled,
-    env: input.env ?? existing.env,
+    // A redacted list response carries sensitive values as ""; treat an empty
+    // sensitive value as "unchanged" so a round-trip edit can't erase the
+    // stored credential. Omitting the entry still removes it.
+    env: input.env
+      ? input.env.map((entry) => {
+          if (!entry.sensitive || entry.value) return entry;
+          const prior = existing.env?.find((candidate) => candidate.name === entry.name);
+          return prior ? { ...entry, value: prior.value } : entry;
+        })
+      : existing.env,
     config: input.config ?? existing.config,
     updatedAt: Date.now(),
   };
@@ -283,13 +321,35 @@ export function updateAgentInstance(
 }
 
 export function deleteAgentInstance(id: string): void {
+  const existing = getAgentInstance(id);
+  if (!existing) return;
   // The default instance (id === driver id) is structurally required: it backs
   // the driver's ambient login and legacy thread rows.
-  const existing = getAgentInstance(id);
-  if (existing && existing.id === existing.driverId) {
+  if (existing.id === existing.driverId) {
     throw new Error("Cannot delete a driver's default instance");
   }
-  getDb().prepare("DELETE FROM agent_instances WHERE id = ?").run(id);
+  const db = getDb();
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    // Re-point threads/snapshots that referenced the removed account at the
+    // driver's default instance so they stay resolvable (and become explicit
+    // rather than silently falling back to whatever resolves first).
+    db.prepare("UPDATE threads SET agent_id = ? WHERE agent_id = ?").run(existing.driverId, id);
+    db.prepare("UPDATE thread_snapshots SET agent_id = ? WHERE agent_id = ?").run(
+      existing.driverId,
+      id,
+    );
+    db.prepare("DELETE FROM agent_instances WHERE id = ?").run(id);
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
+}
+
+/** True once the instance table has been seeded (initialized state). */
+export function hasAgentInstances(): boolean {
+  return Boolean(getDb().prepare("SELECT 1 FROM agent_instances LIMIT 1").get());
 }
 
 function driverDescriptorById(): Map<string, AcpAgentDescriptor> {
@@ -301,13 +361,23 @@ function materialize(instance: AcpAgentInstance, driver: AcpAgentDescriptor): Ac
   for (const entry of instance.env ?? []) {
     if (entry.name) env[entry.name] = entry.value;
   }
-  return {
+  const descriptor: AcpAgentDescriptor = {
     ...driver,
     id: instance.id,
     driverId: instance.driverId,
     displayName: instance.displayName,
     env,
   };
+  // Isolated accounts must not inherit the machine's ambient provider keys;
+  // strip them unless the account explicitly sets that same variable.
+  if (instance.id !== instance.driverId) {
+    const setNames = new Set((instance.env ?? []).map((entry) => entry.name));
+    const unsetEnv = (CREDENTIAL_ENV_BY_DRIVER[instance.driverId] ?? []).filter(
+      (name) => !setNames.has(name),
+    );
+    if (unsetEnv.length) descriptor.unsetEnv = unsetEnv;
+  }
+  return descriptor;
 }
 
 /** Resolve an instance id to a spawnable descriptor with merged env. */

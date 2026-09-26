@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
 
+const safeStorageState = vi.hoisted(() => ({ available: true }));
+
 vi.mock("electron", () => ({
   app: { getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp" },
   // Reversible stand-in so the encryption round-trip is observable without a
-  // real OS keychain.
+  // real OS keychain. `available` is togglable to exercise the refusal path.
   safeStorage: {
-    isEncryptionAvailable: () => true,
+    isEncryptionAvailable: () => safeStorageState.available,
     encryptString: (value: string) => Buffer.from(`sealed:${value}`, "utf8"),
     decryptString: (buffer: Buffer) => buffer.toString("utf8").replace(/^sealed:/, ""),
   },
@@ -34,6 +36,13 @@ vi.mock("./agents/registry.ts", () => {
       command: "npx",
       args: [],
     },
+    {
+      id: "cursor-acp",
+      name: "cursor",
+      displayName: "Cursor",
+      command: "agent",
+      args: ["acp"],
+    },
   ];
   return {
     listRegisteredAgents: () => drivers.map((driver) => ({ ...driver })),
@@ -46,6 +55,7 @@ let root: string | null = null;
 
 beforeEach(() => {
   vi.resetModules();
+  safeStorageState.available = true;
   root = mkdtempSync(join(tmpdir(), "pipper-agent-instances-"));
   process.env.PIPPER_LIBRARY_PATH = root;
 });
@@ -173,5 +183,81 @@ describe("agent instances", () => {
     expect(command).toContain("codex login");
     // API-key providers have no interactive login.
     expect(mod.buildInstanceLoginCommand({ ...created, driverId: "cursor-acp" })).toBeNull();
+  });
+
+  test("builds a Windows-compatible login command", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    const created = mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
+    const command = mod.buildInstanceLoginCommand(created, "win32");
+    expect(command).toMatch(/^set "CODEX_HOME=.*" && codex login$/);
+  });
+
+  test("rejects an unknown driverId", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    expect(() => mod.createAgentInstance({ driverId: "nope", displayName: "X" })).toThrow(
+      /Unknown driverId/,
+    );
+  });
+
+  test("refuses to store a secret when encryption is unavailable", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    safeStorageState.available = false;
+    expect(() =>
+      mod.createAgentInstance({
+        driverId: "cursor-acp",
+        displayName: "Work",
+        env: [{ name: "CURSOR_API_KEY", value: "plaintext", sensitive: true }],
+      }),
+    ).toThrow(/plaintext/);
+  });
+
+  test("preserves a stored secret when a redacted empty value round-trips", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    const created = mod.createAgentInstance({
+      driverId: "cursor-acp",
+      displayName: "Work",
+      env: [{ name: "CURSOR_API_KEY", value: "keep-me", sensitive: true }],
+    });
+    // Renderer got "", then sends the account back while editing another field.
+    mod.updateAgentInstance(created.id, {
+      displayName: "Work Renamed",
+      env: [{ name: "CURSOR_API_KEY", value: "", sensitive: true }],
+    });
+    const stored = mod.getAgentInstance(created.id);
+    expect(stored?.displayName).toBe("Work Renamed");
+    expect((stored?.env ?? []).find((e) => e.name === "CURSOR_API_KEY")?.value).toBe("keep-me");
+  });
+
+  test("strips ambient credentials for a non-default account", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
+    const descriptor = mod.resolveAgentInstanceDescriptor("codex-acp:work");
+    expect(descriptor?.unsetEnv).toContain("OPENAI_API_KEY");
+    expect(descriptor?.unsetEnv).toContain("CODEX_API_KEY");
+    // The default instance keeps the ambient environment.
+    expect(mod.resolveAgentInstanceDescriptor("codex-acp")?.unsetEnv).toBeUndefined();
+  });
+
+  test("re-points threads at the driver default when an account is removed", async () => {
+    const mod = await load();
+    mod.ensureDefaultAgentInstances();
+    const created = mod.createAgentInstance({ driverId: "codex-acp", displayName: "Work" });
+    const db = (await import("./db.ts")).getDb();
+    db.prepare("INSERT INTO projects (id, path, name) VALUES (?, ?, ?)").run("p1", "/repo", "Repo");
+    db.prepare(
+      "INSERT INTO threads (id, project_id, agent_id, agent_session_id) VALUES (?, ?, ?, ?)",
+    ).run("t1", "p1", created.id, "s1");
+
+    mod.deleteAgentInstance(created.id);
+
+    const row = db.prepare("SELECT agent_id FROM threads WHERE id = ?").get("t1") as {
+      agent_id: string;
+    };
+    expect(row.agent_id).toBe("codex-acp");
   });
 });

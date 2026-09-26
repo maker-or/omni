@@ -47,6 +47,7 @@ import {
   listAgentInstancesForRenderer,
   listAgentAccountSchemas,
   getAgentInstance,
+  redactInstance,
   buildInstanceLoginCommand,
   createAgentInstance,
   updateAgentInstance,
@@ -463,12 +464,19 @@ async function launchInstanceLogin(
       await execFileAsync("cmd", ["/c", "start", "", "cmd", "/k", command]);
       return { command, opened: true };
     }
-    const child = spawn("x-terminal-emulator", ["-e", "sh", "-c", command], {
-      detached: true,
-      stdio: "ignore",
+    // Linux: `spawn` reports a missing terminal via an async 'error' event, not
+    // a throw, so wait for spawn/error before claiming the terminal opened.
+    return await new Promise<{ command: string; opened: boolean }>((resolve) => {
+      const child = spawn("x-terminal-emulator", ["-e", "sh", "-c", command], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.once("spawn", () => {
+        child.unref();
+        resolve({ command, opened: true });
+      });
+      child.once("error", () => resolve({ command, opened: false }));
     });
-    child.unref();
-    return { command, opened: true };
   } catch {
     return { command, opened: false };
   }
@@ -1943,12 +1951,23 @@ function registerIpc(): void {
   });
   ipcMain.handle("agent:listInstances", () => listAgentInstancesForRenderer());
   ipcMain.handle("agent:getAccountSchemas", () => listAgentAccountSchemas());
-  ipcMain.handle("agent:createInstance", (_event, input) => createAgentInstance(input));
-  ipcMain.handle("agent:updateInstance", (_event, id: string, input) =>
-    updateAgentInstance(id, input),
-  );
-  ipcMain.handle("agent:deleteInstance", (_event, id: string) => {
+  ipcMain.handle("agent:createInstance", (_event, input) => {
+    const created = createAgentInstance(input);
+    broadcastToWindows("agent:instancesChanged", {});
+    // Never ship decrypted secrets back to the renderer.
+    return redactInstance(created);
+  });
+  ipcMain.handle("agent:updateInstance", (_event, id: string, input) => {
+    const updated = updateAgentInstance(id, input);
+    broadcastToWindows("agent:instancesChanged", {});
+    return updated ? redactInstance(updated) : null;
+  });
+  ipcMain.handle("agent:deleteInstance", async (_event, id: string) => {
+    // Reconcile live sessions/connection and the preferred pointer, then
+    // delete (which re-points any threads at the driver's default instance).
+    await agentManager?.removeAgentInstance(id);
     deleteAgentInstance(id);
+    broadcastToWindows("agent:instancesChanged", {});
   });
   ipcMain.handle("agent:launchInstanceLogin", (_event, id: string) => launchInstanceLogin(id));
   ipcMain.handle("agent:closeThreadSession", (_event, threadId: string) =>
