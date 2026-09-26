@@ -10,10 +10,11 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, normalize, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import type { GitBranch, Worktree } from "../contracts/worktrees.ts";
 
 /**
@@ -34,13 +35,16 @@ const DEFAULT_INCLUDE_GLOBS = [".env*"];
  * these are the setup script's job (it may symlink them into the main checkout).
  */
 const SEED_EXCLUSIONS = new Set(["node_modules", "dist", "out", "build", ".git", ".cache"]);
+const GENERATED_BRANCH_PREFIX = "pipper/";
 
 /**
  * Git hooks export repository-local state for the repository being committed.
  * Worktree commands may target a different repository, so those variables must
- * not leak into child Git processes.
+ * not leak into child Git processes. Shared by every module that spawns git
+ * (worktrees, workspace git panel, file tree) so the sanitation stays in one
+ * place.
  */
-function foreignGitEnv(): NodeJS.ProcessEnv {
+export function foreignGitEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (
@@ -120,22 +124,37 @@ const GIT_CANDIDATES =
       ]
     : ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git", "/bin/git"];
 
-/** Absolute git binary: PATH-independent so GUI launches work too. */
+let cachedGitBinary: { pathEnv: string; value: string } | null = null;
+
+/**
+ * Absolute git binary: PATH-independent so GUI launches work too.
+ * Memoized per PATH value — this runs before *every* git spawn and the probe
+ * walks the filesystem. A PATH edit (dependency installer prepending Homebrew
+ * etc.) invalidates the cache; a failed probe is never cached so a mid-session
+ * git install is still picked up.
+ */
 export function gitBinary(): string {
   const pathEnv = process.env.PATH ?? "";
+  if (cachedGitBinary && cachedGitBinary.pathEnv === pathEnv) return cachedGitBinary.value;
   const delimiter = process.platform === "win32" ? ";" : ":";
   const exe = process.platform === "win32" ? "git.exe" : "git";
   for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
     const candidate = join(normalize(dir), exe);
     try {
-      if (existsSync(candidate)) return candidate;
+      if (existsSync(candidate)) {
+        cachedGitBinary = { pathEnv, value: candidate };
+        return candidate;
+      }
     } catch {
       /* keep probing */
     }
   }
   for (const candidate of GIT_CANDIDATES) {
     try {
-      if (existsSync(candidate)) return candidate;
+      if (existsSync(candidate)) {
+        cachedGitBinary = { pathEnv, value: candidate };
+        return candidate;
+      }
     } catch {
       /* keep probing */
     }
@@ -153,6 +172,52 @@ function git(projectPath: string, args: string[]): string {
     stdio: ["ignore", "pipe", "pipe"],
     env: foreignGitEnv(),
   }).trim();
+}
+
+/**
+ * The project's location inside its checkout, relative to the worktree root
+ * (`""` when the project *is* the root). A project registered at
+ * `repo/packages/app` must map to `<worktree>/packages/app` in every linked
+ * worktree — the checkout is always the whole repository, but the agent,
+ * terminals and dependency detection must run in the project directory.
+ */
+function projectSubpath(projectPath: string): string {
+  const key = worktreeCacheKey(projectPath);
+  const cached = projectSubpathCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  try {
+    const toplevel = git(projectPath, ["rev-parse", "--show-toplevel"]);
+    const rel = relative(canonical(toplevel), canonical(projectPath));
+    const value = rel === "." ? "" : rel;
+    projectSubpathCache.set(key, { expiresAt: Date.now() + PROJECT_GIT_META_TTL_MS, value });
+    return value;
+  } catch {
+    // Never cache a failure: a transient git error would otherwise pin the
+    // empty subpath for the TTL and point every linked worktree at its
+    // checkout root instead of the project subdirectory.
+    return "";
+  }
+}
+
+/**
+ * Root of the checkout containing `path` — what `git worktree remove` needs.
+ * Walks up when the project subdirectory itself is missing from the checkout
+ * (a branch that predates it) so removal still finds the worktree.
+ */
+function worktreeRootOf(path: string): string {
+  let probe = path;
+  for (;;) {
+    if (existsSync(probe)) {
+      try {
+        return git(probe, ["rev-parse", "--show-toplevel"]);
+      } catch {
+        return path;
+      }
+    }
+    const parent = dirname(probe);
+    if (parent === probe) return path;
+    probe = parent;
+  }
 }
 
 /**
@@ -192,7 +257,7 @@ function branchExists(projectPath: string, branch: string): boolean {
  * on collision. The agent renames it on first chat.
  */
 function resolveBranchName(projectPath: string, name: string): string {
-  const base = `pipper/${slugify(name)}`;
+  const base = `${GENERATED_BRANCH_PREFIX}${slugify(name)}`;
   if (!branchExists(projectPath, base)) return base;
   for (let i = 2; i < 1000; i++) {
     const candidate = `${base}-${i}`;
@@ -237,12 +302,27 @@ let cachedUserSid: string | null = null;
 const WORKTREE_CACHE_TTL_MS = 500;
 const worktreeCache = new Map<string, { expiresAt: number; value: Worktree[] }>();
 
+/**
+ * Slow-moving per-project git facts (the project's subpath inside its repo,
+ * the origin default branch). Each used to cost a git spawn on every fresh
+ * `listWorktrees` — three subprocesses per sidebar refresh instead of one.
+ * A modest TTL keeps external changes (e.g. a re-pointed origin/HEAD) visible
+ * without paying for them on every poll; worktree mutations invalidate
+ * immediately.
+ */
+const PROJECT_GIT_META_TTL_MS = 30_000;
+const projectSubpathCache = new Map<string, { expiresAt: number; value: string }>();
+const remoteDefaultBranchCache = new Map<string, { expiresAt: number; value: string | null }>();
+
 function worktreeCacheKey(projectPath: string): string {
   return normalize(resolve(projectPath));
 }
 
 function invalidateWorktreeCache(projectPath: string): void {
-  worktreeCache.delete(worktreeCacheKey(projectPath));
+  const key = worktreeCacheKey(projectPath);
+  worktreeCache.delete(key);
+  projectSubpathCache.delete(key);
+  remoteDefaultBranchCache.delete(key);
 }
 
 /** The current user's SID (`S-1-5-…`). Cached: it cannot change mid-process. */
@@ -421,10 +501,19 @@ function runSetupScript(
 /**
  * Create a worktree off `projectPath`: add the git worktree on a fresh branch,
  * seed gitignored files (`.env*`), then run the optional setup script.
+ *
+ * The returned `path` is the *project's* directory inside the new checkout —
+ * identical to the checkout root unless the project is registered at a
+ * repository subdirectory (see `projectSubpath`).
  */
 export function createWorktree(options: CreateWorktreeOptions): Worktree {
   const { projectPath, projectId, name } = options;
-  if (!existsSync(join(projectPath, ".git"))) {
+  try {
+    // A project can be registered as a subdirectory of a repository, so the
+    // Git directory may live above projectPath (and may be a file for a
+    // linked worktree). Ask Git instead of inspecting only projectPath/.git.
+    git(projectPath, ["rev-parse", "--git-dir"]);
+  } catch {
     throw new Error(`Not a git repository: ${projectPath}`);
   }
 
@@ -438,6 +527,9 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
     throw new Error(`Branch already exists: ${branch}`);
   }
   const base = resolveBaseBranch(projectPath);
+  // Where the project lives inside the new checkout: everything after the
+  // checkout itself (env seed, setup script, the returned path) targets it.
+  const projectDir = join(worktreePath, projectSubpath(projectPath));
 
   // `git worktree add` needs the leaf absent but the parent present.
   mkdirSync(dirname(worktreePath), { recursive: true });
@@ -448,12 +540,12 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
 
   try {
     // 2. Seed gitignored files (untrusted data, allowlisted, contained).
-    seedGitignoredFiles(projectPath, worktreePath, options.includeGlobs);
+    seedGitignoredFiles(projectPath, projectDir, options.includeGlobs);
 
     // 3. Setup script (trusted, user-authored, may touch the main checkout).
     if (options.setupScript) {
       runSetupScript(options.setupScript, {
-        worktreePath,
+        worktreePath: projectDir,
         rootPath: projectPath,
         name,
       });
@@ -482,21 +574,23 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   const head = git(worktreePath, ["rev-parse", "HEAD"]);
   // Same canonical form `listWorktrees` returns, so callers can match/exclude
   // entries from `git worktree list`.
-  return { path: canonical(worktreePath), branch, head };
+  return { path: canonical(projectDir), branch, head, createdAtMs: Date.now() };
 }
 
 /**
  * Best-effort removal of a worktree created for a request that later failed
  * (e.g. agent spawn/prompt error). Never throws — cleanup must not mask the
- * original failure.
+ * original failure. `worktreePath` may be the project directory inside the
+ * checkout; removal always targets the checkout root.
  */
-export function removeWorktree(
+export function removeWorktreeBestEffort(
   projectPath: string,
   worktreePath: string,
   branch: string | null,
 ): void {
+  const root = worktreeRootOf(worktreePath);
   try {
-    git(projectPath, ["worktree", "remove", worktreePath, "--force"]);
+    git(projectPath, ["worktree", "remove", root, "--force"]);
   } catch {
     // Best effort cleanup of worktree registration
   }
@@ -508,7 +602,7 @@ export function removeWorktree(
     }
   }
   try {
-    rmSync(worktreePath, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   } catch {
     // Best effort cleanup of directory
   }
@@ -521,12 +615,14 @@ export function parseWorktreePorcelain(stdout: string): Worktree[] {
   let path: string | null = null;
   let head = "";
   let branch: string | null = null;
+  let prunable = false;
 
   const flush = () => {
-    if (path) worktrees.push({ path, head, branch });
+    if (path) worktrees.push({ path, head, branch, missing: prunable });
     path = null;
     head = "";
     branch = null;
+    prunable = false;
   };
 
   for (const raw of stdout.split("\n")) {
@@ -546,13 +642,25 @@ export function parseWorktreePorcelain(stdout: string): Worktree[] {
       branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
     } else if (line === "detached") {
       branch = null;
+    } else if (line === "prunable" || line.startsWith("prunable ")) {
+      // Git's own verdict that this checkout is gone; the reason follows on
+      // the same line for some causes (e.g. "gitdir file points to non-existent
+      // location"). Either way the entry is unusable.
+      prunable = true;
     }
   }
   flush();
   return worktrees;
 }
 
-/** List worktrees from a short-lived cache. Includes the main tree. */
+/**
+ * List worktrees from a short-lived cache. Includes the main tree.
+ *
+ * Every `path` is the *project's* directory inside that checkout: for a
+ * project registered at a repository subdirectory the entries point at the
+ * same subdirectory of each worktree, so the root entry is the project path
+ * itself and linked entries are where the agent/terminals should run.
+ */
 export function listWorktrees(projectPath: string): Worktree[] {
   const cacheKey = worktreeCacheKey(projectPath);
   const cached = worktreeCache.get(cacheKey);
@@ -564,36 +672,75 @@ export function listWorktrees(projectPath: string): Worktree[] {
     env: foreignGitEnv(),
   });
   const projectRoot = pathKey(projectPath);
+  const subpath = projectSubpath(projectPath);
   // Canonicalize up front so every path this module hands out is in one form.
   // Git reports POSIX separators and long names on Windows; callers compare
   // these against `createWorktree` results and stored paths, so the two must
   // agree exactly.
-  const worktrees = parseWorktreePorcelain(stdout).map((worktree) => ({
-    ...worktree,
-    path: canonical(worktree.path),
-  }));
+  const worktrees = parseWorktreePorcelain(stdout).map((worktree) => {
+    // A linked worktree checked out on a branch that predates the project
+    // subdirectory has no such dir — fall back to the checkout root rather
+    // than handing out a path that doesn't exist (git status, terminals and
+    // thread cwds would all fail on it).
+    const nested = subpath ? join(worktree.path, subpath) : worktree.path;
+    const path = canonical(existsSync(nested) ? nested : worktree.path);
+    return {
+      ...worktree,
+      path,
+      // Git only marks an entry prunable once it notices; a directory removed
+      // out from under it reads as present until then.
+      missing: worktree.missing || !existsSync(path),
+    };
+  });
   // git lists the main working tree first; use it as the root when the project
-  // path doesn't canonical-match any entry (e.g. project added as a subdir).
+  // path still doesn't canonical-match any entry (defensive: keeps exactly one
+  // root so the UI can always resolve a current workspace).
   const rootEntry =
     worktrees.find((worktree) => pathKey(worktree.path) === projectRoot) ?? worktrees[0];
   const rootLabel = rootEntry
     ? resolveRepositoryDefaultBranch(projectPath, rootEntry.branch)
     : null;
 
-  const result = worktrees.map((worktree) => {
-    // Identity, not path comparison: guarantees exactly one root entry even when
-    // canonicalization differs, so the UI always resolves a current workspace.
-    const isProjectRoot = worktree === rootEntry;
-    return {
-      ...worktree,
-      isProjectRoot,
-      workspaceName: isProjectRoot
-        ? (rootLabel ?? worktree.branch ?? "main")
-        : (worktree.path.split(/[\\/]/).filter(Boolean).at(-1) ?? "worktree"),
-    };
-  });
+  const result = worktrees
+    // A checkout that is gone is not a workspace: nothing can run there, and
+    // git keeps listing it until `git worktree prune`. Drop it so it never
+    // reaches the sidebar, a thread cwd, or a git status read. The root is
+    // never dropped — the UI must always resolve exactly one.
+    .filter((worktree) => !worktree.missing || worktree === rootEntry)
+    .map((worktree) => {
+      // Identity, not path comparison: guarantees exactly one root entry even when
+      // canonicalization differs, so the UI always resolves a current workspace.
+      const isProjectRoot = worktree === rootEntry;
+      return {
+        ...worktree,
+        isProjectRoot,
+        workspaceName: isProjectRoot
+          ? (rootLabel ?? worktree.branch ?? "main")
+          : (worktree.path.split(/[\\/]/).filter(Boolean).at(-1) ?? "worktree"),
+        // Git lists linked worktrees in readdir order (arbitrary) — stamp the
+        // directory creation time so UIs can sort newest-first deterministically.
+        createdAtMs: isProjectRoot ? undefined : dirBirthMs(worktree.path),
+      };
+    });
   worktreeCache.set(cacheKey, { expiresAt: Date.now() + WORKTREE_CACHE_TTL_MS, value: result });
   return result;
+}
+
+/**
+ * Directory creation time for newest-first workspace sorting. Prefers
+ * birthtime; falls back to ctime on filesystems without it. Undefined when
+ * the path cannot be stated (sorts last).
+ */
+function dirBirthMs(path: string): number | undefined {
+  try {
+    const stat = statSync(path);
+    const birth = stat.birthtimeMs;
+    if (birth > 0) return birth;
+    if (stat.ctimeMs > 0) return stat.ctimeMs;
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -605,14 +752,19 @@ function resolveRepositoryDefaultBranch(
   projectPath: string,
   rootBranch: string | null,
 ): string | null {
+  const key = worktreeCacheKey(projectPath);
+  const cached = remoteDefaultBranchCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value ?? rootBranch;
+  let value: string | null = null;
   try {
     const remoteHead = git(projectPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
     const slash = remoteHead.indexOf("/");
-    if (slash >= 0) return remoteHead.slice(slash + 1);
+    if (slash >= 0) value = remoteHead.slice(slash + 1);
   } catch {
     // A repository without an origin has no advertised default branch.
   }
-  return rootBranch;
+  remoteDefaultBranchCache.set(key, { expiresAt: Date.now() + PROJECT_GIT_META_TTL_MS, value });
+  return value ?? rootBranch;
 }
 
 /** List local branches, annotated with the worktree Git says currently owns each one. */
@@ -695,6 +847,89 @@ export function samePath(a: string, b: string): boolean {
  */
 export function listChildWorktrees(projectPath: string): Worktree[] {
   return listWorktrees(projectPath).filter((w) => !w.isProjectRoot);
+}
+
+/**
+ * "Continue" after a merge: keep the same worktree directory (and its chats,
+ * terminals, deps) but start a fresh `pipper/<name>-N` branch off the latest
+ * base. Fetches first so the new branch includes the just-merged work;
+ * refuses a dirty tree so no local change is silently carried across.
+ */
+export function continueWorktreeOnNewBranch(projectPath: string, worktreePath: string): Worktree {
+  const target = listWorktrees(projectPath).find(
+    (worktree) => !worktree.isProjectRoot && samePath(worktree.path, worktreePath),
+  );
+  if (!target) throw new Error("Workspace is no longer available");
+  if (git(target.path, ["status", "--porcelain"])) {
+    throw new Error(
+      "Workspace has uncommitted changes — commit or discard them before continuing.",
+    );
+  }
+  const base = resolveBaseBranch(projectPath);
+  let startPoint = base;
+  try {
+    execFileSync(gitBinary(), ["fetch", "origin", base], {
+      cwd: target.path,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: foreignGitEnv(),
+      timeout: 60_000,
+    });
+    git(target.path, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${base}`]);
+    startPoint = `origin/${base}`;
+  } catch {
+    // Offline or no remote: branch from the local base instead.
+  }
+  const name = target.workspaceName ?? worktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+  const branch = resolveBranchName(projectPath, name);
+  git(target.path, ["switch", "-c", branch, startPoint]);
+  invalidateWorktreeCache(projectPath);
+  const next = listWorktrees(projectPath).find((worktree) => samePath(worktree.path, target.path));
+  if (!next) throw new Error("Worktree disappeared after switching branches");
+  return next;
+}
+
+/** Remove a linked worktree and its Omni-generated branch. The project root is
+ * intentionally protected because removing it would destroy the project. */
+export function removeWorktree(
+  projectPath: string,
+  worktreePath: string,
+  projectId: string,
+): Worktree {
+  const target = listWorktrees(projectPath).find(
+    (worktree) => !worktree.isProjectRoot && samePath(worktree.path, worktreePath),
+  );
+  if (!target) throw new Error("Workspace is no longer available");
+
+  // Git reports every linked worktree, including ones created outside Omni.
+  // Removing the checkout is explicit, but only delete branches that Omni
+  // generated from its managed worktree root; user-managed branches must
+  // remain recoverable.
+  const pathFromRoot = relative(
+    canonical(join(getWorktreesRoot(), projectId)),
+    canonical(target.path),
+  );
+  const managedPath =
+    pathFromRoot !== "" &&
+    pathFromRoot !== ".." &&
+    !pathFromRoot.startsWith(`..${normalize("/")}`) &&
+    !isAbsolute(pathFromRoot);
+  const branchToDelete =
+    managedPath && target.branch?.startsWith(GENERATED_BRANCH_PREFIX) ? target.branch : null;
+
+  // `target.path` is the project directory inside the checkout; Git only
+  // accepts the checkout root here.
+  git(projectPath, ["worktree", "remove", "--force", worktreeRootOf(target.path)]);
+  if (branchToDelete) {
+    try {
+      git(projectPath, ["branch", "-D", branchToDelete]);
+    } catch {
+      // A user-owned branch may be shared or protected; removing the worktree
+      // is still complete when Git refuses to delete that branch.
+    }
+  }
+  invalidateWorktreeCache(projectPath);
+  return target;
 }
 
 /**

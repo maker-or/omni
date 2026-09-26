@@ -5,6 +5,7 @@ import {
   isValidElement,
   memo,
   useContext,
+  useMemo,
   type ComponentPropsWithoutRef,
   type ReactElement,
   type ReactNode,
@@ -22,6 +23,9 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { ShikiCodeBlock } from "@/components/ui/shiki-code-block";
+import { typeScale, useTypeScale, type TypeScaleRole } from "@/lib/size-context";
+import { fontWeights } from "@/lib/font-weight";
+import { useShape } from "@/lib/shape-context";
 
 type WithNode<T> = T & ExtraProps;
 type TableRowElement = ReactElement<{ index?: number }>;
@@ -33,7 +37,21 @@ type MarkdownRendererProps = {
   isStreaming?: boolean;
 };
 
-const MarkdownRenderContext = createContext({ isStreaming: false });
+type MarkdownScale = Record<TypeScaleRole, number>;
+
+/** Default-column scale, used before a SizeProvider resolves one. */
+const DEFAULT_SCALE: MarkdownScale = {
+  display: typeScale.display.default,
+  title: typeScale.title.default,
+  subtitle: typeScale.subtitle.default,
+  body: typeScale.body.default,
+  caption: typeScale.caption.default,
+};
+
+const MarkdownRenderContext = createContext<{ isStreaming: boolean; scale: MarkdownScale }>({
+  isStreaming: false,
+  scale: DEFAULT_SCALE,
+});
 
 function omitNode<T extends { node?: unknown }>(props: T) {
   const { node, ...rest } = props;
@@ -45,8 +63,8 @@ const MarkdownTable = memo((props: WithNode<ComponentPropsWithoutRef<"table">>) 
   const { className, children, ...rest } = omitNode(props);
 
   return (
-    <div className="min-w-0 max-w-full overflow-hidden" data-markdown="table-wrapper">
-      <Table className={cn("table-fixed", className)} data-markdown="table" {...rest}>
+    <div className="min-w-0 max-w-full overflow-x-auto" data-markdown="table-wrapper">
+      <Table className={className} data-markdown="table" {...rest}>
         {children}
       </Table>
     </div>
@@ -100,7 +118,7 @@ const MarkdownTableHead = memo((props: WithNode<ComponentPropsWithoutRef<"th">>)
   const { className, ...rest } = omitNode(props);
   return (
     <TableHead
-      className={cn("whitespace-normal break-words align-top [overflow-wrap:anywhere]", className)}
+      className={cn("whitespace-normal break-words align-top", className)}
       data-markdown="table-header-cell"
       {...rest}
     />
@@ -113,7 +131,7 @@ const MarkdownTableCell = memo((props: WithNode<ComponentPropsWithoutRef<"td">>)
   const { className, ...rest } = omitNode(props);
   return (
     <TableCell
-      className={cn("whitespace-normal break-words align-top [overflow-wrap:anywhere]", className)}
+      className={cn("whitespace-normal break-words align-top", className)}
       data-markdown="table-cell"
       {...rest}
     />
@@ -135,6 +153,7 @@ function MarkdownCode({
   const code = String(children).replace(/\n$/, "");
   const isBlock = language || String(children).includes("\n");
   const { isStreaming } = useContext(MarkdownRenderContext);
+  const shape = useShape();
 
   if (isBlock) {
     return <ShikiCodeBlock code={code} isStreaming={isStreaming} language={language ?? "text"} />;
@@ -143,13 +162,40 @@ function MarkdownCode({
   return (
     <code
       className={cn(
-        "rounded bg-muted px-1.5 py-0.5 font-mono text-sm break-words [overflow-wrap:anywhere]",
+        shape.item,
+        "bg-muted px-1.5 py-0.5 font-mono text-[0.9em] break-words [overflow-wrap:anywhere]",
         className,
       )}
       {...rest}
     >
       {children}
     </code>
+  );
+}
+
+/** Headings read their size from the active type scale and their weight from
+ *  the shared variable-font weights, so markdown matches the design system. */
+function MarkdownHeading({
+  level,
+  scaleRole,
+  weight,
+  tone,
+  className,
+  ...props
+}: {
+  level: 1 | 2 | 3 | 4 | 5 | 6;
+  scaleRole: TypeScaleRole;
+  weight: keyof typeof fontWeights;
+  tone: string;
+} & WithNode<ComponentPropsWithoutRef<"h2">>) {
+  const { scale } = useContext(MarkdownRenderContext);
+  const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+  return (
+    <Tag
+      className={cn("break-words [overflow-wrap:anywhere]", tone, className)}
+      style={{ fontSize: `${scale[scaleRole]}px`, fontVariationSettings: fontWeights[weight] }}
+      {...omitNode(props)}
+    />
   );
 }
 
@@ -188,6 +234,54 @@ const defaultMarkdownComponents = {
       />
     );
   },
+  h1: (props: WithNode<ComponentPropsWithoutRef<"h1">>) => (
+    <MarkdownHeading
+      level={1}
+      scaleRole="title"
+      weight="semibold"
+      tone="text-foreground"
+      {...props}
+    />
+  ),
+  h2: (props: WithNode<ComponentPropsWithoutRef<"h2">>) => (
+    <MarkdownHeading
+      level={2}
+      scaleRole="subtitle"
+      weight="semibold"
+      tone="text-foreground"
+      {...props}
+    />
+  ),
+  h3: (props: WithNode<ComponentPropsWithoutRef<"h3">>) => (
+    <MarkdownHeading
+      level={3}
+      scaleRole="body"
+      weight="semibold"
+      tone="text-foreground"
+      {...props}
+    />
+  ),
+  h4: (props: WithNode<ComponentPropsWithoutRef<"h4">>) => (
+    <MarkdownHeading level={4} scaleRole="body" weight="medium" tone="text-foreground" {...props} />
+  ),
+  h5: (props: WithNode<ComponentPropsWithoutRef<"h5">>) => (
+    <MarkdownHeading
+      level={5}
+      scaleRole="caption"
+      weight="medium"
+      tone="text-muted-foreground"
+      {...props}
+    />
+  ),
+  h6: (props: WithNode<ComponentPropsWithoutRef<"h6">>) => (
+    <MarkdownHeading
+      level={6}
+      scaleRole="caption"
+      weight="medium"
+      tone="text-muted-foreground"
+      {...props}
+    />
+  ),
   blockquote: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"blockquote">>) => {
     const rest = omitNode(props);
     return (
@@ -200,6 +294,13 @@ const defaultMarkdownComponents = {
       />
     );
   },
+  strong: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"strong">>) => (
+    <strong
+      className={cn("text-foreground", className)}
+      style={{ fontVariationSettings: fontWeights.semibold }}
+      {...omitNode(props)}
+    />
+  ),
   code: MarkdownCode,
   pre: ({ children }: WithNode<ComponentPropsWithoutRef<"pre">>) => <>{children}</>,
   a: ({ className, ...props }: WithNode<ComponentPropsWithoutRef<"a">>) => {
@@ -224,6 +325,8 @@ function MarkdownRendererBase({
   components,
   isStreaming = false,
 }: MarkdownRendererProps) {
+  const scale = useTypeScale();
+  const contextValue = useMemo(() => ({ isStreaming, scale }), [isStreaming, scale]);
   return (
     <div
       data-pipper-id="assistant-markdown"
@@ -232,7 +335,7 @@ function MarkdownRendererBase({
         className,
       )}
     >
-      <MarkdownRenderContext.Provider value={{ isStreaming }}>
+      <MarkdownRenderContext.Provider value={contextValue}>
         <ReactMarkdown
           components={
             components ? { ...defaultMarkdownComponents, ...components } : defaultMarkdownComponents

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Thread } from "../../contracts/threads.ts";
 import { useContinuationStore } from "@/store/continuation-store";
+import { useThreadCompletionStore } from "@/store/thread-completion-store";
 
 const THREAD_PAGE_SIZE = 10;
 
@@ -135,6 +136,7 @@ export const useThreadStore = create<ThreadState>((set) => ({
       await window.omni.threads.delete(id);
       // Drop any unsent `/continue` transcript staged for this thread.
       useContinuationStore.getState().clearPending(id);
+      useThreadCompletionStore.getState().dismissThread(id);
       set((state) => ({
         threads: state.threads.filter((t) => t.id !== id),
         // A local mutation did not advance the server-backed pagination

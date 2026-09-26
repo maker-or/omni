@@ -96,3 +96,20 @@ describe("threads table legacy-constraint rebuild", () => {
     expect(created.title).toBeNull();
   });
 });
+
+describe("GitHub PR snapshot cache", () => {
+  test("persists the last successful response across database reopen", async () => {
+    const { closeDb, getGithubPrSnapshot, saveGithubPrSnapshot } = await import("./db.ts");
+    saveGithubPrSnapshot("owner/repo", "feature", '{"number":42}', 1234);
+    expect(getGithubPrSnapshot("owner/repo", "feature")).toEqual({
+      snapshotJson: '{"number":42}',
+      updatedAt: 1234,
+    });
+
+    closeDb();
+    expect(getGithubPrSnapshot("owner/repo", "feature")).toEqual({
+      snapshotJson: '{"number":42}',
+      updatedAt: 1234,
+    });
+  });
+});

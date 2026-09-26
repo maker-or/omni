@@ -70,25 +70,37 @@ export function RemoteAccessSettings() {
   }
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-3 text-muted-foreground shadow-surface-1">
-        <QrCodeIcon className="size-[18px]" strokeWidth={1.8} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-foreground">Phone pairing</div>
-        <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-          Scan with your phone camera — the link opens the remote app and pairs it automatically.
+    <div className="px-4 py-3">
+      <div className="flex items-start gap-4">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-3 text-muted-foreground shadow-surface-1">
+          <QrCodeIcon className="size-[18px]" strokeWidth={1.8} />
         </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium text-foreground">Phone pairing</div>
+          <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+            Scan with your phone camera — the link opens the remote app and pairs it automatically.
+          </div>
+        </div>
+        <button
+          onClick={() => void regenerate()}
+          disabled={spinning}
+          title="Generate a new token (unpairs phones)"
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-muted-foreground shadow-surface-1 hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={`size-4 ${spinning ? "animate-spin" : ""}`} />
+        </button>
+      </div>
+      <div className="mt-3 pl-[52px]">
         {qr ? (
           <img
             src={qr}
             alt="Pairing QR code"
             width={220}
             height={220}
-            className="mt-3 rounded-xl border border-border/70 bg-white p-2"
+            className="rounded-xl border border-border/70 bg-white p-2"
           />
         ) : (
-          <div className="mt-3 text-[11px] leading-4 text-muted-foreground">
+          <div className="text-[11px] leading-4 text-muted-foreground">
             {info.pairingUrl
               ? (qrError ?? "Generating QR…")
               : "No network address found — connect Tailscale, then reopen Settings."}
@@ -104,16 +116,6 @@ export function RemoteAccessSettings() {
             {info.token}
           </div>
         )}
-      </div>
-      <div className="flex shrink-0 items-center">
-        <button
-          onClick={() => void regenerate()}
-          disabled={spinning}
-          title="Generate a new token (unpairs phones)"
-          className="flex size-9 items-center justify-center rounded-lg bg-surface-3 text-muted-foreground shadow-surface-1 hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={`size-4 ${spinning ? "animate-spin" : ""}`} />
-        </button>
       </div>
     </div>
   );

@@ -20,8 +20,10 @@ import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { useAgentStore } from "@/store/agent-store";
 import { useWorktreeStore } from "@/store/worktree-store";
-import { useTerminalStore } from "@/store/terminal-store";
+import { makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
+import { useUiModeStore } from "@/store/ui-mode-store";
+import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import {
@@ -64,8 +66,8 @@ function getProjectIconComponent(name: string) {
 }
 
 /**
- * The single, global tab strip that lives in the title bar. It merges the two
- * kinds of "global" views into one row:
+ * The shared tab strip that lives above the active workspace. It merges the
+ * two kinds of views into one row:
  *   - agent threads (persisted, backed by open-tabs)
  *   - terminals (ephemeral, backed by the in-memory terminal store)
  *
@@ -93,9 +95,12 @@ export function GlobalTabBar() {
   const clearDraftCompletion = useWorkspaceViewStore((state) => state.clearDraftCompletion);
 
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
+  const terminalWorkspaceKey = useTerminalStore((state) => state.workspaceKey);
   const terminalTabs = useMemo(
     () =>
-      useTerminalStore.getState().sessions.map(({ id, title, status }) => ({ id, title, status })),
+      useTerminalStore
+        .getState()
+        .sessions.map(({ id, title, status, cwd }) => ({ id, title, status, cwd })),
     [terminalTabsRevision],
   );
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
@@ -107,6 +112,7 @@ export function GlobalTabBar() {
   const selectedWorktreePathByProject = useWorktreeStore(
     (state) => state.selectedWorktreePathByProject,
   );
+  const uiMode = useUiModeStore((state) => state.mode);
 
   const [projectsList, setProjectsList] = useState<
     Array<{ id: string; name: string; icon: string; path?: string }>
@@ -136,26 +142,38 @@ export function GlobalTabBar() {
   const optimisticRequestedThreadId =
     requestedThreadId && pendingThreadTarget === requestedThreadId ? requestedThreadId : null;
 
+  const activeWorkspacePath = useMemo(() => {
+    if (!activeProject) return null;
+    return normalizeWorkspacePath(
+      selectedWorktreePathByProject[activeProject.id],
+      activeProject.path,
+    );
+  }, [activeProject, selectedWorktreePathByProject]);
+
+  const activeTerminalWorkspaceKey = useMemo(() => {
+    if (!activeProject) return null;
+    const selectedPath = selectedWorktreePathByProject[activeProject.id] ?? activeProject.path;
+    return makeWorkspaceKey(activeProject.id, selectedPath);
+  }, [activeProject, selectedWorktreePathByProject]);
+
   const visibleOpenThreads = useMemo(() => {
-    const alwaysVisibleId = optimisticRequestedThreadId ?? snapshotThreadId ?? activeThreadId;
+    if (uiMode !== "advanced") return orderedOpenThreads;
+    if (!activeProject) return [];
+
     return orderedOpenThreads.filter((thread) => {
-      if (thread.id === alwaysVisibleId) return true;
-      const project = projectsList.find((item) => item.id === thread.project_id);
-      if (!project?.path) return true;
-      const workspacePath = normalizeWorkspacePath(
-        selectedWorktreePathByProject[thread.project_id],
-        project.path,
-      );
-      return isThreadInWorkspace(thread, workspacePath);
+      if (thread.project_id !== activeProject.id) return false;
+      if (thread.id === optimisticRequestedThreadId) return true;
+      return isThreadInWorkspace(thread, activeWorkspacePath);
     });
-  }, [
-    orderedOpenThreads,
-    projectsList,
-    selectedWorktreePathByProject,
-    optimisticRequestedThreadId,
-    activeThreadId,
-    snapshotThreadId,
-  ]);
+  }, [orderedOpenThreads, uiMode, activeProject, activeWorkspacePath, optimisticRequestedThreadId]);
+
+  const visibleTerminalTabs = useMemo(() => {
+    if (uiMode !== "advanced" || !activeProject) return terminalTabs;
+    // TerminalStore already buckets sessions using the canonical workspace
+    // selected by the main process. Compare that bucket identity instead of
+    // raw cwd strings, which may differ through symlinks or Git realpaths.
+    return terminalWorkspaceKey === activeTerminalWorkspaceKey ? terminalTabs : [];
+  }, [activeProject, activeTerminalWorkspaceKey, terminalTabs, terminalWorkspaceKey, uiMode]);
 
   const recentProjectsQuery = useRecentProjectsQuery(
     activeProject?.id,
@@ -329,12 +347,27 @@ export function GlobalTabBar() {
   const handleCloseThreadTab = async (id: string) => {
     if (closingTabIdsRef.current.has(id)) return;
     closingTabIdsRef.current.add(id);
+    // Closing stops the run too; that stop is not a completion to announce.
+    useThreadCompletionStore.getState().dismissThread(id);
     try {
       const wasActive = id === (snapshotThreadId ?? activeThreadId);
       const nextState = await window.omni.tabs.close(id);
       await queryClient.invalidateQueries({ queryKey: OPEN_TABS_QUERY_KEY });
       if (!wasActive) return;
-      if (nextState.activeThreadId) {
+      // Persisted state always names *some* open tab as active, and when the
+      // closed tab was its workspace's last one that is a tab from another
+      // workspace. Advanced mode hides those, so activating it would jump the
+      // user to a thread they cannot see; fall through to the draft/terminal
+      // path instead, exactly as if no tab remained.
+      const nextThread = nextState.activeThreadId
+        ? openThreads.find((thread) => thread.id === nextState.activeThreadId)
+        : undefined;
+      const nextIsVisible =
+        uiMode !== "advanced" ||
+        (nextThread !== undefined &&
+          nextThread.project_id === activeProject?.id &&
+          isThreadInWorkspace(nextThread, activeWorkspacePath));
+      if (nextState.activeThreadId && nextIsVisible) {
         await handleSelectThread(nextState.activeThreadId, mode !== "terminal");
       } else {
         requestThread(null);
@@ -397,7 +430,9 @@ export function GlobalTabBar() {
 
   const handleNewTerminal = () => {
     const project = activeProject;
-    const cwd = project ? (selectedWorktreePathByProject[project.id] ?? project.path) : undefined;
+    const cwd = project
+      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
+      : undefined;
     const id = createSession(cwd);
     showTerminal(id);
   };
@@ -446,10 +481,10 @@ export function GlobalTabBar() {
     () =>
       tabValuesInBarOrder(
         visibleOpenThreads.map((thread) => thread.id),
-        terminalTabs.map((session) => session.id),
+        visibleTerminalTabs.map((session) => session.id),
         TERMINAL_TAB_PREFIX,
       ),
-    [visibleOpenThreads, terminalTabs],
+    [visibleOpenThreads, visibleTerminalTabs],
   );
 
   const handleTabChangeRef = useRef<(value: string) => void>(() => {});
@@ -610,7 +645,7 @@ export function GlobalTabBar() {
               />
             );
           })}
-          {terminalTabs.map((session, idx) => (
+          {visibleTerminalTabs.map((session, idx) => (
             <TabItem
               key={session.id}
               index={visibleOpenThreads.length + idx}

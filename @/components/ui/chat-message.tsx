@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { springs } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
+import { toneIdentity } from "@/lib/workspace-tone";
+import { useWorkspaceTone } from "@/lib/workspace-tone-context";
 
 interface ChatMessageProps extends Omit<HTMLMotionProps<"div">, "children"> {
   from: "user" | "assistant";
@@ -40,7 +42,14 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
     ref,
   ) => {
     const shape = useShape();
+    const workspaceTone = useWorkspaceTone();
     const isUser = from === "user";
+    // The user bubble carries the workspace's git-state tone when one is in
+    // scope (same colour as the composer's @ marker); otherwise it keeps the
+    // identity's default green.
+    const userBubble = workspaceTone
+      ? toneIdentity(workspaceTone)
+      : { bg: "#26B25A", ink: "#052E16", ring: "#088139b3" };
     const showTime = isUser && time != null;
     // Three-line clamp on user messages (assistant replies stream, so they
     // stay unclamped). `line-clamp-3` is always applied to user bubbles when
@@ -122,15 +131,18 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
             {children != null && children !== "" && (
               <div
                 ref={isUser ? bodyRef : undefined}
+                style={
+                  isUser
+                    ? {
+                        backgroundColor: userBubble.bg,
+                        color: userBubble.ink,
+                        boxShadow: `inset 0 0 0 1px ${userBubble.ring}`,
+                      }
+                    : undefined
+                }
                 className={cn(
                   "max-w-full py-2 text-[14px] whitespace-pre-wrap break-words text-pretty",
-                  isUser
-                    ? cn(
-                        shape.bg,
-                        "bg-[#26B25A] px-3.5 text-[#052E16] ring-1 ring-inset ring-[#088139]/70",
-                        !expanded && "line-clamp-3",
-                      )
-                    : "text-foreground",
+                  isUser ? cn(shape.bg, "px-3.5", !expanded && "line-clamp-3") : "text-foreground",
                 )}
               >
                 {children}
