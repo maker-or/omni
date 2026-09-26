@@ -6,6 +6,7 @@ import {
   GearSix,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { AgentAccountsSettings } from "@/components/agent-accounts-settings";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ThemePicker } from "@/components/theme-picker";
@@ -46,11 +47,12 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-type SectionId = "appearance" | "agents" | "keyboard" | "power" | "remote";
+type SectionId = "appearance" | "agents" | "accounts" | "keyboard" | "power" | "remote";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
   { id: "agents", label: "Agents" },
+  { id: "accounts", label: "Accounts" },
   { id: "keyboard", label: "Keyboard" },
   { id: "power", label: "Power" },
   { id: "remote", label: "Remote" },
@@ -333,6 +335,11 @@ const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
     title: "Agents",
     blurb: "Choose which coding agents Pipper can use.",
   },
+  accounts: {
+    title: "Accounts",
+    blurb:
+      "Each account runs in its own isolated configuration directory, so you can use a work and personal subscription side by side.",
+  },
   keyboard: {
     title: "Keyboard",
     blurb: "Shortcuts for moving fast around Pipper.",
@@ -359,6 +366,14 @@ function AppearanceView() {
           <WorkspaceModePicker className="mt-3" />
         </div>
       </div>
+    </Elevated>
+  );
+}
+
+function AccountsView() {
+  return (
+    <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
+      <AgentAccountsSettings />
     </Elevated>
   );
 }
@@ -487,6 +502,7 @@ export function SettingsApp() {
 
                 {section === "appearance" && <AppearanceView />}
                 {section === "agents" && <AgentsSettingsSection />}
+                {section === "accounts" && <AccountsView />}
                 {section === "keyboard" && <KeyboardView />}
                 {section === "power" && <PowerView />}
                 {section === "remote" && <RemoteView />}

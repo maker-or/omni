@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
+import { listAgentInstanceDescriptors } from "./agent-instances.ts";
 import { getThread, listThreads } from "./threads.ts";
 import { createWorktree, gitBinary, removeWorktreeBestEffort } from "./worktree-manager.ts";
 import type {
@@ -331,9 +332,17 @@ export class RemoteServer {
         return send(res, 200, { projects });
       }
       if (req.method === "GET" && path === "/api/remote/models") {
-        const models: RemoteModel[] = listRegisteredAgents().map((a) => ({
+        // Offer provider instances (accounts), not just drivers, so a phone can
+        // route a task to a specific account. Default instances reuse the
+        // driver id, so single-account setups see exactly the same list.
+        // `provider` groups accounts under their driver on the phone.
+        const driverNames = new Map(
+          listRegisteredAgents().map((driver) => [driver.id, driver.displayName ?? driver.name]),
+        );
+        const models: RemoteModel[] = listAgentInstanceDescriptors().map((a) => ({
           id: a.id,
           name: a.displayName ?? a.name ?? a.id,
+          provider: driverNames.get(a.driverId ?? a.id) ?? a.driverId ?? a.id,
         }));
         return send(res, 200, { models });
       }
@@ -400,10 +409,11 @@ export class RemoteServer {
         console.log(
           `[Remote] new phone thread project=${project.id} worktree=${worktreePath ?? "<root>"} promptLen=${body.prompt.length}`,
         );
-        // modelId from the phone is an *agent* id (listRegisteredAgents).
-        // Use it to pick the connection, but never as a model name — the
-        // agent's own default model applies (e.g. antigravity has no implicit
-        // default; the user's desktop default is used).
+        // modelId from the phone is a provider *instance* id
+        // (listAgentInstanceDescriptors; driver id when default). Use it to pick
+        // the connection, but never as a model name — the agent's own default
+        // model applies (e.g. antigravity has no implicit default; the user's
+        // desktop default is used).
         try {
           const thread = await am.createThread(
             project.id,

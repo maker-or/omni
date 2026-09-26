@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
 import { PhoneMarkdown } from "./markdown.tsx";
+import { groupModelsByProvider } from "./model-groups.ts";
 import type {
   RemoteModel,
   RemoteProject,
@@ -387,11 +388,23 @@ export function RemoteApp() {
                 aria-label="Model"
               >
                 <option value="">Model…</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
+                {groupModelsByProvider(models).map((group) =>
+                  group.provider ? (
+                    <optgroup key={group.provider} label={group.provider}>
+                      {group.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    group.models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))
+                  ),
+                )}
               </select>
             </div>
             <p className="remote-hint">

@@ -1,7 +1,11 @@
 export interface Thread {
   id: string;
   project_id: string;
-  /** Which ACP agent owns this thread (e.g. "cursor-acp@1.0"). */
+  /**
+   * Which ACP provider instance owns this thread — the spawn routing key.
+   * Equals the driver id for a driver's default account, or an instance id
+   * (e.g. "codex-acp:work") for an additional account.
+   */
   agent_id: string;
   /** ACP session.id from session/new (or session/resume). */
   agent_session_id: string;

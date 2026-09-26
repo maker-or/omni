@@ -53,6 +53,7 @@ import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { AgentContinueMenu } from "@/components/agent-continue-menu";
 import { AgentQuestionCard, AgentQuestionDock } from "@/components/agent-question";
 import { cn } from "@/lib/utils";
+import { isInstanceSelected } from "@/lib/agent-selection";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import { toast } from "@/components/ui/toast";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
@@ -815,7 +816,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     // Prefer the currently connected agent when it is in the user's pool.
     const registry = useAgentRegistryStore.getState();
     const availableAgents = registry.agents.filter(
-      (a) => registry.selectedAgentIds.includes(a.id) && a.available !== false,
+      (a) => isInstanceSelected(a, registry.selectedAgentIds) && a.available !== false,
     );
     const pool =
       availableAgents.length > 0
@@ -857,7 +858,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           const pool = registry.agents.filter(
             (a) =>
               (registry.selectedAgentIds.length === 0 ||
-                registry.selectedAgentIds.includes(a.id)) &&
+                isInstanceSelected(a, registry.selectedAgentIds)) &&
               a.available !== false,
           );
           setDraftAgent(pool[0]?.id ?? null);
@@ -2061,7 +2062,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   // late or selectedAgentIds is still empty).
   const draftAgentItems = useMemo(() => {
     const available = registryAgents.filter((a) => a.available !== false);
-    const selected = available.filter((a) => selectedAgentIds.includes(a.id));
+    const selected = available.filter((a) => isInstanceSelected(a, selectedAgentIds));
     const pool = selected.length > 0 ? selected : available;
     return pool.map((a) => ({
       id: a.id,

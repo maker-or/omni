@@ -40,6 +40,13 @@ export type AcpAgentInstallKind = "binary" | "npx" | "mock";
 /** Registry entry describing an ACP agent Pipper can spawn. */
 export interface AcpAgentDescriptor {
   id: string;
+  /**
+   * The underlying provider/driver this descriptor belongs to. For a plain
+   * driver descriptor this is omitted and `id` is the driver id; for a
+   * materialized account instance (`AcpAgentInstance`) `id` is the instance id
+   * and this points back at the driver for display/analytics/install metadata.
+   */
+  driverId?: string;
   name: string;
   /** Display name shown in the UI. */
   displayName: string;
@@ -48,6 +55,13 @@ export interface AcpAgentDescriptor {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /**
+   * Names to delete from the child's environment before spawn. Used to drop
+   * ambient provider credentials (e.g. OPENAI_API_KEY) for an isolated account
+   * so its process cannot silently authenticate as the machine's default
+   * account.
+   */
+  unsetEnv?: string[];
   /** Optional icon key for tab indicators. */
   icon?: string;
   /** Short description for onboarding. */
@@ -85,6 +99,67 @@ export interface AgentProbeResult {
   message?: string | null;
   /** Auth methods associated with a detected authentication requirement, when available. */
   authMethods?: AuthMethod[];
+}
+
+/**
+ * A single environment variable supplied to a provider instance's child
+ * process. Values never leave the main process in cleartext: a `sensitive`
+ * value is redacted before an instance is sent to the renderer.
+ */
+export interface AcpAgentInstanceEnvVar {
+  name: string;
+  value: string;
+  /** When true, the value is redacted in renderer-facing copies. */
+  sensitive?: boolean;
+}
+
+/**
+ * One named account/configuration of a provider driver. Pipper keeps a
+ * separate child process, environment, and credential root per instance so
+ * two accounts of the same driver (e.g. personal + work Codex) can coexist and
+ * run side by side. An instance with `id === driverId` is the legacy/default
+ * configuration that uses the ambient CLI login.
+ */
+export interface AcpAgentInstance {
+  /** Routing key passed to {@link AcpAgentDescriptor.id} when spawning. */
+  id: string;
+  /** The provider driver this instance is a configuration of. */
+  driverId: string;
+  /** User-facing label, e.g. "Codex — Work". */
+  displayName: string;
+  enabled: boolean;
+  /** Per-instance environment overrides, merged over the driver defaults. */
+  env?: AcpAgentInstanceEnvVar[];
+  /** Driver-specific, opaque configuration (e.g. a profile directory). */
+  config?: Record<string, unknown>;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+/** Create/update payload for a provider instance. */
+export interface AcpAgentInstanceInput {
+  driverId: string;
+  displayName: string;
+  /** Optional explicit id; generated from driver + label when omitted. */
+  id?: string;
+  enabled?: boolean;
+  env?: AcpAgentInstanceEnvVar[];
+  config?: Record<string, unknown>;
+}
+
+/** Per-driver account-creation capabilities, surfaced to the settings UI. */
+export interface AgentAccountSchema {
+  driverId: string;
+  displayName: string;
+  icon?: string;
+  /** Env var that points the CLI at an isolated credential root, if any. */
+  profileEnvVar: string | null;
+  /** Env var that carries an explicit credential value, if any. */
+  authEnvVar: string | null;
+  /** True when a driver beyond the ambient default can be configured. */
+  supportsMultipleAccounts: boolean;
+  /** True when the driver has an interactive sign-in command to launch. */
+  supportsLogin: boolean;
 }
 
 /**

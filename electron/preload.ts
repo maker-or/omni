@@ -17,6 +17,9 @@ import type {
   AvailableCommand,
   SessionConfigOption,
   AcpAgentDescriptor,
+  AcpAgentInstance,
+  AcpAgentInstanceInput,
+  AgentAccountSchema,
   AgentProbeResult,
   SubagentConfig,
   SubagentRunSnapshot,
@@ -363,6 +366,25 @@ const api = {
     getSelectedAgentIds: (): Promise<string[]> => ipcRenderer.invoke("agent:getSelectedAgentIds"),
     setSelectedAgentIds: (agentIds: string[]): Promise<void> =>
       ipcRenderer.invoke("agent:setSelectedAgentIds", agentIds),
+    listInstances: (): Promise<AcpAgentInstance[]> => ipcRenderer.invoke("agent:listInstances"),
+    getAccountSchemas: (): Promise<AgentAccountSchema[]> =>
+      ipcRenderer.invoke("agent:getAccountSchemas"),
+    createInstance: (input: AcpAgentInstanceInput): Promise<AcpAgentInstance> =>
+      ipcRenderer.invoke("agent:createInstance", input),
+    updateInstance: (
+      id: string,
+      input: Partial<AcpAgentInstanceInput>,
+    ): Promise<AcpAgentInstance | null> => ipcRenderer.invoke("agent:updateInstance", id, input),
+    deleteInstance: (id: string): Promise<void> => ipcRenderer.invoke("agent:deleteInstance", id),
+    launchInstanceLogin: (id: string): Promise<{ command: string; opened: boolean }> =>
+      ipcRenderer.invoke("agent:launchInstanceLogin", id),
+    onInstancesChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("agent:instancesChanged", listener);
+      return () => {
+        ipcRenderer.removeListener("agent:instancesChanged", listener);
+      };
+    },
     setConfigOption: (configId: string, value: string | boolean): Promise<SessionConfigOption[]> =>
       ipcRenderer.invoke("agent:setConfigOption", configId, value),
     respondToPermission: (response: {
