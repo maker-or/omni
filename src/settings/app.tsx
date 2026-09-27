@@ -52,7 +52,7 @@ type SectionId = "appearance" | "agents" | "accounts" | "keyboard" | "power" | "
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
   { id: "agents", label: "Agents" },
-  { id: "accounts", label: "Accounts" },
+  { id: "accounts", label: "Account" },
   { id: "keyboard", label: "Keyboard" },
   { id: "power", label: "Power" },
   { id: "remote", label: "Remote" },
@@ -336,9 +336,8 @@ const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
     blurb: "Choose which coding agents Pipper can use.",
   },
   accounts: {
-    title: "Accounts",
-    blurb:
-      "Each account runs in its own isolated configuration directory, so you can use a work and personal subscription side by side.",
+    title: "Account",
+    blurb: "",
   },
   keyboard: {
     title: "Keyboard",
@@ -372,7 +371,7 @@ function AppearanceView() {
 
 function AccountsView() {
   return (
-    <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
+    <Elevated offset={1} className="overflow-hidden rounded-xl bg-transparent shadow-none">
       <AgentAccountsSettings />
     </Elevated>
   );
@@ -497,7 +496,9 @@ export function SettingsApp() {
                   <h1 className="text-[26px] font-semibold tracking-[-0.035em] text-foreground">
                     {meta.title}
                   </h1>
-                  <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{meta.blurb}</p>
+                  {meta.blurb ? (
+                    <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{meta.blurb}</p>
+                  ) : null}
                 </div>
 
                 {section === "appearance" && <AppearanceView />}
