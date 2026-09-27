@@ -448,6 +448,16 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
   env: Record<string, string>;
 } {
   const env = { ...process.env, ...agent.env } as Record<string, string>;
+  // `bun run --bun` prepends a temp dir whose `node` symlinks to bun. npx-based
+  // agents are `#!/usr/bin/env node` scripts; run under bun, npm derives its
+  // global prefix from the bun binary (~/.bun) and fails with ENOENT on
+  // ~/.bun/lib. Strip the shim so agents run under real node.
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const sep = process.platform === "win32" ? ";" : ":";
+  env[pathKey] = (env[pathKey] ?? env.PATH ?? "")
+    .split(sep)
+    .filter((dir) => !/[\\/]bun-node-[^\\/]+$/.test(dir))
+    .join(sep);
 
   if (agent.id === "pipper-mock" || agent.installKind === "mock") {
     const mockPath = join(registryDir, "mock-agent.mjs");

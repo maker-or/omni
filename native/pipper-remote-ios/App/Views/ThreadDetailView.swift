@@ -21,8 +21,25 @@ struct ThreadDetailView: View {
   /// or right after they send. Never yank someone who scrolled up to read.
   @State private var nearBottom = true
   @State private var forceScroll = false
+  /// The Mac answered 404: the thread (or its worktree) was deleted there.
+  /// Terminal — stop polling and don't offer a follow-up that can't land.
+  @State private var missing = false
 
   var body: some View {
+    if missing {
+      ContentUnavailableView {
+        Label("Thread no longer exists", systemImage: "trash")
+      } description: {
+        Text("It was deleted on your Mac, or its worktree was removed. Start a new thread from the list.")
+      }
+      .navigationTitle("Thread")
+      .navigationBarTitleDisplayMode(.inline)
+    } else {
+      content
+    }
+  }
+
+  private var content: some View {
     VStack(spacing: 0) {
       ScrollViewReader { proxy in
         ScrollView {
@@ -142,7 +159,7 @@ struct ThreadDetailView: View {
   }
 
   private func poll() async {
-    while !Task.isCancelled {
+    while !Task.isCancelled && !missing {
       await load()
       try? await Task.sleep(for: .seconds(3))
     }
@@ -162,6 +179,8 @@ struct ThreadDetailView: View {
       if let p = pending, next.messages.filter({ $0.role == .user && $0.text == p.text }).count > p.known {
         pending = nil
       }
+    } catch RemoteClientError.http(status: 404, _) {
+      missing = true
     } catch {
       loadError = error.localizedDescription
     }

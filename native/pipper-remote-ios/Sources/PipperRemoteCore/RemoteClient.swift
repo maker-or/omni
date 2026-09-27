@@ -109,8 +109,13 @@ public struct RemoteClient: Sendable {
 
   // MARK: Transport
 
+  /// RFC 3986 unreserved characters pass through untouched. The Mac matches
+  /// the raw `url.pathname` without decoding, so escaping the `-` in a UUID
+  /// (as `.alphanumerics` alone would, to `%2D`) makes every thread 404.
+  private static let pathSegmentAllowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+
   private func encode(_ segment: String) -> String {
-    segment.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? segment
+    segment.addingPercentEncoding(withAllowedCharacters: Self.pathSegmentAllowed) ?? segment
   }
 
   private func request(_ path: String, method: String, body: Data?) throws -> URLRequest {

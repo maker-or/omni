@@ -97,8 +97,18 @@ struct ConnectionCheckView: View {
 
   var body: some View {
     Section("Connection checks") {
+      // Modifiers on a Section inside a List/Form are applied to every row,
+      // which would register one sheet (and one task) per row. Anchor them to
+      // this always-present row instead.
       Button(checking ? "Checking…" : "Test connection") { Task { await check() } }
         .disabled(checking)
+        .task { await check() }
+        .sheet(isPresented: $showSample) {
+          NewThreadSheet(onCreated: { thread in
+            session.lastSiriThreadId = thread.id
+            showSample = false
+          }, sampleTask: true)
+        }
       if let error {
         Text(error).font(.footnote).foregroundStyle(.red)
         Text("Keep Pipper open on the Mac and connect both devices to the same Tailscale network.")
@@ -117,13 +127,6 @@ struct ConnectionCheckView: View {
         Text("Last checked \(checkedAt.formatted(date: .omitted, time: .standard))")
           .font(.caption).foregroundStyle(.secondary)
       }
-    }
-    .task { await check() }
-    .sheet(isPresented: $showSample) {
-      NewThreadSheet(onCreated: { thread in
-        session.lastSiriThreadId = thread.id
-        showSample = false
-      }, sampleTask: true)
     }
   }
 
