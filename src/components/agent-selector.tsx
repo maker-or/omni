@@ -17,6 +17,7 @@ import {
 import { createProviderLogoIcon } from "@/components/provider-logos";
 import { AgentAuthActions } from "@/components/agent-auth-actions";
 import { cn } from "@/lib/utils";
+import { isDefaultInstance, isInstanceSelected } from "@/lib/agent-selection";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 
 /**
@@ -144,13 +145,16 @@ export function AgentSelector({
   }
 
   const visibleAgents = agents.filter((agent) => {
+    // Onboarding is provider-level: show one card per driver. Extra accounts
+    // are added later from Settings, not during first-run setup.
+    if (!isDefaultInstance(agent)) return false;
     if (agent.installKind !== "mock") return true;
     const anyReady = agents.some((a) => a.available && a.installKind !== "mock");
     return !anyReady;
   });
 
   const selectedAgentNames = agents
-    .filter((a) => selectedAgentIds.includes(a.id))
+    .filter((a) => isInstanceSelected(a, selectedAgentIds))
     .map((a) => a.displayName);
 
   return (
@@ -170,7 +174,7 @@ export function AgentSelector({
               <AgentOption
                 key={agent.id}
                 agent={agent}
-                selected={selectedAgentIds.includes(agent.id)}
+                selected={isInstanceSelected(agent, selectedAgentIds)}
                 onToggle={async () => {
                   await toggleAgent(agent.id);
                   const next = useAgentRegistryStore.getState().selectedAgentIds;
@@ -339,7 +343,8 @@ function AgentSetupCard({
     result.status === "needs-auth"
       ? `Sign in required for ${descriptor.displayName}. Retry after authenticating`
       : `Retry ${descriptor.displayName}`;
-  const guideUrl = status === "ready" ? null : setupGuideUrl(descriptor.id);
+  // Instances carry `driverId`; the setup guide is keyed by driver.
+  const guideUrl = status === "ready" ? null : setupGuideUrl(descriptor.driverId ?? descriptor.id);
 
   const openSetupGuide = async () => {
     if (!guideUrl || !window.omni?.shell?.openExternal) return;
