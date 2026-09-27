@@ -51,7 +51,7 @@ struct StartThreadIntent: AppIntent {
 
   func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
     let session = await MainActor.run { RemoteSession.shared }
-    guard let client = await MainActor.run(body: { session.client }) else {
+    guard await MainActor.run(body: { session.isPaired }) else {
       throw StartThreadError.notPaired
     }
     // Re-validate against the freshest catalog we can get: availability may
@@ -76,14 +76,14 @@ struct StartThreadIntent: AppIntent {
 
     let thread: RemoteThreadSummary
     do {
-      thread = try await client.createThread(projectId: project.id, agentId: chosenAgent.id, prompt: task)
+      thread = try await session.createThread(projectId: project.id, agentId: chosenAgent.id, prompt: task)
     } catch {
       throw StartThreadError.remote(error.localizedDescription)
     }
     await MainActor.run { session.lastSiriThreadId = thread.id }
     return .result(
       value: thread.id,
-      dialog: "Started a thread in \(project.name) with \(chosenAgent.displayName). I'll keep it running on your Mac.")
+      dialog: "Created a thread in \(project.name) with \(chosenAgent.displayName). Open Pipper to check progress or answer the agent.")
   }
 }
 

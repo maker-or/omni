@@ -15,6 +15,7 @@ struct ThreadListView: View {
   var body: some View {
     NavigationStack(path: $path) {
       List {
+        ConnectionCheckView()
         if let loadError {
           Text(loadError).foregroundStyle(.red).font(.footnote)
         }
@@ -59,8 +60,9 @@ struct ThreadListView: View {
         SettingsView()
       }
       .refreshable { await load() }
-      .task { await poll() }
+      .task(id: scenePhase == .active) { if scenePhase == .active { await poll() } }
       .onAppear { openSiriThreadIfAny() }
+      .onChange(of: session.lastSiriThreadId) { _, _ in openSiriThreadIfAny() }
       // Siri may have run while the app sat in the background; land on the
       // thread it created the next time the app comes forward.
       .onChange(of: scenePhase) { _, phase in
@@ -127,6 +129,7 @@ struct NewThreadSheet: View {
   @State private var projectId = ""
   @State private var agentId = ""
   @State private var prompt = ""
+  var sampleTask = false
   @State private var sending = false
   @State private var error: String?
 
@@ -162,11 +165,12 @@ struct NewThreadSheet: View {
           }
         }
       }
-      .navigationTitle("New thread")
+      .navigationTitle(sampleTask ? "Sample task" : "New thread")
       .navigationBarTitleDisplayMode(.inline)
+      .interactiveDismissDisabled(sending)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }
+          Button("Cancel") { dismiss() }.disabled(sending)
         }
         ToolbarItem(placement: .confirmationAction) {
           Button("Start") { Task { await start() } }
@@ -174,6 +178,9 @@ struct NewThreadSheet: View {
         }
       }
       .task {
+        if sampleTask && prompt.isEmpty {
+          prompt = "Describe this project's purpose in one sentence. Do not change files or run commands."
+        }
         await session.refreshCatalogIfStale()
         if projectId.isEmpty, let first = session.catalog.projects.first { projectId = first.id }
       }
@@ -181,12 +188,12 @@ struct NewThreadSheet: View {
   }
 
   private func start() async {
-    guard let client = session.client else { return }
+    guard session.isPaired, !sending else { return }
     sending = true
     defer { sending = false }
     error = nil
     do {
-      let thread = try await client.createThread(
+      let thread = try await session.createThread(
         projectId: projectId,
         agentId: agentId.isEmpty ? session.catalog.preferredAgent?.id : agentId,
         prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines))

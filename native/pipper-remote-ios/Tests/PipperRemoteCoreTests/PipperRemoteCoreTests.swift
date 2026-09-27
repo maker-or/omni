@@ -172,10 +172,11 @@ struct RemoteClientTests {
         ])
       )
     }
-    let thread = try await client.createThread(projectId: "p1", agentId: "codex-acp", prompt: "Fix login")
+    let thread = try await client.createThread(projectId: "p1", agentId: "codex-acp", prompt: "Fix login", requestId: "create-1")
     #expect(thread.id == "t1")
     #expect(thread.running)
     let body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody ?? Data()) as? [String: Any]
+    #expect(body?["requestId"] as? String == "create-1")
     #expect(body?["projectId"] as? String == "p1")
     #expect(body?["modelId"] as? String == "codex-acp")
     #expect(body?["prompt"] as? String == "Fix login")
@@ -225,5 +226,83 @@ struct RemoteClientTests {
     #expect(r.messages[1].role == .agent)
     #expect(r.isolated == false)
     #expect(r.worktreePath == nil)
+  }
+  @Test func followupCarriesStableRequestIdAndAcceptsImmediateAcknowledgement() async throws {
+    let client = stubClient { request in
+      #expect(request.url?.path == "/api/remote/threads/t1/prompt")
+      return (202, json(["ok": true]))
+    }
+    try await client.sendPrompt(threadId: "t1", prompt: "Continue", requestId: "retry-1")
+    let body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody!) as! [String: Any]
+    #expect(body["requestId"] as? String == "retry-1")
+  }
+
+  @Test func confirmedRejectionIsDistinctFromUncertainDelivery() async {
+    let client = stubClient { _ in (409, json(["error": "No isolated workspace", "retryable": true])) }
+    do {
+      _ = try await client.createThread(projectId: "p1", agentId: "codex", prompt: "Fix login", requestId: "r1")
+      Issue.record("expected rejection")
+    } catch let error as RemoteClientError {
+      #expect(error == .rejected("No isolated workspace"))
+    } catch { Issue.record("unexpected \(error)") }
+  }
+
+  @Test func controlsTargetOnlyTheChosenThreadAndDecision() async throws {
+    let client = stubClient { request in
+      #expect(request.httpMethod == "POST")
+      #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer abc123")
+      return (200, json(["ok": true]))
+    }
+    try await client.stop(threadId: "phone-thread")
+    #expect(StubURLProtocol.lastRequest?.url?.path == "/api/remote/threads/phone-thread/stop")
+    try await client.answer(threadId: "phone-thread", decisionId: "decision-1", optionId: "reject")
+    #expect(StubURLProtocol.lastRequest?.url?.path == "/api/remote/threads/phone-thread/permission")
+    let body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody!) as! [String: Any]
+    #expect(body["decisionId"] as? String == "decision-1")
+    #expect(body["optionId"] as? String == "reject")
+    #expect(body["cancelled"] as? Bool == false)
+  }
+
+  @Test func diagnosticsChecksPairingAndAgentReadiness() async throws {
+    let client = stubClient { request in
+      #expect(request.url?.path == "/api/remote/diagnostics")
+      return (200, json(["paired": true, "agentReady": true, "availableAgents": 0, "projects": 1]))
+    }
+    let checks = try await client.diagnostics()
+    #expect(!checks.ready)
+    #expect(checks.guidance.contains("Install"))
+  }
+
+  @Test func decodesPendingDecisionsAndFailedDelivery() async throws {
+    let client = stubClient { _ in
+      (200, json(["report": ["threadId": "t1", "running": false, "messages": [], "filesTouched": [], "isolated": true,
+        "permissions": [["id": "d1", "title": "Run tests?", "options": [["optionId": "a", "name": "Allow once", "kind": "allow_once"]]]],
+        "request": ["id": "r1", "threadId": "t1", "state": "failed", "error": "Agent disconnected", "updatedAt": 1]]]))
+    }
+    let report = try await client.report(threadId: "t1")
+    #expect(report.permissions?.first?.options.first?.optionId == "a")
+    #expect(report.request?.error == "Agent disconnected")
+  }
+
+}
+
+
+@Suite("Durable submission identities")
+@MainActor
+struct SubmissionStoreTests {
+  @Test func uncertainRequestSurvivesRestartAndAcknowledgementAllowsNewTask() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("pending.json")
+    let scope = ["mac", "4173", "create", "project", "agent", "private task"]
+    let first = try RemoteSubmissionStore(fileURL: file).requestId(for: scope)
+    let restored = RemoteSubmissionStore(fileURL: file)
+    #expect(try restored.requestId(for: scope) == first)
+    #expect(try restored.requestId(for: ["other Mac"] + scope) != first)
+    #expect(try !String(contentsOf: file, encoding: .utf8).contains("private task"))
+    try restored.acknowledge(scope, requestId: "stale-id")
+    #expect(try restored.requestId(for: scope) == first)
+    try restored.acknowledge(scope, requestId: first)
+    #expect(try restored.requestId(for: scope) != first)
   }
 }

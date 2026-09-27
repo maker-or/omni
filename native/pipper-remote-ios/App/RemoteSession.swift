@@ -22,9 +22,40 @@ final class RemoteSession {
   private(set) var lastCatalogRefresh: Date?
 
   let catalogStore = CatalogStore.standard()
+  private let submissions = RemoteSubmissionStore()
+
+  func createThread(projectId: String, agentId: String?, prompt: String) async throws -> RemoteThreadSummary {
+    guard let client, let config else { throw RemoteClientError.notPaired }
+    let scope = [config.host, String(config.port), "create", projectId, agentId ?? "", prompt]
+    let id = try submissions.requestId(for: scope)
+    do {
+      let thread = try await client.createThread(projectId: projectId, agentId: agentId, prompt: prompt, requestId: id)
+      try submissions.acknowledge(scope, requestId: id)
+      return thread
+    } catch RemoteClientError.rejected(let message) {
+      // The Mac confirmed it never dispatched this request. A deliberate
+      // retry after fixing setup may use a new ID; timeouts retain the old ID.
+      try submissions.acknowledge(scope, requestId: id)
+      throw RemoteClientError.rejected(message)
+    }
+  }
+
+  func sendPrompt(threadId: String, prompt: String) async throws {
+    guard let client, let config else { throw RemoteClientError.notPaired }
+    let scope = [config.host, String(config.port), "prompt", threadId, prompt]
+    let id = try submissions.requestId(for: scope)
+    do {
+      try await client.sendPrompt(threadId: threadId, prompt: prompt, requestId: id)
+      try submissions.acknowledge(scope, requestId: id)
+    } catch RemoteClientError.rejected(let message) {
+      try submissions.acknowledge(scope, requestId: id)
+      throw RemoteClientError.rejected(message)
+    }
+  }
 
   private init() {
     let defaults = UserDefaults.standard
+    lastSiriThreadId = defaults.string(forKey: Keys.lastSiriThreadId)
     if let host = defaults.string(forKey: Keys.host), !host.isEmpty,
       let token = Keychain.read(Keys.token), !token.isEmpty
     {
@@ -44,11 +75,11 @@ final class RemoteSession {
 
   /// Persist a pairing after `health()` succeeded. Token goes to the Keychain,
   /// host/port to defaults.
-  func pair(_ next: RemoteConfig) {
+  func pair(_ next: RemoteConfig) throws {
+    try Keychain.write(Keys.token, value: next.token)
     let defaults = UserDefaults.standard
     defaults.set(next.host, forKey: Keys.host)
     defaults.set(next.port, forKey: Keys.port)
-    Keychain.write(Keys.token, value: next.token)
     config = next
   }
 
@@ -56,7 +87,7 @@ final class RemoteSession {
     let defaults = UserDefaults.standard
     defaults.removeObject(forKey: Keys.host)
     defaults.removeObject(forKey: Keys.port)
-    defaults.removeObject(forKey: Keys.lastSiriThreadId)
+    lastSiriThreadId = nil
     Keychain.delete(Keys.token)
     catalogStore.clear()
     config = nil
@@ -96,7 +127,6 @@ final class RemoteSession {
 
   /// Thread most recently created by Siri; the app lands on it next open.
   var lastSiriThreadId: String? {
-    get { UserDefaults.standard.string(forKey: Keys.lastSiriThreadId) }
-    set { UserDefaults.standard.set(newValue, forKey: Keys.lastSiriThreadId) }
+    didSet { UserDefaults.standard.set(lastSiriThreadId, forKey: Keys.lastSiriThreadId) }
   }
 }

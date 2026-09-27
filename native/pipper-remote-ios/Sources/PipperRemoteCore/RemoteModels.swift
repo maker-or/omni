@@ -143,4 +143,43 @@ public struct RemoteReport: Codable, Equatable, Sendable {
   public var worktreePath: String?
   public var isolated: Bool
   public var isolationNote: String?
+  public var permissions: [RemotePermission]?
+  public var request: RemoteRequestStatus?
+}
+
+public struct RemotePermission: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var title: String
+  public var detail: String?
+  public var options: [Option]
+
+  public struct Option: Codable, Equatable, Sendable, Identifiable {
+    public var optionId: String
+    public var name: String
+    public var kind: String
+    public var id: String { optionId }
+  }
+}
+
+public struct RemoteRequestStatus: Codable, Equatable, Sendable {
+  public var id: String
+  public var threadId: String?
+  public var state: String
+  public var error: String?
+  public var updatedAt: Double
+}
+
+public struct RemoteDiagnostics: Codable, Equatable, Sendable {
+  public var paired: Bool
+  public var agentReady: Bool
+  public var availableAgents: Int
+  public var projects: Int
+
+  public var ready: Bool { paired && agentReady && availableAgents > 0 && projects > 0 }
+  public var guidance: String {
+    if !agentReady { return "Open Pipper on your Mac and wait for startup to finish." }
+    if availableAgents == 0 { return "Install and select a coding agent in Pipper on your Mac." }
+    if projects == 0 { return "Add a Git project in Pipper on your Mac." }
+    return "Ready. Start a sample task to check the full connection."
+  }
 }

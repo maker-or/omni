@@ -484,3 +484,20 @@ body {
   background: var(--surface-3);
   color: var(--ink);
 }
+
+.remote-decision {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--ink-faint);
+  border-radius: var(--radius-card);
+}
+.remote-decision pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -8,9 +8,25 @@ enum SiriDiagnostics {
     category: "AppIntents"
   )
 
+  /// File logging is a development aid: it adds disk I/O to every intent run
+  /// and can accumulate prompt metadata on user machines. Keep it for debug
+  /// builds only, with an explicit env override for release-build triage.
+  private static let fileLoggingEnabled: Bool = {
+    if ProcessInfo.processInfo.environment["PIPPER_INTENTS_FILE_LOG"] == "1" { return true }
+    #if DEBUG
+      return true
+    #else
+      return false
+    #endif
+  }()
+
+  /// Cap the on-disk log so a long-running build can't grow it without bound.
+  /// Once exceeded, the file is reset with the newest line.
+  private static let maxFileLogBytes = 1 * 1024 * 1024
+
   static func log(_ message: String) {
-    let line = "[PipperIntents] \(message)\n"
     logger.info("\(message, privacy: .public)")
+    guard fileLoggingEnabled else { return }
 
     let url = SiriCatalogStore.realHomeDirectory()
       .appendingPathComponent("Library/pipper/intents-debug.log")
@@ -19,14 +35,20 @@ enum SiriDiagnostics {
         at: url.deletingLastPathComponent(),
         withIntermediateDirectories: true
       )
-      if FileManager.default.fileExists(atPath: url.path),
+      let data = Data("[PipperIntents] \(message)\n".utf8)
+      let size =
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int ?? 0
+      if size + data.count > maxFileLogBytes {
+        // Truncate rather than append: the log is a rolling diagnostic aid.
+        try data.write(to: url, options: .atomic)
+      } else if FileManager.default.fileExists(atPath: url.path),
         let handle = try? FileHandle(forWritingTo: url)
       {
         handle.seekToEndOfFile()
-        handle.write(Data(line.utf8))
+        handle.write(data)
         try? handle.close()
       } else {
-        try Data(line.utf8).write(to: url, options: .atomic)
+        try data.write(to: url, options: .atomic)
       }
     } catch {
       logger.error("file log failed: \(error.localizedDescription, privacy: .public)")
@@ -166,9 +188,33 @@ enum SiriCatalogLabels {
     return duplicates ? "\(project.name) (\(project.path))" : project.name
   }
 
+  /// Split a rendered label back into its base name and disambiguation suffix:
+  /// `"app (/tmp/a)"` → `("app", "/tmp/a")`, `"app"` → `("app", nil)`.
+  static func split(_ label: String) -> (base: String, suffix: String?) {
+    guard label.hasSuffix(")"), let open = label.range(of: " (", options: .backwards)
+    else { return (label, nil) }
+    let base = String(label[label.startIndex..<open.lowerBound])
+    let suffix = String(label[open.upperBound..<label.index(before: label.endIndex)])
+    return (base, suffix)
+  }
+
+  /// Resolve a stored picker value to a project. Values come from
+  /// `projectLabel`, which disambiguates duplicate names with the path — but
+  /// the project set (and therefore the label) changes over time, while saved
+  /// Shortcuts keep the old string. Match, in order: catalog id, the exact
+  /// current label, a raw path, the base name plus a stable suffix (id or
+  /// path), then a unique base-name match.
   static func resolveProject(_ value: String, in all: [SiriCatalogProject]) -> SiriCatalogProject? {
     if let byId = all.first(where: { $0.id == value }) { return byId }
-    return all.first(where: { projectLabel($0, in: all) == value })
+    if let byLabel = all.first(where: { projectLabel($0, in: all) == value }) { return byLabel }
+    if let byPath = all.first(where: { $0.path == value }) { return byPath }
+    let (base, suffix) = split(value)
+    let named = all.filter { $0.name == base }
+    guard !named.isEmpty else { return nil }
+    if let suffix, let bySuffix = named.first(where: { $0.id == suffix || $0.path == suffix }) {
+      return bySuffix
+    }
+    return named.count == 1 ? named[0] : nil
   }
 
   static func agentLabel(_ agent: SiriCatalogAgent, in all: [SiriCatalogAgent]) -> String {
@@ -176,9 +222,18 @@ enum SiriCatalogLabels {
     return duplicates ? "\(agent.displayName) (\(agent.id))" : agent.displayName
   }
 
+  /// Agent counterpart to `resolveProject`: tolerate a stored label whose
+  /// disambiguation suffix no longer matches the live catalog.
   static func resolveAgent(_ value: String, in all: [SiriCatalogAgent]) -> SiriCatalogAgent? {
     if let byId = all.first(where: { $0.id == value }) { return byId }
-    return all.first(where: { agentLabel($0, in: all) == value })
+    if let byLabel = all.first(where: { agentLabel($0, in: all) == value }) { return byLabel }
+    let (base, suffix) = split(value)
+    let named = all.filter { $0.displayName == base }
+    guard !named.isEmpty else { return nil }
+    if let suffix, let bySuffix = named.first(where: { $0.id == suffix }) {
+      return bySuffix
+    }
+    return named.count == 1 ? named[0] : nil
   }
 }
 
@@ -243,9 +298,9 @@ struct StartThreadIntent: AppIntent {
     "Starts a new thread in a Pipper project with a chosen agent.",
     categoryName: "Productivity"
   )
-static var isDiscoverable: Bool = true
-  // Ad-hoc-signed builds cannot use App Intents' host-app launch handshake.
-  // The result below opens the app's registered URL scheme instead.
+  static var isDiscoverable: Bool = true
+  // App Intents metadata requires a compile-time constant. Ad-hoc builds use
+  // OpenURLIntent instead of the host-app launch handshake.
   static var openAppWhenRun: Bool = false
 
   static func debugLog(_ message: String) {
@@ -266,6 +321,10 @@ static var isDiscoverable: Bool = true
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
+    guard #available(macOS 15.2, *) else {
+      throw NSError(domain: "PipperIntents", code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Starting Pipper from Shortcuts requires macOS 15.2 or later. Open Pipper to start this task."])
+    }
     Self.debugLog("perform entered")
     Self.debugLog("perform start projectId=\(projectId) agentId=\(agentId) promptLen=\(prompt.count)")
     Self.debugLog("candidateDirs=\(SiriCatalogStore.candidateDirs().map { $0.path })")
@@ -340,37 +399,40 @@ static var isDiscoverable: Bool = true
   }
 }
 
-// MARK: - Temporary bisect intent (no parameters, no entities)
+// MARK: - Diagnostic intents (debug builds only)
+//
+// These exist to bisect App Intents failures and have no user value, so they
+// must not be discoverable in release builds.
 
-struct PingIntent: AppIntent {
-  static var title: LocalizedStringResource = "Ping Pipper"
-  static var description = IntentDescription(
-    "Temporary diagnostic action. Always succeeds.",
-    categoryName: "Productivity"
-  )
+#if DEBUG
+  struct PingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Ping Pipper"
+    static var description = IntentDescription(
+      "Temporary diagnostic action. Always succeeds.",
+      categoryName: "Productivity"
+    )
 
-  func perform() async throws -> some IntentResult & ProvidesDialog {
-    return .result(dialog: "Pipper is reachable.")
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+      return .result(dialog: "Pipper is reachable.")
+    }
   }
-}
 
-// MARK: - Temporary bisect intent (string parameter only, no entities)
+  struct PingWithTextIntent: AppIntent {
+    static var title: LocalizedStringResource = "Ping Pipper With Text"
+    static var description = IntentDescription(
+      "Temporary diagnostic action with a text parameter.",
+      categoryName: "Productivity"
+    )
 
-struct PingWithTextIntent: AppIntent {
-  static var title: LocalizedStringResource = "Ping Pipper With Text"
-  static var description = IntentDescription(
-    "Temporary diagnostic action with a text parameter.",
-    categoryName: "Productivity"
-  )
+    @Parameter(title: "Task") var prompt: String?
 
-  @Parameter(title: "Task") var prompt: String?
-
-  func perform() async throws -> some IntentResult & ProvidesDialog {
-    StartThreadIntent.debugLog("pingWithText entered promptLen=\(prompt?.count ?? -1)")
-    // Static dialog: bisects interpolated-dialog failure vs parameter failure.
-    return .result(dialog: "Text received.")
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+      StartThreadIntent.debugLog("pingWithText entered promptLen=\(prompt?.count ?? -1)")
+      // Static dialog: bisects interpolated-dialog failure vs parameter failure.
+      return .result(dialog: "Text received.")
+    }
   }
-}
+#endif
 
 // MARK: - Shortcuts registration (Siri phrases must contain applicationName)
 

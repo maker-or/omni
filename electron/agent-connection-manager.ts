@@ -248,6 +248,7 @@ export class AgentConnectionManager {
     threadDisplayTitle: (threadId) => this.threadDisplayTitle(threadId),
   });
   private readonly prompts = new PromptScheduler();
+  private readonly abortGenerations = new Map<string, number>();
   private readonly terminalManager: TerminalManager;
   private broadcaster!: RendererBroadcaster;
   private lifecycle!: ConnectionLifecycle;
@@ -1380,9 +1381,10 @@ export class AgentConnectionManager {
         this.emit({
           type: "thread-tool-calls",
           threadId: runtime.threadId,
-          toolCalls: changedToolCall
-            ? { [updateToolCallId]: changedToolCall }
-            : runtime.slice.toolCalls,
+          toolCalls:
+            changedToolCall && updateToolCallId
+              ? { [updateToolCallId]: changedToolCall }
+              : runtime.slice.toolCalls,
           replace: !changedToolCall,
         });
       } else {
@@ -1404,6 +1406,19 @@ export class AgentConnectionManager {
     requestId?: string | number | null,
   ): Promise<acp.RequestPermissionResponse> {
     return this.permissions.handle(params, requestId ?? null);
+  }
+
+  getRemotePermissions(threadId: string) {
+    return this.permissions.listForThread(threadId);
+  }
+
+  respondToRemotePermission(
+    threadId: string,
+    decisionId: string,
+    optionId?: string,
+    cancelled = false,
+  ) {
+    return this.permissions.respondForThread(threadId, decisionId, optionId, cancelled);
   }
 
   respondToPermission(response: {
@@ -2282,7 +2297,7 @@ export class AgentConnectionManager {
     agentId?: string | null,
     worktreePath?: string | null,
     initialModelId?: string | null,
-    opts?: { background?: boolean },
+    opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<Thread> {
     return this.enqueueThreadActivation(() =>
       this.createThreadInternal(
@@ -2304,7 +2319,7 @@ export class AgentConnectionManager {
     agentId?: string | null,
     worktreePath?: string | null,
     initialModelId?: string | null,
-    opts?: { background?: boolean },
+    opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -2313,6 +2328,11 @@ export class AgentConnectionManager {
     // stale/invalid path is never persisted as this thread's worktree.
     const cwd = this.resolveThreadCwd(worktreePath, project.path);
     const boundWorktree = cwd === project.path ? null : cwd;
+    if (opts?.requireWorktree && !boundWorktree) {
+      throw new Error(
+        "An isolated workspace is required. Restore the worktree on your Mac before retrying.",
+      );
+    }
 
     const targetAgentId = agentId ?? this.preferredAgentId;
     // Background creation must not flip the desktop-active agent: spawning
@@ -2321,6 +2341,9 @@ export class AgentConnectionManager {
     const live = opts?.background
       ? await this.acquireConnection(targetAgentId)
       : await this.ensureConnection(targetAgentId);
+    if (opts?.requireWorktree && !isLiveWorktree(cwd, project.path)) {
+      throw new Error("The isolated workspace is no longer available. No task was started.");
+    }
     const created = await this.sessionNew(live, cwd);
     this.registerWorkspaceRoot(created.sessionId, cwd);
 
@@ -2564,17 +2587,41 @@ export class AgentConnectionManager {
     return thread;
   }
 
-  async sendPrompt(input: AcpPromptInput, opts?: { background?: boolean }): Promise<void> {
+  async sendPrompt(
+    input: AcpPromptInput,
+    opts?: { background?: boolean; requireWorktree?: boolean },
+  ): Promise<void> {
     return this.sendPromptInternal(input, true, opts);
   }
 
   private async sendPromptInternal(
     input: AcpPromptInput,
     appendUserMessage: boolean,
-    opts?: { background?: boolean },
+    opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<void> {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
+    const abortGeneration = this.abortGenerations.get(threadId) ?? 0;
+    const assertIsolation = () => {
+      if ((this.abortGenerations.get(threadId) ?? 0) !== abortGeneration) {
+        throw new Error("Task stopped before the agent was ready.");
+      }
+      if (!opts?.requireWorktree) return;
+      const thread = getThread(threadId);
+      const project = thread ? getProject(thread.project_id) : null;
+      const runtime = this.sessions.get(threadId);
+      if (
+        !thread?.worktree_path ||
+        !project ||
+        !isLiveWorktree(thread.worktree_path, project.path) ||
+        (runtime && runtime.cwd !== thread.worktree_path)
+      ) {
+        throw new Error(
+          "This thread has no live isolated workspace. Restore its worktree on your Mac before sending more work.",
+        );
+      }
+    };
+    assertIsolation();
     if (!this.sessions.has(threadId)) {
       // Background senders (phone) must not leave desktop focus behind on a
       // restored thread: remember the active thread and put it back after.
@@ -2631,6 +2678,7 @@ export class AgentConnectionManager {
       throw new Error("A prompt is already in flight; choose follow-up or steer to queue it.");
     }
 
+    assertIsolation();
     const caps = live.agentCapabilities.promptCapabilities;
     const blocks = assemblePromptBlocks({
       message: input.message,
@@ -2742,8 +2790,12 @@ export class AgentConnectionManager {
   }
 
   async abort(): Promise<void> {
-    const threadId = this.activeThreadId;
+    return this.abortThread(this.activeThreadId);
+  }
+
+  async abortThread(threadId: string | null): Promise<void> {
     if (!threadId) return;
+    this.abortGenerations.set(threadId, (this.abortGenerations.get(threadId) ?? 0) + 1);
     const runtime = this.sessions.get(threadId);
     const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !owner) return;
@@ -2758,7 +2810,7 @@ export class AgentConnectionManager {
     this.subagents.cancelRunsForParent(runtime.agentSessionId);
     // Cascade cancel to ACP agent terminals (session/cancel → terminal/kill).
     // Kill keeps terminalIds valid for final output queries; release is agent-owned.
-    this.terminalManager.killRunning();
+    this.terminalManager.killRunning(runtime.agentSessionId);
   }
 
   async setConfigOption(configId: string, value: string | boolean): Promise<SessionConfigOption[]> {

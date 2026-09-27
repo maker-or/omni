@@ -93,3 +93,33 @@ Plain HTTP on purpose, exactly like the PWA: the laptop only binds loopback +
 Tailscale, so the bearer token only ever crosses the WireGuard tailnet. ATS is
 opened (`NSAllowsArbitraryLoads`) for that reason. The token lives in the
 Keychain with `AfterFirstUnlock` so Siri works from the lock screen.
+
+## Remote controls and recovery
+
+Update the desktop and phone app together: thread creation and follow-ups now
+require a `requestId`. The phone retains an unacknowledged ID across retries and
+app restarts; Pipper records it before creating a worktree or dispatching a
+prompt. Follow-ups are acknowledged immediately. If Pipper restarts during an
+uncertain dispatch, the existing request is shown as interrupted and is never
+replayed automatically. Inspect its thread before deliberately starting new work.
+A confirmed rejection before dispatch permits a new attempt after fixing setup.
+
+New remote and Mac Siri threads require a verified Git worktree. A worktree
+failure stops creation; follow-ups also stop if their worktree has disappeared.
+Existing project-root threads can be read and stopped remotely, but further work
+must be started in an isolated thread.
+
+The thread report includes pending agent decisions. Choose the agent's offered
+option, dismiss the request, or stop that thread; stale answers are rejected.
+Unanswered permissions expire without approval. Stopping a thread also stops
+its agent terminals and child runs without stopping another thread's terminals.
+
+Connection checks on the home screen and in Settings verify pairing,
+Pipper availability, installed agents, and projects. The sample-task form lets
+you choose a project before asking its agent for a one-sentence description.
+Thread views retain the last report during disconnects and show its update time.
+
+Server receipts live under `userData/remote-requests/`. Do not delete this
+history to retry a task: it prevents duplicate dispatch after a lost response.
+ACP itself does not provide an idempotency key, so an interrupted execution
+requires inspection instead of an automatic retry.

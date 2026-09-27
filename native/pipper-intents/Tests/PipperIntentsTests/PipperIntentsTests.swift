@@ -44,6 +44,37 @@ struct PipperIntentsTests {
     }
   }
 
+  @Test func savedProjectLabelsSurviveDisambiguationChanges() {
+    let projects = [
+      SiriCatalogProject(id: "p1", name: "app", path: "/tmp/a"),
+      SiriCatalogProject(id: "p2", name: "other", path: "/tmp/b"),
+    ]
+    // Saved while a duplicate "app" existed, so the label carried the path.
+    #expect(SiriCatalogLabels.resolveProject("app (/tmp/a)", in: projects)?.id == "p1")
+    // Saved before the project moved: only the label's suffix is stale, but
+    // the base name is still unique, so it resolves.
+    #expect(SiriCatalogLabels.resolveProject("other (/old)", in: projects)?.id == "p2")
+    // Raw ids and raw paths keep working.
+    #expect(SiriCatalogLabels.resolveProject("p1", in: projects)?.id == "p1")
+    #expect(SiriCatalogLabels.resolveProject("/tmp/b", in: projects)?.id == "p2")
+    // An ambiguous base name is rejected rather than guessed.
+    let duplicates = [
+      SiriCatalogProject(id: "p1", name: "app", path: "/tmp/a"),
+      SiriCatalogProject(id: "p2", name: "app", path: "/tmp/b"),
+    ]
+    #expect(SiriCatalogLabels.resolveProject("app", in: duplicates) == nil)
+  }
+
+  @Test func savedAgentLabelsSurviveDisambiguationChanges() {
+    let agents = [
+      SiriCatalogAgent(id: "codex-acp", displayName: "Codex", available: true),
+      SiriCatalogAgent(id: "other-acp", displayName: "opencode", available: true),
+    ]
+    #expect(SiriCatalogLabels.resolveAgent("Codex (old-id)", in: agents)?.id == "codex-acp")
+    #expect(SiriCatalogLabels.resolveAgent("opencode", in: agents)?.id == "other-acp")
+    #expect(SiriCatalogLabels.resolveAgent("codex-acp", in: agents)?.id == "codex-acp")
+  }
+
   @Test func agentOptionsProviderFiltersUnavailable() async throws {
     let catalog = makeCatalog(agents: [
       SiriCatalogAgent(id: "codex-acp", displayName: "Codex", available: true),

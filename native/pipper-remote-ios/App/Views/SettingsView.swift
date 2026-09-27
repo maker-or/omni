@@ -5,7 +5,6 @@ struct SettingsView: View {
   @Environment(RemoteSession.self) private var session
   @Environment(\.dismiss) private var dismiss
   @State private var refreshing = false
-  @State private var reachable: Bool?
 
   var body: some View {
     NavigationStack {
@@ -13,14 +12,8 @@ struct SettingsView: View {
         Section("Mac") {
           LabeledContent("Host", value: session.config?.host ?? "—")
           LabeledContent("Port", value: session.config.map { String($0.port) } ?? "—")
-          Button("Test connection") { Task { await test() } }
-          if let reachable {
-            Label(
-              reachable ? "Reachable" : "Not reachable",
-              systemImage: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-            .foregroundStyle(reachable ? .green : .red)
-          }
         }
+        ConnectionCheckView()
         Section {
           Button {
             Task {
@@ -90,8 +83,61 @@ struct SettingsView: View {
     }
   }
 
-  private func test() async {
-    guard let client = session.client else { return }
-    reachable = (try? await client.health()) ?? false
+ }
+
+/// Shared by setup and settings; authentication is checked by diagnostics,
+/// unlike the public reachability endpoint.
+struct ConnectionCheckView: View {
+  @Environment(RemoteSession.self) private var session
+  @State private var diagnostics: RemoteDiagnostics?
+  @State private var error: String?
+  @State private var checking = false
+  @State private var checkedAt: Date?
+  @State private var showSample = false
+
+  var body: some View {
+    Section("Connection checks") {
+      Button(checking ? "Checking…" : "Test connection") { Task { await check() } }
+        .disabled(checking)
+      if let error {
+        Text(error).font(.footnote).foregroundStyle(.red)
+        Text("Keep Pipper open on the Mac and connect both devices to the same Tailscale network.")
+          .font(.footnote).foregroundStyle(.secondary)
+      }
+      if let diagnostics {
+        Label("Mac reachable · pairing accepted", systemImage: "checkmark.circle")
+        Label(diagnostics.agentReady ? "Pipper is ready" : "Pipper is starting",
+          systemImage: diagnostics.agentReady ? "checkmark.circle" : "clock")
+        Text("\(diagnostics.availableAgents) available agents · \(diagnostics.projects) projects")
+        Text(diagnostics.guidance).font(.footnote).foregroundStyle(.secondary)
+        Button("Run a sample task") { showSample = true }
+          .disabled(!diagnostics.ready || error != nil || checking)
+      }
+      if let checkedAt {
+        Text("Last checked \(checkedAt.formatted(date: .omitted, time: .standard))")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .task { await check() }
+    .sheet(isPresented: $showSample) {
+      NewThreadSheet(onCreated: { thread in
+        session.lastSiriThreadId = thread.id
+        showSample = false
+      }, sampleTask: true)
+    }
+  }
+
+  private func check() async {
+    guard let client = session.client, !checking else { return }
+    checking = true
+    error = nil
+    defer { checking = false }
+    do {
+      diagnostics = try await client.diagnostics()
+      checkedAt = Date()
+      await session.refreshCatalog()
+    } catch {
+      self.error = error.localizedDescription
+    }
   }
 }

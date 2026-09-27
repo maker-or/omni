@@ -44,3 +44,15 @@ The registered phrases are:
 The App Intents extension target in this project is embedded into the packaged
 Electron app by `electron-builder.yml`. The preview app target remains useful
 for inspecting metadata independently.
+
+## Handoff reliability
+
+Starting a task from this extension requires macOS 15.2 or later, where
+`OpenURLIntent` can open the ad-hoc-signed desktop app. Earlier versions report
+an error before staging any request. The metadata's `openAppWhenRun` value stays
+constant as required by App Intents.
+
+Electron claims staged request IDs in its durable remote request history before
+creating an isolated worktree. Repeated activations reopen the same thread.
+Interrupted or legacy delivery with an uncertain outcome is not replayed;
+inspect the original thread before sending a new task.

@@ -4,10 +4,14 @@ import SwiftUI
 /// in-progress agent text, so replies arrive whole) plus a follow-up box.
 struct ThreadDetailView: View {
   @Environment(RemoteSession.self) private var session
+  @Environment(\.scenePhase) private var scenePhase
   let threadId: String
 
   @State private var report: RemoteReport?
   @State private var loadError: String?
+  @State private var lastUpdated: Date?
+  @State private var controlling = false
+  @State private var loading = false
   @State private var draft = ""
   @State private var sending = false
   @State private var sendError: String?
@@ -25,6 +29,40 @@ struct ThreadDetailView: View {
           LazyVStack(alignment: .leading, spacing: 10) {
             if let report {
               StatusCard(report: report)
+              if let lastUpdated {
+                Text("Updated \(lastUpdated.formatted(date: .omitted, time: .standard))")
+                  .font(.caption).foregroundStyle(.secondary)
+              }
+              if let loadError {
+                Text("Connection lost. Showing the last update. \(loadError)")
+                  .font(.footnote).foregroundStyle(.orange)
+                Button("Retry connection") { Task { await load() } }
+              }
+              if let error = report.request?.error {
+                Text(error).font(.footnote).foregroundStyle(.red)
+              }
+              ForEach(report.permissions ?? []) { decision in
+                VStack(alignment: .leading, spacing: 8) {
+                  Text(decision.title).font(.headline)
+                  if let detail = decision.detail {
+                    Text(detail).font(.caption.monospaced()).textSelection(.enabled)
+                  }
+                  ForEach(decision.options) { option in
+                    Button(option.name) {
+                      Task { await control(decision: decision.id, option: option.optionId) }
+                    }.buttonStyle(.bordered).disabled(controlling || loadError != nil)
+                  }
+                  Button("Dismiss request", role: .destructive) {
+                    Task { await control(decision: decision.id) }
+                  }.disabled(controlling || loadError != nil)
+                }
+                .padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+              }
+              if report.running || !(report.permissions ?? []).isEmpty {
+                Button("Stop this thread", role: .destructive) {
+                  Task { await control() }
+                }.buttonStyle(.bordered).disabled(controlling)
+              }
               ForEach(Array(report.messages.enumerated()), id: \.offset) { _, m in
                 Bubble(role: m.role, text: m.text)
               }
@@ -76,13 +114,16 @@ struct ThreadDetailView: View {
           Image(systemName: "paperplane.fill")
         }
         .buttonStyle(.borderedProminent)
-        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || sending)
+        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending || report?.running == true)
+        .accessibilityLabel("Send follow-up")
       }
       .padding(12)
     }
     .navigationTitle(report?.summary ?? "Thread")
     .navigationBarTitleDisplayMode(.inline)
-    .task(id: threadId) { await poll() }
+    .task(id: "\(threadId)-\(scenePhase == .active)") {
+      if scenePhase == .active { await poll() }
+    }
   }
 
   private var pendingVisible: String? {
@@ -108,10 +149,15 @@ struct ThreadDetailView: View {
   }
 
   private func load() async {
-    guard let client = session.client else { return }
+    guard let client = session.client, !loading else { return }
+    loading = true
+    defer { loading = false }
     do {
       let next = try await client.report(threadId: threadId)
+      guard !Task.isCancelled else { return }
       if next != report { report = next }
+      lastUpdated = Date()
+      if next.request?.state == "failed" || next.request?.state == "interrupted" { pending = nil }
       loadError = nil
       if let p = pending, next.messages.filter({ $0.role == .user && $0.text == p.text }).count > p.known {
         pending = nil
@@ -121,8 +167,25 @@ struct ThreadDetailView: View {
     }
   }
 
+  private func control(decision: String? = nil, option: String? = nil) async {
+    guard let client = session.client, !controlling else { return }
+    controlling = true
+    sendError = nil
+    defer { controlling = false }
+    do {
+      if let decision {
+        try await client.answer(threadId: threadId, decisionId: decision, optionId: option, cancelled: option == nil)
+      } else {
+        try await client.stop(threadId: threadId)
+      }
+    } catch {
+      sendError = error.localizedDescription
+    }
+    await load()
+  }
+
   private func send() async {
-    guard let client = session.client else { return }
+    guard session.isPaired, !sending else { return }
     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else { return }
     sending = true
@@ -133,7 +196,7 @@ struct ThreadDetailView: View {
     pending = (text, known)
     defer { sending = false }
     do {
-      try await client.sendPrompt(threadId: threadId, prompt: text)
+      try await session.sendPrompt(threadId: threadId, prompt: text)
       await load()
     } catch {
       draft = text
@@ -169,7 +232,7 @@ private struct StatusCard: View {
     } label: {
       HStack(spacing: 8) {
         Circle().fill(report.running ? Color.green : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
-        Text(report.running ? "Running on Mac" : "Done")
+        Text(!(report.permissions ?? []).isEmpty ? "Needs your input" : report.running ? "Running on Mac" : "Not running")
         if let p = report.projectName {
           Text("· \(p)").foregroundStyle(.secondary)
         }

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public enum RemoteClientError: Error, LocalizedError, Equatable {
   case notPaired
@@ -6,6 +7,7 @@ public enum RemoteClientError: Error, LocalizedError, Equatable {
   case unreachable(String)
   case http(status: Int, body: String)
   case decoding(String)
+  case rejected(String)
 
   public var errorDescription: String? {
     switch self {
@@ -17,6 +19,7 @@ public enum RemoteClientError: Error, LocalizedError, Equatable {
       if status == 503 { return "The agent on your Mac isn't ready yet." }
       let detail = body.trimmingCharacters(in: .whitespacesAndNewlines)
       return detail.isEmpty ? "Mac returned HTTP \(status)." : "Mac returned HTTP \(status): \(detail)"
+    case .rejected(let message): return message
     case .decoding(let why): return "Unexpected reply from the Mac (\(why))."
     }
   }
@@ -49,6 +52,23 @@ public struct RemoteClient: Sendable {
     return h.ok
   }
 
+  public func diagnostics() async throws -> RemoteDiagnostics {
+    try await get("/api/remote/diagnostics")
+  }
+
+  public func stop(threadId: String) async throws {
+    struct Input: Encodable {}
+    struct Body: Decodable { var ok: Bool }
+    let _: Body = try await post("/api/remote/threads/\(encode(threadId))/stop", Input())
+  }
+
+  public func answer(threadId: String, decisionId: String, optionId: String?, cancelled: Bool = false) async throws {
+    struct Input: Encodable { var decisionId: String; var optionId: String?; var cancelled: Bool }
+    struct Body: Decodable { var ok: Bool }
+    let _: Body = try await post("/api/remote/threads/\(encode(threadId))/permission",
+      Input(decisionId: decisionId, optionId: optionId, cancelled: cancelled))
+  }
+
   public func fetchCatalog() async throws -> RemoteCatalog {
     try await get("/api/remote/catalog")
   }
@@ -66,30 +86,31 @@ public struct RemoteClient: Sendable {
   }
 
   /// `agentId` maps to the laptop's `modelId` field (it is an agent id there).
-  public func createThread(projectId: String, agentId: String?, prompt: String) async throws
+  public func createThread(projectId: String, agentId: String?, prompt: String, requestId: String) async throws
     -> RemoteThreadSummary
   {
     struct Input: Encodable {
+      var requestId: String
       var projectId: String
       var modelId: String?
       var prompt: String
     }
     struct Body: Decodable { var thread: RemoteThreadSummary }
     let b: Body = try await post(
-      "/api/remote/threads", Input(projectId: projectId, modelId: agentId, prompt: prompt))
+      "/api/remote/threads", Input(requestId: requestId, projectId: projectId, modelId: agentId, prompt: prompt))
     return b.thread
   }
 
-  public func sendPrompt(threadId: String, prompt: String) async throws {
-    struct Input: Encodable { var prompt: String }
+  public func sendPrompt(threadId: String, prompt: String, requestId: String) async throws {
+    struct Input: Encodable { var requestId: String; var prompt: String }
     struct Body: Decodable { var ok: Bool }
-    let _: Body = try await post("/api/remote/threads/\(encode(threadId))/prompt", Input(prompt: prompt))
+    let _: Body = try await post("/api/remote/threads/\(encode(threadId))/prompt", Input(requestId: requestId, prompt: prompt))
   }
 
   // MARK: Transport
 
   private func encode(_ segment: String) -> String {
-    segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
+    segment.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? segment
   }
 
   private func request(_ path: String, method: String, body: Data?) throws -> URLRequest {
@@ -113,6 +134,8 @@ public struct RemoteClient: Sendable {
     return try await perform(request(path, method: "POST", body: data))
   }
 
+  private struct Rejection: Decodable { var error: String; var retryable: Bool? }
+
   private func perform<T: Decodable>(_ req: URLRequest) async throws -> T {
     let data: Data
     let response: URLResponse
@@ -125,7 +148,10 @@ public struct RemoteClient: Sendable {
       throw RemoteClientError.decoding("not an HTTP response")
     }
     guard (200..<300).contains(http.statusCode) else {
-      let text = String(data: data.prefix(300), encoding: .utf8) ?? ""
+      let text = String(data: data.prefix(16_384), encoding: .utf8) ?? ""
+      if let rejection = try? JSONDecoder().decode(Rejection.self, from: data), rejection.retryable == true {
+        throw RemoteClientError.rejected(rejection.error)
+      }
       throw RemoteClientError.http(status: http.statusCode, body: RemoteClient.errorMessage(from: text))
     }
     do {
@@ -142,5 +168,51 @@ public struct RemoteClient: Sendable {
       return e.error
     }
     return body
+  }
+}
+
+
+/// Keeps the same ID after a timeout, app restart, or repeated Siri attempt.
+/// Only hashes and UUIDs are stored. Clear after the Mac acknowledges acceptance.
+@MainActor
+public final class RemoteSubmissionStore {
+  private let fileURL: URL
+
+  public init(fileURL: URL? = nil) {
+    self.fileURL = fileURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("remote-submissions.json")
+  }
+
+  public func requestId(for scope: [String]) throws -> String {
+    var pending = try load()
+    let key = try key(scope)
+    if let id = pending[key] { return id }
+    let id = UUID().uuidString
+    pending[key] = id
+    try save(pending)
+    return id
+  }
+
+  public func acknowledge(_ scope: [String], requestId: String) throws {
+    var pending = try load()
+    let key = try key(scope)
+    if pending[key] == requestId {
+      pending.removeValue(forKey: key)
+      try save(pending)
+    }
+  }
+
+  private func key(_ scope: [String]) throws -> String {
+    SHA256.hash(data: try JSONEncoder().encode(scope)).map { String(format: "%02x", $0) }.joined()
+  }
+
+  private func load() throws -> [String: String] {
+    guard FileManager.default.fileExists(atPath: fileURL.path) else { return [:] }
+    return try JSONDecoder().decode([String: String].self, from: Data(contentsOf: fileURL))
+  }
+
+  private func save(_ pending: [String: String]) throws {
+    try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try JSONEncoder().encode(pending).write(to: fileURL, options: .atomic)
   }
 }

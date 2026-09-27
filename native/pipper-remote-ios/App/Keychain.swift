@@ -21,8 +21,7 @@ enum Keychain {
     return String(data: data, encoding: .utf8)
   }
 
-  static func write(_ account: String, value: String) {
-    delete(account)
+  static func write(_ account: String, value: String) throws {
     let add: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -31,7 +30,16 @@ enum Keychain {
       // Intents may run while the phone is locked (Siri from lock screen).
       kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
     ]
-    SecItemAdd(add as CFDictionary, nil)
+    var status = SecItemAdd(add as CFDictionary, nil)
+    if status == errSecDuplicateItem {
+      let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service, kSecAttrAccount as String: account]
+      status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: Data(value.utf8)] as CFDictionary)
+    }
+    guard status == errSecSuccess else {
+      throw NSError(domain: NSOSStatusErrorDomain, code: Int(status),
+        userInfo: [NSLocalizedDescriptionKey: "Could not save pairing securely. Unlock your phone and try again."])
+    }
   }
 
   static func delete(_ account: String) {

@@ -10,6 +10,10 @@ struct PairingView: View {
   @State private var scanning = false
   @State private var testing = false
   @State private var error: String?
+  /// A pairing config offered by an incoming deep link, held until the user
+  /// confirms it. Custom URL schemes can be opened by any app or web page, so
+  /// a link must never pair silently.
+  @State private var pendingPairing: RemoteConfig?
 
   /// The host field tolerates `host:port` or a pasted URL; the port/token
   /// fields win only when the host field carried none.
@@ -90,27 +94,48 @@ struct PairingView: View {
       }
       .onOpenURL { url in
         // pipper-remote://pair?url=<encoded pairing url> — lets a future
-        // desktop "Send to phone" open the app directly.
+        // desktop "Send to phone" open the app directly. Any app or web page
+        // can trigger this scheme, so never pair on the link's say-so: surface
+        // the target and require an explicit confirmation.
         guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
           let raw = items.first(where: { $0.name == "url" })?.value,
           let cfg = PairingURL.parse(raw)
         else { return }
-        Task { await pair(cfg) }
+        pendingPairing = cfg
+      }
+      .alert(
+        "Pair with this Mac?",
+        isPresented: Binding(
+          get: { pendingPairing != nil },
+          set: { if !$0 { pendingPairing = nil } }
+        ),
+        presenting: pendingPairing
+      ) { cfg in
+        Button("Pair") {
+          pendingPairing = nil
+          Task { await pair(cfg) }
+        }
+        Button("Cancel", role: .cancel) { pendingPairing = nil }
+      } message: { cfg in
+        Text(
+          "A link wants to pair Pipper with \(cfg.host):\(cfg.port). Only continue if you started this pairing."
+        )
       }
     }
   }
 
   private func pair(_ cfg: RemoteConfig) async {
+    guard !testing else { return }
     error = nil
     testing = true
     defer { testing = false }
     do {
-      let ok = try await RemoteClient(config: cfg).health()
-      guard ok else {
+      let diagnostics = try await RemoteClient(config: cfg).diagnostics()
+      guard diagnostics.paired else {
         error = "The Mac answered, but not as Pipper."
         return
       }
-      session.pair(cfg)
+      try session.pair(cfg)
       await session.refreshCatalog()
     } catch {
       self.error = error.localizedDescription

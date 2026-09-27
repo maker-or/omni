@@ -10,7 +10,9 @@ import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
 import { buildSiriCatalog } from "./siri/siri-catalog.ts";
 import { getThread, listThreads } from "./threads.ts";
-import { createWorktree, gitBinary, removeWorktreeBestEffort } from "./worktree-manager.ts";
+import { prepareIsolatedAgentTask } from "./isolated-agent-task.ts";
+import { RemoteRequestError, RemoteRequests, getRemoteRequests } from "./remote-requests.ts";
+import { gitBinary, isLiveWorktree } from "./worktree-manager.ts";
 import type {
   RemoteModel,
   RemoteProject,
@@ -125,11 +127,12 @@ export class RemoteServer {
   private token: string;
   readonly port: number;
   private readonly deps: RemoteServerDeps;
-  private readonly isolationNotes = new Map<string, string>();
+  private readonly requests: RemoteRequests;
   private lastAuthedAt = 0;
 
   constructor(deps: RemoteServerDeps, opts?: { port?: number; token?: string }) {
     this.deps = deps;
+    this.requests = getRemoteRequests(join(deps.getUserDataPath(), "remote-requests"));
     this.port = opts?.port ?? Number(process.env.PIPPER_REMOTE_PORT ?? 4173);
     // Stable pairing token: env override, else persisted per userData dir so a
     // relaunch doesn't invalidate the phone's saved token.
@@ -247,13 +250,6 @@ export class RemoteServer {
   }
 
   /** True when a thread row already binds this worktree (keep it for retry). */
-  private threadExistsForWorktree(worktreePath: string): boolean {
-    try {
-      return listThreads().some((t) => t.worktree_path === worktreePath);
-    } catch {
-      return true;
-    }
-  }
 
   private authed(req: http.IncomingMessage): boolean {
     const header = req.headers.authorization ?? "";
@@ -361,117 +357,137 @@ export class RemoteServer {
         this.deps.onRemoteActiveChanged?.(running.size > 0 || this.hasLiveLease());
         return send(res, 200, { threads: summaries });
       }
+      if (req.method === "GET" && path === "/api/remote/diagnostics") {
+        const catalog = buildSiriCatalog();
+        return sendReport(res, {
+          paired: true,
+          agentReady: am != null,
+          availableAgents: catalog.agents.filter((a) => a.available).length,
+          projects: catalog.projects.length,
+        });
+      }
+      const requestMatch = path.match(/^\/api\/remote\/requests\/([A-Za-z0-9-]{1,128})$/);
+      if (req.method === "GET" && requestMatch) {
+        const receipt = this.requests.get(requestMatch[1]!);
+        return receipt
+          ? sendReport(res, { request: this.requests.status(receipt) })
+          : send(res, 404, { error: "Request not found" });
+      }
       if (req.method === "POST" && path === "/api/remote/threads") {
-        if (!am) return send(res, 503, { error: "Agent not ready" });
         const body = JSON.parse((await readBody(req)) || "{}") as {
+          requestId?: string;
           projectId?: string;
           modelId?: string | null;
           prompt?: string;
         };
-        if (!body.projectId || !body.prompt?.trim()) {
+        if (
+          typeof body.projectId !== "string" ||
+          typeof body.prompt !== "string" ||
+          !body.prompt.trim() ||
+          (body.modelId != null && typeof body.modelId !== "string")
+        ) {
           return send(res, 400, { error: "projectId and prompt are required" });
         }
-        const project = getProject(body.projectId);
-        if (!project) return send(res, 404, { error: "Project not found" });
-        // Every new phone chat = fresh worktree + fresh thread, invisible to user.
-        // If the repo can't take a worktree (e.g. no commits yet), fall back
-        // to the project root so the task still runs.
-        let worktreePath: string | null = null;
-        let worktreeBranch: string | null = null;
-        let isolationNote: string | null = null;
-        try {
-          // Fixed-length random name: never derived from the prompt text, so
-          // long/unicode/identical prompts can't produce ugly, colliding, or
-          // confusing worktree + branch names. `phone-` prefix keeps the
-          // origin identifiable in `git worktree list`.
-          let created = null;
-          let lastError: unknown = null;
-          for (let attempt = 0; attempt < 5 && !created; attempt++) {
-            const slug = `phone-${randomBytes(4).toString("hex")}`;
-            try {
-              created = createWorktree({
-                projectPath: project.path,
-                projectId: project.id,
-                name: slug,
-              });
-            } catch (err) {
-              lastError = err;
-            }
-          }
-          if (!created) throw lastError ?? new Error("worktree creation failed");
-          worktreePath = created.path;
-          worktreeBranch = created.branch;
-          console.log(`[Remote] worktree created: ${worktreePath}`);
-        } catch (err) {
-          isolationNote = err instanceof Error ? err.message : String(err);
-          console.warn(`[Remote] worktree fallback to project root: ${isolationNote}`);
-        }
-        console.log(
-          `[Remote] new phone thread project=${project.id} worktree=${worktreePath ?? "<root>"} promptLen=${body.prompt.length}`,
+        const { projectId } = body;
+        const prompt = body.prompt.trim();
+        const receipt = await this.requests.submit(
+          body.requestId,
+          { kind: "create", projectId, agentId: body.modelId ?? null, prompt },
+          async () => {
+            if (!am) throw new Error("Pipper is still starting on your Mac. No task was started.");
+            return prepareIsolatedAgentTask(am, projectId, body.modelId, prompt);
+          },
         );
-        // modelId from the phone is an *agent* id (listRegisteredAgents).
-        // Use it to pick the connection, but never as a model name — the
-        // agent's own default model applies (e.g. antigravity has no implicit
-        // default; the user's desktop default is used).
-        try {
-          const thread = await am.createThread(
-            project.id,
-            body.prompt.slice(0, 80),
-            null,
-            body.modelId ?? null,
-            worktreePath,
-            null,
-            { background: true },
-          );
-          if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
-          console.log(
-            `[Remote] prompt accepted thread=${thread.id} boundWorktree=${thread.worktree_path ?? "<root-fallback>"}`,
-          );
-          if (!thread.worktree_path) {
-            console.warn(
-              `[Remote] thread=${thread.id} running on PROJECT ROOT (no isolated workspace). ` +
-                `requested=${worktreePath ?? "<none: create failed>"} reason=${isolationNote ?? "worktree rejected as not-live"}`,
-            );
-          }
-          // Respond before the turn runs so the phone shows progress
-          // immediately; the turn streams into the thread in the background
-          // and the report poll picks it up. A prompt failure is logged
-          // server-side — the phone sees an idle thread with no reply.
-          const prompt = body.prompt;
-          void am
-            .sendPrompt({ threadId: thread.id, message: prompt }, { background: true })
-            .then(() => console.log(`[Remote] turn completed thread=${thread.id}`))
-            .catch((promptError) => {
-              console.error(`[Remote] prompt failed, keeping thread=${thread.id}:`, promptError);
-            });
-          return send(res, 201, {
-            thread: {
-              id: thread.id,
-              projectId: thread.project_id,
-              worktreePath: thread.worktree_path ?? null,
-              title: thread.title,
-              running: true,
-              lastUsedAt: thread.last_used_at,
-            },
-          });
-        } catch (error) {
-          // Roll back the worktree only when thread creation itself failed —
-          // once the thread row exists the worktree is retained for retry.
-          if (worktreePath && !this.threadExistsForWorktree(worktreePath)) {
-            console.warn(`[Remote] rolling back worktree: ${worktreePath}`);
-            removeWorktreeBestEffort(project.path, worktreePath, worktreeBranch);
-          }
-          throw error;
-        }
+        return send(res, receipt.result ? 202 : 409, {
+          ...receipt.result,
+          request: this.requests.status(receipt),
+          ...(receipt.result
+            ? {}
+            : {
+                error: receipt.error ?? "Request is still being prepared.",
+                retryable: receipt.state === "failed",
+              }),
+        });
       }
       const promptMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/prompt$/);
       if (req.method === "POST" && promptMatch) {
+        const threadId = promptMatch[1]!;
+        const body = JSON.parse((await readBody(req)) || "{}") as {
+          requestId?: string;
+          prompt?: string;
+        };
+        if (typeof body.prompt !== "string" || !body.prompt.trim())
+          return send(res, 400, { error: "prompt is required" });
+        const prompt = body.prompt.trim();
+        const receipt = await this.requests.submit(
+          body.requestId,
+          { kind: "prompt", threadId, prompt },
+          async () => {
+            if (!am) throw new Error("Pipper is still starting on your Mac.");
+            const thread = getThread(threadId);
+            const project = thread ? getProject(thread.project_id) : null;
+            if (
+              !thread?.worktree_path ||
+              !project ||
+              !isLiveWorktree(thread.worktree_path, project.path)
+            ) {
+              throw new Error(
+                "This thread has no live isolated workspace. Restore its worktree on your Mac, or start a new thread.",
+              );
+            }
+            return {
+              threadId,
+              result: { ok: true },
+              execute: () =>
+                am.sendPrompt(
+                  { threadId, message: prompt },
+                  { background: true, requireWorktree: true },
+                ),
+            };
+          },
+        );
+        return send(res, receipt.result ? 202 : 409, {
+          ...receipt.result,
+          request: this.requests.status(receipt),
+          ...(receipt.result
+            ? {}
+            : {
+                error: receipt.error ?? "Request is still being prepared.",
+                retryable: receipt.state === "failed",
+              }),
+        });
+      }
+      const controlMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/(stop|permission)$/);
+      if (req.method === "POST" && controlMatch) {
         if (!am) return send(res, 503, { error: "Agent not ready" });
-        const thread = getThread(promptMatch[1]!);
-        if (!thread) return send(res, 404, { error: "Thread not found" });
-        const body = JSON.parse((await readBody(req)) || "{}") as { prompt?: string };
-        if (!body.prompt?.trim()) return send(res, 400, { error: "prompt is required" });
-        await am.sendPrompt({ threadId: thread.id, message: body.prompt }, { background: true });
+        const threadId = controlMatch[1]!;
+        if (!getThread(threadId)) return send(res, 404, { error: "Thread not found" });
+        if (controlMatch[2] === "stop") {
+          await am.abortThread(threadId);
+        } else {
+          const body = JSON.parse((await readBody(req)) || "{}") as {
+            decisionId?: string;
+            optionId?: string;
+            cancelled?: boolean;
+          };
+          if (
+            typeof body.decisionId !== "string" ||
+            (body.optionId != null && typeof body.optionId !== "string") ||
+            (body.cancelled != null && typeof body.cancelled !== "boolean")
+          ) {
+            return send(res, 400, { error: "A valid decision and option are required" });
+          }
+          const answered = await am.respondToRemotePermission(
+            threadId,
+            body.decisionId,
+            body.optionId,
+            body.cancelled === true,
+          );
+          if (!answered)
+            return send(res, 409, {
+              error: "This decision expired or was already answered. Refresh the thread.",
+            });
+        }
         return send(res, 200, { ok: true });
       }
       const reportMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/report$/);
@@ -491,14 +507,24 @@ export class RemoteServer {
           filesTouched: await filesTouched(cwd),
           worktreePath: thread.worktree_path ?? null,
           isolated: Boolean(thread.worktree_path),
-          isolationNote: this.isolationNotes.get(thread.id) ?? null,
+          isolationNote: null,
+          permissions: am?.getRemotePermissions(thread.id) ?? [],
+          request: this.requests.latestForThread(thread.id),
         };
         return sendReport(res, { report });
       }
       send(res, 404, { error: "Not found" });
     } catch (error) {
       console.error(`[Remote] ${req.method} ${path} failed:`, error);
-      send(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      send(
+        res,
+        error instanceof RemoteRequestError
+          ? error.status
+          : error instanceof SyntaxError
+            ? 400
+            : 500,
+        { error: error instanceof Error ? error.message : String(error) },
+      );
     }
   }
 

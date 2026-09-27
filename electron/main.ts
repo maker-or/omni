@@ -63,6 +63,8 @@ import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./
 import type { OpenTabsState } from "../contracts/threads.ts";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
 import { AgentManager } from "./agent";
+import { getRemoteRequests } from "./remote-requests.ts";
+import { prepareIsolatedAgentTask } from "./isolated-agent-task.ts";
 import { createElectronOsNotifier } from "./os-notifications";
 import { WindowVisibilityGate } from "./window-visibility";
 import { MonitorService } from "./monitor/service.ts";
@@ -479,34 +481,36 @@ const pendingDeepLinks: string[] = [];
  */
 const inFlightSiriRequests = new Map<string, Promise<unknown>>();
 
-/**
- * Consume a Siri-staged thread request: validate, create the thread (once —
- * a `.done-<id>.json` marker records the created thread so retries never
- * spawn duplicates), deliver the prompt, and only then delete the request
- * file. Invalid payloads are discarded (retrying them can never succeed);
- * processing failures leave the file in place for idempotent retry.
- */
-async function consumeSiriRequest(requestId: string): Promise<unknown> {
-  if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(requestId)) {
+/** Staged requests are durably claimed before creating a session. Retried
+ * activations reopen the same thread; uncertain prompt delivery is never replayed. */
+async function consumeSiriRequest(requestId: string, preferredDir?: string): Promise<unknown> {
+  if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,123}$/.test(requestId)) {
     return null;
   }
   const existing = inFlightSiriRequests.get(requestId);
   if (existing) return existing;
-  const task = consumeSiriRequestInner(requestId).finally(() => {
+  const task = consumeSiriRequestInner(requestId, preferredDir).finally(() => {
     if (inFlightSiriRequests.get(requestId) === task) inFlightSiriRequests.delete(requestId);
   });
   inFlightSiriRequests.set(requestId, task);
   return task;
 }
 
-async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
+async function consumeSiriRequestInner(requestId: string, preferredDir?: string): Promise<unknown> {
   const { getSiriRequestsDir, getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
   // Resolve the request from every supported directory so legacy-only
-  // staged requests are delivered, not orphaned.
+  // staged requests are delivered, not orphaned. The caller's `preferredDir`
+  // (which replica was newest) wins so the scan consumes the same file it
+  // ranked, not whichever dir happens to be listed first.
   let dir = resolve(getSiriRequestsDir());
   let file: string | null = null;
-  for (const rawDir of getSiriRequestsDirs()) {
-    const candidateDir = resolve(rawDir);
+  const dirs = getSiriRequestsDirs().map((rawDir) => resolve(rawDir));
+  const preferred = preferredDir ? resolve(preferredDir) : null;
+  const orderedDirs =
+    preferred && dirs.includes(preferred)
+      ? [preferred, ...dirs.filter((d) => d !== preferred)]
+      : dirs;
+  for (const candidateDir of orderedDirs) {
     const candidate = resolve(join(candidateDir, `${requestId}.json`));
     const rel = relative(candidateDir, candidate);
     if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
@@ -516,7 +520,12 @@ async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
       break;
     }
   }
-  if (!file) return null;
+  const requests = getRemoteRequests(join(app.getPath("userData"), "remote-requests"));
+  const id = `siri-${requestId}`;
+  if (!file) {
+    const previous = requests.get(id);
+    return previous?.threadId ? getThread(previous.threadId) : null;
+  }
   const raw = fs.readFileSync(file, "utf8");
   let parsed: { projectId: string; agentId?: string; prompt?: string };
   try {
@@ -529,43 +538,89 @@ async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
     fs.rmSync(file, { force: true });
     return null;
   }
-  const manager = requireAgentManager();
-  const markerFile = resolve(join(dir, `.done-${requestId}.json`));
-  const hasPrompt = typeof parsed.prompt === "string" && parsed.prompt.length > 0;
-  const markerRel = relative(dir, markerFile);
-  if (!markerRel.startsWith("..") && !isAbsolute(markerRel) && fs.existsSync(markerFile)) {
-    // Retry path: the thread already exists, so resume delivery instead of
-    // creating a duplicate.
-    try {
-      const marker = JSON.parse(fs.readFileSync(markerFile, "utf8")) as { threadId?: string };
-      if (marker?.threadId && hasPrompt) {
-        deliverSiriPrompt(marker.threadId, parsed.prompt as string, requestId);
+  if (
+    (parsed.agentId != null && typeof parsed.agentId !== "string") ||
+    (parsed.prompt != null && typeof parsed.prompt !== "string")
+  )
+    return null;
+  const markerFile =
+    orderedDirs
+      .map((candidate) => resolve(join(candidate, `.done-${requestId}.json`)))
+      .find((candidate) => fs.existsSync(candidate)) ??
+    resolve(join(dir, `.done-${requestId}.json`));
+  const receipt = await requests.submit(
+    id,
+    {
+      kind: "siri",
+      projectId: parsed.projectId,
+      agentId: parsed.agentId ?? null,
+      prompt: parsed.prompt ?? "",
+    },
+    async () => {
+      // Old builds could have sent the prompt without confirming delivery.
+      // Preserve their thread, but never replay that ambiguous request.
+      if (fs.existsSync(markerFile)) {
+        const marker = JSON.parse(fs.readFileSync(markerFile, "utf8")) as {
+          threadId?: string;
+          delivered?: boolean;
+        };
+        if (!marker.threadId || !getThread(marker.threadId))
+          throw new Error(
+            "An older Siri request could not be recovered. Check Pipper before starting another task.",
+          );
+        return {
+          threadId: marker.threadId,
+          result: { ok: true },
+          execute: async () => {
+            if (!marker.delivered)
+              throw new Error(
+                "This Siri request was handled by an older Pipper version. Check its thread before resending the task; delivery could not be confirmed.",
+              );
+          },
+        };
       }
-      fs.rmSync(file, { force: true });
-      fs.rmSync(markerFile, { force: true });
-      return marker?.threadId ? getThread(marker.threadId) : null;
-    } catch {
-      return null;
-    }
-  }
-  const thread = await manager.createThread(
-    parsed.projectId,
-    hasPrompt ? (parsed.prompt as string).slice(0, 80) : null,
-    null,
-    parsed.agentId || null,
-    null,
+      return prepareIsolatedAgentTask(
+        requireAgentManager(),
+        parsed.projectId,
+        parsed.agentId,
+        parsed.prompt ?? "",
+      );
+    },
   );
-  const threadId = (thread as { id?: string })?.id ?? null;
-  if (threadId) {
-    fs.writeFileSync(markerFile, JSON.stringify({ threadId }), "utf8");
+  if (receipt.threadId) {
+    // The receipt now owns recovery, so staged prompt replicas can be removed.
+    finalizeSiriRequest(file, markerFile, dir, requestId);
+    return getThread(receipt.threadId);
   }
-  if (threadId && hasPrompt) {
-    deliverSiriPrompt(threadId, parsed.prompt as string, requestId);
+  throw new Error(receipt.error ?? "Siri request is still being prepared.");
+}
+
+/**
+ * Remove a consumed request and its marker, then clean up replicas in the
+ * other candidate directories. Safe to call more than once.
+ */
+function finalizeSiriRequest(
+  file: string,
+  markerFile: string,
+  dir: string,
+  requestId: string,
+): void {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    // Best-effort.
   }
-  fs.rmSync(file, { force: true });
-  // Remove stale replicas in other dirs only after full success.
-  const { getSiriRequestsDirs: getDirs } = await import("./siri/siri-catalog.ts");
-  for (const rawDir of getDirs()) {
+  try {
+    fs.rmSync(markerFile, { force: true });
+  } catch {
+    // Best-effort.
+  }
+  void cleanupSiriRequestReplicas(dir, requestId);
+}
+
+async function cleanupSiriRequestReplicas(dir: string, requestId: string): Promise<void> {
+  const { getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  for (const rawDir of getSiriRequestsDirs()) {
     const otherDir = resolve(rawDir);
     if (otherDir === dir) continue;
     try {
@@ -575,22 +630,6 @@ async function consumeSiriRequestInner(requestId: string): Promise<unknown> {
       // Best-effort replica cleanup.
     }
   }
-  if (threadId) fs.rmSync(markerFile, { force: true });
-  return thread;
-}
-
-/**
- * Hand the prompt to the agent without awaiting the turn. `sendPrompt` only
- * resolves when the agent finishes (up to ACP_PROMPT_TIMEOUT_MS), so awaiting
- * it from the startup path blocked window creation until the agent was done.
- * The thread already exists and is opened; a delivery failure is logged.
- */
-function deliverSiriPrompt(threadId: string, message: string, requestId: string): void {
-  void requireAgentManager()
-    .sendPrompt({ threadId, message })
-    .catch((err) => {
-      console.error(`[Main] Siri request ${requestId}: prompt delivery failed:`, err);
-    });
 }
 
 async function openSiriThread(thread: unknown): Promise<void> {
@@ -615,7 +654,9 @@ async function openSiriThread(thread: unknown): Promise<void> {
 async function consumePendingSiriRequests(): Promise<void> {
   if (!agentManager) return;
   const { getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
-  const seen = new Map<string, number>();
+  // Key by request id, but keep the winning replica's dir so the consume
+  // step reads the newest copy rather than whichever dir is listed first.
+  const seen = new Map<string, { mtimeMs: number; dir: string }>();
   for (const rawDir of getSiriRequestsDirs()) {
     const dir = resolve(rawDir);
     if (!fs.existsSync(dir)) continue;
@@ -623,17 +664,17 @@ async function consumePendingSiriRequests(): Promise<void> {
       if (!entry.isFile() || !/^[A-Za-z0-9-]{1,128}\.json$/.test(entry.name)) continue;
       const requestId = entry.name.slice(0, -5);
       const mtimeMs = fs.statSync(join(dir, entry.name)).mtimeMs;
-      if (!seen.has(requestId) || mtimeMs > (seen.get(requestId) ?? 0))
-        seen.set(requestId, mtimeMs);
+      const previous = seen.get(requestId);
+      if (!previous || mtimeMs > previous.mtimeMs) seen.set(requestId, { mtimeMs, dir });
     }
   }
   const requests = [...seen.entries()]
-    .map(([requestId, mtimeMs]) => ({ requestId, mtimeMs }))
+    .map(([requestId, info]) => ({ requestId, mtimeMs: info.mtimeMs, dir: info.dir }))
     .sort((a, b) => a.mtimeMs - b.mtimeMs);
 
-  for (const { requestId } of requests) {
+  for (const { requestId, dir } of requests) {
     try {
-      const thread = await consumeSiriRequest(requestId);
+      const thread = await consumeSiriRequest(requestId, dir);
       if (thread) await openSiriThread(thread);
     } catch (error) {
       // Leave failed requests on disk so a later app activation can retry.
