@@ -6,6 +6,7 @@ import {
   GearSix,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { AgentAccountsSettings } from "@/components/agent-accounts-settings";
 import { MorningBriefSettings } from "@/components/morning-brief-settings";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
@@ -47,11 +48,12 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-type SectionId = "appearance" | "agents" | "keyboard" | "brief" | "power" | "remote";
+type SectionId = "appearance" | "agents" | "accounts" | "keyboard" | "brief" | "power" | "remote";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
   { id: "agents", label: "Agents" },
+  { id: "accounts", label: "Account" },
   { id: "keyboard", label: "Keyboard" },
   { id: "brief", label: "Morning Brief" },
   { id: "power", label: "Power" },
@@ -335,6 +337,10 @@ const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
     title: "Agents",
     blurb: "Choose which coding agents Pipper can use.",
   },
+  accounts: {
+    title: "Account",
+    blurb: "",
+  },
   keyboard: {
     title: "Keyboard",
     blurb: "Shortcuts for moving fast around Pipper.",
@@ -365,6 +371,14 @@ function AppearanceView() {
           <WorkspaceModePicker className="mt-3" />
         </div>
       </div>
+    </Elevated>
+  );
+}
+
+function AccountsView() {
+  return (
+    <Elevated offset={1} className="overflow-hidden rounded-xl bg-transparent shadow-none">
+      <AgentAccountsSettings />
     </Elevated>
   );
 }
@@ -507,11 +521,14 @@ export function SettingsApp() {
                   <h1 className="text-[26px] font-semibold tracking-[-0.035em] text-foreground">
                     {meta.title}
                   </h1>
-                  <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{meta.blurb}</p>
+                  {meta.blurb ? (
+                    <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{meta.blurb}</p>
+                  ) : null}
                 </div>
 
                 {section === "appearance" && <AppearanceView />}
                 {section === "agents" && <AgentsSettingsSection />}
+                {section === "accounts" && <AccountsView />}
                 {section === "keyboard" && <KeyboardView />}
                 {section === "brief" && <BriefView />}
                 {section === "power" && <PowerView />}

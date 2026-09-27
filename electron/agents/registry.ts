@@ -13,6 +13,27 @@ interface RegistryFile {
 /** Directory of this module (avoid naming `__dirname` — electron-vite injects that). */
 const registryDir = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Resolves a *provider instance* id (e.g. `codex-acp:work`) to a materialized
+ * descriptor whose `id` is the instance id and whose `env` carries the
+ * instance's isolated credential root. Installed by `agent-instances.ts` at
+ * startup so this module stays free of a database dependency (and stays
+ * unit-testable).
+ */
+export type AgentInstanceDescriptorProvider = (instanceId: string) => AcpAgentDescriptor | null;
+let instanceDescriptorProvider: AgentInstanceDescriptorProvider | null = null;
+
+export function setInstanceDescriptorProvider(
+  provider: AgentInstanceDescriptorProvider | null,
+): void {
+  instanceDescriptorProvider = provider;
+}
+
+/** The driver id behind a descriptor (instance descriptors carry `driverId`). */
+export function descriptorDriverId(descriptor: AcpAgentDescriptor): string {
+  return descriptor.driverId ?? descriptor.id;
+}
+
 /** Built-in catalog — used when config.json is missing or incomplete. */
 export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
   {
@@ -420,6 +441,13 @@ export function listRegisteredAgents(): AcpAgentDescriptor[] {
 }
 
 export function getAgentDescriptor(agentId: string): AcpAgentDescriptor | null {
+  const fromInstance = instanceDescriptorProvider?.(agentId);
+  if (fromInstance) return fromInstance;
+  // Once instance storage is configured, a miss means the instance is unknown
+  // or disabled — do NOT fall back to the driver (that would re-enable a
+  // disabled default account). The driver fallback is only for the
+  // uninitialized/legacy state with no provider installed.
+  if (instanceDescriptorProvider) return null;
   return listRegisteredAgents().find((a) => a.id === agentId) ?? null;
 }
 
@@ -444,6 +472,9 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
   env: Record<string, string>;
 } {
   const env = { ...process.env, ...agent.env } as Record<string, string>;
+  // Drop ambient provider credentials for isolated accounts so the child can't
+  // authenticate as the machine's default login instead of the chosen account.
+  for (const name of agent.unsetEnv ?? []) delete env[name];
 
   if (agent.id === "pipper-mock" || agent.installKind === "mock") {
     const mockPath = join(registryDir, "mock-agent.mjs");
@@ -456,8 +487,12 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
     };
   }
 
-  // Re-probe so spawn uses latest PATH resolution
-  const probed = probeAgentAvailability(agent);
+  // Re-probe so spawn uses latest PATH resolution. Probe the *driver*
+  // descriptor (id = driverId) rather than the instance id, so driver-specific
+  // binary resolution (e.g. Cursor's `agent` disambiguation) still applies;
+  // the instance only contributes `env`.
+  const probeBase: AcpAgentDescriptor = agent.driverId ? { ...agent, id: agent.driverId } : agent;
+  const probed = probeAgentAvailability(probeBase);
   if (!probed.available) {
     throw new Error(
       probed.statusMessage ??
