@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { AgentManager } from "./agent-connection-manager.ts";
 import { getProject } from "./projects.ts";
 import { listThreads } from "./threads.ts";
+import { listAgentInstanceDescriptors } from "./agent-instances.ts";
 import { buildSiriCatalog } from "./siri/siri-catalog.ts";
 import { createWorktree, isLiveWorktree, removeWorktreeBestEffort } from "./worktree-manager.ts";
 
@@ -14,9 +15,17 @@ export async function prepareIsolatedAgentTask(
 ) {
   const project = getProject(projectId);
   if (!project) throw new Error("Project not found. Refresh your project list.");
-  const catalog = buildSiriCatalog();
-  const agentId = requestedAgentId ?? catalog.defaultAgentId;
-  if (!catalog.agents.some((a) => a.id === agentId && a.available)) {
+  // The phone/PWA sends a provider *instance* id as `modelId`
+  // (listAgentInstanceDescriptors; default instances reuse the driver id), so
+  // validate against live instances — not the driver-only Siri catalog — or a
+  // task routed to a secondary account is wrongly rejected.
+  const instances = listAgentInstanceDescriptors();
+  const agentId =
+    requestedAgentId ??
+    instances.find((a) => a.id === buildSiriCatalog().defaultAgentId)?.id ??
+    instances[0]?.id ??
+    null;
+  if (!agentId || !instances.some((a) => a.id === agentId)) {
     throw new Error("The selected agent is unavailable. Choose an installed agent on your Mac.");
   }
   let worktree;

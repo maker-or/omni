@@ -11,6 +11,8 @@ export interface RemoteProject {
 export interface RemoteModel {
   id: string;
   name: string;
+  /** Provider/driver display name; used to group accounts on the phone. */
+  provider?: string;
 }
 
 export interface RemoteThreadSummary {

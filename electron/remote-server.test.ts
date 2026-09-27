@@ -51,6 +51,12 @@ vi.mock("./worktree-manager.ts", () => ({
   isLiveWorktree: mocks.isLiveWorktree,
   gitBinary: () => "git",
 }));
+vi.mock("./agent-instances.ts", () => ({
+  listAgentInstanceDescriptors: () =>
+    catalog.agents
+      .filter((a) => a.available)
+      .map((a) => ({ id: a.id, displayName: a.displayName })),
+}));
 
 import { RemoteServer } from "./remote-server.ts";
 import type { RemoteReport, RemoteThreadSummary } from "../contracts/remote.ts";

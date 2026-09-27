@@ -4,6 +4,7 @@ import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
 import { Elevated } from "@/lib/elevated";
 import { acknowledgeSubmission, submissionId } from "./submissions.ts";
 import { PhoneMarkdown } from "./markdown.tsx";
+import { groupModelsByProvider } from "./model-groups.ts";
 import type {
   RemoteDiagnostics,
   RemoteModel,
@@ -502,11 +503,23 @@ export function RemoteApp() {
                 aria-label="Model"
               >
                 <option value="">Model…</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
+                {groupModelsByProvider(models).map((group) =>
+                  group.provider ? (
+                    <optgroup key={group.provider} label={group.provider}>
+                      {group.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    group.models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))
+                  ),
+                )}
               </select>
             </div>
             <p className="remote-hint">

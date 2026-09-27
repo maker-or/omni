@@ -121,7 +121,10 @@ async function terminateChildProcess(child: ChildProcessWithoutNullStreams): Pro
 
 export interface LiveConnection {
   connectionId: string;
+  /** Spawn routing key: the provider *instance* id (driver id when default). */
   agentId: string;
+  /** The underlying driver/provider id this instance is a configuration of. */
+  driverId: string;
   agentInfoName: string;
   process: ChildProcessWithoutNullStreams;
   connection: acp.ClientConnection;
@@ -273,6 +276,25 @@ export class ConnectionLifecycle {
         await terminateChildProcess(live.process);
       }),
     );
+  }
+
+  /**
+   * Close and forget one instance's transport (e.g. its account was removed),
+   * without touching other instances of the same driver.
+   */
+  async close(agentId: string): Promise<void> {
+    const live = this.connections.get(agentId);
+    if (!live) return;
+    this.connections.delete(agentId);
+    this.intentionalConnectionIds.add(live.connectionId);
+    if (this.activeConnection === live) this.activeConnection = null;
+    try {
+      live.connection.close();
+    } catch {
+      // ignore
+    }
+    await terminateChildProcess(live.process);
+    this.deps.invalidateAgentSessions(agentId);
   }
 
   private async spawnAndInitialize(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
@@ -481,6 +503,7 @@ export class ConnectionLifecycle {
     return {
       connectionId,
       agentId: descriptor.id,
+      driverId: descriptor.driverId ?? descriptor.id,
       agentInfoName,
       process: child,
       connection,

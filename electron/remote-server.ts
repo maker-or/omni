@@ -9,6 +9,7 @@ import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
 import { buildSiriCatalog } from "./siri/siri-catalog.ts";
+import { listAgentInstanceDescriptors } from "./agent-instances.ts";
 import { getThread, listThreads } from "./threads.ts";
 import { prepareIsolatedAgentTask } from "./isolated-agent-task.ts";
 import { RemoteRequestError, RemoteRequests, getRemoteRequests } from "./remote-requests.ts";
@@ -328,9 +329,17 @@ export class RemoteServer {
         return send(res, 200, { projects });
       }
       if (req.method === "GET" && path === "/api/remote/models") {
-        const models: RemoteModel[] = listRegisteredAgents().map((a) => ({
+        // Offer provider instances (accounts), not just drivers, so a phone can
+        // route a task to a specific account. Default instances reuse the
+        // driver id, so single-account setups see exactly the same list.
+        // `provider` groups accounts under their driver on the phone.
+        const driverNames = new Map(
+          listRegisteredAgents().map((driver) => [driver.id, driver.displayName ?? driver.name]),
+        );
+        const models: RemoteModel[] = listAgentInstanceDescriptors().map((a) => ({
           id: a.id,
           name: a.displayName ?? a.name ?? a.id,
+          provider: driverNames.get(a.driverId ?? a.id) ?? a.driverId ?? a.id,
         }));
         return send(res, 200, { models });
       }
