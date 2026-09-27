@@ -2,6 +2,7 @@ appId: com.maker-or.omni
 productName: Pipper Code (Alpha)
 directories:
   output: release
+afterPack: scripts/after-pack.js
 files:
   - out/**/*
   - package.json
@@ -10,9 +11,10 @@ asarUnpack:
   - "**/node_modules/node-pty/**/*"
 mac:
   artifactName: pipper-${version}-${arch}.${ext}
-  # Keep local and CI artifacts unsigned. The Sleepless daemon authenticates
-  # unsigned builds using the exact bundled executable path and peer user.
-  identity: null
+  # Use an ad-hoc signature so macOS can load the embedded App Intents
+  # extension. The Sleepless daemon still authenticates the exact bundled
+  # executable path and peer user; no developer certificate is required.
+  identity: "-"
   icon: build/icon.png
   target:
     - target: dmg
@@ -22,6 +24,11 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+  # The App Intents extension is signed explicitly by scripts/after-pack.js
+  # with its App Sandbox + App Group entitlements. Do not replace that
+  # signature with Electron's generic inherited entitlements.
+  signIgnore:
+    - PipperIntents\.appex
   extraFiles:
     - from: native/sleepless/dist/omni-sleeplessctl
       to: MacOS/omni-sleeplessctl
@@ -29,6 +36,8 @@ mac:
       to: Resources/sleepless/omni-sleeplessd
     - from: native/sleepless/com.maker-or.omni.sleeplessd.plist
       to: Library/LaunchDaemons/com.maker-or.omni.sleeplessd.plist
+    - from: native/pipper-intents/dist/PipperIntents.appex
+      to: Extensions/PipperIntents.appex
   binaries:
     - Contents/MacOS/omni-sleeplessctl
     - Contents/Resources/sleepless/omni-sleeplessd

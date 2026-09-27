@@ -38,9 +38,34 @@ export interface RemoteReport {
   /** False when worktree creation failed and the task ran in project root. */
   isolated: boolean;
   isolationNote: string | null;
+  permissions: RemotePermission[];
+  request: RemoteRequestStatus | null;
+}
+
+export interface RemotePermission {
+  id: string;
+  title: string;
+  detail: string | null;
+  options: Array<{ optionId: string; name: string; kind: string }>;
+}
+
+export interface RemoteRequestStatus {
+  id: string;
+  threadId: string | null;
+  state: "preparing" | "running" | "completed" | "failed" | "interrupted";
+  error: string | null;
+  updatedAt: number;
+}
+
+export interface RemoteDiagnostics {
+  paired: true;
+  agentReady: boolean;
+  availableAgents: number;
+  projects: number;
 }
 
 export interface RemoteCreateThreadInput {
+  requestId: string;
   projectId: string;
   /** Agent/model id from the desktop registry; null = desktop default. */
   modelId?: string | null;
@@ -48,5 +73,6 @@ export interface RemoteCreateThreadInput {
 }
 
 export interface RemotePromptInput {
+  requestId: string;
   prompt: string;
 }

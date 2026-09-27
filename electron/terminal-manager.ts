@@ -221,9 +221,9 @@ export class TerminalManager {
   }
 
   /** Kill all running processes without releasing (ids stay valid for output). */
-  killRunning(): void {
-    for (const id of Array.from(this.terminals.keys())) {
-      this.kill(id);
+  killRunning(sessionId?: string): void {
+    for (const [id, terminal] of this.terminals) {
+      if (sessionId == null || terminal.sessionId === sessionId) this.kill(id);
     }
   }
 

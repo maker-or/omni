@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
+import { Elevated } from "@/lib/elevated";
+import { acknowledgeSubmission, submissionId } from "./submissions.ts";
 import { PhoneMarkdown } from "./markdown.tsx";
 import { groupModelsByProvider } from "./model-groups.ts";
 import type {
+  RemoteDiagnostics,
   RemoteModel,
   RemoteProject,
   RemoteReport,
@@ -12,9 +15,18 @@ import type {
 
 const TOKEN_KEY = "omni:remote-token";
 
+class RemoteApiError extends Error {
+  readonly retryable: boolean;
+  constructor(message: string, retryable = false) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY) ?? "";
   const res = await fetch(path, {
+    signal: AbortSignal.timeout(15_000),
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -23,8 +35,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${path} → ${res.status} ${text.slice(0, 200)}`);
+    const body = (await res.json().catch(() => ({}))) as { error?: string; retryable?: boolean };
+    if (res.status === 401)
+      throw new Error(
+        "Pairing was rejected. Open History and pair again with the token from your Mac.",
+      );
+    throw new RemoteApiError(
+      body.error ?? `Your Mac returned an error (${res.status}).`,
+      body.retryable === true,
+    );
   }
   return (await res.json()) as T;
 }
@@ -45,6 +64,11 @@ export function RemoteApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const sendInflight = useRef(false);
+  const [controlling, setControlling] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<RemoteDiagnostics | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [lastConnected, setLastConnected] = useState<number | null>(null);
   // Optimistic follow-up, scoped to its thread: `known` counts how many
   // identical user messages the report already had at send time, so a repeat
   // of an earlier message can't be "confirmed" by the old entry, and a fast
@@ -77,17 +101,20 @@ export function RemoteApp() {
     if (refreshInflight.current) return;
     refreshInflight.current = true;
     try {
-      const [p, m, t] = await Promise.all([
+      const [p, m, t, d] = await Promise.all([
         api<{ projects: RemoteProject[] }>("/api/remote/projects"),
         api<{ models: RemoteModel[] }>("/api/remote/models"),
         api<{ threads: RemoteThreadSummary[] }>("/api/remote/threads"),
+        api<RemoteDiagnostics>("/api/remote/diagnostics"),
       ]);
+      setDiagnostics(d);
+      setLastConnected(Date.now());
       setProjects(p.projects);
       setModels(m.models);
       setThreads(t.threads);
       setLoadError(
         p.projects.length === 0 && m.models.length === 0
-          ? "Connected, but laptop returned 0 projects and 0 models. Check laptop console for [Remote] lines."
+          ? "Add a Git project and select an installed coding agent in Pipper on your Mac."
           : null,
       );
     } catch (err) {
@@ -121,6 +148,7 @@ export function RemoteApp() {
         const r = await api<{ report: RemoteReport }>(`/api/remote/threads/${wanted}/report`);
         if (!cancelled && gen === generation) {
           setReport(r.report);
+          setLastUpdated(Date.now());
           setReportError(null);
         }
       } catch (err) {
@@ -132,6 +160,7 @@ export function RemoteApp() {
       }
     };
     setReport(null);
+    setLastUpdated(null);
     setReportError(null);
     void load();
     const timer = setInterval(() => {
@@ -190,13 +219,18 @@ export function RemoteApp() {
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sendInflight.current || report?.running) return;
+    sendInflight.current = true;
     setSending(true);
     setSendError(null);
     // Move the draft into the optimistic bubble immediately; on failure it
     // is restored below so nothing the user typed is ever lost.
     setDraft("");
+    let submitted: { scope: string[]; id: string } | null = null;
     try {
+      const scope = activeId ? ["prompt", activeId, text] : ["create", projectId, modelId, text];
+      const requestId = submissionId(localStorage, scope);
+      submitted = { scope, id: requestId };
       if (!activeId) {
         if (!projectId || !modelId) {
           setDraft(text);
@@ -204,7 +238,7 @@ export function RemoteApp() {
         }
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
-          body: JSON.stringify({ projectId, modelId, prompt: text }),
+          body: JSON.stringify({ requestId, projectId, modelId, prompt: text }),
         });
         setActiveId(created.thread.id);
         setPending({ text, threadId: created.thread.id, known: 0 });
@@ -216,16 +250,44 @@ export function RemoteApp() {
         setPending({ text, threadId: activeId, known });
         await api(`/api/remote/threads/${activeId}/prompt`, {
           method: "POST",
-          body: JSON.stringify({ prompt: text }),
+          body: JSON.stringify({ requestId, prompt: text }),
         });
       }
+      acknowledgeSubmission(localStorage, scope, requestId);
       void refresh();
     } catch (err) {
+      if (submitted && err instanceof RemoteApiError && err.retryable) {
+        acknowledgeSubmission(localStorage, submitted.scope, submitted.id);
+      }
       setDraft(text);
       setPending(null);
       setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSending(false);
+      sendInflight.current = false;
+    }
+  };
+
+  const control = async (decisionId?: string, optionId?: string) => {
+    if (!activeId || controlling) return;
+    const threadId = activeId;
+    setControlling(true);
+    setSendError(null);
+    try {
+      await api(`/api/remote/threads/${threadId}/${decisionId ? "permission" : "stop"}`, {
+        method: "POST",
+        body: JSON.stringify(decisionId ? { decisionId, optionId, cancelled: !optionId } : {}),
+      });
+      // Poll owns report updates, so a late response cannot overwrite another thread.
+      void refresh();
+    } catch (error) {
+      setSendError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't reach your Mac. Check Tailscale and retry.",
+      );
+    } finally {
+      setControlling(false);
     }
   };
 
@@ -276,8 +338,11 @@ export function RemoteApp() {
   if (!paired) {
     return (
       <main className="pair-wrap">
-        <h1>Omni Remote</h1>
-        <p>Paste the pairing token from the laptop terminal, or scan its QR.</p>
+        <h1>Pipper Remote</h1>
+        <p>
+          Keep Pipper open on your Mac and connect both devices to Tailscale. Paste the token from
+          Settings → Remote access, or scan its QR.
+        </p>
         <input
           className="pair-input"
           value={tokenInput}
@@ -305,11 +370,16 @@ export function RemoteApp() {
   return (
     <div className="remote-shell">
       <header className="remote-header">
-        <button className="header-btn" aria-label="History" onClick={() => setSidebar(true)}>
+        <button
+          className="header-btn"
+          aria-label="History"
+          disabled={sending}
+          onClick={() => setSidebar(true)}
+        >
           <List size={22} />
         </button>
         <span className="header-spacer" />
-        <button className="header-btn" aria-label="New chat" onClick={newChat}>
+        <button className="header-btn" aria-label="New chat" disabled={sending} onClick={newChat}>
           <Plus size={22} />
         </button>
       </header>
@@ -364,7 +434,52 @@ export function RemoteApp() {
       </AnimatePresence>
 
       <div className="remote-body" ref={bodyRef}>
-        {loadError && <p className="notice bad">{loadError}</p>}
+        {loadError && (
+          <p className="notice bad">
+            {loadError} Keep Pipper open and check Tailscale on both devices.
+          </p>
+        )}
+        {!activeId && (
+          <section aria-label="Connection checks">
+            <button className="pair-btn ghost" onClick={() => void refresh()}>
+              Test connection
+            </button>
+            {lastConnected && (
+              <p className="remote-hint">
+                Last connected {new Date(lastConnected).toLocaleTimeString()}
+              </p>
+            )}
+            {diagnostics && (
+              <p className="remote-hint">
+                Pairing accepted · {diagnostics.agentReady ? "Pipper ready" : "Pipper starting"} ·{" "}
+                {diagnostics.availableAgents} available agents · {diagnostics.projects} projects
+              </p>
+            )}
+            {diagnostics?.availableAgents === 0 && (
+              <p className="notice warn">Install and select an agent in Pipper on your Mac.</p>
+            )}
+            {diagnostics?.projects === 0 && (
+              <p className="notice warn">Add a Git project in Pipper on your Mac.</p>
+            )}
+            <button
+              className="pair-btn ghost"
+              disabled={
+                !projectId ||
+                !modelId ||
+                !!loadError ||
+                !diagnostics?.agentReady ||
+                !diagnostics.availableAgents
+              }
+              onClick={() =>
+                setDraft(
+                  "Describe this project's purpose in one sentence. Do not change files or run commands.",
+                )
+              }
+            >
+              Prepare a sample task
+            </button>
+          </section>
+        )}
         {!activeId ? (
           <>
             <div className="remote-card picker-group">
@@ -418,11 +533,18 @@ export function RemoteApp() {
             ) : (
               <>
                 {reportError && (
-                  <p className="notice warn">Couldn't refresh — showing last update.</p>
+                  <p className="notice warn">
+                    {reportError} Showing the last update; check Tailscale and keep Pipper open on
+                    your Mac.
+                  </p>
                 )}
                 <details className="remote-card thread-meta">
                   <summary>
-                    {report.running ? "Running on laptop…" : "Done"}
+                    {report.permissions?.length
+                      ? "Needs your input"
+                      : report.running
+                        ? "Running on laptop…"
+                        : "Not running"}
                     {report.projectName ? ` · ${report.projectName}` : ""}
                   </summary>
                   {report.summary && <p className="report-summary">{report.summary}</p>}
@@ -443,6 +565,44 @@ export function RemoteApp() {
                     </ul>
                   )}
                 </details>
+                {lastUpdated && (
+                  <p className="remote-hint">
+                    Updated {new Date(lastUpdated).toLocaleTimeString()}
+                  </p>
+                )}
+                {report.request?.error && <p className="notice bad">{report.request.error}</p>}
+                {report.permissions?.map((decision) => (
+                  <Elevated offset={2} key={decision.id} className="remote-decision">
+                    <h3>{decision.title}</h3>
+                    {decision.detail && <pre>{decision.detail}</pre>}
+                    {decision.options.map((option) => (
+                      <button
+                        className="pair-btn ghost"
+                        key={option.optionId}
+                        disabled={controlling || !!reportError}
+                        onClick={() => void control(decision.id, option.optionId)}
+                      >
+                        {option.name}
+                      </button>
+                    ))}
+                    <button
+                      className="pair-btn ghost"
+                      disabled={controlling || !!reportError}
+                      onClick={() => void control(decision.id)}
+                    >
+                      Dismiss request
+                    </button>
+                  </Elevated>
+                ))}
+                {(report.running || !!report.permissions?.length) && (
+                  <button
+                    className="pair-btn ghost"
+                    disabled={controlling}
+                    onClick={() => void control()}
+                  >
+                    Stop this thread
+                  </button>
+                )}
                 {report.messages.length === 0 && !pendingVisible && (
                   <p className="remote-hint">Waiting for the first reply…</p>
                 )}
@@ -473,7 +633,7 @@ export function RemoteApp() {
                   </div>
                 )}
                 {!report.running && !report.finalText && report.messages.length > 0 && (
-                  <p className="report-status">Done</p>
+                  <p className="report-status">Not running</p>
                 )}
                 <div ref={bottomRef} />
               </>
@@ -502,7 +662,7 @@ export function RemoteApp() {
             className="composer-send"
             onClick={() => void send()}
             aria-label="Send"
-            disabled={!draft.trim() || sending}
+            disabled={!draft.trim() || sending || report?.running === true}
             whileTap={{ scale: 0.9 }}
             transition={{ duration: 0.08 }}
           >
