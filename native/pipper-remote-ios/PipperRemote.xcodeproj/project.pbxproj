@@ -55,25 +55,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		B20400000000000000000010 = {
-			isa = PBXGroup;
-			children = (
-				B20400000000000000000002 /* App */,
-				B20400000000000000000003 /* Intents */,
-				B20400000000000000000004 /* Views */,
-				B20400000000000000000001 /* Core */,
-				B20400000000000000000011 /* Products */,
-			);
-			sourceTree = "<group>";
-		};
-		B20400000000000000000011 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				B20200000000000000000101 /* PipperRemote.app */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
 		B20400000000000000000001 /* Core */ = {
 			isa = PBXGroup;
 			children = (
@@ -116,6 +97,25 @@
 				B2020000000000000000000F /* SettingsView.swift */,
 			);
 			name = Views;
+			sourceTree = "<group>";
+		};
+		B20400000000000000000010 = {
+			isa = PBXGroup;
+			children = (
+				B20400000000000000000002 /* App */,
+				B20400000000000000000003 /* Intents */,
+				B20400000000000000000004 /* Views */,
+				B20400000000000000000001 /* Core */,
+				B20400000000000000000011 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B20400000000000000000011 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B20200000000000000000101 /* PipperRemote.app */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -162,6 +162,7 @@
 				Base,
 			);
 			mainGroup = B20400000000000000000010;
+			preferredProjectObjectVersion = 77;
 			productRefGroup = B20400000000000000000011 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -238,25 +239,25 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MTL_FAST_MATH = YES;
-				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				ENABLE_TESTABILITY = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
 					"$(inherited)",
 				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -267,6 +268,8 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -274,11 +277,9 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -290,7 +291,7 @@
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = YSB9XBNUFD;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -300,11 +301,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.0.23;
-				PRODUCT_BUNDLE_IDENTIFIER = com.maker-or.omni.remote;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.maker-or.omni.remote";
 				PRODUCT_NAME = PipperRemote;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-
 			};
 			name = Debug;
 		};
@@ -315,7 +315,7 @@
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = YSB9XBNUFD;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -325,11 +325,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.0.23;
-				PRODUCT_BUNDLE_IDENTIFIER = com.maker-or.omni.remote;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.maker-or.omni.remote";
 				PRODUCT_NAME = PipperRemote;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-
 			};
 			name = Release;
 		};
