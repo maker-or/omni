@@ -138,6 +138,29 @@ describe("createWorktree", () => {
     expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
   });
 
+  test("fetches and uses the remote default branch instead of a stale local branch", () => {
+    const remotePath = join(root, "origin.git");
+    const updaterPath = join(root, "remote-updater");
+    execFileSync("git", ["init", "--bare", "--initial-branch=main", remotePath], {
+      env: GIT_ENV,
+    });
+    git(projectPath, ["remote", "add", "origin", remotePath]);
+    git(projectPath, ["push", "-u", "origin", "main"]);
+    git(projectPath, ["remote", "set-head", "origin", "main"]);
+
+    execFileSync("git", ["clone", remotePath, updaterPath], { env: GIT_ENV });
+    writeFileSync(join(updaterPath, "README.md"), "updated on remote");
+    git(updaterPath, ["commit", "-am", "remote update"]);
+    git(updaterPath, ["push", "origin", "main"]);
+    const remoteHead = git(updaterPath, ["rev-parse", "HEAD"]);
+
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Remote" });
+
+    expect(worktree.head).toBe(remoteHead);
+    expect(readFileSync(join(worktree.path, "README.md"), "utf8")).toBe("updated on remote");
+    expect(git(projectPath, ["rev-parse", "main"])).not.toBe(remoteHead);
+  });
+
   test("suffixes the branch name when the auto branch already exists", () => {
     // A pre-existing branch (path is still free) forces the -2 suffix.
     git(projectPath, ["branch", "pipper/dup"]);

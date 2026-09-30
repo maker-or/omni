@@ -13,7 +13,7 @@ mac:
   # Keep local and CI artifacts unsigned. The Sleepless daemon authenticates
   # unsigned builds using the exact bundled executable path and peer user.
   identity: null
-  icon: build/icon.png
+  icon: pipper.icon
   target:
     - target: dmg
       arch:
@@ -32,6 +32,9 @@ mac:
   binaries:
     - Contents/MacOS/omni-sleeplessctl
     - Contents/Resources/sleepless/omni-sleeplessd
+
+dmg:
+  background: build/background.png
 
 win:
   artifactName: pipper-${version}-win-${arch}.${ext}

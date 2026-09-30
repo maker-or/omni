@@ -221,17 +221,28 @@ function worktreeRootOf(path: string): string {
 }
 
 /**
- * The repo's default branch to base new worktrees on: `origin/HEAD` when a
- * remote advertises one, else the currently checked-out branch, else HEAD.
+ * The repo's default branch to base new worktrees on. Refresh and use the
+ * remote-tracking default branch when origin advertises one; local branch
+ * names are ambiguous to Git and can silently select a stale local branch.
  */
 function resolveBaseBranch(projectPath: string): string {
+  let remoteDefault: string | null = null;
   try {
-    const ref = git(projectPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
-    // e.g. "origin/main" → "main"
-    const slash = ref.indexOf("/");
-    if (slash >= 0) return ref.slice(slash + 1);
+    const ref = git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+    const prefix = "refs/remotes/origin/";
+    if (ref.startsWith(prefix)) remoteDefault = ref.slice(prefix.length);
   } catch {
-    // no remote / no origin HEAD
+    // No usable origin default branch; retain the local-repository fallback.
+  }
+  if (remoteDefault) {
+    // Update this remote-tracking ref before using it. The explicit refspec
+    // avoids Git resolving the same short branch name under refs/heads.
+    git(projectPath, [
+      "fetch",
+      "origin",
+      `+refs/heads/${remoteDefault}:refs/remotes/origin/${remoteDefault}`,
+    ]);
+    return `refs/remotes/origin/${remoteDefault}`;
   }
   try {
     const current = git(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
