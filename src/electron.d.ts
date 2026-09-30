@@ -281,6 +281,7 @@ declare global {
           Record<string, Array<{ modelId: string; name: string; provider?: string }>>
         >;
         probeAgent: (agentId: string) => Promise<AgentProbeResult>;
+        authenticate: (agentId: string, methodId: string) => Promise<void>;
         switchAgent: (agentId: string) => Promise<void>;
         getPreferredAgentId: () => Promise<string>;
         setPreferredAgentId: (agentId: string) => Promise<void>;

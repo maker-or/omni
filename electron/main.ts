@@ -2288,6 +2288,9 @@ function registerIpc(): void {
     }
     return result;
   });
+  ipcMain.handle("agent:authenticate", (_event, agentId: string, methodId: string) =>
+    requireAgentManager().authenticateAgent(agentId, methodId),
+  );
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
   );

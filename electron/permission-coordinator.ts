@@ -2,7 +2,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { AcpBridgeEvent, AcpPermissionRequest } from "../contracts/acp.ts";
 import type { AgentOsNotification } from "./os-notifications.ts";
 
-/** Default allow_once after this long if the UI never responds. */
+/** Cancel unanswered permissions after this long; never grant unattended access. */
 const PERMISSION_TIMEOUT_MS = 120_000;
 
 interface PendingPermission {
@@ -66,15 +66,8 @@ export class PermissionCoordinator {
       const timer = setTimeout(() => {
         const pending = this.pending.get(key);
         if (!pending) return;
-        const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options[0];
         this.pending.delete(key);
-        if (allow) {
-          resolve({
-            outcome: { outcome: "selected", optionId: allow.optionId },
-          });
-        } else {
-          resolve({ outcome: { outcome: "cancelled" } });
-        }
+        resolve({ outcome: { outcome: "cancelled" } });
         this.deps.emit({ type: "permission-resolved", sessionId, requestId: stableRequestId });
       }, PERMISSION_TIMEOUT_MS);
       const displaced = this.pending.get(key);

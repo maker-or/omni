@@ -5,7 +5,7 @@ import { PermissionCoordinator } from "./permission-coordinator.ts";
 
 /**
  * Pending-permission lifecycle: requests surface as bridge events, settle via
- * user response, timeout to allow_once, displace duplicates, and cancel when
+ * user response, timeout cancellation, displace duplicates, and cancel when
  * their session goes away.
  */
 
@@ -79,14 +79,12 @@ describe("PermissionCoordinator", () => {
     });
   });
 
-  test("times out to allow_once so an agent never blocks forever", async () => {
+  test("cancels an unanswered request instead of granting permission", async () => {
     const { coordinator, events } = makeCoordinator();
     const promise = coordinator.handle(requestParams(), "r1");
     await vi.advanceTimersByTimeAsync(121_000);
 
-    await expect(promise).resolves.toEqual({
-      outcome: { outcome: "selected", optionId: "allow" },
-    });
+    await expect(promise).resolves.toEqual({ outcome: { outcome: "cancelled" } });
     expect(events.at(-1)?.type).toBe("permission-resolved");
   });
 
