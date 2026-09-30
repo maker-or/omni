@@ -222,8 +222,11 @@ const api = {
       ipcRenderer.invoke("worktrees:continue", input),
   },
   git: {
-    status: (input: { projectId: string; path: string }): Promise<WorkspaceGitStatus> =>
-      ipcRenderer.invoke("git:status", input),
+    status: (input: {
+      projectId: string;
+      path: string;
+      force?: boolean;
+    }): Promise<WorkspaceGitStatus> => ipcRenderer.invoke("git:status", input),
     commit: (input: {
       projectId: string;
       path: string;

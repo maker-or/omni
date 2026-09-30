@@ -12,6 +12,19 @@ Pipper is built on ACP, so it supports many agents out of the box like Claude Co
 
 You can download actaul application from the pipper[https://www.pipper.dev/download] both the mac and windows builds are unsigned to for mac after droping the DMG into your Applications folder. run the following command in the terminal `xattr -cr "/Applications/Pipper Code (Alpha).app"` for the windows build i have seens the its running in the older windows machine , i can do much here
 
+## Preview the DMG installer
+
+After building the app once with `bun run dist`, run `bun run preview:dmg` to preview
+installer design changes. This reuses `release/mac-arm64/Pipper Code (Alpha).app`,
+regenerates the installer and icon assets, and opens its window in Finder. Icon
+changes are applied to a temporary copy of the app bundle.
+
+Edit the `dmg` options in `electron-builder.yml`, background images in `build/`, or `pipper.icon`,
+then run the preview command again. Preview images are uncompressed for faster
+packaging and are written to `release/dmg-preview/`. The command ejects its previous
+preview before opening the updated one. Run `bun run dist` when you need to include
+changes to the application itself or produce the final distributable DMG.
+
 ## Architecture
 
 Pipper is a normal Electron desktop client with a stable launcher and a bundled renderer. The packaged application loads its UI from `out/renderer`; it does not start a guest Vite server or require a mutable active workspace.
