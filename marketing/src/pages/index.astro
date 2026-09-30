@@ -249,6 +249,46 @@ import ProductDemo from "../components/ProductDemo.tsx";
         </div>
     </section>
 
+
+
+    <section class="sleepless-section" aria-labelledby="sleepless-title">
+        <div class="sleepless-card">
+            <div class="sleepless-copy">
+                <span class="sleepless-quote sleepless-quote--open" aria-hidden="true">“</span>
+                <h2 id="sleepless-title">Let your agents run even when your lid is closed</h2>
+                <span class="sleepless-quote sleepless-quote--close" aria-hidden="true">”</span>
+            </div>
+            <div class="sleepless-art">
+                <img
+                    src="/lid-closed-laptop.svg"
+                    alt="An open laptop outlined in colorful lines"
+                    loading="lazy"
+                    decoding="async"
+                />
+            </div>
+        </div>
+    </section>
+
+    <section class="mobile-control-section" aria-labelledby="mobile-control-title">
+        <div class="mobile-control-card">
+            <div class="mobile-control-copy">
+                <span class="mobile-control-quote mobile-control-quote--open" aria-hidden="true">“</span>
+                <h2 id="mobile-control-title">
+                    Control your team<br />of coding agents<br />from your mobile
+                </h2>
+                <span class="mobile-control-quote mobile-control-quote--close" aria-hidden="true">”</span>
+                <span class="mobile-control-soon">Soon</span>
+            </div>
+            <div class="mobile-control-art">
+                <img
+                    src="/mobile-agent-control.png"
+                    alt="A phone outlined in colorful lines"
+                    loading="lazy"
+                    decoding="async"
+                />
+            </div>
+        </div>
+    </section>
     <section class="feature-section" aria-labelledby="workflow-title">
         <div class="feature-board">
             <div
@@ -346,45 +386,6 @@ import ProductDemo from "../components/ProductDemo.tsx";
                         </span>
                     ))
                 }
-            </div>
-        </div>
-    </section>
-
-    <section class="sleepless-section" aria-labelledby="sleepless-title">
-        <div class="sleepless-card">
-            <div class="sleepless-copy">
-                <span class="sleepless-quote sleepless-quote--open" aria-hidden="true">“</span>
-                <h2 id="sleepless-title">Let your agents run even when your lid is closed</h2>
-                <span class="sleepless-quote sleepless-quote--close" aria-hidden="true">”</span>
-            </div>
-            <div class="sleepless-art">
-                <img
-                    src="/lid-closed-laptop.svg"
-                    alt="An open laptop outlined in colorful lines"
-                    loading="lazy"
-                    decoding="async"
-                />
-            </div>
-        </div>
-    </section>
-
-    <section class="mobile-control-section" aria-labelledby="mobile-control-title">
-        <div class="mobile-control-card">
-            <div class="mobile-control-copy">
-                <span class="mobile-control-quote mobile-control-quote--open" aria-hidden="true">“</span>
-                <h2 id="mobile-control-title">
-                    Control your team<br />of coding agents<br />from your mobile
-                </h2>
-                <span class="mobile-control-quote mobile-control-quote--close" aria-hidden="true">”</span>
-                <span class="mobile-control-soon">Soon</span>
-            </div>
-            <div class="mobile-control-art">
-                <img
-                    src="/mobile-agent-control.png"
-                    alt="A phone outlined in colorful lines"
-                    loading="lazy"
-                    decoding="async"
-                />
             </div>
         </div>
     </section>
@@ -650,7 +651,7 @@ import ProductDemo from "../components/ProductDemo.tsx";
         min-height: 82svh;
         place-items: center;
         padding: clamp(2rem, 7vw, 6rem) clamp(1.25rem, 6vw, 5rem);
-        background: #fbfaf9;
+        background: var(--canvas-bg);
     }
 
     .sleepless-card {
@@ -707,7 +708,7 @@ import ProductDemo from "../components/ProductDemo.tsx";
     .sleepless-art {
         overflow: hidden;
         border-left: 1px solid #bdbdbd;
-        background: #fbfaf9;
+        background: var(--canvas-bg);
     }
 
     .sleepless-art img {
@@ -723,7 +724,7 @@ import ProductDemo from "../components/ProductDemo.tsx";
         min-height: 82svh;
         place-items: center;
         padding: clamp(2rem, 7vw, 6rem) clamp(1.25rem, 6vw, 5rem);
-        background: #fbfaf9;
+        background: var(--canvas-bg);
     }
 
     .mobile-control-card {
