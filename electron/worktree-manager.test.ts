@@ -122,6 +122,51 @@ afterEach(() => {
 });
 
 describe("createWorktree", () => {
+  test("uses origin's renamed default and repairs a stale origin HEAD", () => {
+    const remotePath = join(root, "renamed-origin.git");
+    execFileSync("git", ["init", "--bare", "--initial-branch=main", remotePath], { env: GIT_ENV });
+    git(projectPath, ["remote", "add", "origin", remotePath]);
+    git(projectPath, ["push", "origin", "main"]);
+    git(projectPath, ["remote", "set-head", "origin", "main"]);
+    git(projectPath, ["switch", "-c", "trunk"]);
+    writeFileSync(join(projectPath, "README.md"), "new default");
+    git(projectPath, ["commit", "-am", "trunk update"]);
+    git(projectPath, ["push", "origin", "trunk"]);
+    const expected = git(projectPath, ["rev-parse", "HEAD"]);
+    git(remotePath, ["symbolic-ref", "HEAD", "refs/heads/trunk"]);
+    git(remotePath, ["update-ref", "-d", "refs/heads/main"]);
+    git(projectPath, ["switch", "main"]);
+    git(projectPath, ["update-ref", "-d", "refs/remotes/origin/trunk"]);
+
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Renamed" });
+    expect(worktree.head).toBe(expected);
+    expect(git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD"])).toBe(
+      "refs/remotes/origin/trunk",
+    );
+  });
+
+  test("creates and continues offline using a verified cached remote base", () => {
+    const expected = git(projectPath, ["rev-parse", "HEAD"]);
+    git(projectPath, ["remote", "add", "origin", join(root, "offline.git")]);
+    git(projectPath, ["update-ref", "refs/remotes/origin/main", expected]);
+    git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    writeFileSync(join(projectPath, "README.md"), "local-only change");
+    git(projectPath, ["commit", "-am", "local ahead"]);
+
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Offline" });
+    expect(worktree.head).toBe(expected);
+    const continued = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    expect(continued.head).toBe(expected);
+    expect(continued.branch).toBe("pipper/offline-2");
+  });
+
+  test("falls back to a local commit when origin and its cached HEAD are unusable", () => {
+    git(projectPath, ["remote", "add", "origin", join(root, "missing.git")]);
+    git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/deleted"]);
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Local" });
+    expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
+  });
+
   test("adds a worktree on an auto-generated branch off the default branch", () => {
     const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Feature X" });
 

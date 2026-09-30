@@ -1633,17 +1633,20 @@ function registerIpc(): void {
     return target;
   }
 
-  ipcMain.handle("git:status", async (_event, input: { projectId: string; path: string }) => {
-    try {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
-      return await getWorkspaceGitStatus(target.path);
-    } catch (err) {
-      logMain(
-        `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      throw err;
-    }
-  });
+  ipcMain.handle(
+    "git:status",
+    async (_event, input: { projectId: string; path: string; force?: boolean }) => {
+      try {
+        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        return await getWorkspaceGitStatus(target.path, { force: input.force === true });
+      } catch (err) {
+        logMain(
+          `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    },
+  );
 
   ipcMain.handle(
     "git:commit",

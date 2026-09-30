@@ -55,7 +55,13 @@ async function main() {
   let artifacts;
   try {
     // Clone the existing bundle on APFS; only icon resources are regenerated.
-    run("cp", ["-cR", appBundle, previewApp]);
+    try {
+      run("cp", ["-cR", appBundle, previewApp]);
+    } catch {
+      // Unsupported clone filesystems can leave a partial destination.
+      rmSync(previewApp, { recursive: true, force: true });
+      run("cp", ["-R", appBundle, previewApp]);
+    }
     const { assetCatalog, icnsFile } = await generateAssetCatalogForIcon(join(root, "pipper.icon"));
     const resources = join(previewApp, "Contents", "Resources");
     writeFileSync(join(resources, "Assets.car"), assetCatalog);

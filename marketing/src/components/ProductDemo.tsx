@@ -367,6 +367,8 @@ function loadYouTubeAPI(): Promise<any> {
 
 export default function ProductDemo() {
   const [activeSession, setActiveSession] = useState("tab-1");
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
   const playerHostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
 
@@ -387,6 +389,11 @@ export default function ProductDemo() {
             width: "100%",
             height: "100%",
             playerVars: { rel: 0, preload: 1 },
+            events: {
+              onReady: (event: { target: { playVideo: () => void } }) => {
+                if (!cancelled && activeSessionRef.current === "tab-2") event.target.playVideo();
+              },
+            },
           });
         })
         .catch(() => {});
@@ -506,13 +513,18 @@ export default function ProductDemo() {
                     <Composer />
                   </div>
                 )}
-                {activeSession === "tab-2" && (
-                  <div className="flex h-full items-center justify-center p-4">
-                    <div className="aspect-video w-full max-w-3xl overflow-hidden rounded-xl border border-white/10 bg-black">
-                      <div ref={playerHostRef} className="h-full w-full" />
-                    </div>
+                <div
+                  aria-hidden={activeSession !== "tab-2"}
+                  className={
+                    activeSession === "tab-2"
+                      ? "flex h-full items-center justify-center p-4"
+                      : "hidden"
+                  }
+                >
+                  <div className="aspect-video w-full max-w-3xl overflow-hidden rounded-xl border border-white/10 bg-black">
+                    <div ref={playerHostRef} className="h-full w-full" />
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </section>

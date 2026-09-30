@@ -163,7 +163,7 @@ export function gitBinary(): string {
   return "git";
 }
 
-function git(projectPath: string, args: string[]): string {
+function git(projectPath: string, args: string[], timeout?: number): string {
   // Capture (don't inherit) stderr: several probes below expect failure and
   // catch it — inheriting would spam the app log with `fatal:` noise.
   return execFileSync(gitBinary(), args, {
@@ -171,6 +171,7 @@ function git(projectPath: string, args: string[]): string {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: foreignGitEnv(),
+    timeout,
   }).trim();
 }
 
@@ -226,31 +227,44 @@ function worktreeRootOf(path: string): string {
  * names are ambiguous to Git and can silently select a stale local branch.
  */
 function resolveBaseBranch(projectPath: string): string {
-  let remoteDefault: string | null = null;
+  const prefix = "refs/remotes/origin/";
+  const usable = (ref: string) => {
+    try {
+      git(projectPath, ["rev-parse", "--verify", `${ref}^{commit}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let cached: string | null = null;
   try {
     const ref = git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
-    const prefix = "refs/remotes/origin/";
-    if (ref.startsWith(prefix)) remoteDefault = ref.slice(prefix.length);
+    if (ref.startsWith(prefix) && usable(ref)) cached = ref;
   } catch {
-    // No usable origin default branch; retain the local-repository fallback.
-  }
-  if (remoteDefault) {
-    // Update this remote-tracking ref before using it. The explicit refspec
-    // avoids Git resolving the same short branch name under refs/heads.
-    git(projectPath, [
-      "fetch",
-      "origin",
-      `+refs/heads/${remoteDefault}:refs/remotes/origin/${remoteDefault}`,
-    ]);
-    return `refs/remotes/origin/${remoteDefault}`;
+    // Origin may have no local HEAD yet.
   }
   try {
-    const current = git(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
-    if (current && current !== "HEAD") return current;
+    // Ask the remote: the local symbolic ref can outlive a default-branch rename.
+    const advertised = git(projectPath, ["ls-remote", "--symref", "origin", "HEAD"], 60_000);
+    const branch = /^ref: refs\/heads\/(.+)	HEAD$/m.exec(advertised)?.[1];
+    if (branch) {
+      git(projectPath, ["check-ref-format", `refs/heads/${branch}`]);
+      const tracking = `${prefix}${branch}`;
+      git(projectPath, ["fetch", "origin", `+refs/heads/${branch}:${tracking}`], 60_000);
+      if (usable(tracking)) {
+        // Only point origin/HEAD at a tracking ref that now exists.
+        git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD", tracking]);
+        return tracking;
+      }
+    }
   } catch {
-    // detached or no commits
+    // Offline/authentication/timeout: use only a verified cached or local commit.
   }
-  return "HEAD";
+  if (cached) return cached;
+  const current = git(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const local = current && current !== "HEAD" ? `refs/heads/${current}` : "HEAD";
+  if (usable(local)) return local;
+  throw new Error("No usable base commit for this workspace.");
 }
 
 /** True when a branch ref already exists locally. */
@@ -876,21 +890,7 @@ export function continueWorktreeOnNewBranch(projectPath: string, worktreePath: s
       "Workspace has uncommitted changes — commit or discard them before continuing.",
     );
   }
-  const base = resolveBaseBranch(projectPath);
-  let startPoint = base;
-  try {
-    execFileSync(gitBinary(), ["fetch", "origin", base], {
-      cwd: target.path,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: foreignGitEnv(),
-      timeout: 60_000,
-    });
-    git(target.path, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${base}`]);
-    startPoint = `origin/${base}`;
-  } catch {
-    // Offline or no remote: branch from the local base instead.
-  }
+  const startPoint = resolveBaseBranch(projectPath);
   const name = target.workspaceName ?? worktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
   const branch = resolveBranchName(projectPath, name);
   git(target.path, ["switch", "-c", branch, startPoint]);

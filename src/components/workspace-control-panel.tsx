@@ -314,49 +314,77 @@ export function WorkspaceControlPanel({
     [project?.id, worktreePath],
   );
 
-  const refresh = useCallback(async () => {
-    if (!project || !worktreePath) {
-      applyStatus(null);
-      return;
-    }
-    if (!window.omni?.git?.status) {
-      // Preload predates the git bridge (needs app restart, not just HMR).
-      applyStatus(null);
-      setError("Git bridge missing — restart the app (bun run dev) to load it.");
-      return;
-    }
-    const generation = generationRef.current;
-    // The loading placeholder only shows before the first read; background
-    // polls refresh silently instead of flashing state twice per tick.
-    if (!statusRef.current) setLoading(true);
-    setError(null);
-    try {
-      const next = await window.omni.git.status({ projectId: project.id, path: worktreePath });
-      if (generation !== generationRef.current) return;
-      // A `broken` read can be a passing hiccup (spawn failure, timeout, an
-      // index lock held by the agent mid-commit). Replacing a working panel
-      // with an error on the first one makes routine git activity look like
-      // a dead workspace, so absorb a single blip and act on the second.
-      if (next.repoState === "broken" && statusRef.current?.repoState === "ready") {
-        brokenReadsRef.current += 1;
-        if (brokenReadsRef.current < 2) return;
-      } else {
-        brokenReadsRef.current = 0;
+  const statusRequestRef = useRef(0);
+  const forcedRefreshesRef = useRef(0);
+  const forcedGenerationRef = useRef(0);
+
+  const refresh = useCallback(
+    async (force = false) => {
+      // Polls must not replace the authoritative post-action read with cached PR data.
+      if (
+        !force &&
+        forcedGenerationRef.current === generationRef.current &&
+        forcedRefreshesRef.current > 0
+      )
+        return;
+      if (!project || !worktreePath) {
+        applyStatus(null);
+        return;
       }
-      applyStatus(next);
-    } catch (err) {
-      if (generation !== generationRef.current) return;
-      // Preserve last-known-good state during transient IPC/main-process
-      // failures. A workspace switch clears status before starting its own
-      // generation, so this can never retain data from another workspace.
-      setError(err instanceof Error ? err.message : "Git status failed.");
-    } finally {
-      if (generation === generationRef.current) setLoading(false);
-    }
-  }, [project, worktreePath, applyStatus]);
+      if (!window.omni?.git?.status) {
+        // Preload predates the git bridge (needs app restart, not just HMR).
+        applyStatus(null);
+        setError("Git bridge missing — restart the app (bun run dev) to load it.");
+        return;
+      }
+      const generation = generationRef.current;
+      const request = ++statusRequestRef.current;
+      if (force) {
+        if (forcedGenerationRef.current !== generation) forcedRefreshesRef.current = 0;
+        forcedGenerationRef.current = generation;
+        forcedRefreshesRef.current += 1;
+      }
+      const stale = () =>
+        generation !== generationRef.current || request !== statusRequestRef.current;
+      // The loading placeholder only shows before the first read; background
+      // polls refresh silently instead of flashing state twice per tick.
+      if (!statusRef.current) setLoading(true);
+      setError(null);
+      try {
+        const next = await window.omni.git.status({
+          projectId: project.id,
+          path: worktreePath,
+          force,
+        });
+        if (stale()) return;
+        // A `broken` read can be a passing hiccup (spawn failure, timeout, an
+        // index lock held by the agent mid-commit). Replacing a working panel
+        // with an error on the first one makes routine git activity look like
+        // a dead workspace, so absorb a single blip and act on the second.
+        if (next.repoState === "broken" && statusRef.current?.repoState === "ready") {
+          brokenReadsRef.current += 1;
+          if (brokenReadsRef.current < 2) return;
+        } else {
+          brokenReadsRef.current = 0;
+        }
+        applyStatus(next);
+      } catch (err) {
+        if (stale()) return;
+        // Preserve last-known-good state during transient IPC/main-process
+        // failures. A workspace switch clears status before starting its own
+        // generation, so this can never retain data from another workspace.
+        setError(err instanceof Error ? err.message : "Git status failed.");
+      } finally {
+        if (force && forcedGenerationRef.current === generation) forcedRefreshesRef.current -= 1;
+        if (!stale()) setLoading(false);
+      }
+    },
+    [project, worktreePath, applyStatus],
+  );
 
   useEffect(() => {
     generationRef.current += 1;
+    statusRequestRef.current += 1;
     brokenReadsRef.current = 0;
     // Paint this workspace's last known status immediately when we have one:
     // a cold read is ~70ms of git but the panel would otherwise blank out on
@@ -369,6 +397,7 @@ export function WorkspaceControlPanel({
     setError(null);
     setNotice(null);
     setAgentTask(null);
+    setAction(null);
     setShowPrForm(false);
     setPrDraft(false);
     setPickedTab(null);
@@ -437,27 +466,32 @@ export function WorkspaceControlPanel({
       fn: () => Promise<{ message: string; url?: string | null }>,
     ): Promise<boolean> => {
       if (!project || !worktreePath) return false;
+      const generation = generationRef.current;
       setAction(kind);
       setError(null);
       setNotice(null);
       try {
         const result = await fn();
+        if (generation !== generationRef.current) return true;
         setNotice(result.message);
         notify("ok", actionLabel(kind), result.message);
         // Opening the browser is a courtesy, not part of the action: the PR
         // exists whether or not the OS could open it.
         if (result.url && window.omni?.shell?.openExternal) {
-          await window.omni.shell.openExternal(result.url).catch(() => {});
+          void window.omni.shell.openExternal(result.url).catch(() => {});
         }
         return true;
       } catch (err) {
+        if (generation !== generationRef.current) return false;
         const message = err instanceof Error ? err.message : `${kind} failed.`;
         setError(message);
         notify("error", `${actionLabel(kind)} failed`, message);
         return false;
       } finally {
-        setAction(null);
-        void refresh();
+        if (generation === generationRef.current) {
+          await refresh(true);
+          if (generation === generationRef.current) setAction(null);
+        }
       }
     },
     [project, worktreePath, refresh],
@@ -568,11 +602,12 @@ export function WorkspaceControlPanel({
     const generation = generationRef.current;
     // A workspace switch already reset the panel; don't clobber its state.
     const stale = () => generation !== generationRef.current;
-    const settle = () => {
+    const settle = async () => {
+      if (stale()) return;
+      await refresh(true);
       if (stale()) return;
       setAgentTask(null);
       setNotice(null);
-      void refresh();
     };
     void sendWorkspaceAgentPrompt({
       project,
@@ -1036,7 +1071,7 @@ export function WorkspaceControlPanel({
               </p>
             )}
             {!loading && (
-              <Button type="button" size="sm" variant="ghost" onClick={() => void refresh()}>
+              <Button type="button" size="sm" variant="ghost" onClick={() => void refresh(true)}>
                 Retry
               </Button>
             )}
@@ -1060,7 +1095,7 @@ export function WorkspaceControlPanel({
               size="sm"
               variant="ghost"
               disabled={loading}
-              onClick={() => void refresh()}
+              onClick={() => void refresh(true)}
             >
               {loading ? "Checking…" : "Try again"}
             </Button>
