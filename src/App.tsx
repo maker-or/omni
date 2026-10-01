@@ -547,35 +547,35 @@ export default function App() {
 
       {/* Title Bar / Header */}
       <header
-        className="h-14 flex items-center justify-between pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
+        className="h-14 grid grid-cols-[clamp(160px,22vw,240px)_minmax(0,1fr)_72px] items-center pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-pipper-id="header"
       >
         <div
-          className="relative flex min-w-0 items-center gap-3 p-2"
+          className="relative flex w-full min-w-0 items-center gap-3 p-2"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Project Selector Wrapper"
         >
           {chromeProject ? (
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex min-w-0 flex-col items-start">
+            <div className="flex w-full min-w-0 items-center gap-2">
+              <div className="flex w-full min-w-0 flex-col items-start">
                 <button
                   type="button"
                   ref={buttonRef}
                   onClick={handleToggleDropdown}
-                  className="group flex max-w-[280px] items-center gap-1 rounded px-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
+                  className="group flex w-full min-w-0 items-center gap-1 rounded px-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">
                     {chromeProject.name}
                   </span>
                 </button>
                 {/* Worktree/branch only make sense once a project is bound. */}
-                <div className="flex max-w-[470px] items-center gap-1 text-[11px] text-muted-foreground">
+                <div className="flex w-full min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
                   <button
                     type="button"
                     ref={workspaceButtonRef}
                     onClick={handleToggleWorkspaceDropdown}
-                    className="group flex min-w-0 items-center gap-1 rounded px-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
+                    className="group flex min-w-0 max-w-[45%] shrink-0 items-center gap-1 rounded px-1 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
                     aria-label="Select worktree"
                   >
                     <GitBranch weight="duotone" className="size-3 shrink-0 text-muted-foreground" />
@@ -583,7 +583,7 @@ export default function App() {
                       {workspaceNameLabel}
                     </span>
                   </button>
-                  <span className="text-muted-foreground/40">/</span>
+                  <span className="shrink-0 text-muted-foreground/40">/</span>
                   <button
                     type="button"
                     ref={branchButtonRef}
@@ -817,7 +817,7 @@ export default function App() {
         </div>
 
         <div
-          className="mx-2 flex min-w-0 flex-1 items-center justify-center"
+          className="mx-2 flex min-w-0 items-center"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Global Tab Bar Wrapper"
         >
@@ -825,7 +825,7 @@ export default function App() {
         </div>
 
         <div
-          className="flex items-center gap-1 "
+          className="flex w-[72px] shrink-0 items-center justify-end gap-1"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Theme and Flyout Controls"
         >

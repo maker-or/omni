@@ -833,7 +833,7 @@ export function AdvancedShell() {
               <main className="relative flex min-w-0 flex-1 overflow-hidden">
                 <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
                   <div className="flex h-12 shrink-0 items-center gap-2 bg-surface-1 px-3">
-                    <div className="mx-auto mt-2 min-w-0 max-w-[1000px] px-4">
+                    <div className="mx-auto mt-2 min-w-0 flex-1 max-w-[1000px] px-4 [&_[data-pipper-id=global-tab-bar]]:justify-center">
                       <GlobalTabBar />
                     </div>
                     <SidebarTrigger

@@ -15,7 +15,7 @@ mac:
   # extension. The Sleepless daemon still authenticates the exact bundled
   # executable path and peer user; no developer certificate is required.
   identity: "-"
-  icon: build/icon.png
+  icon: pipper.icon
   target:
     - target: dmg
       arch:
@@ -41,6 +41,9 @@ mac:
   binaries:
     - Contents/MacOS/omni-sleeplessctl
     - Contents/Resources/sleepless/omni-sleeplessd
+
+dmg:
+  background: build/background.png
 
 win:
   artifactName: pipper-${version}-win-${arch}.${ext}

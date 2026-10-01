@@ -153,7 +153,11 @@ declare global {
         continue: (input: { projectId: string; path: string }) => Promise<Worktree>;
       };
       git: {
-        status: (input: { projectId: string; path: string }) => Promise<WorkspaceGitStatus>;
+        status: (input: {
+          projectId: string;
+          path: string;
+          force?: boolean;
+        }) => Promise<WorkspaceGitStatus>;
         commit: (input: {
           projectId: string;
           path: string;

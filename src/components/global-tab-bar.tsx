@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChatCircleIcon,
@@ -26,6 +27,7 @@ import { useUiModeStore } from "@/store/ui-mode-store";
 import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
+import { useAnchoredPopoverPosition } from "@/lib/anchored-popover";
 import {
   OPEN_TABS_QUERY_KEY,
   useOpenTabsQuery,
@@ -124,6 +126,7 @@ export function GlobalTabBar() {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownPosition = useAnchoredPopoverPosition(buttonRef, isDropdownOpen, 224);
   const closingTabIdsRef = useRef<Set<string>>(new Set());
   const openedDraftCompletionRef = useRef<string | null>(null);
 
@@ -607,14 +610,14 @@ export function GlobalTabBar() {
   }, [orderedTabValues]);
 
   return (
-    <Tabs value={selectedTabValue} onValueChange={handleTabChange}>
+    <Tabs className="w-full min-w-0" value={selectedTabValue} onValueChange={handleTabChange}>
       <div
         className="flex w-full max-w-[1000px] min-w-0 items-center gap-1"
         data-pipper-id="global-tab-bar"
       >
         <TabsList
           data-pipper-id="global-tabs"
-          className="min-w-0 flex-1 gap-1 overflow-x-auto p-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          className="min-w-0 max-w-full flex-[0_1_auto] gap-1 overflow-x-auto p-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40"
         >
           {visibleOpenThreads.map((thread, idx) => {
             const project = projectsList.find((item) => item.id === thread.project_id);
@@ -688,41 +691,55 @@ export function GlobalTabBar() {
             <PlusIcon size={16} />
           </Button>
 
-          {isDropdownOpen && (
-            <div
-              data-pipper-id="add-tab-dropdown"
-              ref={dropdownRef}
-              className="absolute left-0 top-full mt-1.5 z-[200]"
-            >
-              <Dropdown className="w-56">
-                <MenuItem
-                  index={0}
-                  label="New terminal"
-                  icon={TerminalWindowIcon}
-                  onSelect={() => {
-                    setIsDropdownOpen(false);
-                    handleNewTerminal();
-                  }}
-                />
-                <MenuItem
-                  index={1}
-                  label="New thread"
-                  icon={ChatCircleIcon}
-                  onSelect={handleNewThread}
-                />
-                <DropdownSeparator />
-                <MenuItem
-                  index={2}
-                  label="New project"
-                  icon={FolderPlusIcon}
-                  onSelect={async () => {
-                    setIsDropdownOpen(false);
-                    await window.omni.launch.show("add");
-                  }}
-                />
-              </Dropdown>
-            </div>
-          )}
+          {isDropdownOpen &&
+            dropdownPosition &&
+            createPortal(
+              <div
+                data-pipper-id="add-tab-dropdown"
+                data-placement={dropdownPosition.placement}
+                ref={dropdownRef}
+                className="fixed z-[250]"
+                style={
+                  {
+                    left: dropdownPosition.left,
+                    top: dropdownPosition.top,
+                    bottom: dropdownPosition.bottom,
+                    width: dropdownPosition.width,
+                    maxHeight: dropdownPosition.maxHeight,
+                    WebkitAppRegion: "no-drag",
+                  } as CSSProperties
+                }
+              >
+                <Dropdown className="w-full" style={{ maxHeight: dropdownPosition.maxHeight }}>
+                  <MenuItem
+                    index={0}
+                    label="New terminal"
+                    icon={TerminalWindowIcon}
+                    onSelect={() => {
+                      setIsDropdownOpen(false);
+                      handleNewTerminal();
+                    }}
+                  />
+                  <MenuItem
+                    index={1}
+                    label="New thread"
+                    icon={ChatCircleIcon}
+                    onSelect={handleNewThread}
+                  />
+                  <DropdownSeparator />
+                  <MenuItem
+                    index={2}
+                    label="New project"
+                    icon={FolderPlusIcon}
+                    onSelect={async () => {
+                      setIsDropdownOpen(false);
+                      await window.omni.launch.show("add");
+                    }}
+                  />
+                </Dropdown>
+              </div>,
+              document.body,
+            )}
         </div>
       </div>
     </Tabs>
