@@ -7,6 +7,18 @@ struct ThreadDetailView: View {
   @Environment(\.scenePhase) private var scenePhase
   let threadId: String
 
+  #if DEBUG
+  /// Preview-only seed; `previewReport` defaults to nil so the production
+  /// call site (`ThreadDetailView(threadId:)`) is unchanged.
+  init(threadId: String, previewReport: RemoteReport? = nil) {
+    self.threadId = threadId
+    if let previewReport {
+      _report = State(initialValue: previewReport)
+      _lastUpdated = State(initialValue: Date())
+    }
+  }
+  #endif
+
   @State private var report: RemoteReport?
   @State private var loadError: String?
   @State private var lastUpdated: Date?
@@ -312,3 +324,27 @@ extension Text {
     }
   }
 }
+
+#if DEBUG
+#Preview("Thread — running") {
+  NavigationStack {
+    ThreadDetailView(threadId: PreviewData.report.threadId, previewReport: PreviewData.report)
+  }
+  .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+
+#Preview("Thread — needs input") {
+  NavigationStack {
+    ThreadDetailView(
+      threadId: PreviewData.reportNeedsInput.threadId, previewReport: PreviewData.reportNeedsInput)
+  }
+  .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+
+#Preview("Thread — loading") {
+  NavigationStack {
+    ThreadDetailView(threadId: "00000000-0000-0000-0000-000000000000")
+  }
+  .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+#endif

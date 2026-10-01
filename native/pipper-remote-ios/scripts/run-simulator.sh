@@ -17,7 +17,18 @@ for devs in json.load(sys.stdin)['devices'].values():
 sys.exit(1)" "$DEVICE") || { echo "No available simulator named '$DEVICE'"; exit 1; }
 
 xcrun simctl bootstatus "$UDID" -b >/dev/null
-open -a Simulator
+
+# Xcode 27 replaced Simulator.app with Device Hub; open whichever exists.
+DEVTOOLS="$(xcode-select -p)"
+for app in \
+  "$DEVTOOLS/../Applications/DeviceHub.app" \
+  "$DEVTOOLS/Applications/Simulator.app" \
+  /Applications/Simulator.app; do
+  if [ -d "$app" ]; then
+    open "$app"
+    break
+  fi
+done
 
 xcodebuild -project PipperRemote.xcodeproj -target PipperRemote -configuration Debug \
   -sdk iphonesimulator -arch arm64 CONFIGURATION_BUILD_DIR="$OUT" build \

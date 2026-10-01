@@ -144,3 +144,17 @@ struct ConnectionCheckView: View {
     }
   }
 }
+
+#if DEBUG
+#Preview("Settings") {
+  SettingsView()
+    .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+
+#Preview("Connection check") {
+  Form {
+    ConnectionCheckView()
+  }
+  .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+#endif

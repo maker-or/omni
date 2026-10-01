@@ -23,6 +23,9 @@ final class RemoteSession {
 
   let catalogStore = CatalogStore.standard()
   private let submissions = RemoteSubmissionStore()
+  #if DEBUG
+  private var isPreview = false
+  #endif
 
   func createThread(projectId: String, agentId: String?, prompt: String) async throws -> RemoteThreadSummary {
     guard let client, let config else { throw RemoteClientError.notPaired }
@@ -66,9 +69,31 @@ final class RemoteSession {
     lastCatalogRefresh = catalogStore.modifiedAt
   }
 
+  #if DEBUG
+  /// Preview-only initializer: seeds a catalog without touching the Keychain,
+  /// UserDefaults, or the shared on-disk cache. The paired state uses a dummy
+  /// config, while `client` remains nil so previews never make network requests.
+  init(previewCatalog: RemoteCatalog, paired: Bool = false) {
+    config = paired ? RemoteConfig(host: "preview.invalid", port: RemoteConfig.defaultPort, token: "preview") : nil
+    catalog = previewCatalog
+    catalogError = nil
+    lastCatalogRefresh = nil
+    lastSiriThreadId = nil
+    isPreview = true
+  }
+
+  /// A detached session for SwiftUI previews.
+  static func preview(catalog: RemoteCatalog = .empty, paired: Bool = false) -> RemoteSession {
+    RemoteSession(previewCatalog: catalog, paired: paired)
+  }
+  #endif
+
   var isPaired: Bool { config?.isComplete == true }
 
   var client: RemoteClient? {
+    #if DEBUG
+    if isPreview { return nil }
+    #endif
     guard let config, config.isComplete else { return nil }
     return RemoteClient(config: config)
   }
@@ -130,3 +155,84 @@ final class RemoteSession {
     didSet { UserDefaults.standard.set(lastSiriThreadId, forKey: Keys.lastSiriThreadId) }
   }
 }
+
+#if DEBUG
+/// Sample data for SwiftUI previews. DEBUG-only and never persisted.
+enum PreviewData {
+  static let catalog = RemoteCatalog(
+    updatedAt: "2026-09-27T00:00:00Z",
+    defaultAgentId: "codex",
+    projects: [
+      RemoteCatalogProject(id: "folklore", name: "FolkLore", path: "~/code/folklore"),
+      RemoteCatalogProject(id: "omni", name: "Omni", path: "~/code/omni"),
+    ],
+    agents: [
+      RemoteCatalogAgent(id: "codex", displayName: "Codex", available: true),
+      RemoteCatalogAgent(id: "claude", displayName: "Claude Code", available: true),
+      RemoteCatalogAgent(id: "cursor", displayName: "Cursor", available: false),
+    ])
+
+  static let threads: [RemoteThreadSummary] = [
+    RemoteThreadSummary(
+      id: "a1b2c3d4-0000-0000-0000-000000000001", projectId: "folklore",
+      worktreePath: "~/code/folklore/.worktrees/a1b2c3d4", title: "Add dark mode toggle",
+      running: true, lastUsedAt: 0),
+    RemoteThreadSummary(
+      id: "e5f6a7b8-0000-0000-0000-000000000002", projectId: "omni",
+      worktreePath: nil, title: "Summarize the launch plan", running: false, lastUsedAt: 0),
+    RemoteThreadSummary(
+      id: "c9d0e1f2-0000-0000-0000-000000000003", projectId: "folklore",
+      worktreePath: "~/code/folklore/.worktrees/c9d0e1f2", title: nil, running: false,
+      lastUsedAt: 0),
+  ]
+
+  static let report = RemoteReport(
+    threadId: threads[0].id,
+    running: true,
+    summary: "Add dark mode toggle",
+    finalText: nil,
+    messages: [
+      RemoteMessage(role: .user, text: "Add a dark mode toggle to Settings and remember the choice."),
+      RemoteMessage(
+        role: .agent,
+        text:
+          "Done. I added a **Dark mode** toggle to `SettingsView`, bound to `@AppStorage(\"darkMode\")`.\n\n- Toggle in Settings\n- Applies `preferredColorScheme` at the root"
+      ),
+      RemoteMessage(role: .user, text: "Nice — does it survive relaunch?"),
+      RemoteMessage(role: .agent, text: "Yes, `@AppStorage` persists it across launches."),
+    ],
+    projectName: "FolkLore",
+    filesTouched: ["App/Views/SettingsView.swift", "App/PipperRemoteApp.swift"],
+    worktreePath: "~/code/folklore/.worktrees/a1b2c3d4",
+    isolated: true,
+    isolationNote: nil,
+    permissions: nil,
+    request: nil)
+
+  static let reportNeedsInput = RemoteReport(
+    threadId: threads[2].id,
+    running: false,
+    summary: "Refactor the settings screen",
+    finalText: nil,
+    messages: [
+      RemoteMessage(role: .user, text: "Refactor SettingsView and delete the old file."),
+      RemoteMessage(role: .agent, text: "I can delete `OldSettingsView.swift`. Confirm before I proceed."),
+    ],
+    projectName: "FolkLore",
+    filesTouched: ["App/Views/SettingsView.swift"],
+    worktreePath: "~/code/folklore/.worktrees/c9d0e1f2",
+    isolated: false,
+    isolationNote: "No Git worktree was available.",
+    permissions: [
+      RemotePermission(
+        id: "perm-1",
+        title: "Delete file?",
+        detail: "rm App/Views/OldSettingsView.swift",
+        options: [
+          RemotePermission.Option(optionId: "allow", name: "Allow", kind: "allow"),
+          RemotePermission.Option(optionId: "deny", name: "Deny", kind: "deny"),
+        ])
+    ],
+    request: nil)
+}
+#endif

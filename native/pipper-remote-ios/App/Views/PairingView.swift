@@ -142,3 +142,10 @@ struct PairingView: View {
     }
   }
 }
+
+#if DEBUG
+#Preview("Pairing") {
+  PairingView()
+    .environment(RemoteSession.preview())
+}
+#endif

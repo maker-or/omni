@@ -7,6 +7,14 @@ struct QRScannerSheet: View {
   let onCode: (String) -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var denied = false
+  #if DEBUG
+  private var previewCamera = false
+
+  init(onCode: @escaping (String) -> Void, previewCamera: Bool = false) {
+    self.onCode = onCode
+    self.previewCamera = previewCamera
+  }
+  #endif
 
   var body: some View {
     NavigationStack {
@@ -17,8 +25,17 @@ struct QRScannerSheet: View {
             systemImage: "camera.fill",
             description: Text("Allow camera access in Settings, or enter the token manually."))
         } else {
+          #if DEBUG
+          if previewCamera {
+            Color.black.ignoresSafeArea()
+          } else {
+            QRScannerView(onCode: onCode, onDenied: { denied = true })
+              .ignoresSafeArea()
+          }
+          #else
           QRScannerView(onCode: onCode, onDenied: { denied = true })
             .ignoresSafeArea()
+          #endif
           RoundedRectangle(cornerRadius: 16)
             .strokeBorder(.white.opacity(0.8), lineWidth: 2)
             .frame(width: 240, height: 240)
@@ -112,3 +129,9 @@ final class ScannerController: UIViewController, AVCaptureMetadataOutputObjectsD
     onCode?(text)
   }
 }
+
+#if DEBUG
+#Preview("Scan QR") {
+  QRScannerSheet(onCode: { _ in }, previewCamera: true)
+}
+#endif

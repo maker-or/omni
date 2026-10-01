@@ -12,6 +12,14 @@ struct ThreadListView: View {
   @State private var showSettings = false
   @State private var path: [String] = []
 
+  #if DEBUG
+  /// Preview-only seed so the list is shown populated; the default `[]`
+  /// keeps the production call site (`ThreadListView()`) unchanged.
+  init(previewThreads: [RemoteThreadSummary] = []) {
+    _threads = State(initialValue: previewThreads)
+  }
+  #endif
+
   var body: some View {
     NavigationStack(path: $path) {
       List {
@@ -203,3 +211,20 @@ struct NewThreadSheet: View {
     }
   }
 }
+
+#if DEBUG
+#Preview("Threads") {
+  ThreadListView(previewThreads: PreviewData.threads)
+    .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+
+#Preview("Threads — empty") {
+  ThreadListView()
+    .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+
+#Preview("New thread") {
+  NewThreadSheet { _ in }
+    .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+#endif

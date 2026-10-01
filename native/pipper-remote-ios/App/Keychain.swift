@@ -38,7 +38,20 @@ enum Keychain {
     }
     guard status == errSecSuccess else {
       throw NSError(domain: NSOSStatusErrorDomain, code: Int(status),
-        userInfo: [NSLocalizedDescriptionKey: "Could not save pairing securely. Unlock your phone and try again."])
+        userInfo: [NSLocalizedDescriptionKey: "Could not save pairing securely. \(Self.hint(for: status))"])
+    }
+  }
+
+  /// A signed-but-unentitled app fails with `errSecMissingEntitlement`, which
+  /// "unlock your phone" misleadingly hid; name the real cause when we know it.
+  private static func hint(for status: OSStatus) -> String {
+    switch status {
+    case errSecInteractionNotAllowed:
+      return "Unlock your phone and try again."
+    case errSecMissingEntitlement:
+      return "The app is missing its keychain entitlement — reinstall the signed build."
+    default:
+      return "Keychain error \(status)."
     }
   }
 

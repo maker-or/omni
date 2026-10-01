@@ -35,3 +35,15 @@ struct RootView: View {
     }
   }
 }
+
+#if DEBUG
+#Preview("Root — unpaired") {
+  RootView()
+    .environment(RemoteSession.preview())
+}
+
+#Preview("Root — paired") {
+  RootView()
+    .environment(RemoteSession.preview(catalog: PreviewData.catalog, paired: true))
+}
+#endif
