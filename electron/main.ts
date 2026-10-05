@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, Menu, shell, ipcMain, dialog, powerMonitor } from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -99,7 +99,9 @@ import {
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
-import { RemoteServer } from "./remote-server.ts";
+import { RemoteAccessController } from "./remote-access.ts";
+import { RemoteDeviceStore } from "./remote-devices.ts";
+import type { RemoteScope, RemoteTransport } from "../contracts/remote.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
 import type {
   ThreadBenchmarkMode,
@@ -397,7 +399,7 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
-let remoteServer: RemoteServer | null = null;
+let remoteAccess: RemoteAccessController | null = null;
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -2238,23 +2240,32 @@ function registerIpc(): void {
   );
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
   ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
-  ipcMain.handle("remote:getInfo", () => {
-    const serving = remoteServer?.isServing() ?? false;
-    const host = serving ? (remoteServer?.getAdvertisedHost() ?? null) : null;
-    return {
-      enabled: serving,
-      port: serving ? (remoteServer?.port ?? null) : null,
-      token: serving ? (remoteServer?.getPairingToken() ?? null) : null,
-      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
-    };
+  ipcMain.handle(
+    "remote:getInfo",
+    () =>
+      remoteAccess?.getInfo() ?? {
+        enabled: false,
+        serving: false,
+        transport: "tailscale",
+        publicUrl: null,
+        tunnel: { state: "stopped" },
+        host: null,
+        port: null,
+      },
+  );
+  ipcMain.handle("remote:setTransport", async (_event, transport: RemoteTransport) => {
+    await remoteAccess?.setTransport(transport);
+    return remoteAccess?.getInfo() ?? null;
   });
-  ipcMain.handle("remote:regenerateToken", () => {
-    const host = remoteServer?.getAdvertisedHost() ?? null;
-    return {
-      token: remoteServer?.regenerateToken() ?? null,
-      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
-    };
+  ipcMain.handle("remote:getDevices", () => remoteAccess?.server.getDevicesState() ?? null);
+  ipcMain.handle("remote:createPairing", (_event, options: { allowRun?: boolean } | undefined) => {
+    const scopes: RemoteScope[] = options?.allowRun === false ? ["read"] : ["read", "run"];
+    return remoteAccess?.server.createPairingOffer(scopes) ?? null;
   });
+  ipcMain.handle("remote:cancelPairing", () => remoteAccess?.server.cancelPairingOffer());
+  ipcMain.handle("remote:revokeDevice", (_event, id: string) =>
+    typeof id === "string" ? (remoteAccess?.server.revokeDevice(id) ?? false) : false,
+  );
   ipcMain.handle("remote:setStandby", (_event, active: boolean) =>
     sleeplessController?.setRemoteActive(Boolean(active)),
   );
@@ -2665,44 +2676,51 @@ app.whenReady().then(async () => {
   });
   sleeplessController.setRunningThreadIds(agentManager.getRunningThreadIds());
   if (process.env.PIPPER_REMOTE_ENABLED !== "0") {
-    remoteServer = new RemoteServer({
-      agentManager: () => agentManager,
-      getUserDataPath: () => app.getPath("userData"),
-      getRendererDir: () => join(mainDir, "../renderer"),
-      onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+    const cloudflaredExe = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
+    remoteAccess = new RemoteAccessController({
+      userDataPath: app.getPath("userData"),
+      serverDeps: {
+        agentManager: () => agentManager,
+        getUserDataPath: () => app.getPath("userData"),
+        getRendererDir: () => join(mainDir, "../renderer"),
+        devices: new RemoteDeviceStore(getDb()),
+        onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+        onDevicesChanged: (state) => broadcastToWindows("remote:devicesChanged", state),
+      },
+      cloudflared: {
+        overridePath: process.env.PIPPER_CLOUDFLARED_PATH?.trim() || null,
+        bundledPath: app.isPackaged
+          ? join(process.resourcesPath, "cloudflared", cloudflaredExe)
+          : null,
+      },
+      onInfoChanged: (info) => broadcastToWindows("remote:infoChanged", info),
     });
-    remoteServer.start();
+    await remoteAccess.start();
+    powerMonitor.on("resume", () => remoteAccess?.onResume());
     // Standby lease: an idle paired phone (authed request within the window)
     // keeps Sleepless armed even with zero running threads, so the laptop is
     // awake when the next phone task arrives.
     const leaseTimer = setInterval(() => {
       const running = agentManager?.getRunningThreadIds() ?? [];
       sleeplessController?.setRemoteActive(
-        running.length > 0 || (remoteServer?.hasLiveLease() ?? false),
+        running.length > 0 || (remoteAccess?.server.hasLiveLease() ?? false),
       );
     }, 60_000);
     leaseTimer.unref?.();
     {
-      const tailscale = remoteServer.getAdvertisedHost();
-      if (!remoteServer.isServing()) {
+      // No credential is printed here: phones pair with a one-time code from
+      // Settings → Remote, so nothing reusable ever lands in the log.
+      const info = remoteAccess.getInfo();
+      if (!info.serving) {
         console.warn("[Remote] Server failed to bind — remote access unavailable.");
-      } else if (!tailscale) {
-        console.warn(
-          "[Remote] No Tailscale address — pairing QR unavailable. Token only:",
-          `\x1b[32m${remoteServer.getPairingToken()}\x1b[0m`,
-        );
+      } else if (info.transport !== "tailscale") {
+        console.log("[Remote] Serving on loopback; starting Cloudflare tunnel.");
+      } else if (!info.publicUrl) {
+        console.warn("[Remote] No Tailscale address — phones can't reach this laptop yet.");
       } else {
-        const url = remoteServer.pairingUrl(tailscale);
         console.log(
-          `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
+          `[Remote] Serving ${info.publicUrl}/remote — pair a phone from Settings → Remote.`,
         );
-        try {
-          const { default: qrcode } = await import("qrcode-terminal");
-          console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
-          qrcode.generate(url, { small: true });
-        } catch (err) {
-          console.warn("[Remote] QR render failed:", err);
-        }
       }
       console.log(`[Remote] PATH=${process.env.PATH}`);
     }
@@ -2843,6 +2861,11 @@ app.on("will-quit", (event) => {
       await agentManager?.dispose();
     } catch (err) {
       console.error("[Main] Failed to dispose agent manager on quit:", err);
+    }
+    try {
+      await remoteAccess?.dispose();
+    } catch (err) {
+      console.error("[Main] Failed to stop remote server on quit:", err);
     }
     try {
       await sleeplessController?.dispose();

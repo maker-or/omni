@@ -425,9 +425,11 @@ function RemoteView() {
       </Elevated>
       <Accordion type="single" collapsible className="mt-2 w-full">
         <AccordionItem value="remote-requirements">
-          <AccordionTrigger>About pairing tokens</AccordionTrigger>
+          <AccordionTrigger>How phone access works</AccordionTrigger>
           <AccordionContent>
-            Regenerating the token unpairs all phones — scan the new code to re-link.
+            Pairing codes work once and expire after 5 minutes. Each paired phone gets its own
+            access, which stops working when you remove it here or after 30 days without use.
+            Read-only phones can follow tasks but can't start new work.
           </AccordionContent>
         </AccordionItem>
       </Accordion>

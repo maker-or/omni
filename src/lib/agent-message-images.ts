@@ -5,9 +5,13 @@ export interface AgentPromptImage {
 }
 import type { MessageLike } from "./message-utils";
 
-const AGENT_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
-export const MAX_AGENT_IMAGES = 5;
-const MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024;
+import {
+  MAX_PROMPT_IMAGES,
+  MAX_PROMPT_IMAGE_BYTES,
+  isPromptImageMimeType,
+} from "../../contracts/prompt-images.ts";
+
+export const MAX_AGENT_IMAGES = MAX_PROMPT_IMAGES;
 
 export interface ChatImageAttachment extends AgentPromptImage {
   id: string;
@@ -15,9 +19,8 @@ export interface ChatImageAttachment extends AgentPromptImage {
 }
 
 function validateImageFile(file: File): string | null {
-  if (!AGENT_IMAGE_MIME_TYPES.includes(file.type as (typeof AGENT_IMAGE_MIME_TYPES)[number]))
-    return `${file.name} is not a supported image.`;
-  if (file.size > MAX_AGENT_IMAGE_BYTES) return `${file.name} exceeds the 10 MiB limit.`;
+  if (!isPromptImageMimeType(file.type)) return `${file.name} is not a supported image.`;
+  if (file.size > MAX_PROMPT_IMAGE_BYTES) return `${file.name} exceeds the 10 MiB limit.`;
   return null;
 }
 

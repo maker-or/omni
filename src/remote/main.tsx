@@ -1,13 +1,18 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RemoteApp } from "./App.tsx";
+import { readToken } from "./api.ts";
 import "./remote.css";
 
 function postLog(message: string): void {
   try {
+    // The log endpoint requires the pairing token; an unpaired phone only
+    // shows the error on screen.
+    const token = readToken();
+    if (!token) return;
     void fetch("/api/remote/debug-log", {
       method: "POST",
-      headers: { "Content-Type": "text/plain" },
+      headers: { "Content-Type": "text/plain", Authorization: `Bearer ${token}` },
       body: message,
     });
   } catch {

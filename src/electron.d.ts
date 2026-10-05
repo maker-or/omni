@@ -1,4 +1,10 @@
 import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
+import type {
+  RemoteDevicesState,
+  RemotePairingOffer,
+  RemoteServerInfo,
+  RemoteTransport,
+} from "../contracts/remote.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts/worktrees.ts";
 import type {
   ProjectRepoState,
@@ -94,13 +100,14 @@ declare global {
         onStatusChanged: (callback: (status: SleeplessStatus) => void) => () => void;
       };
       remote: {
-        getInfo: () => Promise<{
-          enabled: boolean;
-          port: number | null;
-          token: string | null;
-          pairingUrl: string | null;
-        }>;
-        regenerateToken: () => Promise<{ token: string | null; pairingUrl: string | null }>;
+        getInfo: () => Promise<RemoteServerInfo>;
+        setTransport: (transport: RemoteTransport) => Promise<RemoteServerInfo | null>;
+        onInfoChanged: (callback: (info: RemoteServerInfo) => void) => () => void;
+        getDevices: () => Promise<RemoteDevicesState | null>;
+        createPairing: (options: { allowRun: boolean }) => Promise<RemotePairingOffer | null>;
+        cancelPairing: () => Promise<void>;
+        revokeDevice: (id: string) => Promise<boolean>;
+        onDevicesChanged: (callback: (state: RemoteDevicesState) => void) => () => void;
         setStandby: (active: boolean) => Promise<void>;
       };
       launcherUpdate: {

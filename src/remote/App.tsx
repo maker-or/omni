@@ -1,32 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
+import { ImageSquare, List, PaperPlaneTilt, Plus } from "@phosphor-icons/react";
 import { PhoneMarkdown } from "./markdown.tsx";
+import {
+  ImageTray,
+  PHONE_IMAGE_ACCEPT,
+  prepareImages,
+  releaseImages,
+  type PhoneImage,
+} from "./attachments.tsx";
+import { MAX_PROMPT_IMAGES } from "../../contracts/prompt-images.ts";
 import type {
+  RemoteDevice,
   RemoteModel,
   RemoteProject,
   RemoteReport,
   RemoteThreadSummary,
 } from "../../contracts/remote.ts";
-
-const TOKEN_KEY = "omni:remote-token";
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? "";
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${path} → ${res.status} ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as T;
-}
+import {
+  UNPAIRED_EVENT,
+  api,
+  clearToken,
+  pairWithCode,
+  pairingCodeFromUrl,
+  readToken,
+} from "./api.ts";
+import { PairScreen } from "./pair-screen.tsx";
 
 export function RemoteApp() {
   const [projects, setProjects] = useState<RemoteProject[]>([]);
@@ -38,19 +37,25 @@ export function RemoteApp() {
   const [report, setReport] = useState<RemoteReport | null>(null);
   const [sidebar, setSidebar] = useState(false);
   const [draft, setDraft] = useState("");
-  const [paired, setPaired] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
-  const [tokenInput, setTokenInput] = useState("");
+  const [paired, setPaired] = useState(() => Boolean(readToken()));
+  const [pairNotice, setPairNotice] = useState<string | null>(null);
+  const [device, setDevice] = useState<RemoteDevice | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [images, setImages] = useState<PhoneImage[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Optimistic follow-up, scoped to its thread: `known` counts how many
   // identical user messages the report already had at send time, so a repeat
   // of an earlier message can't be "confirmed" by the old entry, and a fast
   // agent reply after the user entry still confirms (match anywhere, not tail).
-  const [pending, setPending] = useState<{ text: string; threadId: string; known: number } | null>(
-    null,
-  );
+  const [pending, setPending] = useState<{
+    text: string;
+    threadId: string;
+    known: number;
+    imageCount: number;
+  } | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -59,15 +64,36 @@ export function RemoteApp() {
   const chatSig = useRef("");
   const refreshInflight = useRef(false);
 
-  // Scanned QR opens /remote#token=… — auto-save so scan = paired.
+  // A scanned QR opens /remote#pair=CODE: redeem it so scan = paired. The
+  // code is single-use, so drop it from the URL (and history) right away.
+  // A link opened in an already-open tab only changes the hash, so listen
+  // for that as well as checking on load.
   useEffect(() => {
-    const hash = window.location.hash;
-    const match = hash.match(/token=([A-Za-z0-9]+)/);
-    if (match?.[1]) {
-      localStorage.setItem(TOKEN_KEY, match[1]);
-      setPaired(true);
+    const redeemFromHash = () => {
+      const code = pairingCodeFromUrl(window.location.hash);
+      if (!code) return;
       window.history.replaceState(null, "", window.location.pathname);
-    }
+      pairWithCode(code)
+        .then(() => {
+          setPairNotice(null);
+          setPaired(true);
+        })
+        .catch((err: unknown) => setPairNotice(err instanceof Error ? err.message : String(err)));
+    };
+    redeemFromHash();
+    window.addEventListener("hashchange", redeemFromHash);
+    return () => window.removeEventListener("hashchange", redeemFromHash);
+  }, []);
+
+  // The laptop rejected our token: it was revoked there or expired.
+  useEffect(() => {
+    const onUnpaired = () => {
+      setPaired(false);
+      setDevice(null);
+      setPairNotice("This phone is no longer paired with the laptop. Pair it again to continue.");
+    };
+    window.addEventListener(UNPAIRED_EVENT, onUnpaired);
+    return () => window.removeEventListener(UNPAIRED_EVENT, onUnpaired);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -76,11 +102,13 @@ export function RemoteApp() {
     if (refreshInflight.current) return;
     refreshInflight.current = true;
     try {
-      const [p, m, t] = await Promise.all([
+      const [s, p, m, t] = await Promise.all([
+        api<{ device: RemoteDevice }>("/api/remote/session"),
         api<{ projects: RemoteProject[] }>("/api/remote/projects"),
         api<{ models: RemoteModel[] }>("/api/remote/models"),
         api<{ threads: RemoteThreadSummary[] }>("/api/remote/threads"),
       ]);
+      setDevice(s.device);
       setProjects(p.projects);
       setModels(m.models);
       setThreads(t.threads);
@@ -143,53 +171,30 @@ export function RemoteApp() {
     };
   }, [activeId, paired, refresh]);
 
-  const scanQr = async () => {
-    setScanError(null);
+  const attachFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setAttaching(true);
+    setSendError(null);
     try {
-      const Detector = (
-        window as unknown as {
-          BarcodeDetector?: new (opts: { formats: string[] }) => {
-            detect(v: HTMLVideoElement): Promise<Array<{ rawValue: string }>>;
-          };
-        }
-      ).BarcodeDetector;
-      if (!Detector) {
-        setScanError("Camera scan not supported here — paste the token instead.");
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      try {
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        await video.play();
-        const detector = new Detector({ formats: ["qr_code"] });
-        const deadline = Date.now() + 30_000;
-        let found: string | null = null;
-        while (Date.now() < deadline && !found) {
-          const codes = await detector.detect(video).catch(() => []);
-          found = codes[0]?.rawValue ?? null;
-          if (!found) await new Promise((r) => setTimeout(r, 300));
-        }
-        const token = found?.match(/token=([A-Za-z0-9]+)/)?.[1];
-        if (token) {
-          localStorage.setItem(TOKEN_KEY, token);
-          setPaired(true);
-        } else {
-          setScanError("No QR found in 30s — try again or paste the token.");
-        }
-      } finally {
-        stream.getTracks().forEach((t) => t.stop());
-      }
-    } catch {
-      setScanError("Camera unavailable — paste the token instead.");
+      const prepared = await prepareImages(files, images.length);
+      setImages((current) => [...current, ...prepared.images]);
+      if (prepared.errors.length) setSendError(prepared.errors.join(" "));
+    } finally {
+      setAttaching(false);
     }
+  };
+
+  const removeImage = (id: string) => {
+    releaseImages(images.filter((image) => image.id === id));
+    setImages((current) => current.filter((image) => image.id !== id));
   };
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || attaching) return;
+    // Images stay in the tray until the laptop accepts them, so a failed
+    // send can simply be retried.
+    const payload = images.map(({ data, mimeType }) => ({ data, mimeType }));
     setSending(true);
     setSendError(null);
     // Move the draft into the optimistic bubble immediately; on failure it
@@ -203,21 +208,23 @@ export function RemoteApp() {
         }
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
-          body: JSON.stringify({ projectId, modelId, prompt: text }),
+          body: JSON.stringify({ projectId, modelId, prompt: text, images: payload }),
         });
         setActiveId(created.thread.id);
-        setPending({ text, threadId: created.thread.id, known: 0 });
+        setPending({ text, threadId: created.thread.id, known: 0, imageCount: payload.length });
       } else {
         // Optimistic: show the bubble instantly; poll confirms delivery.
         const known = (report?.messages ?? []).filter(
           (m) => m.role === "user" && m.text === text,
         ).length;
-        setPending({ text, threadId: activeId, known });
+        setPending({ text, threadId: activeId, known, imageCount: payload.length });
         await api(`/api/remote/threads/${activeId}/prompt`, {
           method: "POST",
-          body: JSON.stringify({ prompt: text }),
+          body: JSON.stringify({ prompt: text, images: payload }),
         });
       }
+      releaseImages(images);
+      setImages([]);
       void refresh();
     } catch (err) {
       setDraft(text);
@@ -250,6 +257,7 @@ export function RemoteApp() {
   }, [pendingConfirmed]);
   const pendingVisible =
     pending && !pendingConfirmed && pending.threadId === activeId ? pending.text : null;
+  const pendingImageCount = pendingVisible ? (pending?.imageCount ?? 0) : 0;
   useEffect(() => {
     // Sticky-bottom: never yank a user who scrolled up to read. Only scroll
     // when the chat actually grew AND the user was already near the bottom
@@ -274,32 +282,25 @@ export function RemoteApp() {
 
   if (!paired) {
     return (
-      <main className="pair-wrap">
-        <h1>Omni Remote</h1>
-        <p>Paste the pairing token from the laptop terminal, or scan its QR.</p>
-        <input
-          className="pair-input"
-          value={tokenInput}
-          onChange={(e) => setTokenInput(e.target.value)}
-          placeholder="Pairing token"
-          inputMode="text"
-        />
-        <button
-          className="pair-btn"
-          onClick={() => {
-            localStorage.setItem(TOKEN_KEY, tokenInput.trim());
-            setPaired(true);
-          }}
-        >
-          Pair
-        </button>
-        <button className="pair-btn ghost" onClick={() => void scanQr()}>
-          <QrCode size={18} style={{ verticalAlign: "-3px" }} /> Scan QR instead
-        </button>
-        {scanError && <p className="notice bad">{scanError}</p>}
-      </main>
+      <PairScreen
+        notice={pairNotice}
+        onPaired={() => {
+          setPairNotice(null);
+          setPaired(true);
+        }}
+      />
     );
   }
+
+  const canRun = device ? device.scopes.includes("run") : true;
+  const unpair = async () => {
+    // Revoke on the laptop too, so the token is dead even if it leaked.
+    await api("/api/remote/session", { method: "DELETE" }).catch(() => undefined);
+    clearToken();
+    setDevice(null);
+    setSidebar(false);
+    setPaired(false);
+  };
 
   return (
     <div className="remote-shell">
@@ -348,14 +349,8 @@ export function RemoteApp() {
               ) : (
                 <p className="remote-hint">No work yet — start a chat with ＋</p>
               )}
-              <button
-                className="unpair-btn"
-                onClick={() => {
-                  localStorage.removeItem(TOKEN_KEY);
-                  setPaired(false);
-                }}
-              >
-                Unpair / enter new token
+              <button className="unpair-btn" onClick={() => void unpair()}>
+                Unpair this phone{device ? ` (${device.name})` : ""}
               </button>
             </motion.aside>
           </>
@@ -445,6 +440,11 @@ export function RemoteApp() {
                 {pendingVisible && (
                   <div className="bubble me pending">
                     <p>{pendingVisible}</p>
+                    {pendingImageCount > 0 && (
+                      <span className="bubble-state">
+                        {pendingImageCount === 1 ? "1 image" : `${pendingImageCount} images`}
+                      </span>
+                    )}
                     <span className="bubble-state">
                       {sending ? "Sending…" : "Sent · waiting for laptop…"}
                     </span>
@@ -475,12 +475,36 @@ export function RemoteApp() {
       )}
 
       <footer className="remote-composer">
+        <ImageTray images={images} onRemove={removeImage} />
         <div className="composer-bar">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={PHONE_IMAGE_ACCEPT}
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              void attachFiles(files);
+            }}
+          />
+          <button
+            type="button"
+            className="composer-attach"
+            aria-label="Attach images"
+            disabled={!canRun || attaching || sending || images.length >= MAX_PROMPT_IMAGES}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <ImageSquare size={22} />
+          </button>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder={!activeId ? "Pick project + model first…" : "Follow up…"}
-            disabled={!activeId && (!projectId || !modelId)}
+            placeholder={
+              !canRun ? "Read-only phone" : !activeId ? "Pick project + model first…" : "Follow up…"
+            }
+            disabled={!canRun || (!activeId && (!projectId || !modelId))}
             onKeyDown={(e) => {
               if (e.key === "Enter") void send();
             }}
@@ -489,7 +513,7 @@ export function RemoteApp() {
             className="composer-send"
             onClick={() => void send()}
             aria-label="Send"
-            disabled={!draft.trim() || sending}
+            disabled={!canRun || !draft.trim() || sending || attaching}
             whileTap={{ scale: 0.9 }}
             transition={{ duration: 0.08 }}
           >
