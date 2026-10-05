@@ -1,4 +1,13 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, dialog, powerMonitor } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  shell,
+  ipcMain,
+  dialog,
+  powerMonitor,
+  safeStorage,
+} from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -100,6 +109,7 @@ import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
 import { RemoteAccessController } from "./remote-access.ts";
+import { DesktopIdentity, withSignInParams } from "./desktop-identity.ts";
 import { RemoteDeviceStore } from "./remote-devices.ts";
 import type { RemoteScope, RemoteTransport } from "../contracts/remote.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
@@ -400,6 +410,20 @@ let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
 let remoteAccess: RemoteAccessController | null = null;
+let desktopIdentityInstance: DesktopIdentity | null = null;
+
+/** Laptop id, sign-in state, and the pipper.dev laptop credential (encrypted at rest). */
+function desktopIdentity(): DesktopIdentity {
+  desktopIdentityInstance ??= new DesktopIdentity({
+    dir: app.getPath("userData"),
+    secretBox: {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (cipher) => safeStorage.decryptString(cipher),
+    },
+  });
+  return desktopIdentityInstance;
+}
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -667,6 +691,8 @@ function parseAuthCallback(url: string): {
   email: string | null;
   name: string | null;
   avatarUrl: string | null;
+  state: string | null;
+  credential: string | null;
 } {
   try {
     const parsed = new URL(url);
@@ -675,9 +701,18 @@ function parseAuthCallback(url: string): {
       email: parsed.searchParams.get("email"),
       name: parsed.searchParams.get("name"),
       avatarUrl: parsed.searchParams.get("avatarUrl"),
+      state: parsed.searchParams.get("state"),
+      credential: parsed.searchParams.get("credential"),
     };
   } catch {
-    return { providerUserId: null, email: null, name: null, avatarUrl: null };
+    return {
+      providerUserId: null,
+      email: null,
+      name: null,
+      avatarUrl: null,
+      state: null,
+      credential: null,
+    };
   }
 }
 
@@ -688,6 +723,20 @@ async function handleAuthCallback(url: string): Promise<void> {
   }
   if (!payload.email) {
     throw new Error("Auth callback missing email.");
+  }
+  // The callback must answer a sign-in this app started. Rollout: a
+  // callback with neither state nor credential comes from a pipper.dev that
+  // predates the handoff change; accept it (as before) but never alongside a
+  // credential. Remove this allowance once pipper.dev is redeployed.
+  const stateOk = desktopIdentity().consumeState(payload.state);
+  if (!stateOk && (payload.state || payload.credential)) {
+    throw new Error("Auth callback does not match a sign-in started by this app.");
+  }
+  if (!stateOk)
+    console.warn("[Main] Legacy auth callback without state (pipper.dev not redeployed?).");
+  if (payload.credential) {
+    desktopIdentity().saveCredential(payload.credential);
+    void remoteAccess?.onCredentialChanged();
   }
 
   const record = upsertAuthUser({
@@ -1863,7 +1912,11 @@ function registerIpc(): void {
     await ensureAuthCallbackServer();
     const resolvedCallbackUrl = getAuthCallbackUrl();
     const appendReturnTo = (inputUrl: string): string =>
-      `${inputUrl}${inputUrl.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(resolvedCallbackUrl)}`;
+      withSignInParams(inputUrl, {
+        returnTo: resolvedCallbackUrl,
+        state: desktopIdentity().beginSignIn(),
+        laptopId: desktopIdentity().laptopId(),
+      });
     const resolvedUrl =
       url === "clerk:sign-up"
         ? appendReturnTo(resolveExternalUrl("clerkSignUp"))
@@ -2693,6 +2746,19 @@ app.whenReady().then(async () => {
           ? join(process.resourcesPath, "cloudflared", cloudflaredExe)
           : null,
       },
+      getLaptopCredential: () => desktopIdentity().credential(),
+      // Dev builds only: a tunnel you created yourself (token + its public
+      // hostname). Packaged apps always get their own tunnel from pipper.dev.
+      devTunnel:
+        !app.isPackaged &&
+        process.env.PIPPER_DEV_TUNNEL_TOKEN?.trim() &&
+        process.env.PIPPER_DEV_TUNNEL_HOSTNAME?.trim()
+          ? {
+              token: process.env.PIPPER_DEV_TUNNEL_TOKEN.trim(),
+              hostname: process.env.PIPPER_DEV_TUNNEL_HOSTNAME.trim().toLowerCase(),
+            }
+          : null,
+      pipperApiBase: process.env.PIPPER_API_BASE?.trim() || undefined,
       onInfoChanged: (info) => broadcastToWindows("remote:infoChanged", info),
     });
     await remoteAccess.start();

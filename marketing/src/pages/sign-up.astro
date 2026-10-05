@@ -1,10 +1,10 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import { authCompleteUrl } from "../lib/desktop-auth";
 import { SignUp } from "@clerk/astro/components";
 
-const returnTo = Astro.url.searchParams.get("return_to") ?? "";
-const callbackUrl = new URL("/auth/complete", Astro.url);
-if (returnTo) callbackUrl.searchParams.set("return_to", returnTo);
+// Carries the desktop's return_to / state / laptop_id through Clerk.
+const callbackUrl = authCompleteUrl(Astro.url);
 
 const appearance = {
     variables: {

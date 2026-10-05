@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,7 +55,9 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  async function make() {
+  async function make(
+    extra: Partial<ConstructorParameters<typeof RemoteAccessController>[0]> = {},
+  ) {
     const controller = new RemoteAccessController({
       userDataPath: dir,
       port: await freePort(),
@@ -66,6 +69,7 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
       },
       cloudflared: { overridePath: fake },
       onInfoChanged: (info) => infos.push(info),
+      ...extra,
     });
     controllers.push(controller);
     return controller;
@@ -84,7 +88,7 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     const access = await make();
     await access.start();
     await access.setTransport("cloudflare-quick");
-    await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe(TUNNEL_URL));
+    await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe(TUNNEL_URL), { timeout: 5_000 });
     expect(access.getInfo().tunnel).toEqual({ state: "connected", url: TUNNEL_URL });
     expect(infos.at(-1)?.publicUrl).toBe(TUNNEL_URL);
     // Loopback only: no tailnet address is advertised in tunnel mode.
@@ -107,12 +111,79 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     const access = await make();
     await access.start();
     await access.setTransport("cloudflare-quick");
-    await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe(TUNNEL_URL));
+    await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe(TUNNEL_URL), { timeout: 5_000 });
     access.server.createPairingOffer(["read"]);
     await access.setTransport("tailscale");
     expect(access.getInfo().tunnel).toEqual({ state: "stopped" });
     expect(access.server.getDevicesState().offer).toBeNull();
     expect(access.getInfo().publicUrl).toMatch(/^http:\/\/127\.0\.0\.1:/);
+  });
+
+  it("runs this laptop's named tunnel from pipper.dev at a fixed https address", async () => {
+    const requests: Array<{ auth: string | undefined; body: string }> = [];
+    const pipper = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        requests.push({ auth: req.headers.authorization, body });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({ hostname: "labc123.pipper-remote.dev", token: "connector-token" }),
+        );
+      });
+    });
+    await new Promise<void>((r) => pipper.listen(0, "127.0.0.1", () => r()));
+    const argsFile = join(dir, "args.txt");
+    vi.stubEnv("FAKE_CF_ARGS", argsFile);
+    try {
+      let credential: string | null = null;
+      const access = await make({
+        getLaptopCredential: () => credential,
+        pipperApiBase: `http://127.0.0.1:${(pipper.address() as net.AddressInfo).port}`,
+      });
+      await access.start();
+      await access.setTransport("cloudflare");
+      // Signed out: the tunnel waits for sign-in instead of retrying forever.
+      await vi.waitFor(() =>
+        expect(access.getInfo().tunnel).toEqual({
+          state: "error",
+          message: "Sign in to Pipper to use the Cloudflare tunnel.",
+        }),
+      );
+      expect(requests).toHaveLength(0);
+
+      credential = "pl1.laptop.credential";
+      await access.onCredentialChanged();
+      await vi.waitFor(() =>
+        expect(access.getInfo().publicUrl).toBe("https://labc123.pipper-remote.dev"),
+      );
+      expect(requests[0]).toEqual({
+        auth: "Bearer pl1.laptop.credential",
+        body: JSON.stringify({ port: access.getInfo().port }),
+      });
+      const offer = access.server.createPairingOffer(["read"]);
+      expect(offer.pairingUrl).toMatch(/^https:\/\/labc123\.pipper-remote\.dev\/remote#pair=/);
+      const args = readFileSync(argsFile, "utf8");
+      expect(args).toContain("tunnel --no-autoupdate --config");
+      expect(args.split("\n")[0]).toMatch(/ run$/);
+      expect(args.split("\n")[0]).not.toContain("connector-token");
+      expect(args).toContain("token=connector-token");
+    } finally {
+      await new Promise<void>((r) => pipper.close(() => r()));
+    }
+  });
+
+  it("runs a developer-supplied tunnel without asking pipper.dev", async () => {
+    const access = await make({
+      getLaptopCredential: () => null,
+      pipperApiBase: "http://127.0.0.1:9", // must never be contacted
+      devTunnel: { token: "dev-connector-token", hostname: "remote.example.dev" },
+    });
+    await access.start();
+    await access.setTransport("cloudflare");
+    await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe("https://remote.example.dev"), {
+      timeout: 5_000,
+    });
   });
 
   it("rate-limits failed auth per Cloudflare client, not for everyone behind the tunnel", async () => {

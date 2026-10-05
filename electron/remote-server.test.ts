@@ -317,6 +317,9 @@ describe("RemoteServer security", () => {
   it("serves the PWA with a CSP and never serves files outside the renderer dir", async () => {
     const page = await fetch(`${base}/remote`);
     expect(page.status).toBe(200);
+    const head = await fetch(`${base}/remote`, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-security-policy")).toContain("script-src 'self'");
     expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
     expect(page.headers.get("x-frame-options")).toBe("DENY");
     expect((await fetch(`${base}/assets/app.js`)).status).toBe(200);

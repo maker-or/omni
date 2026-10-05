@@ -2,10 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RemoteServerInfo, RemoteTransport } from "../contracts/remote.ts";
 import { CloudflaredBinary } from "./cloudflared-binary.ts";
-import { CloudflaredTunnel } from "./cloudflared-tunnel.ts";
+import { CloudflaredTunnel, type TunnelMode } from "./cloudflared-tunnel.ts";
+import { requestNamedTunnel } from "./tunnel-provisioner.ts";
 import { RemoteServer, type RemoteServerDeps } from "./remote-server.ts";
 
-const TRANSPORTS: readonly RemoteTransport[] = ["tailscale", "cloudflare-quick"];
+const TRANSPORTS: readonly RemoteTransport[] = ["tailscale", "cloudflare", "cloudflare-quick"];
 
 export interface RemoteAccessOptions {
   userDataPath: string;
@@ -13,6 +14,16 @@ export interface RemoteAccessOptions {
   port?: number;
   /** cloudflared resolution; see CloudflaredBinary for the lookup order. */
   cloudflared?: { overridePath?: string | null; bundledPath?: string | null };
+  /** pipper.dev laptop credential from sign-in; needed for the named tunnel. */
+  getLaptopCredential?: () => string | null;
+  /** pipper.dev base URL (override for staging/dev). */
+  pipperApiBase?: string;
+  /**
+   * Development only: run this named tunnel directly instead of asking
+   * pipper.dev. Never set in packaged builds — a connector token shared
+   * between machines would let any of them receive the tunnel's traffic.
+   */
+  devTunnel?: { token: string; hostname: string } | null;
   onInfoChanged?: (info: RemoteServerInfo) => void;
 }
 
@@ -91,7 +102,7 @@ export class RemoteAccessController {
     );
     this.tunnel = new CloudflaredTunnel({
       binary: () => this.binary.resolve(),
-      mode: { kind: "quick", originUrl: `http://127.0.0.1:${this.server.port}` },
+      mode: this.tunnelMode(),
       configPath,
       onStatus: () => {
         // The public URL feeds the pairing QR, so refresh both views.
@@ -100,6 +111,43 @@ export class RemoteAccessController {
       },
     });
     this.tunnel.start();
+  }
+
+  private tunnelMode(): TunnelMode | (() => Promise<TunnelMode>) {
+    const port = this.server.port;
+    if (this.transport === "cloudflare-quick") {
+      return { kind: "quick", originUrl: `http://127.0.0.1:${port}` };
+    }
+    const dev = this.options.devTunnel;
+    if (dev) return { kind: "token", token: dev.token, hostname: dev.hostname };
+    // Asked on every (re)launch: pipper.dev returns the same tunnel each time
+    // and re-applies the ingress port, so a changed port or a recreated
+    // tunnel heals itself.
+    return async () => {
+      const tunnel = await requestNamedTunnel({
+        credential: this.options.getLaptopCredential?.() ?? null,
+        port,
+        apiBase: this.options.pipperApiBase,
+      });
+      return { kind: "token", token: tunnel.token, hostname: tunnel.hostname };
+    };
+  }
+
+  /**
+   * After sign-in stores a new credential: a tunnel that gave up waiting for
+   * one (or is backing off) starts again right away.
+   */
+  onCredentialChanged(): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.transport !== "cloudflare" || !this.tunnel) return;
+      const state = this.tunnel.status.state;
+      if (state !== "error" && state !== "reconnecting") return;
+      const old = this.tunnel;
+      this.tunnel = null;
+      await old.stop();
+      this.startTunnel();
+      this.emit();
+    });
   }
 
   private async stopNow(): Promise<void> {

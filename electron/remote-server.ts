@@ -411,10 +411,13 @@ export class RemoteServer {
   private async route(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
+    // HEAD (link previews, uptime checks) gets the same headers as GET; Node
+    // drops the body for HEAD responses on its own.
+    const readOnly = req.method === "GET" || req.method === "HEAD";
 
     // Serve the PWA shell without auth so "Add to Home Screen" works; the
     // app stores its device token after pairing and sends it per request.
-    if (req.method === "GET" && (path === "/remote" || path === "/remote/")) {
+    if (readOnly && (path === "/remote" || path === "/remote/")) {
       return this.serveFile(res, "remote.html", "text/html", {
         "Content-Security-Policy": REMOTE_PAGE_CSP,
         "Cache-Control": "no-cache",
@@ -422,7 +425,7 @@ export class RemoteServer {
     }
     // Built remote.html references ./assets/* (resolves to /assets/*).
     if (
-      req.method === "GET" &&
+      readOnly &&
       (path.startsWith("/assets/") ||
         path.startsWith("/remote-assets/") ||
         path === "/favicon.svg" ||
@@ -433,7 +436,7 @@ export class RemoteServer {
     // Installability metadata for "Add to Home Screen". No service worker:
     // plain HTTP on a tailnet IP is not a secure context, so a worker could
     // never activate — the manifest alone gives the standalone shell.
-    if (req.method === "GET" && path === "/remote-manifest.json") {
+    if (readOnly && path === "/remote-manifest.json") {
       return send(res, 200, {
         name: "Omni Remote",
         short_name: "Omni",

@@ -11,7 +11,12 @@ export type TunnelMode =
 export interface CloudflaredTunnelOptions {
   /** Resolves to a validated cloudflared binary (may download on first use). */
   binary: () => Promise<string>;
-  mode: TunnelMode;
+  /**
+   * The tunnel to run, or a function resolving it on every (re)launch — e.g.
+   * asking pipper.dev for a named tunnel. A rejection with `fatal: true`
+   * stops retrying (the user must act); any other rejection retries.
+   */
+  mode: TunnelMode | (() => Promise<TunnelMode>);
   /**
    * A minimal config file passed as --config, so a personal
    * ~/.cloudflared/config.yml (ingress rules, other tunnels) never leaks into
@@ -115,8 +120,8 @@ export class CloudflaredTunnel {
     this.retryTimer.unref?.();
   }
 
-  private args(): string[] {
-    const { mode, configPath } = this.options;
+  private args(mode: TunnelMode): string[] {
+    const { configPath } = this.options;
     const common = ["tunnel", "--no-autoupdate", "--config", configPath];
     return mode.kind === "quick" ? [...common, "--url", mode.originUrl] : [...common, "run"];
   }
@@ -124,23 +129,30 @@ export class CloudflaredTunnel {
   private async launch(generation: number): Promise<void> {
     this.setStatus({ state: "installing" });
     let bin: string;
+    let mode: TunnelMode;
     try {
       bin = await this.options.binary();
+      mode =
+        typeof this.options.mode === "function" ? await this.options.mode() : this.options.mode;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[Tunnel] cloudflared unavailable:", message);
+      console.error("[Tunnel] setup failed:", message);
+      if (!this.wanted || generation !== this.generation) return;
+      if ((error as { fatal?: unknown }).fatal === true) {
+        this.setStatus({ state: "error", message });
+        return;
+      }
       this.scheduleRetry(generation, message);
       return;
     }
     if (!this.wanted || generation !== this.generation) return;
 
     this.setStatus({ state: "starting" });
-    const { mode } = this.options;
     const env: NodeJS.ProcessEnv = { ...process.env };
     // Token via env, never argv: argv is visible to every local user via ps.
     if (mode.kind === "token") env.TUNNEL_TOKEN = mode.token;
     else delete env.TUNNEL_TOKEN;
-    const child = (this.options.spawnImpl ?? spawn)(bin, this.args(), {
+    const child = (this.options.spawnImpl ?? spawn)(bin, this.args(mode), {
       env,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,

@@ -1,6 +1,13 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import { clerkClient } from "@clerk/astro/server";
+import {
+    isLoopbackCallback,
+    laptopCredentialSecret,
+    signLaptopCredential,
+    validLaptopId,
+    validState,
+} from "../../lib/desktop-auth";
 
 const { isAuthenticated, userId, redirectToSignIn } = Astro.locals.auth();
 
@@ -8,14 +15,31 @@ if (!isAuthenticated) {
     return redirectToSignIn();
 }
 
+// The page embeds a signed credential: keep it out of every cache.
+Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Referrer-Policy", "no-referrer");
+
 const user = await clerkClient(Astro).users.getUser(userId);
-const callbackUrl = Astro.url.searchParams.get("return_to") ?? "";
+const requestedCallback = Astro.url.searchParams.get("return_to") ?? "";
+// Identity (and the laptop credential) only ever go to the desktop app's own
+// loopback listener — never to an arbitrary return_to.
+const callbackUrl = isLoopbackCallback(requestedCallback) ? requestedCallback : "";
+const rejectedCallback = requestedCallback !== "" && callbackUrl === "";
+const state = validState(Astro.url.searchParams.get("state"));
+const laptopId = validLaptopId(Astro.url.searchParams.get("laptop_id"));
+const secret = laptopCredentialSecret(
+    import.meta.env.PIPPER_LAPTOP_CREDENTIAL_SECRET || process.env.PIPPER_LAPTOP_CREDENTIAL_SECRET,
+);
 const payload = user
     ? {
           providerUserId: user.id,
           email: user.emailAddresses?.[0]?.emailAddress ?? null,
           name: user.fullName ?? user.firstName ?? user.username ?? null,
           avatarUrl: user.imageUrl ?? null,
+          state,
+          // Signed proof of "this user, this laptop" for pipper.dev APIs.
+          credential:
+              secret && laptopId ? signLaptopCredential({ sub: user.id, lid: laptopId }, secret) : null,
       }
     : null;
 ---
@@ -30,7 +54,12 @@ const payload = user
                 <span class="selection-handle selection-handle--br" aria-hidden="true"></span>
                 <p class="complete-kicker">pipper / one moment</p>
                 {
-                    payload ? (
+                    rejectedCallback ? (
+                        <>
+                            <h1>Wrong door<span>.</span></h1>
+                            <p>This sign-in link doesn't point back to the Pipper Code app. Start sign-in from the app again.</p>
+                        </>
+                    ) : payload ? (
                         <>
                             <h1>You're in<span>.</span></h1>
                             <p>Authentication successful. Returning you to Pipper Code.</p>
@@ -55,6 +84,8 @@ const payload = user
                     name: payload.name ?? "",
                     avatarUrl: payload.avatarUrl ?? "",
                 });
+                if (payload.state) params.set("state", payload.state);
+                if (payload.credential) params.set("credential", payload.credential);
                 window.location.replace(`${callbackUrl}?${params.toString()}`);
             </script>
         ) : null

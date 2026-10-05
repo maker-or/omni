@@ -57,7 +57,8 @@ function ConnectionSection({
   busy: boolean;
   onToggle: () => void;
 }) {
-  const viaTunnel = info.transport === "cloudflare-quick";
+  const viaTunnel = info.transport !== "tailscale";
+  const quick = info.transport === "cloudflare-quick";
   return (
     <div className="flex items-start gap-4">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-3 text-muted-foreground shadow-surface-1">
@@ -66,14 +67,16 @@ function ConnectionSection({
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium text-foreground">Connection</div>
         <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-          {viaTunnel
-            ? "Phones connect over HTTPS through a Cloudflare tunnel — nothing to install. Preview: the address changes whenever the tunnel restarts, so phones pair again after that."
-            : "Phones connect over Tailscale. Both devices need Tailscale installed and signed in."}
+          {quick
+            ? "Development quick tunnel: the address changes whenever it restarts, so phones pair again after that."
+            : viaTunnel
+              ? "Phones connect over HTTPS at this laptop's own fixed address through Cloudflare — nothing to install. Uses your Pipper sign-in."
+              : "Phones connect over Tailscale. Both devices need Tailscale installed and signed in."}
         </div>
         {/* -ml-3 cancels the Switch's hover-pill padding so the track aligns with the text. */}
         <div className="mt-1 -ml-3">
           <Switch
-            label="Use Cloudflare tunnel (preview)"
+            label="Use Cloudflare tunnel"
             checked={viaTunnel}
             disabled={busy}
             onToggle={onToggle}
@@ -260,7 +263,7 @@ export function RemoteAccessSettings() {
         onToggle={() =>
           void run(() =>
             window.omni.remote.setTransport(
-              info.transport === "tailscale" ? "cloudflare-quick" : "tailscale",
+              info.transport === "tailscale" ? "cloudflare" : "tailscale",
             ),
           )
         }

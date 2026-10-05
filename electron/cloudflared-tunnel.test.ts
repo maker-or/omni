@@ -88,6 +88,30 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
     );
   });
 
+  it("resolves the tunnel on launch, and stops retrying on a fatal setup error", async () => {
+    let calls = 0;
+    tunnel = new CloudflaredTunnel({
+      binary: async () => fake,
+      mode: async () => {
+        calls++;
+        throw Object.assign(new Error("Sign in to Pipper to use the Cloudflare tunnel."), {
+          fatal: true,
+        });
+      },
+      configPath: join(dir, "config.yml"),
+      onStatus: (s) => statuses.push(s),
+      initialBackoffMs: 10,
+    });
+    tunnel.start();
+    await vi.waitFor(() => expect(tunnel!.status.state).toBe("error"));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(calls).toBe(1);
+    expect(tunnel.status).toEqual({
+      state: "error",
+      message: "Sign in to Pipper to use the Cloudflare tunnel.",
+    });
+  });
+
   it("stops the connector and does not restart it", async () => {
     tunnel = make({ kind: "quick", originUrl: "http://127.0.0.1:4173" });
     tunnel.start();

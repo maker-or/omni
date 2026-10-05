@@ -80,10 +80,12 @@ export interface RemotePairingOffer {
 
 /**
  * How phones reach the laptop. `tailscale`: plain HTTP on the tailnet
- * address. `cloudflare-quick`: an HTTPS Cloudflare quick tunnel (preview —
- * its address changes whenever the tunnel restarts).
+ * address. `cloudflare`: HTTPS at a fixed hostname through this laptop's
+ * named tunnel, provisioned by pipper.dev (requires sign-in).
+ * `cloudflare-quick`: account-less quick tunnel for development — its
+ * address changes whenever the tunnel restarts.
  */
-export type RemoteTransport = "tailscale" | "cloudflare-quick";
+export type RemoteTransport = "tailscale" | "cloudflare" | "cloudflare-quick";
 
 export type RemoteTunnelStatus =
   | { state: "stopped" }
