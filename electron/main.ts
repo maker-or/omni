@@ -1,4 +1,13 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  shell,
+  ipcMain,
+  dialog,
+  powerMonitor,
+  safeStorage,
+} from "electron";
 import { join, dirname } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -112,7 +121,10 @@ import {
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
-import { RemoteServer } from "./remote-server.ts";
+import { RemoteAccessController } from "./remote-access.ts";
+import { DesktopIdentity, withSignInParams } from "./desktop-identity.ts";
+import { RemoteDeviceStore } from "./remote-devices.ts";
+import type { RemoteScope, RemoteTransport } from "../contracts/remote.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
 import type {
   ThreadBenchmarkMode,
@@ -410,7 +422,21 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
-let remoteServer: RemoteServer | null = null;
+let remoteAccess: RemoteAccessController | null = null;
+let desktopIdentityInstance: DesktopIdentity | null = null;
+
+/** Laptop id, sign-in state, and the pipper.dev laptop credential (encrypted at rest). */
+function desktopIdentity(): DesktopIdentity {
+  desktopIdentityInstance ??= new DesktopIdentity({
+    dir: app.getPath("userData"),
+    secretBox: {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (cipher) => safeStorage.decryptString(cipher),
+    },
+  });
+  return desktopIdentityInstance;
+}
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -733,6 +759,8 @@ function parseAuthCallback(url: string): {
   email: string | null;
   name: string | null;
   avatarUrl: string | null;
+  state: string | null;
+  credential: string | null;
 } {
   try {
     const parsed = new URL(url);
@@ -741,9 +769,18 @@ function parseAuthCallback(url: string): {
       email: parsed.searchParams.get("email"),
       name: parsed.searchParams.get("name"),
       avatarUrl: parsed.searchParams.get("avatarUrl"),
+      state: parsed.searchParams.get("state"),
+      credential: parsed.searchParams.get("credential"),
     };
   } catch {
-    return { providerUserId: null, email: null, name: null, avatarUrl: null };
+    return {
+      providerUserId: null,
+      email: null,
+      name: null,
+      avatarUrl: null,
+      state: null,
+      credential: null,
+    };
   }
 }
 
@@ -755,6 +792,19 @@ async function handleAuthCallback(url: string): Promise<void> {
   if (!payload.email) {
     throw new Error("Auth callback missing email.");
   }
+  // The callback must answer a sign-in this app started: anything that can
+  // reach the loopback listener could otherwise inject an identity without
+  // completing Clerk sign-in. Requires the pipper.dev /auth/complete that
+  // echoes `state`.
+  if (!desktopIdentity().consumeState(payload.state)) {
+    throw new Error("Auth callback does not match a sign-in started by this app.");
+  }
+  // Whatever the callback carries replaces the previous sign-in: with no
+  // credential (pipper.dev not configured), drop the old one rather than keep
+  // using a possibly different account's.
+  if (payload.credential) desktopIdentity().saveCredential(payload.credential);
+  else desktopIdentity().clearCredential();
+  void remoteAccess?.onCredentialChanged();
 
   const record = upsertAuthUser({
     provider: "clerk",
@@ -1945,7 +1995,11 @@ function registerIpc(): void {
     await ensureAuthCallbackServer();
     const resolvedCallbackUrl = getAuthCallbackUrl();
     const appendReturnTo = (inputUrl: string): string =>
-      `${inputUrl}${inputUrl.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(resolvedCallbackUrl)}`;
+      withSignInParams(inputUrl, {
+        returnTo: resolvedCallbackUrl,
+        state: desktopIdentity().beginSignIn(),
+        laptopId: desktopIdentity().laptopId(),
+      });
     const resolvedUrl =
       url === "clerk:sign-up"
         ? appendReturnTo(resolveExternalUrl("clerkSignUp"))
@@ -2349,23 +2403,33 @@ function registerIpc(): void {
   );
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
   ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
-  ipcMain.handle("remote:getInfo", () => {
-    const serving = remoteServer?.isServing() ?? false;
-    const host = serving ? (remoteServer?.getAdvertisedHost() ?? null) : null;
-    return {
-      enabled: serving,
-      port: serving ? (remoteServer?.port ?? null) : null,
-      token: serving ? (remoteServer?.getPairingToken() ?? null) : null,
-      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
-    };
+  ipcMain.handle(
+    "remote:getInfo",
+    () =>
+      remoteAccess?.getInfo() ?? {
+        enabled: false,
+        serving: false,
+        transport: "tailscale",
+        publicUrl: null,
+        tunnel: { state: "stopped" },
+        host: null,
+        port: null,
+        error: null,
+      },
+  );
+  ipcMain.handle("remote:setTransport", async (_event, transport: RemoteTransport) => {
+    await remoteAccess?.setTransport(transport);
+    return remoteAccess?.getInfo() ?? null;
   });
-  ipcMain.handle("remote:regenerateToken", () => {
-    const host = remoteServer?.getAdvertisedHost() ?? null;
-    return {
-      token: remoteServer?.regenerateToken() ?? null,
-      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
-    };
+  ipcMain.handle("remote:getDevices", () => remoteAccess?.server.getDevicesState() ?? null);
+  ipcMain.handle("remote:createPairing", (_event, options: { allowRun?: boolean } | undefined) => {
+    const scopes: RemoteScope[] = options?.allowRun === false ? ["read"] : ["read", "run"];
+    return remoteAccess?.server.createPairingOffer(scopes) ?? null;
   });
+  ipcMain.handle("remote:cancelPairing", () => remoteAccess?.server.cancelPairingOffer());
+  ipcMain.handle("remote:revokeDevice", (_event, id: string) =>
+    typeof id === "string" ? (remoteAccess?.server.revokeDevice(id) ?? false) : false,
+  );
   ipcMain.handle("remote:setStandby", (_event, active: boolean) =>
     sleeplessController?.setRemoteActive(Boolean(active)),
   );
@@ -2779,44 +2843,68 @@ app.whenReady().then(async () => {
   });
   sleeplessController.setRunningThreadIds(agentManager.getRunningThreadIds());
   if (process.env.PIPPER_REMOTE_ENABLED !== "0") {
-    remoteServer = new RemoteServer({
-      agentManager: () => agentManager,
-      getUserDataPath: () => app.getPath("userData"),
-      getRendererDir: () => join(mainDir, "../renderer"),
-      onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+    const cloudflaredExe = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
+    remoteAccess = new RemoteAccessController({
+      userDataPath: app.getPath("userData"),
+      // Dev builds default to their own port so they can run next to an
+      // installed Pipper (which holds 4173) without failing to bind.
+      port: process.env.PIPPER_REMOTE_PORT ? undefined : app.isPackaged ? undefined : 4183,
+      serverDeps: {
+        agentManager: () => agentManager,
+        getUserDataPath: () => app.getPath("userData"),
+        getRendererDir: () => join(mainDir, "../renderer"),
+        devices: new RemoteDeviceStore(getDb()),
+        onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+        onDevicesChanged: (state) => broadcastToWindows("remote:devicesChanged", state),
+      },
+      cloudflared: {
+        overridePath: process.env.PIPPER_CLOUDFLARED_PATH?.trim() || null,
+        bundledPath: app.isPackaged
+          ? join(process.resourcesPath, "cloudflared", cloudflaredExe)
+          : null,
+      },
+      getLaptopCredential: () => desktopIdentity().credential(),
+      // Dev builds only: a tunnel you created yourself (token + its public
+      // hostname). Packaged apps always get their own tunnel from pipper.dev.
+      devTunnel:
+        !app.isPackaged &&
+        process.env.PIPPER_DEV_TUNNEL_TOKEN?.trim() &&
+        process.env.PIPPER_DEV_TUNNEL_HOSTNAME?.trim()
+          ? {
+              token: process.env.PIPPER_DEV_TUNNEL_TOKEN.trim(),
+              hostname: process.env.PIPPER_DEV_TUNNEL_HOSTNAME.trim().toLowerCase(),
+            }
+          : null,
+      pipperApiBase: process.env.PIPPER_API_BASE?.trim() || undefined,
+      remoteAppUrl: process.env.PIPPER_REMOTE_APP_URL?.trim() || undefined,
+      onInfoChanged: (info) => broadcastToWindows("remote:infoChanged", info),
     });
-    remoteServer.start();
+    await remoteAccess.start();
+    powerMonitor.on("resume", () => remoteAccess?.onResume());
     // Standby lease: an idle paired phone (authed request within the window)
     // keeps Sleepless armed even with zero running threads, so the laptop is
     // awake when the next phone task arrives.
     const leaseTimer = setInterval(() => {
       const running = agentManager?.getRunningThreadIds() ?? [];
       sleeplessController?.setRemoteActive(
-        running.length > 0 || (remoteServer?.hasLiveLease() ?? false),
+        running.length > 0 || (remoteAccess?.server.hasLiveLease() ?? false),
       );
     }, 60_000);
     leaseTimer.unref?.();
     {
-      const tailscale = remoteServer.getAdvertisedHost();
-      if (!remoteServer.isServing()) {
+      // No credential is printed here: phones pair with a one-time code from
+      // Settings → Remote, so nothing reusable ever lands in the log.
+      const info = remoteAccess.getInfo();
+      if (!info.serving) {
         console.warn("[Remote] Server failed to bind — remote access unavailable.");
-      } else if (!tailscale) {
-        console.warn(
-          "[Remote] No Tailscale address — pairing QR unavailable. Token only:",
-          `\x1b[32m${remoteServer.getPairingToken()}\x1b[0m`,
-        );
+      } else if (info.transport !== "tailscale") {
+        console.log("[Remote] Serving on loopback; starting Cloudflare tunnel.");
+      } else if (!info.publicUrl) {
+        console.warn("[Remote] No Tailscale address — phones can't reach this laptop yet.");
       } else {
-        const url = remoteServer.pairingUrl(tailscale);
         console.log(
-          `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
+          `[Remote] Serving ${info.publicUrl}/remote — pair a phone from Settings → Remote.`,
         );
-        try {
-          const { default: qrcode } = await import("qrcode-terminal");
-          console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
-          qrcode.generate(url, { small: true });
-        } catch (err) {
-          console.warn("[Remote] QR render failed:", err);
-        }
       }
       console.log(`[Remote] PATH=${process.env.PATH}`);
     }
@@ -2957,6 +3045,11 @@ app.on("will-quit", (event) => {
       await agentManager?.dispose();
     } catch (err) {
       console.error("[Main] Failed to dispose agent manager on quit:", err);
+    }
+    try {
+      await remoteAccess?.dispose();
+    } catch (err) {
+      console.error("[Main] Failed to stop remote server on quit:", err);
     }
     try {
       await sleeplessController?.dispose();

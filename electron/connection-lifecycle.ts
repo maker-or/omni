@@ -11,6 +11,7 @@ import type {
 } from "../contracts/monitor.ts";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
 import { resolveAgentSpawn } from "./agents/registry.ts";
+import { terminateChildProcess } from "./child-process.ts";
 import type { TerminalManager } from "./terminal-manager.ts";
 
 const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
@@ -86,37 +87,6 @@ export function requestWithTimeout<T>(
       },
     );
   });
-}
-
-async function terminateChildProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode != null || child.signalCode != null) return;
-  const exited = new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-  });
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    return;
-  }
-  const timer = new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, 2_000);
-    timeout.unref?.();
-  });
-  await Promise.race([exited, timer]);
-  if (child.exitCode == null && child.signalCode == null) {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // best effort
-    }
-    await Promise.race([
-      exited,
-      new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, 2_000);
-        timeout.unref?.();
-      }),
-    ]);
-  }
 }
 
 export interface LiveConnection {

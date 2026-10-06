@@ -1,0 +1,276 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { RemoteServerInfo, RemoteTransport } from "../contracts/remote.ts";
+import { CloudflaredBinary } from "./cloudflared-binary.ts";
+import { CloudflaredTunnel, type TunnelMode } from "./cloudflared-tunnel.ts";
+import { requestNamedTunnel } from "./tunnel-provisioner.ts";
+import { RemoteServer, type RemoteServerDeps } from "./remote-server.ts";
+
+export const DEFAULT_REMOTE_APP_URL = "https://remote.pipper.dev";
+/** How often Tailscale mode re-checks interfaces for a new tailnet address. */
+const BINDING_REFRESH_MS = 30_000;
+const TRANSPORTS: readonly RemoteTransport[] = ["tailscale", "cloudflare", "cloudflare-quick"];
+
+export interface RemoteAccessOptions {
+  userDataPath: string;
+  serverDeps: Omit<RemoteServerDeps, "getPublicBaseUrl">;
+  port?: number;
+  /** cloudflared resolution; see CloudflaredBinary for the lookup order. */
+  cloudflared?: { overridePath?: string | null; bundledPath?: string | null };
+  /** pipper.dev laptop credential from sign-in; needed for the named tunnel. */
+  getLaptopCredential?: () => string | null;
+  /** pipper.dev base URL (override for staging/dev). */
+  pipperApiBase?: string;
+  /**
+   * Development only: run this named tunnel directly instead of asking
+   * pipper.dev. Never set in packaged builds — a connector token shared
+   * between machines would let any of them receive the tunnel's traffic.
+   */
+  devTunnel?: { token: string; hostname: string } | null;
+  /**
+   * Hosted phone app used with the named tunnel (e.g. https://remote.pipper.dev).
+   * Laptop hostnames are locked down to API-only at the Cloudflare edge, so
+   * the app itself is served from this trusted site and calls the laptop
+   * cross-origin. See docs/remote-access.md.
+   */
+  remoteAppUrl?: string;
+  onInfoChanged?: (info: RemoteServerInfo) => void;
+}
+
+function isTransport(value: unknown): value is RemoteTransport {
+  return typeof value === "string" && (TRANSPORTS as readonly string[]).includes(value);
+}
+
+/**
+ * Owns how phones reach this laptop: the RemoteServer, the chosen transport,
+ * and (for Cloudflare) the tunnel connector. In tunnel mode the server binds
+ * loopback only, so the tunnel is the sole network path in.
+ */
+export class RemoteAccessController {
+  readonly server: RemoteServer;
+  private readonly options: RemoteAccessOptions;
+  private readonly settingsPath: string;
+  private readonly toolsDir: string;
+  private readonly binary: CloudflaredBinary;
+  private transport: RemoteTransport;
+  private tunnel: CloudflaredTunnel | null = null;
+  /** True between startNow() and stopNow(); guards against double starts. */
+  private running = false;
+  private bindingTimer: ReturnType<typeof setInterval> | null = null;
+  /** Owner statement for the current named tunnel (from pipper.dev). */
+  private attestation: string | null = null;
+  /** Serializes start/stop/switch so a fast toggle can't interleave binds. */
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor(options: RemoteAccessOptions) {
+    this.options = options;
+    this.settingsPath = join(options.userDataPath, "remote-access.json");
+    this.toolsDir = join(options.userDataPath, "tools", "cloudflared");
+    this.transport = this.readTransport();
+    this.binary = new CloudflaredBinary({
+      installRoot: this.toolsDir,
+      overridePath: options.cloudflared?.overridePath,
+      bundledPath: options.cloudflared?.bundledPath,
+    });
+    this.server = new RemoteServer(
+      {
+        ...options.serverDeps,
+        getPublicBaseUrl: () => this.publicUrl(),
+        getAllowedOrigins: () => (this.transport === "cloudflare" ? [this.remoteAppOrigin] : []),
+        buildPairingUrl: (code) => this.pairingUrl(code),
+        getLaptopAttestation: () => (this.transport === "cloudflare" ? this.attestation : null),
+      },
+      { port: options.port },
+    );
+  }
+
+  private readTransport(): RemoteTransport {
+    const env = process.env.PIPPER_REMOTE_TRANSPORT?.trim();
+    if (isTransport(env)) return env;
+    try {
+      const saved = JSON.parse(readFileSync(this.settingsPath, "utf8")) as { transport?: unknown };
+      if (isTransport(saved.transport)) return saved.transport;
+    } catch {
+      // No settings yet.
+    }
+    return "tailscale";
+  }
+
+  private enqueue(work: () => Promise<void>): Promise<void> {
+    this.queue = this.queue.then(work, work);
+    return this.queue;
+  }
+
+  start(): Promise<void> {
+    return this.enqueue(() => this.startNow());
+  }
+
+  private async startNow(): Promise<void> {
+    // Idempotent: a second start() must not spawn a second connector whose
+    // reference would be lost (and never stopped on dispose).
+    if (this.running) return;
+    this.running = true;
+    const viaTunnel = this.transport !== "tailscale";
+    await this.server.start({
+      loopbackOnly: viaTunnel,
+      // Named-tunnel hostnames only ever answer the API; the app is hosted.
+      apiOnly: this.transport === "cloudflare",
+    });
+    if (viaTunnel && this.server.isServing()) this.startTunnel();
+    if (!viaTunnel) {
+      // Tailscale often connects after Pipper launches; pick it up without a restart.
+      this.bindingTimer = setInterval(() => void this.refreshBindings(), BINDING_REFRESH_MS);
+      this.bindingTimer.unref?.();
+    }
+    this.emit();
+  }
+
+  /** Serve newly appeared tailnet addresses (and drop vanished ones). */
+  refreshBindings(): Promise<void> {
+    return this.enqueue(async () => {
+      if (!this.running || this.transport !== "tailscale") return;
+      if (await this.server.refreshBindings()) {
+        this.emit();
+        // The pairing QR shows the advertised address.
+        this.server.emitDevicesChanged();
+      }
+    });
+  }
+
+  private startTunnel(): void {
+    if (this.tunnel) return;
+    mkdirSync(this.toolsDir, { recursive: true });
+    const configPath = join(this.toolsDir, "tunnel-config.yml");
+    writeFileSync(
+      configPath,
+      // Isolates Omni's tunnel from ~/.cloudflared. Not empty on purpose:
+      // cloudflared logs an empty config file as an error.
+      "# Omni tunnel config\nno-autoupdate: true\n",
+    );
+    this.tunnel = new CloudflaredTunnel({
+      binary: () => this.binary.resolve(),
+      mode: this.tunnelMode(),
+      configPath,
+      onStatus: () => {
+        // The public URL feeds the pairing QR, so refresh both views.
+        this.emit();
+        this.server.emitDevicesChanged();
+      },
+    });
+    this.tunnel.start();
+  }
+
+  private tunnelMode(): TunnelMode | (() => Promise<TunnelMode>) {
+    const port = this.server.port;
+    if (this.transport === "cloudflare-quick") {
+      return { kind: "quick", originUrl: `http://127.0.0.1:${port}` };
+    }
+    const dev = this.options.devTunnel;
+    if (dev) return { kind: "token", token: dev.token, hostname: dev.hostname };
+    // Asked on every (re)launch: pipper.dev returns the same tunnel each time
+    // and re-applies the ingress port, so a changed port or a recreated
+    // tunnel heals itself.
+    return async () => {
+      const tunnel = await requestNamedTunnel({
+        credential: this.options.getLaptopCredential?.() ?? null,
+        port,
+        apiBase: this.options.pipperApiBase,
+      });
+      this.attestation = tunnel.attestation;
+      return { kind: "token", token: tunnel.token, hostname: tunnel.hostname };
+    };
+  }
+
+  /**
+   * After sign-in changes the credential (possibly to another account):
+   * restart the named tunnel whatever its state, so a connected tunnel can't
+   * keep serving the previous account's hostname and owner statement.
+   */
+  onCredentialChanged(): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.transport !== "cloudflare" || !this.tunnel) return;
+      const old = this.tunnel;
+      this.tunnel = null;
+      this.attestation = null;
+      await old.stop();
+      this.startTunnel();
+      this.emit();
+    });
+  }
+
+  private async stopNow(): Promise<void> {
+    this.running = false;
+    if (this.bindingTimer) clearInterval(this.bindingTimer);
+    this.bindingTimer = null;
+    const tunnel = this.tunnel;
+    this.tunnel = null;
+    await tunnel?.stop();
+    await this.server.stop();
+  }
+
+  /** Switch transports; persists the choice and rebinds from scratch. */
+  setTransport(transport: RemoteTransport): Promise<void> {
+    if (!isTransport(transport)) return Promise.reject(new Error("Unknown transport"));
+    return this.enqueue(async () => {
+      if (transport === this.transport) return;
+      try {
+        mkdirSync(this.options.userDataPath, { recursive: true });
+        writeFileSync(this.settingsPath, JSON.stringify({ transport }, null, 2));
+      } catch (error) {
+        console.warn("[Remote] failed to save transport setting:", error);
+      }
+      // A pending code's QR points at the old address; don't leave it live.
+      this.server.cancelPairingOffer();
+      await this.stopNow();
+      this.transport = transport;
+      await this.startNow();
+    });
+  }
+
+  private get remoteAppOrigin(): string {
+    return new URL(this.options.remoteAppUrl ?? DEFAULT_REMOTE_APP_URL).origin;
+  }
+
+  /** Where a phone opens to redeem `code` against this laptop. */
+  private pairingUrl(code: string): string | null {
+    const base = this.publicUrl();
+    if (!base) return null;
+    if (this.transport !== "cloudflare") return `${base}/remote#pair=${code}`;
+    const host = new URL(base).host;
+    return `${this.remoteAppOrigin}/#pair=${code}&host=${encodeURIComponent(host)}`;
+  }
+
+  publicUrl(): string | null {
+    if (this.transport !== "tailscale") return this.tunnel?.url ?? null;
+    const host = this.server.getAdvertisedHost();
+    return host ? `http://${host}:${this.server.port}` : null;
+  }
+
+  getInfo(): RemoteServerInfo {
+    const serving = this.server.isServing();
+    return {
+      enabled: true,
+      serving,
+      transport: this.transport,
+      publicUrl: serving ? this.publicUrl() : null,
+      tunnel: this.tunnel?.status ?? { state: "stopped" },
+      host: serving && this.transport === "tailscale" ? this.server.getAdvertisedHost() : null,
+      port: serving ? this.server.port : null,
+      error: this.server.bindError(),
+    };
+  }
+
+  /** After sleep: reconnect now, and re-check addresses (networks change). */
+  onResume(): void {
+    this.tunnel?.retryNow();
+    void this.refreshBindings();
+  }
+
+  dispose(): Promise<void> {
+    return this.enqueue(() => this.stopNow());
+  }
+
+  private emit(): void {
+    this.options.onInfoChanged?.(this.getInfo());
+  }
+}
