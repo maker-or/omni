@@ -1514,7 +1514,7 @@ function notifyAnalyticsIdentity(): void {
 }
 
 function sendMainWindowTabEvent(
-  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:closeActive",
+  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:newTerminal" | "tabs:closeActive",
   ...args: unknown[]
 ) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1569,6 +1569,11 @@ function buildAppMenu(): void {
               click: () => sendMainWindowTabEvent("tabs:newTab"),
             },
             {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
+            },
+            {
               label: "Close Tab",
               accelerator: "CommandOrControl+W",
               click: () => sendMainWindowTabEvent("tabs:closeActive"),
@@ -1584,6 +1589,11 @@ function buildAppMenu(): void {
               label: "New Tab",
               accelerator: "CommandOrControl+T",
               click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
             },
             {
               label: "Close Tab",
@@ -2131,6 +2141,9 @@ function registerIpc(): void {
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = removeWorktree(project.path, target.path, project.id);
+    // Terminals are owned by renderer workspace buckets. Notify it as soon
+    // as Git removes the worktree, even if later chat cleanup fails.
+    broadcastToWindows("worktrees:deleted", { projectId: project.id, path: target.path });
 
     // Run every cleanup operation even if one fails. Git has already removed
     // the workspace, so leaving the remaining tabs or threads untouched would

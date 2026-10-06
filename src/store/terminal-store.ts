@@ -10,15 +10,7 @@ export interface TerminalSession {
   history: string;
 }
 
-/** Stashed shape of a session whose PTY was killed when its workspace left view. */
-interface StashedTerminalSession {
-  id: string;
-  title: string;
-  history: string;
-}
-
 const MAX_HISTORY_CHARS = 200_000;
-const MAX_STASHED_WORKSPACES = 10;
 
 interface PlainHistoryResult {
   text: string;
@@ -27,7 +19,7 @@ interface PlainHistoryResult {
 
 /**
  * Scrollback is recovery data, not a serialized VT state. Remove terminal
- * control sequences before retaining it so restoring a killed workspace can
+ * control sequences before retaining it so remounting a terminal view can
  * never start replay in the middle of an ANSI/OSC sequence.
  */
 export function toPlainTerminalHistory(value: string): string {
@@ -116,8 +108,8 @@ interface TerminalState {
   historyControlRemainders: Record<string, string>;
   /** Which (project, workspace) bucket the visible sessions belong to. */
   workspaceKey: string | null;
-  /** Sessions of workspaces the user navigated away from, restorable on return. */
-  stashByWorkspace: Record<string, StashedTerminalSession[]>;
+  /** Live sessions of workspaces outside the current view. Their PTYs keep running. */
+  stashByWorkspace: Record<string, TerminalSession[]>;
   nextSessionNumber: number;
   /** Changes only when tab metadata changes, never for ordinary PTY output. */
   tabsRevision: number;
@@ -125,17 +117,49 @@ interface TerminalState {
   createSession: (cwd?: string) => string;
   closeSession: (id: string) => string | null;
   clearSessions: () => void;
+  /** Stop and forget every terminal owned by a deleted workspace. */
+  closeWorkspace: (key: string) => string[];
   /**
-   * Enter a workspace's terminal bucket: kill the visible PTYs (stashing their
-   * titles + scrollback under the old bucket) and recreate the target bucket's
-   * sessions with fresh PTYs in the workspace cwd, scrollback restored.
-   * Returns the restored active session id, or null when the bucket is empty.
+   * Enter a workspace's terminal bucket without stopping any PTYs. Move the
+   * previous workspace's sessions into the background and bring the target's
+   * original sessions back into view. Returns its first session id, or null.
    */
   setWorkspace: (key: string, cwd: string) => string | null;
   appendHistory: (id: string, data: string) => void;
   markRunning: (id: string) => void;
   markError: (id: string) => void;
   initializeGlobalListener: () => void;
+}
+
+/** Both shells render this list so terminal cores stay mounted while hidden. */
+export function getAllTerminalSessions(
+  state: Pick<TerminalState, "sessions" | "stashByWorkspace">,
+): TerminalSession[] {
+  return [...state.sessions, ...Object.values(state.stashByWorkspace).flat()];
+}
+
+/** Route process events to their owner even when that workspace is in the background. */
+function updateTerminalSession(
+  state: TerminalState,
+  id: string,
+  update: (session: TerminalSession) => TerminalSession,
+): Partial<TerminalState> {
+  const updateBucket = (sessions: TerminalSession[]): TerminalSession[] | null => {
+    const index = sessions.findIndex((session) => session.id === id);
+    if (index < 0) return null;
+    const nextSession = update(sessions[index]);
+    if (nextSession === sessions[index]) return null;
+    const next = [...sessions];
+    next[index] = nextSession;
+    return next;
+  };
+  const sessions = updateBucket(state.sessions);
+  if (sessions) return { sessions };
+  for (const [key, bucket] of Object.entries(state.stashByWorkspace)) {
+    const updated = updateBucket(bucket);
+    if (updated) return { stashByWorkspace: { ...state.stashByWorkspace, [key]: updated } };
+  }
+  return {};
 }
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
@@ -168,8 +192,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   closeSession: (id: string) => {
-    const { sessions, tabsRevision } = get();
-    if (!sessions.some((session) => session.id === id)) return sessions[0]?.id ?? null;
+    const state = get();
+    const { sessions, stashByWorkspace, tabsRevision } = state;
+    if (!getAllTerminalSessions(state).some((session) => session.id === id))
+      return sessions[0]?.id ?? null;
 
     // Notify the backend to clean up the process
     if (window.omni?.terminal?.kill) {
@@ -182,6 +208,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
     set({
       sessions: filteredSessions,
+      stashByWorkspace: Object.fromEntries(
+        Object.entries(stashByWorkspace)
+          .map(([key, bucket]) => [key, bucket.filter((session) => session.id !== id)] as const)
+          .filter(([, bucket]) => bucket.length > 0),
+      ),
       historyControlRemainders,
       tabsRevision: tabsRevision + 1,
     });
@@ -189,7 +220,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   clearSessions: () => {
-    const { sessions } = get();
+    const sessions = getAllTerminalSessions(get());
     if (window.omni?.terminal?.kill) {
       for (const session of sessions) {
         void window.omni.terminal.kill(session.id);
@@ -197,47 +228,50 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }
     set({
       sessions: [],
+      stashByWorkspace: {},
       historyControlRemainders: {},
       tabsRevision: get().tabsRevision + 1,
     });
   },
 
-  setWorkspace: (key, cwd) => {
+  closeWorkspace: (key) => {
+    const state = get();
+    const isVisible = state.workspaceKey === key;
+    const sessions = isVisible ? state.sessions : (state.stashByWorkspace[key] ?? []);
+    const ids = sessions.map((session) => session.id);
+    if (ids.length === 0 && !(key in state.stashByWorkspace)) return ids;
+
+    for (const id of ids) {
+      void window.omni?.terminal?.kill?.(id);
+    }
+    const stashByWorkspace = { ...state.stashByWorkspace };
+    delete stashByWorkspace[key];
+    const historyControlRemainders = { ...state.historyControlRemainders };
+    for (const id of ids) delete historyControlRemainders[id];
+    set({
+      sessions: isVisible ? [] : state.sessions,
+      stashByWorkspace,
+      historyControlRemainders,
+      tabsRevision: state.tabsRevision + 1,
+    });
+    return ids;
+  },
+
+  setWorkspace: (key) => {
     const { sessions, workspaceKey, stashByWorkspace } = get();
     if (workspaceKey === key) return sessions[0]?.id ?? null;
 
-    // No shell may keep running in a workspace that left view.
-    if (window.omni?.terminal?.kill) {
-      for (const session of sessions) {
-        void window.omni.terminal.kill(session.id);
-      }
-    }
-
     const nextStash = { ...stashByWorkspace };
     if (workspaceKey !== null && sessions.length > 0) {
-      nextStash[workspaceKey] = sessions.map((session) => ({
-        id: session.id,
-        title: session.title,
-        history: session.history,
-      }));
+      nextStash[workspaceKey] = sessions;
     } else if (workspaceKey !== null) {
       delete nextStash[workspaceKey];
     }
 
-    // Restore the target bucket with fresh PTYs while preserving tab identity.
-    const restored = (nextStash[key] ?? []).map((stashed) => ({
-      id: stashed.id,
-      title: stashed.title,
-      cwd,
-      status: "starting" as const,
-      history: stashed.history,
-    }));
+    // Before project hydration, terminals can exist without a bucket. Adopt
+    // them on the first workspace binding rather than losing their processes.
+    const restored = nextStash[key] ?? (workspaceKey === null ? sessions : []);
     delete nextStash[key];
-    const stashKeys = Object.keys(nextStash);
-    while (stashKeys.length > MAX_STASHED_WORKSPACES) {
-      const oldest = stashKeys.shift();
-      if (oldest) delete nextStash[oldest];
-    }
 
     const newActiveId = restored[0]?.id ?? null;
     set({
@@ -251,19 +285,16 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   appendHistory: (id: string, data: string) => {
     set((state) => {
-      const index = state.sessions.findIndex((session) => session.id === id);
-      if (index < 0) return {};
-      const sessions = [...state.sessions];
-      const session = sessions[index];
       const { text, remainder } = stripTerminalControls(
         `${state.historyControlRemainders[id] ?? ""}${data}`,
       );
-      sessions[index] = {
+      const patch = updateTerminalSession(state, id, (session) => ({
         ...session,
         history: appendBoundedTerminalHistory(session.history, text),
-      };
+      }));
+      if (Object.keys(patch).length === 0) return {};
       return {
-        sessions,
+        ...patch,
         historyControlRemainders: {
           ...state.historyControlRemainders,
           [id]: remainder,
@@ -274,26 +305,23 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   markRunning: (id) => {
     set((state) => {
-      const index = state.sessions.findIndex((session) => session.id === id);
-      if (index < 0 || state.sessions[index]?.status === "running") return {};
-      const sessions = [...state.sessions];
-      sessions[index] = {
-        ...sessions[index],
-        status: "running",
-        exitCode: undefined,
-        exitSignal: undefined,
-      };
-      return { sessions, tabsRevision: state.tabsRevision + 1 };
+      const patch = updateTerminalSession(state, id, (session) =>
+        session.status === "running"
+          ? session
+          : { ...session, status: "running", exitCode: undefined, exitSignal: undefined },
+      );
+      if (Object.keys(patch).length === 0) return {};
+      return { ...patch, tabsRevision: state.tabsRevision + 1 };
     });
   },
 
   markError: (id) => {
     set((state) => {
-      const index = state.sessions.findIndex((session) => session.id === id);
-      if (index < 0 || state.sessions[index]?.status === "error") return {};
-      const sessions = [...state.sessions];
-      sessions[index] = { ...sessions[index], status: "error" };
-      return { sessions, tabsRevision: state.tabsRevision + 1 };
+      const patch = updateTerminalSession(state, id, (session) =>
+        session.status === "error" ? session : { ...session, status: "error" },
+      );
+      if (Object.keys(patch).length === 0) return {};
+      return { ...patch, tabsRevision: state.tabsRevision + 1 };
     });
   },
 
@@ -306,22 +334,19 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     });
     window.omni.terminal.onExit?.((payload) => {
       set((state) => {
-        const index = state.sessions.findIndex((session) => session.id === payload.sessionId);
-        if (index < 0) return {};
-        const sessions = [...state.sessions];
-        const session = sessions[index];
         const completion = `\r\n[Process completed (exit ${payload.exitCode})]\r\n`;
-        sessions[index] = {
+        const patch = updateTerminalSession(state, payload.sessionId, (session) => ({
           ...session,
           status: "exited",
           exitCode: payload.exitCode,
           exitSignal: payload.signal,
           history: appendBoundedTerminalHistory(session.history, completion),
-        };
+        }));
+        if (Object.keys(patch).length === 0) return {};
         const historyControlRemainders = { ...state.historyControlRemainders };
         delete historyControlRemainders[payload.sessionId];
         return {
-          sessions,
+          ...patch,
           historyControlRemainders,
           tabsRevision: state.tabsRevision + 1,
         };

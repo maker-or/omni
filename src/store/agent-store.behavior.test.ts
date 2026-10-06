@@ -43,6 +43,33 @@ async function loadStore() {
   return mod.useAgentStore;
 }
 
+async function controlledThreadSwitches() {
+  let bridgeHandler: (payload: AcpBridgeEvent) => void = () => {};
+  let currentState = sessionState("thread-a");
+  const gates = new Map<string, () => void>();
+  const agentApi = {
+    onEvent: vi.fn((handler: (payload: AcpBridgeEvent) => void) => {
+      bridgeHandler = handler;
+      return vi.fn();
+    }),
+    getState: vi.fn(async () => currentState),
+    getCapabilities: vi.fn(async () => null),
+    switchThread: vi.fn((id: string) => new Promise<void>((resolve) => gates.set(id, resolve))),
+  };
+  (globalThis as any).window = { omni: { agent: agentApi } };
+  const store = await loadStore();
+  await store.getState().connect();
+  return {
+    store,
+    agentApi,
+    publish: (id: string) => {
+      currentState = sessionState(id);
+      bridgeHandler({ type: "session-state", state: currentState });
+    },
+    resolve: (id: string) => gates.get(id)?.(),
+  };
+}
+
 afterEach(() => {
   resetToolPayloadStore();
   delete (globalThis as { window?: unknown }).window;
@@ -50,6 +77,56 @@ afterEach(() => {
 });
 
 describe("agent store ACP bridge behavior", () => {
+  test("an older switch completion cannot clear the next requested target", async () => {
+    const { store, agentApi, publish, resolve } = await controlledThreadSwitches();
+    const switchingB = store.getState().switchThread("thread-b");
+    await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-b"));
+    publish("thread-b");
+
+    // The snapshot paints before IPC resolves. A click during that gap must
+    // remain pending when B's persistence finishes.
+    const switchingC = store.getState().switchThread("thread-c");
+    resolve("thread-b");
+    await switchingB;
+    await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-c"));
+    try {
+      expect(store.getState().pendingThreadTarget).toBe("thread-c");
+      publish("thread-b");
+      expect(store.getState().pendingThreadTarget).toBe("thread-c");
+      publish("thread-c");
+      expect(store.getState().snapshot?.threadId).toBe("thread-c");
+      expect(store.getState().pendingThreadTarget).toBeNull();
+    } finally {
+      resolve("thread-c");
+      await switchingC;
+    }
+  });
+
+  test("clicking the displayed thread cancels a pending switch to another thread", async () => {
+    const { store, agentApi, publish, resolve } = await controlledThreadSwitches();
+    const { selectThread } = await import("../lib/thread-actions");
+    const { useWorkspaceViewStore } = await import("./workspace-view-store");
+    const switchingB = selectThread("thread-b");
+    await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-b"));
+    const switchingA = selectThread("thread-a");
+    try {
+      expect(useWorkspaceViewStore.getState().requestedThreadId).toBe("thread-a");
+      expect(store.getState().pendingThreadTarget).toBe("thread-a");
+      publish("thread-b");
+      expect(store.getState().snapshot?.threadId).toBe("thread-a");
+    } finally {
+      resolve("thread-b");
+      await switchingB;
+      // Even though A is still displayed, the main process must switch back
+      // to it after the in-flight activation of B finishes.
+      await vi.waitFor(() => expect(agentApi.switchThread).toHaveBeenCalledWith("thread-a"));
+      publish("thread-a");
+      resolve("thread-a");
+      await switchingA;
+    }
+    expect(store.getState().snapshot?.threadId).toBe("thread-a");
+  });
+
   test("forwards a selected workspace when creating a thread", async () => {
     const createThread = vi.fn(async () => ({ id: "thread-worktree" }));
     const agentApi = {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import { loadEnv } from "vite";
+import { preparePtyHelpers } from "./prepare-pty.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const loadedEnv = loadEnv("production", root, "");
@@ -121,6 +122,7 @@ function buildPipperIntents() {
   }
 }
 
+preparePtyHelpers();
 buildMacSleeplessHelpers();
 buildPipperIntents();
 

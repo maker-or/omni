@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { Terminal, useTerminal } from "@wterm/react";
 import type { GhosttyCore } from "@wterm/ghostty";
 import "@wterm/dom/css";
-import { useTerminalStore } from "@/store/terminal-store";
+import { getAllTerminalSessions, useTerminalStore } from "@/store/terminal-store";
 import { loadGhosttyCore } from "@/lib/ghostty-core";
 import { subscribeToTerminalEvents } from "@/lib/terminal-event-router";
 
@@ -85,13 +85,9 @@ export const TerminalSession = memo(function TerminalSession({
   const hasBeenActiveRef = useRef(isActive);
   if (isActive) hasBeenActiveRef.current = true;
 
-  // A workspace switch keeps the session id but changes `cwd` (the store
-  // restores the bucket expecting fresh PTYs). Keying on `cwd` remounts the
-  // inner view, which is the only way to make every stage restart cleanly:
-  // scrollback recovery re-reads the restored history, the PTY is spawned
-  // only after that recovery, and any in-flight callback from the previous
-  // workspace (recovery frames, `create()` resolution) lands on an unmounted
-  // instance instead of replaying old history into the new shell.
+  // Workspace switches keep this view mounted with its original cwd. Only
+  // retrying or explicitly changing cwd remounts the inner terminal, keeping
+  // callbacks from an older view out of its replacement.
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden">
       {hasBeenActiveRef.current && (
@@ -132,17 +128,20 @@ function TerminalInner({ sessionId, cwd, isActive, onRetry }: TerminalInnerProps
   const queuedLiveDataRef = useRef("");
   const exitDisplayedRef = useRef(false);
   const initialHistoryRef = useRef(
-    useTerminalStore.getState().sessions.find((session) => session.id === sessionId)?.history ?? "",
+    getAllTerminalSessions(useTerminalStore.getState()).find((session) => session.id === sessionId)
+      ?.history ?? "",
   );
   const markRunning = useTerminalStore((state) => state.markRunning);
   const markError = useTerminalStore((state) => state.markError);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Strict Mode replays setup after cleanup without recreating these refs.
+    // Reset the flag so a successful spawn can enable input on that replay.
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
