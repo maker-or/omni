@@ -37,10 +37,13 @@ function fakeCloudflare(
       busy?: boolean;
     }>;
     dns?: Array<{ id: string; name: string; content: string }>;
+    failDnsDeletes?: Record<string, number>;
   } = {},
 ) {
   const tunnels = [...(seed.tunnels ?? [])];
   const dns = [...(seed.dns ?? [])];
+  /** DNS record id -> how many upcoming deletes of it fail (flaky cleanup). */
+  const failDnsDeletes = new Map<string, number>(Object.entries(seed.failDnsDeletes ?? {}));
   const calls: Call[] = [];
   const ok = (result: unknown, resultInfo?: unknown) =>
     new Response(JSON.stringify({ success: true, errors: [], result, result_info: resultInfo }), {
@@ -88,6 +91,16 @@ function fakeCloudflare(
     }
     if (method === "DELETE" && path.startsWith("/zones/zone/dns_records/")) {
       const id = path.split("/").pop();
+      const failures = failDnsDeletes.get(id!) ?? 0;
+      if (failures > 0) {
+        failDnsDeletes.set(id!, failures - 1);
+        return new Response(
+          JSON.stringify({ success: false, errors: [{ code: 10000, message: "flaky" }] }),
+          {
+            status: 502,
+          },
+        );
+      }
       const index = dns.findIndex((r) => r.id === id);
       if (index >= 0) dns.splice(index, 1);
       return ok({});
@@ -99,7 +112,22 @@ function fakeCloudflare(
     }
     if (method === "PUT" && path.endsWith("/configurations")) return ok({});
     if (method === "GET" && path === "/zones/zone/dns_records") {
-      return ok(dns.filter((r) => r.name === url.searchParams.get("name.exact")));
+      const exact = url.searchParams.get("name.exact");
+      if (exact) return ok(dns.filter((r) => r.name === exact));
+      const prefix = url.searchParams.get("name.startswith") ?? "";
+      const suffix = url.searchParams.get("content.endswith") ?? "";
+      return ok(dns.filter((r) => r.name.startsWith(prefix) && r.content.endsWith(suffix)));
+    }
+    if (method === "GET" && /^\/accounts\/acct\/cfd_tunnel\/[^/]+$/.test(path)) {
+      const found = tunnels.find((t) => t.id === path.split("/").pop());
+      return found
+        ? ok(found)
+        : new Response(
+            JSON.stringify({ success: false, errors: [{ code: 1003, message: "Not found" }] }),
+            {
+              status: 404,
+            },
+          );
     }
     if (method === "POST" && path === "/zones/zone/dns_records") {
       dns.push({ id: `dns-${dns.length + 1}`, name: body.name, content: body.content });
@@ -253,6 +281,38 @@ describe("laptop tunnel provisioning", () => {
     expect(cf.dns.map((r) => r.id)).toContain("d0"); // its hostname survives
     expect(cf.tunnels.map((t) => t.id)).not.toContain("t1"); // the next one went instead
     expect(cf.dns.map((r) => r.id)).not.toContain("d1");
+  });
+
+  test("a later reclaim sweeps DNS left behind by a failed cleanup", async () => {
+    const other = (i: number) => `${labels.userPrefix}${String(i).padStart(20, "0")}`;
+    const host = (i: number) => `lt-${String(i).padStart(20, "0")}.${ENV.domain}`;
+    const seed = () => ({
+      tunnels: [
+        { id: "t0", name: other(0), status: "down", conns_inactive_at: "2025-01-01T00:00:00Z" },
+        { id: "t1", name: other(1), status: "down", conns_inactive_at: "2026-01-01T00:00:00Z" },
+        { id: "t2", name: other(2), status: "healthy" },
+        { id: "t3", name: other(3), status: "healthy" },
+        { id: "t4", name: other(4), status: "healthy" },
+        { id: "live", name: "pipper-zzzzzzzzzz-live", status: "healthy" },
+      ],
+      dns: [
+        { id: "d0", name: host(0), content: "t0.cfargotunnel.com" },
+        { id: "d-live", name: "lt-live.pipper-remote.dev", content: "live.cfargotunnel.com" },
+        { id: "d-www", name: "www.pipper-remote.dev", content: "gone.cfargotunnel.com" },
+      ],
+    });
+    // First reclaim: t0 is deleted but its DNS delete fails (and the sweep
+    // right after hits the same flake), leaving an orphan.
+    const cf = fakeCloudflare({ ...seed(), failDnsDeletes: { d0: 2 } });
+    await provisionLaptopTunnel(ENV, labels, 4173, cf.fetchImpl);
+    expect(cf.tunnels.map((t) => t.id)).not.toContain("t0");
+    expect(cf.dns.map((r) => r.id)).toContain("d0"); // orphaned for now
+    // Next reclaim (another new laptop) sweeps it; live and non-laptop records stay.
+    const next = tunnelLabels(SECRET, "user_1", "laptop-z", ENV.domain);
+    await provisionLaptopTunnel(ENV, next, 4173, cf.fetchImpl);
+    const ids = cf.dns.map((r) => r.id);
+    expect(ids).not.toContain("d0");
+    expect(ids).toEqual(expect.arrayContaining(["d-live", "d-www"]));
   });
 
   test("counts the user's tunnels beyond the first page", async () => {

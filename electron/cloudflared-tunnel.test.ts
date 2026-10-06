@@ -6,6 +6,12 @@ import type { RemoteTunnelStatus } from "../contracts/remote.ts";
 import { CloudflaredTunnel, type TunnelMode } from "./cloudflared-tunnel.ts";
 import { writeFakeCloudflared } from "./cloudflared-test-fixtures.ts";
 
+/**
+ * Spawning the fake connector (a shell script) can take over a second when
+ * the full suite runs in parallel; vi.waitFor's 1s default made these flaky.
+ */
+const waitForSpawn = <T>(check: () => T | Promise<T>) => vi.waitFor(check, { timeout: 5_000 });
+
 describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", () => {
   let dir: string;
   let fake: string;
@@ -42,7 +48,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
   it("reports the quick tunnel URL once the connection registers", async () => {
     tunnel = make({ kind: "quick", originUrl: "http://127.0.0.1:4173" });
     tunnel.start();
-    await vi.waitFor(() => expect(tunnel!.url).toBe("https://quiet-fox-1234.trycloudflare.com"));
+    await waitForSpawn(() => expect(tunnel!.url).toBe("https://quiet-fox-1234.trycloudflare.com"));
     const args = readFileSync(argsFile, "utf8");
     expect(args).toContain("--url http://127.0.0.1:4173");
     expect(args).toContain(`--config ${join(dir, "config.yml")}`);
@@ -53,7 +59,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
   it("passes a named tunnel's token through the environment, never argv", async () => {
     tunnel = make({ kind: "token", token: "secret-connector-token", hostname: "abc.example.com" });
     tunnel.start();
-    await vi.waitFor(() => expect(tunnel!.url).toBe("https://abc.example.com"));
+    await waitForSpawn(() => expect(tunnel!.url).toBe("https://abc.example.com"));
     const args = readFileSync(argsFile, "utf8");
     expect(args.split("\n")[0]).not.toContain("secret-connector-token");
     expect(args).toContain("token=secret-connector-token");
@@ -63,7 +69,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
     vi.stubEnv("FAKE_CF_MODE", "crash");
     tunnel = make({ kind: "quick", originUrl: "http://127.0.0.1:4173" });
     tunnel.start();
-    await vi.waitFor(() => {
+    await waitForSpawn(() => {
       const retries = statuses.filter((s) => s.state === "reconnecting");
       expect(retries.length).toBeGreaterThanOrEqual(3);
     });
@@ -81,7 +87,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
       throw new Error("offline");
     });
     tunnel.start();
-    await vi.waitFor(() =>
+    await waitForSpawn(() =>
       expect(statuses.find((s) => s.state === "reconnecting")).toMatchObject({
         lastError: "offline",
       }),
@@ -103,7 +109,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
       initialBackoffMs: 10,
     });
     tunnel.start();
-    await vi.waitFor(() => expect(tunnel!.status.state).toBe("error"));
+    await waitForSpawn(() => expect(tunnel!.status.state).toBe("error"));
     await new Promise((r) => setTimeout(r, 100));
     expect(calls).toBe(1);
     expect(tunnel.status).toEqual({
@@ -115,7 +121,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
   it("stops the connector and does not restart it", async () => {
     tunnel = make({ kind: "quick", originUrl: "http://127.0.0.1:4173" });
     tunnel.start();
-    await vi.waitFor(() => expect(tunnel!.url).not.toBeNull());
+    await waitForSpawn(() => expect(tunnel!.url).not.toBeNull());
     await tunnel.stop();
     expect(tunnel.status).toEqual({ state: "stopped" });
     await new Promise((r) => setTimeout(r, 150));

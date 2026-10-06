@@ -106,13 +106,30 @@ export function RemoteApp() {
 
   // Switching laptops (or losing one) starts from a clean screen: nothing
   // chosen or attached for the previous laptop may be sent to the next one.
-  // The typed draft stays — it's the user's text, and the header names the
-  // new destination.
+  // Drafts are kept per laptop, so text meant for one is never sent to
+  // another, and a send that fails after a switch lands back in its own
+  // laptop's draft (with a notice) instead of being lost.
   const imagesRef = useRef(images);
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
+  const draftRef = useRef(draft);
   useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  const draftsByLaptop = useRef(new Map<string, string>());
+  const unsentNotices = useRef(new Map<string, string>());
+  const shownLaptop = useRef(laptopId);
+  useEffect(() => {
+    const previous = shownLaptop.current;
+    shownLaptop.current = laptopId;
+    if (previous && previous !== laptopId) draftsByLaptop.current.set(previous, draftRef.current);
+    const key = laptopId ?? "";
+    setDraft(draftsByLaptop.current.get(key) ?? (previous === laptopId ? draftRef.current : ""));
+    draftsByLaptop.current.delete(key);
+    const notice = unsentNotices.current.get(key) ?? null;
+    unsentNotices.current.delete(key);
+    setSendError(notice);
     setActiveId(null);
     setReport(null);
     setProjects([]);
@@ -124,7 +141,6 @@ export function RemoteApp() {
     setModelId("");
     releaseImages(imagesRef.current);
     setImages([]);
-    setSendError(null);
     setLoadError(null);
   }, [laptopId]);
 
@@ -285,11 +301,25 @@ export function RemoteApp() {
       setImages((current) => current.filter((image) => !sent.has(image.id)));
       if (stillHere()) void refresh();
     } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
       if (stillHere()) {
         // Restore the text unless something new was typed meanwhile.
         setDraft((current) => (current.trim() ? current : text));
         setPending(null);
-        setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
+        setSendError(`Send failed: ${reason}`);
+      } else {
+        // The user moved to another laptop: put the text back into *this*
+        // laptop's draft, never the current composer, and say so on return.
+        const key = sentTo ?? "";
+        const saved = draftsByLaptop.current.get(key);
+        const boxTaken = Boolean(saved?.trim());
+        if (!boxTaken) draftsByLaptop.current.set(key, text);
+        unsentNotices.current.set(
+          key,
+          boxTaken
+            ? `Your last message didn't send (${reason}): "${text}"`
+            : `Your last message didn't send (${reason}). It's back in the box.`,
+        );
       }
     } finally {
       setSending(false);

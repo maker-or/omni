@@ -117,6 +117,58 @@ async function cf<T>(
   return (await cfRaw<T>(env, fetchImpl, method, path, body)).result as T;
 }
 
+/**
+ * Delete laptop DNS records whose tunnel no longer exists — what a failed
+ * cleanup in reclaimSlot leaves behind (the tunnel is gone, so nothing would
+ * otherwise retry). Only `lt-` CNAMEs to *.cfargotunnel.com are considered,
+ * and each tunnel is confirmed deleted by id first, so a record for a tunnel
+ * created moments ago (by a concurrent provisioning) is never touched.
+ */
+async function sweepOrphanedLaptopDns(
+  env: TunnelEnv,
+  fetchImpl: Fetch,
+  account: string,
+): Promise<void> {
+  const zone = `/zones/${encodeURIComponent(env.zoneId)}`;
+  const perPage = 1000;
+  for (let page = 1; page <= 50; page++) {
+    const records = await cf<DnsRecord[]>(
+      env,
+      fetchImpl,
+      "GET",
+      `${zone}/dns_records?type=CNAME&match=all&name.startswith=${LAPTOP_HOST_PREFIX}` +
+        `&content.endswith=.cfargotunnel.com&per_page=${perPage}&page=${page}`,
+    );
+    for (const record of records) {
+      const tunnelId = record.content.replace(/\.cfargotunnel\.com$/, "");
+      if (await tunnelExists(env, fetchImpl, account, tunnelId)) continue;
+      await cf(env, fetchImpl, "DELETE", `${zone}/dns_records/${record.id}`);
+    }
+    if (records.length < perPage) break;
+  }
+}
+
+async function tunnelExists(
+  env: TunnelEnv,
+  fetchImpl: Fetch,
+  account: string,
+  tunnelId: string,
+): Promise<boolean> {
+  try {
+    const tunnel = await cf<TunnelRecord & { deleted_at?: string | null }>(
+      env,
+      fetchImpl,
+      "GET",
+      `${account}/cfd_tunnel/${encodeURIComponent(tunnelId)}`,
+    );
+    return !tunnel.deleted_at;
+  } catch (error) {
+    // Only a definite "not found" counts as gone; anything else keeps it.
+    if (error instanceof CloudflareApiError && error.status === 404) return false;
+    throw error;
+  }
+}
+
 /** Every live tunnel in the account, across pages (the first 1,000 isn't all). */
 async function listAllTunnels(env: TunnelEnv, fetchImpl: Fetch, account: string) {
   const perPage = 1000;
@@ -194,10 +246,14 @@ async function reclaimSlot(
         }
       }
     } catch (error) {
-      // A leftover record points at a deleted tunnel: harmless, and the next
-      // provisioning for that hostname repoints it.
+      // Left for sweepOrphanedLaptopDns() on a later reclaim.
       console.warn(`[remote-tunnel] left DNS for ${hostname}:`, error);
     }
+  }
+  try {
+    await sweepOrphanedLaptopDns(env, fetchImpl, account);
+  } catch (error) {
+    console.warn("[remote-tunnel] DNS sweep failed:", error);
   }
   if (excess > 0) {
     throw new TunnelLimitError(
