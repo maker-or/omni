@@ -182,6 +182,35 @@ struct RemoteClientTests {
     #expect(body?["prompt"] as? String == "Fix login")
   }
 
+  @Test func modelChoiceTravelsSeparatelyFromAgent() async throws {
+    let client = stubClient { _ in
+      (201, json(["thread": ["id": "t1", "projectId": "p1", "running": true, "lastUsedAt": 0]]))
+    }
+    _ = try await client.createThread(projectId: "p1", agentId: "codex-acp", prompt: "Fix", requestId: "r1")
+    var body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody ?? Data()) as? [String: Any]
+    #expect(body?["model"] == nil)
+    _ = try await client.createThread(
+      projectId: "p1", agentId: "codex-acp", model: "gpt-5", prompt: "Fix", requestId: "r2")
+    body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody ?? Data()) as? [String: Any]
+    #expect(body?["modelId"] as? String == "codex-acp")
+    #expect(body?["model"] as? String == "gpt-5")
+  }
+
+  @Test func listsAndSwitchesModels() async throws {
+    let client = stubClient { req in
+      if req.httpMethod == "GET" {
+        return (200, json(["models": ["codex-acp": [["id": "gpt-5", "name": "GPT-5"]]]]))
+      }
+      return (200, json(["model": ["current": "o3", "options": [["id": "gpt-5", "name": "GPT-5"], ["id": "o3", "name": "o3"]]]]))
+    }
+    let models = try await client.agentModels()
+    #expect(StubURLProtocol.lastRequest?.url?.path == "/api/remote/agent-models")
+    #expect(models["codex-acp"]?.first?.name == "GPT-5")
+    let updated = try await client.setModel(threadId: "t1", model: "o3")
+    #expect(StubURLProtocol.lastRequest?.url?.path == "/api/remote/threads/t1/model")
+    #expect(updated?.currentName == "o3")
+  }
+
   @Test func unauthorizedSurfacesPairingError() async {
     let client = stubClient { _ in (401, json(["error": "Unauthorized"])) }
     do {
@@ -226,6 +255,8 @@ struct RemoteClientTests {
     #expect(r.messages[1].role == .agent)
     #expect(r.isolated == false)
     #expect(r.worktreePath == nil)
+    // Older Macs omit `model`.
+    #expect(r.model == nil)
   }
   @Test func followupCarriesStableRequestIdAndAcceptsImmediateAcknowledgement() async throws {
     let client = stubClient { request in

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B20A00000000000000000003 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = B20A00000000000000000002 /* Textual */; };
 		B20100000000000000000001 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000001 /* RemoteModels.swift */; };
 		B20100000000000000000002 /* RemoteConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000002 /* RemoteConfig.swift */; };
 		B20100000000000000000003 /* CatalogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000003 /* CatalogStore.swift */; };
@@ -49,6 +50,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20A00000000000000000003 /* Textual in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +137,9 @@
 			dependencies = (
 			);
 			name = PipperRemote;
+			packageProductDependencies = (
+				B20A00000000000000000002 /* Textual */,
+			);
 			productName = PipperRemote;
 			productReference = B20200000000000000000101 /* PipperRemote.app */;
 			productType = "com.apple.product-type.application";
@@ -162,6 +167,9 @@
 				Base,
 			);
 			mainGroup = B20400000000000000000010;
+			packageReferences = (
+				B20A00000000000000000001 /* XCRemoteSwiftPackageReference "textual" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B20400000000000000000011 /* Products */;
 			projectDirPath = "";
@@ -289,6 +297,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				"LD_ENTITLEMENTS_SECTION[sdk=iphonesimulator*]" = "$(SRCROOT)/App/Simulator.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YSB9XBNUFD;
@@ -313,6 +322,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				"LD_ENTITLEMENTS_SECTION[sdk=iphonesimulator*]" = "$(SRCROOT)/App/Simulator.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YSB9XBNUFD;
@@ -354,6 +364,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+/* Begin XCRemoteSwiftPackageReference section */
+		B20A00000000000000000001 /* XCRemoteSwiftPackageReference "textual" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/textual";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.5.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B20A00000000000000000002 /* Textual */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B20A00000000000000000001 /* XCRemoteSwiftPackageReference "textual" */;
+			productName = Textual;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B20700000000000000000001 /* Project object */;
 }

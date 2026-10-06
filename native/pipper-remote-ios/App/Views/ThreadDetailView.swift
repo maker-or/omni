@@ -1,4 +1,5 @@
 import SwiftUI
+import Textual
 
 /// One thread's transcript (polled every 3s — the laptop holds back
 /// in-progress agent text, so replies arrive whole) plus a follow-up box.
@@ -14,15 +15,14 @@ struct ThreadDetailView: View {
     self.threadId = threadId
     if let previewReport {
       _report = State(initialValue: previewReport)
-      _lastUpdated = State(initialValue: Date())
     }
   }
   #endif
 
   @State private var report: RemoteReport?
   @State private var loadError: String?
-  @State private var lastUpdated: Date?
   @State private var controlling = false
+  @State private var switchingModel = false
   @State private var loading = false
   @State private var draft = ""
   @State private var sending = false
@@ -55,13 +55,10 @@ struct ThreadDetailView: View {
     VStack(spacing: 0) {
       ScrollViewReader { proxy in
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 10) {
+          // Plain VStack: Markdown rows settle their height after layout, and
+          // a lazy stack's height estimates for off-screen rows make scrolling jump.
+          VStack(alignment: .leading, spacing: 10) {
             if let report {
-              StatusCard(report: report)
-              if let lastUpdated {
-                Text("Updated \(lastUpdated.formatted(date: .omitted, time: .standard))")
-                  .font(.caption).foregroundStyle(.secondary)
-              }
               if let loadError {
                 Text("Connection lost. Showing the last update. \(loadError)")
                   .font(.footnote).foregroundStyle(.orange)
@@ -87,11 +84,6 @@ struct ThreadDetailView: View {
                 }
                 .padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
               }
-              if report.running || !(report.permissions ?? []).isEmpty {
-                Button("Stop this thread", role: .destructive) {
-                  Task { await control() }
-                }.buttonStyle(.bordered).disabled(controlling)
-              }
               ForEach(Array(report.messages.enumerated()), id: \.offset) { _, m in
                 Bubble(role: m.role, text: m.text)
               }
@@ -112,7 +104,10 @@ struct ThreadDetailView: View {
           }
           .padding(12)
         }
-        .defaultScrollAnchor(.bottom)
+        // Start at the bottom only. Pinning on every size change would yank
+        // readers back down as Markdown re-lays out; sticky-bottom below
+        // handles following new content.
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
         .scrollDismissesKeyboard(.interactively)
         .onScrollGeometryChange(for: Bool.self) { geo in
           geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 120
@@ -129,29 +124,111 @@ struct ThreadDetailView: View {
           }
         }
       }
-      if let sendError {
-        Text(sendError).font(.footnote).foregroundStyle(.red).padding(.horizontal)
-      }
-      Divider()
-      HStack(alignment: .bottom) {
-        TextField("Follow up…", text: $draft, axis: .vertical)
-          .lineLimit(1...5)
-          .textFieldStyle(.roundedBorder)
-        Button {
-          Task { await send() }
-        } label: {
-          Image(systemName: "paperplane.fill")
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending || report?.running == true)
-        .accessibilityLabel("Send follow-up")
-      }
-      .padding(12)
+      composer
     }
     .navigationTitle(report?.summary ?? "Thread")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      if let model = report?.model {
+        ToolbarItem(placement: .topBarTrailing) { modelMenu(model) }
+      }
+    }
     .task(id: "\(threadId)-\(scenePhase == .active)") {
       if scenePhase == .active { await poll() }
+    }
+  }
+
+  /// Applies to the next turn, so it's locked while the Mac is working.
+  private func modelMenu(_ model: RemoteThreadModel) -> some View {
+    Menu {
+      Picker("Model", selection: Binding(
+        get: { model.current ?? "" },
+        set: { next in Task { await setModel(next) } }
+      )) {
+        ForEach(model.options) { m in
+          Text(m.name).tag(m.id)
+        }
+      }
+    } label: {
+      HStack(spacing: 3) {
+        Text(model.currentName ?? "Model")
+        Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+      }
+      .font(.footnote)
+    }
+    .disabled(report?.running == true || switchingModel || controlling)
+    .accessibilityLabel("Model: \(model.currentName ?? "default")")
+  }
+
+  private func setModel(_ next: String) async {
+    guard let client = session.client, !switchingModel, next != report?.model?.current else { return }
+    switchingModel = true
+    sendError = nil
+    defer { switchingModel = false }
+    do {
+      let updated = try await client.setModel(threadId: threadId, model: next)
+      report?.model = updated
+    } catch {
+      sendError = error.localizedDescription
+    }
+  }
+
+  private var canSend: Bool {
+    !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending && report?.running != true
+  }
+
+  /// Message-style composer: one rounded field with the action button inside.
+  /// While the Mac is working the button stops the thread instead of sending.
+  private var composer: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if let sendError {
+        Text(sendError).font(.footnote).foregroundStyle(.red).padding(.horizontal, 4)
+      }
+      HStack(alignment: .bottom, spacing: 6) {
+        TextField(report?.running == true ? "Working on your Mac…" : "Follow up…", text: $draft, axis: .vertical)
+          .lineLimit(1...6)
+          .padding(.leading, 16)
+          .padding(.vertical, 10)
+        composerButton
+          .padding(5)
+      }
+      .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+          .strokeBorder(Color(.separator).opacity(0.6), lineWidth: 0.5)
+      )
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(.bar)
+  }
+
+  @ViewBuilder private var composerButton: some View {
+    if report?.running == true {
+      Button {
+        Task { await control() }
+      } label: {
+        Image(systemName: "stop.fill")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(Color(.systemBackground))
+          .frame(width: 32, height: 32)
+          .background(Color.primary, in: Circle())
+      }
+      .disabled(controlling)
+      .accessibilityLabel("Stop this thread")
+    } else {
+      Button {
+        Task { await send() }
+      } label: {
+        Image(systemName: "arrow.up")
+          .font(.system(size: 15, weight: .bold))
+          .foregroundStyle(.white)
+          .frame(width: 32, height: 32)
+          .background(canSend ? Color.accentColor : Color(.systemGray4), in: Circle())
+      }
+      .disabled(!canSend)
+      .animation(.easeOut(duration: 0.15), value: canSend)
+      .accessibilityLabel("Send follow-up")
     }
   }
 
@@ -185,7 +262,6 @@ struct ThreadDetailView: View {
       let next = try await client.report(threadId: threadId)
       guard !Task.isCancelled else { return }
       if next != report { report = next }
-      lastUpdated = Date()
       if next.request?.state == "failed" || next.request?.state == "interrupted" { pending = nil }
       loadError = nil
       if let p = pending, next.messages.filter({ $0.role == .user && $0.text == p.text }).count > p.known {
@@ -237,90 +313,34 @@ struct ThreadDetailView: View {
   }
 }
 
-private struct StatusCard: View {
-  let report: RemoteReport
-
-  var body: some View {
-    DisclosureGroup {
-      VStack(alignment: .leading, spacing: 6) {
-        if !report.isolated {
-          Label(
-            "Ran in project root — no isolated workspace." + (report.isolationNote.map { " \($0)" } ?? ""),
-            systemImage: "exclamationmark.triangle")
-          .font(.footnote)
-          .foregroundStyle(.orange)
-        }
-        if let wt = report.worktreePath {
-          Text(wt).font(.caption.monospaced()).foregroundStyle(.secondary)
-        }
-        if !report.filesTouched.isEmpty {
-          ForEach(report.filesTouched, id: \.self) { f in
-            Text(f).font(.caption.monospaced())
-          }
-        }
-      }
-      .padding(.top, 4)
-    } label: {
-      HStack(spacing: 8) {
-        Circle().fill(report.running ? Color.green : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
-        Text(!(report.permissions ?? []).isEmpty ? "Needs your input" : report.running ? "Running on Mac" : "Not running")
-        if let p = report.projectName {
-          Text("· \(p)").foregroundStyle(.secondary)
-        }
-        Spacer()
-        if !report.filesTouched.isEmpty {
-          Text("\(report.filesTouched.count) files").font(.caption).foregroundStyle(.secondary)
-        }
-      }
-      .font(.subheadline)
-    }
-    .padding(10)
-    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-  }
-}
-
 private struct Bubble: View {
   let role: RemoteMessage.Role
   let text: String
   var footnote: String? = nil
 
   var body: some View {
-    HStack {
-      if role == .user { Spacer(minLength: 40) }
-      VStack(alignment: .trailing, spacing: 3) {
-        Group {
-          if role == .user {
-            Text(text)
-          } else {
-            Text(markdown: text)
+    if role == .user {
+      HStack {
+        Spacer(minLength: 40)
+        VStack(alignment: .trailing, spacing: 3) {
+          Text(text)
+            .textSelection(.enabled)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16))
+            .foregroundStyle(.white)
+          if let footnote {
+            Text(footnote).font(.caption2).foregroundStyle(.secondary)
           }
         }
-        .textSelection(.enabled)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-          role == .user ? Color.accentColor : Color(.secondarySystemBackground),
-          in: RoundedRectangle(cornerRadius: 16))
-        .foregroundStyle(role == .user ? Color.white : Color.primary)
-        if let footnote {
-          Text(footnote).font(.caption2).foregroundStyle(.secondary)
-        }
       }
-      if role == .agent { Spacer(minLength: 40) }
-    }
-  }
-}
-
-extension Text {
-  /// Best-effort Markdown; falls back to plain text on parse failure.
-  init(markdown: String) {
-    if let attributed = try? AttributedString(
-      markdown: markdown,
-      options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
-    {
-      self.init(attributed)
     } else {
-      self.init(markdown)
+      // Agent replies are full Markdown (headings, lists, code, tables) and
+      // get the whole width, with no bubble, so wide blocks have room.
+      StructuredText(markdown: text)
+        .textual.textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
     }
   }
 }

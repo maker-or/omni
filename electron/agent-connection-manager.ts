@@ -935,6 +935,29 @@ export class AgentConnectionManager {
    * Returns accumulated agent_text + user_text so the phone can show the
    * entire final message at once when the turn ends. Falls back to the
    * persisted snapshot when the thread is not resident in memory. */
+  /** The thread's model selector, for the phone. Null when the thread is not
+   * loaded in memory or its agent exposes no model choice. */
+  getThreadModel(threadId: string): {
+    configId: string;
+    current: string | null;
+    options: Array<{ id: string; name: string }>;
+  } | null {
+    const runtime = this.sessions.get(threadId);
+    if (!runtime) return null;
+    const option = runtime.slice.configOptions.find(
+      (o) => o.category === "model" || o.id === "model",
+    );
+    if (!option) return null;
+    const options = modelOptionsFromConfig([option]).map((m) => ({ id: m.modelId, name: m.name }));
+    if (!options.length) return null;
+    const current = (option as { currentValue?: unknown }).currentValue;
+    return {
+      configId: option.id,
+      current: typeof current === "string" ? current : null,
+      options,
+    };
+  }
+
   getThreadTranscript(threadId: string): {
     finalText: string | null;
     messages: Array<{ role: "user" | "agent"; text: string }>;
@@ -2504,14 +2527,13 @@ export class AgentConnectionManager {
 
     // Seed model after the session exists so the first prompt lands on the
     // user's chosen model. Best-effort: a failed seed still leaves a usable thread.
-    // Skipped for background threads: setConfigOption targets the active
-    // thread, so seeding here would hit the desktop's thread, not this one.
-    if (initialModelId && !opts?.background) {
+    // Thread-scoped, so a background (phone) seed never hits the desktop's thread.
+    if (initialModelId) {
       try {
         const modelOpt = created.configOptions.find(
           (option) => option.id === "model" || option.category === "model",
         );
-        await this.setConfigOption(modelOpt?.id ?? "model", initialModelId);
+        await this.setThreadConfigOption(thread.id, modelOpt?.id ?? "model", initialModelId);
       } catch (err) {
         console.warn("[createThread] initial model seed failed:", err);
       }
@@ -2880,6 +2902,16 @@ export class AgentConnectionManager {
   async setConfigOption(configId: string, value: string | boolean): Promise<SessionConfigOption[]> {
     const threadId = this.activeThreadId;
     if (!threadId) return [];
+    return this.setThreadConfigOption(threadId, configId, value);
+  }
+
+  /** Thread-scoped config change, so background (phone) threads can switch
+   * models without touching whatever the desktop has open. */
+  async setThreadConfigOption(
+    threadId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOption[]> {
     const runtime = this.sessions.get(threadId);
     const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !owner) return [];

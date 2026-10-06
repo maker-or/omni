@@ -97,6 +97,33 @@ public struct RemoteCatalog: Codable, Equatable, Sendable {
   }
 }
 
+/// A model offered inside one agent (the ACP session's model option), from
+/// `GET /api/remote/agent-models`.
+public struct RemoteAgentModel: Codable, Hashable, Sendable, Identifiable {
+  public var id: String
+  public var name: String
+
+  public init(id: String, name: String) {
+    self.id = id
+    self.name = name
+  }
+}
+
+/// A thread's current model and what it can switch to.
+public struct RemoteThreadModel: Codable, Equatable, Sendable {
+  public var current: String?
+  public var options: [RemoteAgentModel]
+
+  public init(current: String?, options: [RemoteAgentModel]) {
+    self.current = current
+    self.options = options
+  }
+
+  public var currentName: String? {
+    current.map { id in options.first { $0.id == id }?.name ?? id }
+  }
+}
+
 public struct RemoteThreadSummary: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var projectId: String
@@ -145,6 +172,8 @@ public struct RemoteReport: Codable, Equatable, Sendable {
   public var isolationNote: String?
   public var permissions: [RemotePermission]?
   public var request: RemoteRequestStatus?
+  /// Nil on older Macs, for threads not loaded on the Mac, or agents with no model choice.
+  public var model: RemoteThreadModel?
 }
 
 public struct RemotePermission: Codable, Equatable, Sendable, Identifiable {

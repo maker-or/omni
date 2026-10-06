@@ -20,19 +20,40 @@ final class RemoteSession {
   private(set) var catalog: RemoteCatalog
   private(set) var catalogError: String?
   private(set) var lastCatalogRefresh: Date?
+  /// Models inside each agent, keyed by agent id. Empty until fetched, and on
+  /// Macs that predate model choice.
+  private(set) var agentModels: [String: [RemoteAgentModel]] = [:]
+  private(set) var loadingAgentModels = false
+  /// False once the Mac answered 404: its Pipper predates model choice.
+  private(set) var agentModelsSupported = true
+  private(set) var agentModelsError: String?
 
   let catalogStore = CatalogStore.standard()
   private let submissions = RemoteSubmissionStore()
   #if DEBUG
   private var isPreview = false
+
+  /// Debug builds auto-pair to this Mac so testing skips the QR flow, but
+  /// only when nothing is stored: a real (re-)pairing always wins, so a stale
+  /// token here can't mask it. In memory only, nothing is persisted.
+  /// Never compiled into Release.
+  private static let devPairing: RemoteConfig? = RemoteConfig(
+    host: "100.82.38.10", port: 4173,
+    token: "3433463b635681a46d5d10019562a495e2a65cb202dd010f")
   #endif
 
-  func createThread(projectId: String, agentId: String?, prompt: String) async throws -> RemoteThreadSummary {
+  func createThread(
+    projectId: String, agentId: String?, model: String? = nil, prompt: String
+  ) async throws -> RemoteThreadSummary {
     guard let client, let config else { throw RemoteClientError.notPaired }
-    let scope = [config.host, String(config.port), "create", projectId, agentId ?? "", prompt]
+    // `model` joins the scope only when set, keeping pending IDs from before
+    // model choice stable.
+    let scope = [config.host, String(config.port), "create", projectId, agentId ?? ""]
+      + (model.map { ["model:\($0)"] } ?? []) + [prompt]
     let id = try submissions.requestId(for: scope)
     do {
-      let thread = try await client.createThread(projectId: projectId, agentId: agentId, prompt: prompt, requestId: id)
+      let thread = try await client.createThread(
+        projectId: projectId, agentId: agentId, model: model, prompt: prompt, requestId: id)
       try submissions.acknowledge(scope, requestId: id)
       return thread
     } catch RemoteClientError.rejected(let message) {
@@ -67,13 +88,17 @@ final class RemoteSession {
     }
     catalog = catalogStore.load() ?? .empty
     lastCatalogRefresh = catalogStore.modifiedAt
+    #if DEBUG
+    if config == nil, let devPairing = Self.devPairing { config = devPairing }
+    #endif
   }
 
   #if DEBUG
   /// Preview-only initializer: seeds a catalog without touching the Keychain,
   /// UserDefaults, or the shared on-disk cache. The paired state uses a dummy
   /// config, while `client` remains nil so previews never make network requests.
-  init(previewCatalog: RemoteCatalog, paired: Bool = false) {
+  init(previewCatalog: RemoteCatalog, paired: Bool = false, agentModels: [String: [RemoteAgentModel]] = [:]) {
+    self.agentModels = agentModels
     config = paired ? RemoteConfig(host: "preview.invalid", port: RemoteConfig.defaultPort, token: "preview") : nil
     catalog = previewCatalog
     catalogError = nil
@@ -83,8 +108,10 @@ final class RemoteSession {
   }
 
   /// A detached session for SwiftUI previews.
-  static func preview(catalog: RemoteCatalog = .empty, paired: Bool = false) -> RemoteSession {
-    RemoteSession(previewCatalog: catalog, paired: paired)
+  static func preview(
+    catalog: RemoteCatalog = .empty, paired: Bool = false, agentModels: [String: [RemoteAgentModel]] = [:]
+  ) -> RemoteSession {
+    RemoteSession(previewCatalog: catalog, paired: paired, agentModels: agentModels)
   }
   #endif
 
@@ -140,6 +167,24 @@ final class RemoteSession {
     }
   }
 
+  /// Best effort: an older Mac (404) or a slow agent probe leaves the last
+  /// list in place, and the picker falls back to the agent's default.
+  func refreshAgentModels() async {
+    guard let client, !loadingAgentModels else { return }
+    loadingAgentModels = true
+    defer { loadingAgentModels = false }
+    do {
+      agentModels = try await client.agentModels()
+      agentModelsSupported = true
+      agentModelsError = nil
+    } catch RemoteClientError.http(status: 404, _) {
+      agentModelsSupported = false
+      agentModelsError = nil
+    } catch {
+      agentModelsError = error.localizedDescription
+    }
+  }
+
   /// Refresh only when the cache is missing or older than `maxAge`.
   func refreshCatalogIfStale(maxAge: TimeInterval = 10 * 60) async {
     if let last = lastCatalogRefresh, Date().timeIntervalSince(last) < maxAge, !catalog.projects.isEmpty {
@@ -172,18 +217,42 @@ enum PreviewData {
       RemoteCatalogAgent(id: "cursor", displayName: "Cursor", available: false),
     ])
 
+  /// Milliseconds since 1970, like `lastUsedAt` from the Mac.
+  private static func minutesAgo(_ minutes: Double) -> Double {
+    (Date().timeIntervalSince1970 - minutes * 60) * 1000
+  }
+
   static let threads: [RemoteThreadSummary] = [
     RemoteThreadSummary(
       id: "a1b2c3d4-0000-0000-0000-000000000001", projectId: "folklore",
       worktreePath: "~/code/folklore/.worktrees/a1b2c3d4", title: "Add dark mode toggle",
-      running: true, lastUsedAt: 0),
+      running: true, lastUsedAt: minutesAgo(1)),
     RemoteThreadSummary(
       id: "e5f6a7b8-0000-0000-0000-000000000002", projectId: "omni",
-      worktreePath: nil, title: "Summarize the launch plan", running: false, lastUsedAt: 0),
+      worktreePath: nil, title: "Summarize the launch plan", running: false, lastUsedAt: minutesAgo(25)),
     RemoteThreadSummary(
       id: "c9d0e1f2-0000-0000-0000-000000000003", projectId: "folklore",
       worktreePath: "~/code/folklore/.worktrees/c9d0e1f2", title: nil, running: false,
-      lastUsedAt: 0),
+      lastUsedAt: minutesAgo(90)),
+    RemoteThreadSummary(
+      id: "d3e4f5a6-0000-0000-0000-000000000004", projectId: "omni",
+      worktreePath: "~/code/omni/.worktrees/d3e4f5a6", title: "Read the codebase", running: false,
+      lastUsedAt: minutesAgo(60 * 26)),
+    RemoteThreadSummary(
+      id: "b7c8d9e0-0000-0000-0000-000000000005", projectId: "folklore",
+      worktreePath: "~/code/folklore/.worktrees/b7c8d9e0", title: "Fix onboarding crash", running: false,
+      lastUsedAt: minutesAgo(60 * 24 * 3)),
+  ]
+
+  static let agentModels: [String: [RemoteAgentModel]] = [
+    "codex": [
+      RemoteAgentModel(id: "gpt-5", name: "GPT-5"),
+      RemoteAgentModel(id: "gpt-5-codex", name: "GPT-5 Codex"),
+    ],
+    "claude": [
+      RemoteAgentModel(id: "sonnet", name: "Sonnet"),
+      RemoteAgentModel(id: "opus", name: "Opus"),
+    ],
   ]
 
   static let report = RemoteReport(
@@ -196,7 +265,7 @@ enum PreviewData {
       RemoteMessage(
         role: .agent,
         text:
-          "Done. I added a **Dark mode** toggle to `SettingsView`, bound to `@AppStorage(\"darkMode\")`.\n\n- Toggle in Settings\n- Applies `preferredColorScheme` at the root"
+          "## Dark mode\n\nDone. I added a **Dark mode** toggle to `SettingsView`, bound to `@AppStorage(\"darkMode\")`.\n\n- Toggle in Settings\n- Applies `preferredColorScheme` at the root\n\n```swift\n@AppStorage(\"darkMode\") private var darkMode = false\n```\n\n| File | Change |\n| --- | --- |\n| SettingsView.swift | Added toggle |\n| PipperRemoteApp.swift | Applies scheme |"
       ),
       RemoteMessage(role: .user, text: "Nice — does it survive relaunch?"),
       RemoteMessage(role: .agent, text: "Yes, `@AppStorage` persists it across launches."),
@@ -207,7 +276,8 @@ enum PreviewData {
     isolated: true,
     isolationNote: nil,
     permissions: nil,
-    request: nil)
+    request: nil,
+    model: RemoteThreadModel(current: "gpt-5", options: agentModels["codex"] ?? []))
 
   static let reportNeedsInput = RemoteReport(
     threadId: threads[2].id,

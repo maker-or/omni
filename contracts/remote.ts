@@ -15,6 +15,18 @@ export interface RemoteModel {
   provider?: string;
 }
 
+/** A model offered inside one agent (the ACP session's model option). */
+export interface RemoteAgentModel {
+  id: string;
+  name: string;
+}
+
+/** The thread's current model and what it can switch to. */
+export interface RemoteThreadModel {
+  current: string | null;
+  options: RemoteAgentModel[];
+}
+
 export interface RemoteThreadSummary {
   id: string;
   projectId: string;
@@ -40,6 +52,8 @@ export interface RemoteReport {
   isolationNote: string | null;
   permissions: RemotePermission[];
   request: RemoteRequestStatus | null;
+  /** Null when the thread isn't loaded on the Mac or its agent has no model choice. */
+  model: RemoteThreadModel | null;
 }
 
 export interface RemotePermission {
@@ -67,8 +81,11 @@ export interface RemoteDiagnostics {
 export interface RemoteCreateThreadInput {
   requestId: string;
   projectId: string;
-  /** Agent/model id from the desktop registry; null = desktop default. */
+  /** Agent instance id from the desktop registry (named `modelId` for
+   * compatibility with shipped clients); null = desktop default. */
   modelId?: string | null;
+  /** Model inside that agent, from `/api/remote/agent-models`; null = agent default. */
+  model?: string | null;
   prompt: string;
 }
 

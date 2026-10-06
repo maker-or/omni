@@ -5,6 +5,8 @@ struct SettingsView: View {
   @Environment(RemoteSession.self) private var session
   @Environment(\.dismiss) private var dismiss
   @State private var refreshing = false
+  /// Shown as a tab rather than a sheet, so there's nothing to dismiss.
+  var inTab = false
 
   var body: some View {
     NavigationStack {
@@ -76,8 +78,10 @@ struct SettingsView: View {
       }
       .navigationTitle("Settings")
       .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { dismiss() }
+        if !inTab {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+          }
         }
       }
     }
@@ -94,6 +98,9 @@ struct ConnectionCheckView: View {
   @State private var checking = false
   @State private var checkedAt: Date?
   @State private var showSample = false
+  /// The Mac answered but predates /api/remote/diagnostics (404). The
+  /// pairing works; only the newer endpoints are missing.
+  @State private var macOutdated = false
 
   var body: some View {
     Section("Connection checks") {
@@ -109,7 +116,11 @@ struct ConnectionCheckView: View {
             showSample = false
           }, sampleTask: true)
         }
-      if let error {
+      if macOutdated {
+        Label("Mac reachable · pairing accepted", systemImage: "checkmark.circle")
+        Text("Pipper on your Mac is older than this app, so connection checks and Siri project names aren't available. Update Pipper on your Mac.")
+          .font(.footnote).foregroundStyle(.orange)
+      } else if let error {
         Text(error).font(.footnote).foregroundStyle(.red)
         Text("Keep Pipper open on the Mac and connect both devices to the same Tailscale network.")
           .font(.footnote).foregroundStyle(.secondary)
@@ -134,11 +145,22 @@ struct ConnectionCheckView: View {
     guard let client = session.client, !checking else { return }
     checking = true
     error = nil
+    macOutdated = false
     defer { checking = false }
     do {
       diagnostics = try await client.diagnostics()
       checkedAt = Date()
       await session.refreshCatalog()
+    } catch RemoteClientError.http(status: 404, _) {
+      // Older Macs lack diagnostics, and health needs no token, so
+      // confirm the pairing against an endpoint every version serves.
+      do {
+        _ = try await client.listThreads()
+        macOutdated = true
+        checkedAt = Date()
+      } catch {
+        self.error = error.localizedDescription
+      }
     } catch {
       self.error = error.localizedDescription
     }

@@ -170,6 +170,17 @@ function installAgent() {
     getThreadTranscript: vi.fn(() => ({ finalText: null, messages: [] })),
     getRemotePermissions: vi.fn(() => []),
     respondToRemotePermission: vi.fn(async () => true),
+    getThreadModel: vi.fn(
+      (): {
+        configId: string;
+        current: string | null;
+        options: Array<{ id: string; name: string }>;
+      } | null => null,
+    ),
+    setThreadConfigOption: vi.fn(async () => []),
+    getModelCatalogs: vi.fn(async () => ({
+      "codex-acp": [{ modelId: "gpt-5", name: "GPT-5" }],
+    })),
   };
   return manager;
 }
@@ -305,4 +316,62 @@ it("checks authentication and agent availability separately from public health",
     availableAgents: 1,
     projects: 1,
   });
+});
+
+it("seeds the chosen model on the new thread and keeps old fingerprints stable", async () => {
+  const am = installAgent();
+  await post("threads", { ...input, model: "gpt-5" });
+  expect(am.createThread).toHaveBeenCalledWith(
+    "p1",
+    "Fix login",
+    null,
+    "codex-acp",
+    expect.any(String),
+    "gpt-5",
+    { background: true, requireWorktree: true },
+  );
+  // Same request id with a different model is a different task.
+  expect((await post("threads", { ...input, model: "o3" })).status).toBe(409);
+  await post("threads", { ...input, requestId: "request-2" });
+  expect(am.createThread).toHaveBeenLastCalledWith(
+    "p1",
+    "Fix login",
+    null,
+    "codex-acp",
+    expect.any(String),
+    null,
+    { background: true, requireWorktree: true },
+  );
+});
+
+it("lists models per agent and caches the probe", async () => {
+  const am = installAgent();
+  const get = () =>
+    fetch(`${base}/api/remote/agent-models`, { headers: { Authorization: "Bearer test-token" } });
+  expect(await (await get()).json()).toEqual({
+    models: { "codex-acp": [{ id: "gpt-5", name: "GPT-5" }] },
+  });
+  await get();
+  expect(am.getModelCatalogs).toHaveBeenCalledTimes(1);
+});
+
+it("switches a thread's model only to an offered option", async () => {
+  const am = installAgent();
+  await post("threads", input);
+  expect((await post("threads/t1/model", { model: "gpt-5" })).status).toBe(409);
+  am.getThreadModel.mockReturnValue({
+    configId: "model",
+    current: "gpt-5",
+    options: [
+      { id: "gpt-5", name: "GPT-5" },
+      { id: "o3", name: "o3" },
+    ],
+  });
+  expect((await post("threads/t1/model", { model: "nope" })).status).toBe(400);
+  expect((await post("threads/t1/model", { model: "o3" })).status).toBe(200);
+  expect(am.setThreadConfigOption).toHaveBeenCalledWith("t1", "model", "o3");
+  const report = await fetch(`${base}/api/remote/threads/t1/report`, {
+    headers: { Authorization: "Bearer test-token" },
+  });
+  expect((await responseBody(report)).report.model?.options).toHaveLength(2);
 });

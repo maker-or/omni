@@ -12,6 +12,8 @@ export async function prepareIsolatedAgentTask(
   projectId: string,
   requestedAgentId: string | null | undefined,
   prompt: string,
+  /** Model inside the agent (ACP model option); null keeps the agent default. */
+  model: string | null = null,
 ) {
   const project = getProject(projectId);
   if (!project) throw new Error("Project not found. Refresh your project list.");
@@ -47,7 +49,7 @@ export async function prepareIsolatedAgentTask(
       null,
       agentId,
       worktree.path,
-      null,
+      model,
       { background: true, requireWorktree: true },
     );
     if (thread.worktree_path !== worktree.path || !isLiveWorktree(worktree.path, project.path)) {

@@ -85,20 +85,41 @@ public struct RemoteClient: Sendable {
     return b.report
   }
 
-  /// `agentId` maps to the laptop's `modelId` field (it is an agent id there).
-  public func createThread(projectId: String, agentId: String?, prompt: String, requestId: String) async throws
-    -> RemoteThreadSummary
-  {
+  /// Models inside each agent, keyed by agent instance id. The Mac may spawn
+  /// agents to answer, so this gets a longer timeout than other routes.
+  public func agentModels() async throws -> [String: [RemoteAgentModel]] {
+    struct Body: Decodable { var models: [String: [RemoteAgentModel]] }
+    var req = try request("/api/remote/agent-models", method: "GET", body: nil)
+    req.timeoutInterval = 30
+    let b: Body = try await perform(req)
+    return b.models
+  }
+
+  /// `agentId` maps to the laptop's `modelId` field (it is an agent id there);
+  /// `model` is the model inside that agent, nil for the agent's default.
+  public func createThread(
+    projectId: String, agentId: String?, model: String? = nil, prompt: String, requestId: String
+  ) async throws -> RemoteThreadSummary {
     struct Input: Encodable {
       var requestId: String
       var projectId: String
       var modelId: String?
+      var model: String?
       var prompt: String
     }
     struct Body: Decodable { var thread: RemoteThreadSummary }
     let b: Body = try await post(
-      "/api/remote/threads", Input(requestId: requestId, projectId: projectId, modelId: agentId, prompt: prompt))
+      "/api/remote/threads",
+      Input(requestId: requestId, projectId: projectId, modelId: agentId, model: model, prompt: prompt))
     return b.thread
+  }
+
+  /// Switches the model for the thread's next turn.
+  public func setModel(threadId: String, model: String) async throws -> RemoteThreadModel? {
+    struct Input: Encodable { var model: String }
+    struct Body: Decodable { var model: RemoteThreadModel? }
+    let b: Body = try await post("/api/remote/threads/\(encode(threadId))/model", Input(model: model))
+    return b.model
   }
 
   public func sendPrompt(threadId: String, prompt: String, requestId: String) async throws {

@@ -15,6 +15,7 @@ import { prepareIsolatedAgentTask } from "./isolated-agent-task.ts";
 import { RemoteRequestError, RemoteRequests, getRemoteRequests } from "./remote-requests.ts";
 import { gitBinary, isLiveWorktree } from "./worktree-manager.ts";
 import type {
+  RemoteAgentModel,
   RemoteModel,
   RemoteProject,
   RemoteReport,
@@ -123,6 +124,10 @@ function isTrustedRemoteHost(host: string): boolean {
 /** How long after the last authed phone request an idle phone keeps standby. */
 const REMOTE_LEASE_MS = 10 * 60_000;
 
+/** Building model catalogs spawns every selected agent and probes sessions,
+ * so the phone shares one recent result instead of re-probing per request. */
+const AGENT_MODELS_TTL_MS = 5 * 60_000;
+
 export class RemoteServer {
   private servers: http.Server[] = [];
   private token: string;
@@ -130,6 +135,10 @@ export class RemoteServer {
   private readonly deps: RemoteServerDeps;
   private readonly requests: RemoteRequests;
   private lastAuthedAt = 0;
+  private agentModels: {
+    at: number;
+    value: Promise<Record<string, RemoteAgentModel[]>>;
+  } | null = null;
 
   constructor(deps: RemoteServerDeps, opts?: { port?: number; token?: string }) {
     this.deps = deps;
@@ -343,6 +352,12 @@ export class RemoteServer {
         }));
         return send(res, 200, { models });
       }
+      if (req.method === "GET" && path === "/api/remote/agent-models") {
+        // Models *inside* each agent instance (the ACP model option), keyed by
+        // the same instance ids `/models` returns.
+        if (!am) return send(res, 503, { error: "Agent not ready" });
+        return send(res, 200, { models: await this.loadAgentModels(am) });
+      }
       if (req.method === "GET" && path === "/api/remote/catalog") {
         // Same shape as siri-catalog.json on the laptop, so the iOS app's
         // Siri intents resolve projects/agents against an identical catalog
@@ -387,24 +402,35 @@ export class RemoteServer {
           requestId?: string;
           projectId?: string;
           modelId?: string | null;
+          model?: string | null;
           prompt?: string;
         };
         if (
           typeof body.projectId !== "string" ||
           typeof body.prompt !== "string" ||
           !body.prompt.trim() ||
-          (body.modelId != null && typeof body.modelId !== "string")
+          (body.modelId != null && typeof body.modelId !== "string") ||
+          (body.model != null && typeof body.model !== "string")
         ) {
           return send(res, 400, { error: "projectId and prompt are required" });
         }
         const { projectId } = body;
         const prompt = body.prompt.trim();
+        const model = body.model ?? null;
         const receipt = await this.requests.submit(
           body.requestId,
-          { kind: "create", projectId, agentId: body.modelId ?? null, prompt },
+          // `model` joins the fingerprint only when set, so receipts written
+          // before model choice existed still match their retries.
+          {
+            kind: "create",
+            projectId,
+            agentId: body.modelId ?? null,
+            ...(model ? { model } : {}),
+            prompt,
+          },
           async () => {
             if (!am) throw new Error("Pipper is still starting on your Mac. No task was started.");
-            return prepareIsolatedAgentTask(am, projectId, body.modelId, prompt);
+            return prepareIsolatedAgentTask(am, projectId, body.modelId, prompt, model);
           },
         );
         return send(res, receipt.result ? 202 : 409, {
@@ -466,6 +492,30 @@ export class RemoteServer {
               }),
         });
       }
+      const modelMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/model$/);
+      if (req.method === "POST" && modelMatch) {
+        if (!am) return send(res, 503, { error: "Agent not ready" });
+        const threadId = modelMatch[1]!;
+        if (!getThread(threadId)) return send(res, 404, { error: "Thread not found" });
+        const body = JSON.parse((await readBody(req)) || "{}") as { model?: string };
+        if (typeof body.model !== "string" || !body.model) {
+          return send(res, 400, { error: "model is required" });
+        }
+        const current = am.getThreadModel(threadId);
+        if (!current) {
+          return send(res, 409, {
+            error: "This thread can't change models right now. Open it on your Mac and try again.",
+          });
+        }
+        if (!current.options.some((o) => o.id === body.model)) {
+          return send(res, 400, { error: "That model isn't offered by this thread's agent." });
+        }
+        await am.setThreadConfigOption(threadId, current.configId, body.model);
+        const next = am.getThreadModel(threadId);
+        return send(res, 200, {
+          model: next ? { current: next.current, options: next.options } : null,
+        });
+      }
       const controlMatch = path.match(/^\/api\/remote\/threads\/([^/]+)\/(stop|permission)$/);
       if (req.method === "POST" && controlMatch) {
         if (!am) return send(res, 503, { error: "Agent not ready" });
@@ -519,6 +569,10 @@ export class RemoteServer {
           isolationNote: null,
           permissions: am?.getRemotePermissions(thread.id) ?? [],
           request: this.requests.latestForThread(thread.id),
+          model: (() => {
+            const m = am?.getThreadModel(thread.id);
+            return m ? { current: m.current, options: m.options } : null;
+          })(),
         };
         return sendReport(res, { report });
       }
@@ -535,6 +589,27 @@ export class RemoteServer {
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
+  }
+
+  private loadAgentModels(am: AgentManager): Promise<Record<string, RemoteAgentModel[]>> {
+    const cached = this.agentModels;
+    if (cached && Date.now() - cached.at < AGENT_MODELS_TTL_MS) return cached.value;
+    const value = am
+      .getModelCatalogs()
+      .then((catalogs) =>
+        Object.fromEntries(
+          Object.entries(catalogs).map(([agentId, models]) => [
+            agentId,
+            models.map((m) => ({ id: m.modelId, name: m.name })),
+          ]),
+        ),
+      );
+    this.agentModels = { at: Date.now(), value };
+    // A failed probe must not be served for the whole TTL.
+    value.catch(() => {
+      if (this.agentModels?.value === value) this.agentModels = null;
+    });
+    return value;
   }
 
   private serveFile(res: http.ServerResponse, rel: string, contentType?: string): void {
