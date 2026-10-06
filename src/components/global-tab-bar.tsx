@@ -28,6 +28,7 @@ import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import { visibleWorkspaceThreadTabs } from "@/lib/thread-tab-state";
+import { resolveTerminalWorkspace } from "@/lib/terminal-workspace";
 import { useAnchoredPopoverPosition } from "@/lib/anchored-popover";
 import {
   OPEN_TABS_QUERY_KEY,
@@ -40,6 +41,7 @@ import { isThreadInWorkspace, normalizeWorkspacePath } from "../../contracts/wor
 import {
   isCloseTabShortcutEvent,
   isNewTabShortcutEvent,
+  isNewTerminalShortcutEvent,
   tabIndexFromShortcutEvent,
   tabValueAtShortcutIndex,
   tabValuesInBarOrder,
@@ -108,7 +110,6 @@ export function GlobalTabBar() {
   );
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
   const setViewActiveTerminalId = useWorkspaceViewStore((state) => state.setActiveTerminalId);
-  const createSession = useTerminalStore((state) => state.createSession);
   const closeSession = useTerminalStore((state) => state.closeSession);
   const initializeGlobalListener = useTerminalStore((state) => state.initializeGlobalListener);
 
@@ -440,9 +441,22 @@ export function GlobalTabBar() {
   };
 
   const handleNewTerminal = () => {
-    const project = activeProject;
-    const cwd = project ? (selectedWorktreePathByProject[project.id] ?? project.path) : undefined;
-    const id = createSession(cwd);
+    setIsDropdownOpen(false);
+    const project = useProjectStore.getState().activeProject;
+    const workspace = resolveTerminalWorkspace({
+      preferThread:
+        useUiModeStore.getState().mode === "basic" && !useWorkspaceViewStore.getState().draft,
+      thread: useAgentStore.getState().snapshot,
+      project,
+      selectedPath: project
+        ? useWorktreeStore.getState().selectedWorktreePathByProject[project.id]
+        : null,
+    });
+    const terminals = useTerminalStore.getState();
+    if (workspace) {
+      terminals.setWorkspace(makeWorkspaceKey(workspace.projectId, workspace.cwd), workspace.cwd);
+    }
+    const id = useTerminalStore.getState().createSession(workspace?.cwd);
     showTerminal(id);
   };
 
@@ -499,6 +513,8 @@ export function GlobalTabBar() {
   const handleTabChangeRef = useRef<(value: string) => void>(() => {});
   const handleNewThreadRef = useRef(handleNewThread);
   handleNewThreadRef.current = handleNewThread;
+  const handleNewTerminalRef = useRef(handleNewTerminal);
+  handleNewTerminalRef.current = handleNewTerminal;
 
   const handleTabChange = (value: string) => {
     const clickStartedAt = performance.now();
@@ -584,6 +600,11 @@ export function GlobalTabBar() {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isNewTerminalShortcutEvent(event)) {
+        event.preventDefault();
+        handleNewTerminalRef.current();
+        return;
+      }
       if (isNewTabShortcutEvent(event)) {
         event.preventDefault();
         handleNewThreadRef.current();
@@ -604,6 +625,9 @@ export function GlobalTabBar() {
     window.addEventListener("keydown", onKeyDown, true);
     const unsubscribeSelect = window.omni.tabs.onSelectByIndex?.(activateTabAtIndex);
     const unsubscribeNewTab = window.omni.tabs.onNewTab?.(() => handleNewThreadRef.current());
+    const unsubscribeNewTerminal = window.omni.tabs.onNewTerminal?.(() =>
+      handleNewTerminalRef.current(),
+    );
     const unsubscribeCloseActive = window.omni.tabs.onCloseActive?.(() =>
       handleCloseActiveTabRef.current(),
     );
@@ -611,6 +635,7 @@ export function GlobalTabBar() {
       window.removeEventListener("keydown", onKeyDown, true);
       unsubscribeSelect?.();
       unsubscribeNewTab?.();
+      unsubscribeNewTerminal?.();
       unsubscribeCloseActive?.();
     };
   }, [orderedTabValues]);
@@ -721,10 +746,7 @@ export function GlobalTabBar() {
                     index={0}
                     label="New terminal"
                     icon={TerminalWindowIcon}
-                    onSelect={() => {
-                      setIsDropdownOpen(false);
-                      handleNewTerminal();
-                    }}
+                    onSelect={handleNewTerminal}
                   />
                   <MenuItem
                     index={1}

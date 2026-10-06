@@ -295,6 +295,54 @@ describe("terminal store session behavior", () => {
     expect(state().stashByWorkspace).toEqual({});
   });
 
+  test.each(["visible", "background"])(
+    "deleting a %s workspace stops only its terminals and forgets its bucket",
+    (location) => {
+      const kill = vi.fn();
+      (globalThis as any).window = { omni: { terminal: { kill } } };
+      const state = useTerminalStore.getState;
+      const keyA = makeWorkspaceKey("project-a", "/workspace-a");
+      const keyB = makeWorkspaceKey("project-a", "/workspace-b");
+      // The same path in a different project is a different owner.
+      const keyC = makeWorkspaceKey("project-c", "/workspace-a");
+      state().setWorkspace(keyA, "/workspace-a");
+      const idA1 = state().createSession("/workspace-a");
+      const idA2 = state().createSession("/workspace-a/subdirectory");
+      state().markRunning(idA1);
+      state().appendHistory(idA1, "old output\u001b[");
+      state().setWorkspace(keyC, "/workspace-a");
+      const idC = state().createSession("/workspace-a");
+      state().appendHistory(idC, "keep\u001b[");
+      state().setWorkspace(keyB, "/workspace-b");
+      const idB = state().createSession("/workspace-b");
+      if (location === "visible") state().setWorkspace(keyA, "/workspace-a");
+      const tabsRevision = state().tabsRevision;
+
+      expect(state().closeWorkspace(keyA)).toEqual([idA2, idA1]);
+
+      expect(kill.mock.calls).toEqual([[idA2], [idA1]]);
+      expect(state().stashByWorkspace[keyA]).toBeUndefined();
+      expect(state().historyControlRemainders[idA1]).toBeUndefined();
+      expect(state().historyControlRemainders[idC]).toBe("\u001b[");
+      expect(state().tabsRevision).toBe(tabsRevision + 1);
+      expect(
+        getAllTerminalSessions(state())
+          .map((session) => session.id)
+          .sort(),
+      ).toEqual([idB, idC].sort());
+      // A late process event cannot recreate the deleted session or history.
+      state().appendHistory(idA1, "late output");
+      state().markRunning(idA1);
+      expect(state().historyControlRemainders[idA1]).toBeUndefined();
+      state().setWorkspace(keyB, "/workspace-b");
+      expect(state().setWorkspace(keyA, "/workspace-a")).toBeNull();
+      expect(state().sessions).toEqual([]);
+      // Repeated cleanup is harmless and does not disturb surviving shells.
+      expect(state().closeWorkspace(keyA)).toEqual([]);
+      expect(kill).toHaveBeenCalledTimes(2);
+    },
+  );
+
   test("visiting more than ten workspaces does not discard live terminals", () => {
     const kill = vi.fn();
     (globalThis as any).window = { omni: { terminal: { kill } } };

@@ -117,6 +117,8 @@ interface TerminalState {
   createSession: (cwd?: string) => string;
   closeSession: (id: string) => string | null;
   clearSessions: () => void;
+  /** Stop and forget every terminal owned by a deleted workspace. */
+  closeWorkspace: (key: string) => string[];
   /**
    * Enter a workspace's terminal bucket without stopping any PTYs. Move the
    * previous workspace's sessions into the background and bring the target's
@@ -230,6 +232,29 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       historyControlRemainders: {},
       tabsRevision: get().tabsRevision + 1,
     });
+  },
+
+  closeWorkspace: (key) => {
+    const state = get();
+    const isVisible = state.workspaceKey === key;
+    const sessions = isVisible ? state.sessions : (state.stashByWorkspace[key] ?? []);
+    const ids = sessions.map((session) => session.id);
+    if (ids.length === 0 && !(key in state.stashByWorkspace)) return ids;
+
+    for (const id of ids) {
+      void window.omni?.terminal?.kill?.(id);
+    }
+    const stashByWorkspace = { ...state.stashByWorkspace };
+    delete stashByWorkspace[key];
+    const historyControlRemainders = { ...state.historyControlRemainders };
+    for (const id of ids) delete historyControlRemainders[id];
+    set({
+      sessions: isVisible ? [] : state.sessions,
+      stashByWorkspace,
+      historyControlRemainders,
+      tabsRevision: state.tabsRevision + 1,
+    });
+    return ids;
   },
 
   setWorkspace: (key) => {

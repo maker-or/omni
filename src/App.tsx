@@ -6,6 +6,7 @@ import { useProjectStore } from "@/store/project-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useAgentStore } from "@/store/agent-store";
 import { getAllTerminalSessions, makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
+import { resolveTerminalWorkspace } from "@/lib/terminal-workspace";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/toast";
 import { AgentView } from "@/components/agent-view";
@@ -441,6 +442,7 @@ export default function App() {
   const hasHydratedSelections = useWorktreeStore((state) => state.hasHydratedSelections);
   const snapshotThreadId = useAgentStore((state) => state.snapshot?.threadId ?? null);
   const snapshotCwd = useAgentStore((state) => state.snapshot?.cwd ?? null);
+  const snapshotProjectId = useAgentStore((state) => state.snapshot?.projectId ?? null);
 
   useEffect(() => {
     void useWorktreeStore.getState().syncSelections();
@@ -475,26 +477,48 @@ export default function App() {
     });
   }, [uiMode]);
 
+  // Deletion stops its terminals, including sessions in a background bucket.
+  useEffect(() => {
+    return window.omni.worktrees.onDeleted(({ projectId, path }) => {
+      const closedIds = useTerminalStore
+        .getState()
+        .closeWorkspace(makeWorkspaceKey(projectId, path));
+      const view = useWorkspaceViewStore.getState();
+      if (view.activeTerminalId && closedIds.includes(view.activeTerminalId)) {
+        view.setActiveTerminalId(null);
+        view.showAgent();
+      }
+    });
+  }, []);
+
   // Terminals belong to their workspace: entering another workspace (picker
   // switch, project switch, cross-workspace activation) hides the previous
   // sessions without stopping them and shows the target workspace's terminals.
+  const terminalWorkspace = resolveTerminalWorkspace({
+    preferThread: uiMode === "basic" && !draft,
+    thread: { threadId: snapshotThreadId, projectId: snapshotProjectId, cwd: snapshotCwd },
+    project: activeProject,
+    selectedPath: selectedWorktreePath,
+  });
+  const terminalProjectId = terminalWorkspace?.projectId;
+  const terminalCwd = terminalWorkspace?.cwd;
   useEffect(() => {
-    if (!hasHydratedSelections || !activeProject || !selectedWorktreePath) return;
-    const key = makeWorkspaceKey(activeProject.id, selectedWorktreePath);
+    if (!hasHydratedSelections || !terminalProjectId || !terminalCwd) return;
+    const key = makeWorkspaceKey(terminalProjectId, terminalCwd);
     const terminals = useTerminalStore.getState();
     if (terminals.workspaceKey === key) return;
     const view = useWorkspaceViewStore.getState();
     const wasTerminalActive = view.mode === "terminal";
-    let newActiveId = terminals.setWorkspace(key, selectedWorktreePath);
+    let newActiveId = terminals.setWorkspace(key, terminalCwd);
     if (wasTerminalActive) {
       if (!newActiveId) {
-        newActiveId = useTerminalStore.getState().createSession(selectedWorktreePath);
+        newActiveId = useTerminalStore.getState().createSession(terminalCwd);
       }
       view.showTerminal(newActiveId);
     } else {
       view.setActiveTerminalId(newActiveId);
     }
-  }, [hasHydratedSelections, activeProject, selectedWorktreePath]);
+  }, [hasHydratedSelections, terminalProjectId, terminalCwd]);
 
   useEffect(() => {
     void loadActiveProject().finally(() => {
