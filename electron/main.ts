@@ -1231,7 +1231,7 @@ function notifyAnalyticsIdentity(): void {
 }
 
 function sendMainWindowTabEvent(
-  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:closeActive",
+  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:newTerminal" | "tabs:closeActive",
   ...args: unknown[]
 ) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1286,6 +1286,11 @@ function buildAppMenu(): void {
               click: () => sendMainWindowTabEvent("tabs:newTab"),
             },
             {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
+            },
+            {
               label: "Close Tab",
               accelerator: "CommandOrControl+W",
               click: () => sendMainWindowTabEvent("tabs:closeActive"),
@@ -1301,6 +1306,11 @@ function buildAppMenu(): void {
               label: "New Tab",
               accelerator: "CommandOrControl+T",
               click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
             },
             {
               label: "Close Tab",
@@ -1633,17 +1643,20 @@ function registerIpc(): void {
     return target;
   }
 
-  ipcMain.handle("git:status", async (_event, input: { projectId: string; path: string }) => {
-    try {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
-      return await getWorkspaceGitStatus(target.path);
-    } catch (err) {
-      logMain(
-        `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      throw err;
-    }
-  });
+  ipcMain.handle(
+    "git:status",
+    async (_event, input: { projectId: string; path: string; force?: boolean }) => {
+      try {
+        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        return await getWorkspaceGitStatus(target.path, { force: input.force === true });
+      } catch (err) {
+        logMain(
+          `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    },
+  );
 
   ipcMain.handle(
     "git:commit",
@@ -1821,6 +1834,9 @@ function registerIpc(): void {
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = removeWorktree(project.path, target.path, project.id);
+    // Terminals are owned by renderer workspace buckets. Notify it as soon
+    // as Git removes the worktree, even if later chat cleanup fails.
+    broadcastToWindows("worktrees:deleted", { projectId: project.id, path: target.path });
 
     // Run every cleanup operation even if one fails. Git has already removed
     // the workspace, so leaving the remaining tabs or threads untouched would

@@ -1027,6 +1027,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           threadSwitchTimeoutMs(),
           `Switch to ${threadId}`,
         );
+        // A new click can arrive after this thread's snapshot paints but
+        // before its IPC promise settles. Only the latest switch may settle
+        // the pending target or read a fallback snapshot.
+        if (switchId !== latestThreadSwitchId) return;
         // `agent:switchThread` emits the complete target snapshot before its
         // IPC promise resolves. Avoid a second renderer→main→renderer trip.
         // Keep fallback for older ACP bridges that do not emit that snapshot.

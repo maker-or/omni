@@ -199,6 +199,12 @@ const api = {
       ipcRenderer.invoke("worktrees:create", input),
     delete: (input: { projectId: string; path: string }): Promise<Worktree> =>
       ipcRenderer.invoke("worktrees:delete", input),
+    onDeleted: (callback: (workspace: { projectId: string; path: string }) => void) => {
+      const listener = (_event: unknown, workspace: { projectId: string; path: string }) =>
+        callback(workspace);
+      ipcRenderer.on("worktrees:deleted", listener);
+      return () => ipcRenderer.removeListener("worktrees:deleted", listener);
+    },
     switch: (input: { projectId: string; path: string }): Promise<Thread> =>
       ipcRenderer.invoke("worktrees:switch", input),
     getSelections: (): Promise<Record<string, string>> =>
@@ -222,8 +228,11 @@ const api = {
       ipcRenderer.invoke("worktrees:continue", input),
   },
   git: {
-    status: (input: { projectId: string; path: string }): Promise<WorkspaceGitStatus> =>
-      ipcRenderer.invoke("git:status", input),
+    status: (input: {
+      projectId: string;
+      path: string;
+      force?: boolean;
+    }): Promise<WorkspaceGitStatus> => ipcRenderer.invoke("git:status", input),
     commit: (input: {
       projectId: string;
       path: string;
@@ -311,6 +320,13 @@ const api = {
       ipcRenderer.on("tabs:newTab", listener);
       return () => {
         ipcRenderer.removeListener("tabs:newTab", listener);
+      };
+    },
+    onNewTerminal: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("tabs:newTerminal", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:newTerminal", listener);
       };
     },
     onCloseActive: (callback: () => void) => {

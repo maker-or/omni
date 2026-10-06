@@ -153,10 +153,6 @@ export function AgentSelector({
     return !anyReady;
   });
 
-  const selectedAgentNames = agents
-    .filter((a) => isInstanceSelected(a, selectedAgentIds))
-    .map((a) => a.displayName);
-
   return (
     <div className={cn("flex flex-col gap-4", className)}>
       <h3 className="text-sm text-muted-foreground">Choose agents</h3>
@@ -202,23 +198,7 @@ export function AgentSelector({
       )}
 
       {showContinue && (
-        <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div
-            className="min-w-0 text-sm text-muted-foreground"
-            data-pipper-id="agent-selector-summary"
-          >
-            {selectedAgentIds.length > 0 ? (
-              <>
-                <span className="font-medium text-foreground">
-                  {selectedAgentIds.length} selected
-                </span>
-                <span className="text-muted-foreground"> · </span>
-                <span className="truncate">{selectedAgentNames.join(", ")}</span>
-              </>
-            ) : (
-              "Select at least one agent to continue"
-            )}
-          </div>
+        <div className="flex justify-end pt-4">
           <Button
             type="button"
             size="md"

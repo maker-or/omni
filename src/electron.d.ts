@@ -139,6 +139,9 @@ declare global {
         list: (projectId: string) => Promise<Worktree[]>;
         create: (input: { projectId: string; name: string }) => Promise<Worktree>;
         delete: (input: { projectId: string; path: string }) => Promise<Worktree>;
+        onDeleted: (
+          callback: (workspace: { projectId: string; path: string }) => void,
+        ) => () => void;
         switch: (input: { projectId: string; path: string }) => Promise<Thread>;
         getSelections: () => Promise<Record<string, string>>;
         onSetupProgress: (callback: (progress: WorktreeSetupProgress) => void) => () => void;
@@ -153,7 +156,11 @@ declare global {
         continue: (input: { projectId: string; path: string }) => Promise<Worktree>;
       };
       git: {
-        status: (input: { projectId: string; path: string }) => Promise<WorkspaceGitStatus>;
+        status: (input: {
+          projectId: string;
+          path: string;
+          force?: boolean;
+        }) => Promise<WorkspaceGitStatus>;
         commit: (input: {
           projectId: string;
           path: string;
@@ -222,6 +229,7 @@ declare global {
         onChanged: (callback: (state: OpenTabsState) => void) => () => void;
         onSelectByIndex: (callback: (index: number) => void) => () => void;
         onNewTab: (callback: () => void) => () => void;
+        onNewTerminal: (callback: () => void) => () => void;
         onCloseActive: (callback: () => void) => () => void;
       };
       agent: {
