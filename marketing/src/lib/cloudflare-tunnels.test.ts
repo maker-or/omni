@@ -33,6 +33,8 @@ function fakeCloudflare(
       status?: string;
       conns_inactive_at?: string;
       created_at?: string;
+      /** Reconnected after being listed: Cloudflare refuses to delete it. */
+      busy?: boolean;
     }>;
     dns?: Array<{ id: string; name: string; content: string }>;
   } = {},
@@ -72,6 +74,15 @@ function fakeCloudflare(
     if (method === "DELETE" && path.startsWith("/accounts/acct/cfd_tunnel/")) {
       const id = path.split("/").pop();
       const index = tunnels.findIndex((t) => t.id === id);
+      if (tunnels[index]?.busy) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 1022, message: "Cannot delete a tunnel with active connections" }],
+          }),
+          { status: 400 },
+        );
+      }
       if (index >= 0) tunnels.splice(index, 1);
       return ok({});
     }
@@ -212,6 +223,36 @@ describe("laptop tunnel provisioning", () => {
     expect(ids).toEqual(expect.arrayContaining(["t0", "t1", "t3", "t4", "someone-else"]));
     expect(cf.dns.map((r) => r.id)).not.toContain("d2");
     expect(cf.dns.map((r) => r.id)).toContain("unrelated");
+  });
+
+  test("never removes the hostname of a laptop that came back online", async () => {
+    const other = (i: number) => `${labels.userPrefix}${String(i).padStart(20, "0")}`;
+    const host = (i: number) => `lt-${String(i).padStart(20, "0")}.${ENV.domain}`;
+    const cf = fakeCloudflare({
+      tunnels: [
+        // Listed as down (oldest), but reconnected before the delete.
+        {
+          id: "t0",
+          name: other(0),
+          status: "down",
+          busy: true,
+          conns_inactive_at: "2025-01-01T00:00:00Z",
+        },
+        { id: "t1", name: other(1), status: "down", conns_inactive_at: "2026-01-01T00:00:00Z" },
+        { id: "t2", name: other(2), status: "healthy" },
+        { id: "t3", name: other(3), status: "healthy" },
+        { id: "t4", name: other(4), status: "healthy" },
+      ],
+      dns: [
+        { id: "d0", name: host(0), content: "t0.cfargotunnel.com" },
+        { id: "d1", name: host(1), content: "t1.cfargotunnel.com" },
+      ],
+    });
+    await provisionLaptopTunnel(ENV, labels, 4173, cf.fetchImpl);
+    expect(cf.tunnels.map((t) => t.id)).toContain("t0");
+    expect(cf.dns.map((r) => r.id)).toContain("d0"); // its hostname survives
+    expect(cf.tunnels.map((t) => t.id)).not.toContain("t1"); // the next one went instead
+    expect(cf.dns.map((r) => r.id)).not.toContain("d1");
   });
 
   test("counts the user's tunnels beyond the first page", async () => {

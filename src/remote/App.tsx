@@ -212,10 +212,17 @@ export function RemoteApp() {
 
   const attachFiles = async (files: File[]) => {
     if (files.length === 0) return;
+    const target = currentLaptop()?.id ?? null;
     setAttaching(true);
     setSendError(null);
     try {
       const prepared = await prepareImages(files, images.length);
+      // Switched laptops while preparing: these were picked for the previous
+      // one and must not appear in (and be sent to) the new one's composer.
+      if ((currentLaptop()?.id ?? null) !== target) {
+        releaseImages(prepared.images);
+        return;
+      }
       setImages((current) => [...current, ...prepared.images]);
       if (prepared.errors.length) setSendError(prepared.errors.join(" "));
     } finally {
@@ -233,7 +240,12 @@ export function RemoteApp() {
     if (!text || sending || attaching) return;
     // Images stay in the tray until the laptop accepts them, so a failed
     // send can simply be retried.
-    const payload = images.map(({ data, mimeType }) => ({ data, mimeType }));
+    const sentImages = images;
+    const payload = sentImages.map(({ data, mimeType }) => ({ data, mimeType }));
+    // Everything after an await checks we're still on the laptop this went
+    // to: a late reply must not touch the next laptop's screen or composer.
+    const sentTo = currentLaptop()?.id ?? null;
+    const stillHere = () => (currentLaptop()?.id ?? null) === sentTo;
     setSending(true);
     setSendError(null);
     // Move the draft into the optimistic bubble immediately; on failure it
@@ -245,14 +257,13 @@ export function RemoteApp() {
           setDraft(text);
           return;
         }
-        const sentTo = currentLaptop()?.id ?? null;
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
           body: JSON.stringify({ projectId, modelId, prompt: text, images: payload }),
         });
         // Switched laptops while this was in flight: the thread lives on the
         // previous laptop, so don't open it under the new one's name.
-        if ((currentLaptop()?.id ?? null) === sentTo) {
+        if (stillHere()) {
           setActiveId(created.thread.id);
           setPending({ text, threadId: created.thread.id, known: 0, imageCount: payload.length });
         }
@@ -267,13 +278,19 @@ export function RemoteApp() {
           body: JSON.stringify({ prompt: text, images: payload }),
         });
       }
-      releaseImages(images);
-      setImages([]);
-      void refresh();
+      // Remove exactly what was sent — not images attached since (or on
+      // another laptop after a switch).
+      releaseImages(sentImages);
+      const sent = new Set(sentImages.map((image) => image.id));
+      setImages((current) => current.filter((image) => !sent.has(image.id)));
+      if (stillHere()) void refresh();
     } catch (err) {
-      setDraft(text);
-      setPending(null);
-      setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (stillHere()) {
+        // Restore the text unless something new was typed meanwhile.
+        setDraft((current) => (current.trim() ? current : text));
+        setPending(null);
+        setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
       setSending(false);
     }

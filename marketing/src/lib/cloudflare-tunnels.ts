@@ -169,20 +169,35 @@ async function reclaimSlot(
   const zone = `/zones/${encodeURIComponent(env.zoneId)}`;
   for (const tunnel of offline) {
     if (excess <= 0) break;
-    const hostname = `${LAPTOP_HOST_PREFIX}${tunnel.name.slice(labels.userPrefix.length)}.${env.domain}`;
-    const records = await cf<DnsRecord[]>(
-      env,
-      fetchImpl,
-      "GET",
-      `${zone}/dns_records?type=CNAME&name.exact=${encodeURIComponent(hostname)}`,
-    );
-    for (const record of records) {
-      if (record.content === `${tunnel.id}.cfargotunnel.com`) {
-        await cf(env, fetchImpl, "DELETE", `${zone}/dns_records/${record.id}`);
-      }
+    // Tunnel first: Cloudflare refuses to delete one with active connections,
+    // which is the real check that it's still offline (it may have come back
+    // since we listed it). Only once it's gone is its DNS record removed, so
+    // a laptop that reconnected never loses its hostname.
+    try {
+      await cf(env, fetchImpl, "DELETE", `${account}/cfd_tunnel/${tunnel.id}`);
+    } catch (error) {
+      console.warn(`[remote-tunnel] kept ${tunnel.id} (came back online?):`, error);
+      continue;
     }
-    await cf(env, fetchImpl, "DELETE", `${account}/cfd_tunnel/${tunnel.id}`);
     excess -= 1;
+    const hostname = `${LAPTOP_HOST_PREFIX}${tunnel.name.slice(labels.userPrefix.length)}.${env.domain}`;
+    try {
+      const records = await cf<DnsRecord[]>(
+        env,
+        fetchImpl,
+        "GET",
+        `${zone}/dns_records?type=CNAME&name.exact=${encodeURIComponent(hostname)}`,
+      );
+      for (const record of records) {
+        if (record.content === `${tunnel.id}.cfargotunnel.com`) {
+          await cf(env, fetchImpl, "DELETE", `${zone}/dns_records/${record.id}`);
+        }
+      }
+    } catch (error) {
+      // A leftover record points at a deleted tunnel: harmless, and the next
+      // provisioning for that hostname repoints it.
+      console.warn(`[remote-tunnel] left DNS for ${hostname}:`, error);
+    }
   }
   if (excess > 0) {
     throw new TunnelLimitError(
