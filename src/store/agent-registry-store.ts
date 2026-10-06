@@ -132,3 +132,11 @@ export const useAgentRegistryStore = create<AgentRegistryState>((set, get) => ({
     set({ probeResults: {}, skippedAgentIds: [], setupSkipped: false });
   },
 }));
+
+// The main window's agent picker must reflect accounts added or removed in the
+// Settings window. Reload the registry whenever instances change.
+if (typeof window !== "undefined" && window.omni?.agent?.onInstancesChanged) {
+  window.omni.agent.onInstancesChanged(() => {
+    void useAgentRegistryStore.getState().load();
+  });
+}

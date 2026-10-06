@@ -40,7 +40,6 @@ When there is a tradeoff, choose correctness and robustness over short-term conv
 - Use `<Elevated offset={N}>` as the outer wrapper for floating surfaces like cards, popovers, dropdowns, dialogs, tooltips, and sheets.
 - Do not hardcode surface background classes for floating UI.
 - Compound items must receive consecutive `index` props for correct hover/proximity behavior.
-- Keep TSX files under 1000 lines when possible.
 - Use only icons from `@phosphor-icons/react`.
 - for any custom components that you are creating never hardcode the values and use elevated as mentioned because we have both dark and light modes
 
@@ -54,7 +53,7 @@ When there is a tradeoff, choose correctness and robustness over short-term conv
 
 ## core architecture
 
-The agentic core is built on the **Agent Client Protocol (ACP)**, not pi-sdk (pi-sdk is legacy/deprecated — see `contracts/agent.ts`, which is explicitly marked `@deprecated Legacy pi-sdk agent contracts`).
+The agentic core is built on the **Agent Client Protocol (ACP)**, not pi-sdk (pi-sdk is legacy/deprecated — see `contracts/agent.ts`.
 
 - Agents are external CLI processes speaking ACP over stdio JSON-RPC (`@agentclientprotocol/sdk`). Pipper connects to them as a client.
 - `electron/agents/registry.ts` is the catalog of supported agents (Cursor, Codex, Claude Code and many more), with PATH/npx probing and spawn resolution. `electron/agents/config.json` overrides/extends the built-in catalog and sets the default agent.
@@ -73,4 +72,4 @@ Do not rewrite working code unless there is a measurable architectural benefit.
 - the global view can be like a existing terminal view or something like a browser view
 - When writing tests, focus on behavior and the end result, not test coverage or UI details. Test what the system achieves, not how it gets there.
 - Always spend time understanding the existing implementation before making changes.
-- Also make sure that whenever you create a new feature or update the existing feature, read that corresponding test file and make sure that does this test need any improvement because you have added a new feature and there would be cases where as you haven't updated the test, all the tests may fail and can cause a big problem.
+- Also make sure that whenever you create a new feature or update the existing feature, read that corresponding test file and make sure that does this test need any improvement because you have added a new feature and there would be cases where as you haven't updated the test, all the tests may fail

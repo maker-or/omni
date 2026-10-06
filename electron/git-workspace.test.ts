@@ -430,6 +430,27 @@ describe("isGhAvailable", () => {
 });
 
 describe("resolvePrWithCache", () => {
+  test("post-action reads immediately reflect created, ready, and merged PRs inside the cache window", async () => {
+    const repository = "owner/post-action-transitions";
+    let nodes: Parameters<typeof summarizePrNodes>[0] = [];
+    const read = (force = false) =>
+      resolvePrWithCache(repository, "feature", async () => summarizePrNodes(nodes), {
+        now: 1000,
+        force,
+      });
+
+    expect((await read()).summary.number).toBeNull();
+    nodes = [
+      { number: 42, url: "https://github.com/owner/repo/pull/42", state: "OPEN", isDraft: true },
+    ];
+    expect((await read()).summary.number).toBeNull();
+    expect((await read(true)).summary).toMatchObject({ number: 42, isDraft: true });
+    nodes = [{ ...nodes[0], isDraft: false }];
+    expect((await read(true)).summary).toMatchObject({ number: 42, isDraft: false });
+    nodes = [{ ...nodes[0], state: "MERGED" }];
+    expect((await read(true)).summary).toMatchObject({ number: null, mergedNumber: 42 });
+  });
+
   test("returns the last successful PR snapshot when a refresh fails", async () => {
     const repository = `owner/repo-${Date.now()}`;
     const freshSummary = summarizePrNodes([

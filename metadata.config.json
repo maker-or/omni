@@ -1,0 +1,14 @@
+{
+  "title": "Pipper",
+  "tagline": "A single interface to control your agents",
+  "url": "https://www.pipper.dev",
+  "colors": {
+    "background": "#0f0f0f",
+    "foreground": "#ffffff",
+    "accent": "#863bff"
+  },
+  "logo": "./public/favicon.svg",
+  "faviconSrc": "./public/favicon.svg",
+  "outputDir": "public/metadata",
+  "font": "Inter"
+}

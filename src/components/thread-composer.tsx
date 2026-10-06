@@ -69,6 +69,8 @@ export type ThreadComposerProps = {
   modelProviders?: MentionProvider[];
   /** Project file paths for `@file` (inserted as text, not chips). */
   projectFiles?: MentionItem[];
+  /** Refresh the file catalog when the user opens the file mention picker. */
+  onFileMentionOpen?: () => void;
   className?: string;
   /** Decorative identity marker for the next user turn. */
   turnMarker?: React.ReactNode;
@@ -83,8 +85,8 @@ export type ThreadComposerProps = {
   /** Extra key handling after mention keys are processed. */
   onTextareaKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
   /**
-   * Hide the @project chip (advanced workspace UI: the selected workspace
-   * already fixes the project, so the chip is redundant). The project entity
+   * Hide the @project chip when an existing thread or the selected workspace
+   * already fixes the project. The project entity
    * stays in content when present — it is just not rendered or deletable.
    */
   hideProjectChip?: boolean;
@@ -111,6 +113,7 @@ export function ThreadComposer({
   models = [],
   modelProviders: providedModelProviders = [],
   projectFiles = [],
+  onFileMentionOpen,
   className,
   turnMarker,
   textareaRef: externalTextareaRef,
@@ -170,6 +173,9 @@ export function ThreadComposer({
     resolveDefaultMentionKind({ mode, content, filesAvailable, availability }),
   );
   const [mentionOpen, setMentionOpen] = useState(false);
+  useEffect(() => {
+    if (mentionOpen && mentionKind === "file") onFileMentionOpen?.();
+  }, [mentionOpen, mentionKind, onFileMentionOpen]);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [selectedModelProviderId, setSelectedModelProviderId] = useState<string | null>(null);
@@ -234,6 +240,10 @@ export function ThreadComposer({
   }, [mentionQuery, mentionKind, filteredItems.length]);
 
   const closeMention = useCallback(() => {
+    if (mentionFrameRef.current !== null) {
+      cancelAnimationFrame(mentionFrameRef.current);
+      mentionFrameRef.current = null;
+    }
     setMentionOpen(false);
     setMentionQuery("");
     setSelectedModelProviderId(null);
@@ -395,9 +405,10 @@ export function ThreadComposer({
   const handleSend = useCallback(
     (_value: string, sendFiles: File[]) => {
       if (disabled || isSubmitting) return;
+      closeMention();
       onSend(contentRef.current, sendFiles);
     },
-    [disabled, isSubmitting, onSend],
+    [closeMention, disabled, isSubmitting, onSend],
   );
 
   const onKeyDown = useCallback(

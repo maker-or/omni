@@ -71,6 +71,19 @@ import {
 import { getThread, listThreads, listThreadsByIds, listProjectThreads } from "./threads";
 import type { OpenTabsState } from "../contracts/threads.ts";
 import { listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer } from "./mcp-servers";
+import {
+  installAgentInstanceProvider,
+  listAgentInstancesForRenderer,
+  listAgentAccountSchemas,
+  getAgentInstance,
+  redactInstance,
+  ensureInstanceProfileDirs,
+  ensureAmbientCodexFileStore,
+  buildInstanceLoginCommand,
+  createAgentInstance,
+  updateAgentInstance,
+  deleteAgentInstance,
+} from "./agent-instances";
 import { AgentManager } from "./agent";
 import { createElectronOsNotifier } from "./os-notifications";
 import { WindowVisibilityGate } from "./window-visibility";
@@ -472,6 +485,61 @@ function requireAgentManager(): AgentManager {
 function requireLauncherUpdateManager(): LauncherUpdateManager {
   if (!launcherUpdateManager) throw new Error("Launcher update manager is not initialized.");
   return launcherUpdateManager;
+}
+
+/**
+ * Launch a provider account's interactive sign-in inside the user's terminal,
+ * with its isolated credential root exported. Pipper never handles the
+ * credentials — the CLI runs its own OAuth flow and owns its storage. Returns
+ * the command so the UI can offer a manual fallback if no terminal opened.
+ */
+async function launchInstanceLogin(
+  instanceId: string,
+): Promise<{ command: string; opened: boolean }> {
+  const instance = getAgentInstance(instanceId);
+  if (!instance) throw new Error(`Unknown account: ${instanceId}`);
+  // The CLI (e.g. Codex) errors if its credential root doesn't exist, so make
+  // sure the profile directory is present before launching sign-in.
+  ensureInstanceProfileDirs(instance);
+  // The default Codex account uses the ambient ~/.codex; pin file-based
+  // credential storage there so login writes auth.json the adapter can read.
+  if (instance.driverId === "codex-acp" && instance.id === instance.driverId) {
+    ensureAmbientCodexFileStore();
+  }
+  const command = buildInstanceLoginCommand(instance);
+  if (!command) {
+    throw new Error("This provider signs in with an API key, not a browser login.");
+  }
+  try {
+    if (process.platform === "darwin") {
+      await execFileAsync("osascript", [
+        "-e",
+        `tell application "Terminal" to do script ${JSON.stringify(command)}`,
+        "-e",
+        `tell application "Terminal" to activate`,
+      ]);
+      return { command, opened: true };
+    }
+    if (process.platform === "win32") {
+      await execFileAsync("cmd", ["/c", "start", "", "cmd", "/k", command]);
+      return { command, opened: true };
+    }
+    // Linux: `spawn` reports a missing terminal via an async 'error' event, not
+    // a throw, so wait for spawn/error before claiming the terminal opened.
+    return await new Promise<{ command: string; opened: boolean }>((resolve) => {
+      const child = spawn("x-terminal-emulator", ["-e", "sh", "-c", command], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.once("spawn", () => {
+        child.unref();
+        resolve({ command, opened: true });
+      });
+      child.once("error", () => resolve({ command, opened: false }));
+    });
+  } catch {
+    return { command, opened: false };
+  }
 }
 
 /**
@@ -1211,7 +1279,7 @@ function notifyAnalyticsIdentity(): void {
 }
 
 function sendMainWindowTabEvent(
-  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:closeActive",
+  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:newTerminal" | "tabs:closeActive",
   ...args: unknown[]
 ) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1266,6 +1334,11 @@ function buildAppMenu(): void {
               click: () => sendMainWindowTabEvent("tabs:newTab"),
             },
             {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
+            },
+            {
               label: "Close Tab",
               accelerator: "CommandOrControl+W",
               click: () => sendMainWindowTabEvent("tabs:closeActive"),
@@ -1281,6 +1354,11 @@ function buildAppMenu(): void {
               label: "New Tab",
               accelerator: "CommandOrControl+T",
               click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
             },
             {
               label: "Close Tab",
@@ -1613,17 +1691,20 @@ function registerIpc(): void {
     return target;
   }
 
-  ipcMain.handle("git:status", async (_event, input: { projectId: string; path: string }) => {
-    try {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
-      return await getWorkspaceGitStatus(target.path);
-    } catch (err) {
-      logMain(
-        `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      throw err;
-    }
-  });
+  ipcMain.handle(
+    "git:status",
+    async (_event, input: { projectId: string; path: string; force?: boolean }) => {
+      try {
+        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        return await getWorkspaceGitStatus(target.path, { force: input.force === true });
+      } catch (err) {
+        logMain(
+          `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    },
+  );
 
   ipcMain.handle(
     "git:commit",
@@ -1801,6 +1882,9 @@ function registerIpc(): void {
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = removeWorktree(project.path, target.path, project.id);
+    // Terminals are owned by renderer workspace buckets. Notify it as soon
+    // as Git removes the worktree, even if later chat cleanup fails.
+    broadcastToWindows("worktrees:deleted", { projectId: project.id, path: target.path });
 
     // Run every cleanup operation even if one fails. Git has already removed
     // the workspace, so leaving the remaining tabs or threads untouched would
@@ -2260,9 +2344,15 @@ function registerIpc(): void {
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
   ipcMain.handle("agent:getModelCatalogs", () => requireAgentManager().getModelCatalogs());
-  ipcMain.handle("agent:probeAgent", (_event, agentId: string) =>
-    probeAgentById(agentId, { clientVersion: app.getVersion() }),
-  );
+  ipcMain.handle("agent:probeAgent", async (_event, agentId: string) => {
+    const result = await probeAgentById(agentId, { clientVersion: app.getVersion() });
+    if (result.status !== "ready") {
+      console.warn(
+        `[probe] ${agentId}: ${result.status}${result.message ? ` — ${result.message}` : ""}`,
+      );
+    }
+    return result;
+  });
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
   );
@@ -2274,6 +2364,27 @@ function registerIpc(): void {
   ipcMain.handle("agent:setSelectedAgentIds", (_event, agentIds: string[]) => {
     setSelectedAgentIds(agentIds);
   });
+  ipcMain.handle("agent:listInstances", () => listAgentInstancesForRenderer());
+  ipcMain.handle("agent:getAccountSchemas", () => listAgentAccountSchemas());
+  ipcMain.handle("agent:createInstance", (_event, input) => {
+    const created = createAgentInstance(input);
+    broadcastToWindows("agent:instancesChanged", {});
+    // Never ship decrypted secrets back to the renderer.
+    return redactInstance(created);
+  });
+  ipcMain.handle("agent:updateInstance", (_event, id: string, input) => {
+    const updated = updateAgentInstance(id, input);
+    broadcastToWindows("agent:instancesChanged", {});
+    return updated ? redactInstance(updated) : null;
+  });
+  ipcMain.handle("agent:deleteInstance", async (_event, id: string) => {
+    // Reconcile live sessions/connection and the preferred pointer, then
+    // delete (which re-points any threads at the driver's default instance).
+    await agentManager?.removeAgentInstance(id);
+    deleteAgentInstance(id);
+    broadcastToWindows("agent:instancesChanged", {});
+  });
+  ipcMain.handle("agent:launchInstanceLogin", (_event, id: string) => launchInstanceLogin(id));
   ipcMain.handle("agent:closeThreadSession", (_event, threadId: string) =>
     requireAgentManager().closeThreadSession(threadId),
   );
@@ -2684,6 +2795,9 @@ app.whenReady().then(async () => {
     write: saveGithubPrSnapshot,
   });
   logStartupMilestone("database:init:complete");
+  // Seed per-driver default instances and wire instance→descriptor resolution
+  // into the agent registry before anything spawns an agent.
+  installAgentInstanceProvider();
   await prepareBenchmarkLaunchState();
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {

@@ -1,7 +1,343 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Diamond,
+  Ellipsis,
+  FileCode,
+  FolderPlus,
+  GitBranch,
+  Minus,
+  PanelLeft,
+  Play,
+  Plus,
+  Rabbit,
+} from "lucide-react";
 import { Tabs, TabsList, TabItem } from "@/components/ui/tabs";
+
+/**
+ * Static replica of the advanced shell (`src/components/advanced-shell.tsx`).
+ * Everything below mirrors that layout and `src/lib/workspace-tone.ts` so the
+ * hero reads as the real product without dragging in the Electron runtime.
+ */
+
+/** Git-state tone, copied from `workspace-tone.ts`. "action" = PR open with
+ *  checks still running. */
+const TONE_COLOR = "#B1620D";
+const HERO_ORANGE = "#FFAA4F";
+const HERO_ORANGE_INK = "#A65B0E";
+const toneInsetShadow = `inset 0 0 22px 2px ${TONE_COLOR}, inset 0 0 48px 8px ${TONE_COLOR}`;
+const toneWash = `linear-gradient(to bottom, ${TONE_COLOR}100 0%, ${TONE_COLOR}1f 85%, ${TONE_COLOR}00 100%)`;
+
+/** A small, stable set of heights so the card grid reads as an organic
+ *  masonry rather than a uniform table — same list the shell hashes against. */
+const CARD_HEIGHTS = [128, 168, 144, 188, 132, 160, 116, 176];
+
+function cardHeight(path: string, selected: boolean): number {
+  let hash = 0;
+  for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) >>> 0;
+  const base = CARD_HEIGHTS[hash % CARD_HEIGHTS.length];
+  return selected ? base + 24 : base;
+}
+
+const PROJECTS = [
+  { name: "pipper", active: true },
+  { name: "Nucleus", active: false },
+  { name: "cln", active: false },
+];
+
+const WORKSPACES = [
+  { name: "Rewrite the marketing hero", path: "/pipper/workspaces/hero", running: true },
+  { name: "Fix login redirect loop", path: "/pipper/workspaces/auth" },
+  { name: "Terminal · dev server", path: "/pipper/workspaces/terminal" },
+  { name: "antigravity-rewrite", path: "/pipper/workspaces/antigravity", selected: true },
+  { name: "Agent settings", path: "/pipper/workspaces/settings" },
+  { name: "Nightly release", path: "/pipper/workspaces/release" },
+];
+
+const HIDDEN_WORKSPACE_COUNT = 3;
+
+const sessions = [
+  { value: "tab-1", label: "surprise", icon: FileCode },
+  { value: "tab-2", label: "click here", icon: Play },
+];
+
+/** Static preview of the draft ThreadComposer and its turn identity marker. */
+function Composer() {
+  return (
+    <div className="flex items-center gap-3" data-pipper-id="product-demo-composer">
+      <span className="block size-8 shrink-0" data-pipper-id="user-turn-identity">
+        <svg
+          viewBox="0 0 29 29"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="block size-full"
+          aria-hidden="true"
+        >
+          <rect width="29" height="29" rx="14.5" fill={HERO_ORANGE} />
+          <path
+            d="M6.84425 15.494C6.84425 10.8139 9.98266 7.77648 14.5159 7.77648C18.783 7.77648 21.8572 10.4652 21.8572 14.6498C21.8572 17.3936 20.5358 19.3666 18.3976 19.3666C17.2597 19.3666 16.3971 18.8251 16.2319 17.8983H16.1402C15.7364 18.8343 14.9105 19.3666 13.846 19.3666C11.9556 19.3666 10.6617 17.7882 10.6617 15.4848C10.6617 13.2182 11.9556 11.6765 13.7818 11.6765C14.7912 11.6765 15.6446 12.1446 16.0209 12.9613H16.1126V12.5024C16.1126 11.9885 16.4155 11.6765 16.9018 11.6765C17.3974 11.6765 17.691 11.9885 17.691 12.5024V17.054C17.691 17.6781 18.0489 18.0359 18.7096 18.0359C19.7282 18.0359 20.4257 16.687 20.4257 14.7599C20.4257 11.0617 17.7736 9.05203 14.4976 9.05203C10.7443 9.05203 8.2758 11.7041 8.2758 15.5491C8.2758 19.5226 10.937 21.8167 14.883 21.8167C15.7823 21.8167 16.4155 21.6882 17.2414 21.4864C17.3882 21.4588 17.5075 21.4497 17.5993 21.4497C17.9755 21.4497 18.1866 21.6515 18.1866 21.9727C18.1866 22.2939 17.9939 22.5417 17.4433 22.7252C16.7642 22.9546 15.7456 23.1014 14.5985 23.1014C10.0928 23.1014 6.84425 20.2659 6.84425 15.494ZM14.1672 17.935C15.3143 17.935 16.0576 16.9898 16.0576 15.4848C16.0576 14.0166 15.3235 13.0806 14.1672 13.0806C13.0385 13.0806 12.3594 13.9799 12.3594 15.494C12.3594 17.0173 13.0293 17.935 14.1672 17.935Z"
+            fill={HERO_ORANGE_INK}
+          />
+        </svg>
+      </span>
+      <input
+        aria-label="Prompt"
+        className="min-h-11 min-w-0 flex-1 bg-transparent px-2 py-2 text-[14px] leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+        placeholder="@ a model, then describe the task…"
+      />
+    </div>
+  );
+}
+
+/** Horizontal, scrollable project switcher pinned above the workspace grid. */
+function ProjectTabs() {
+  return (
+    <div
+      role="tablist"
+      aria-label="Projects"
+      className="flex items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {PROJECTS.map((project) => (
+        <button
+          key={project.name}
+          type="button"
+          role="tab"
+          aria-selected={project.active}
+          data-active={project.active ? "true" : undefined}
+          className={
+            "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[15px] leading-none outline-none transition-colors duration-80 " +
+            (project.active
+              ? "font-medium text-foreground"
+              : "text-muted-foreground/60 hover:text-foreground")
+          }
+        >
+          {project.name}
+          {project.active && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-2.5 -bottom-0.5 h-0.5 rounded-full bg-foreground/70"
+            />
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A single workspace rendered as a card in the grid. */
+function WorkspaceCard({
+  name,
+  path,
+  selected,
+}: {
+  name: string;
+  path: string;
+  selected?: boolean;
+}) {
+  return (
+    <div className="group/card relative mb-2 break-inside-avoid">
+      <button
+        type="button"
+        data-active={selected ? "true" : undefined}
+        aria-current={selected ? "page" : undefined}
+        style={{
+          minHeight: cardHeight(path, Boolean(selected)),
+          boxShadow: selected ? toneInsetShadow : undefined,
+        }}
+        className={
+          "relative flex w-full flex-col overflow-hidden rounded-2xl p-3 text-left outline-none " +
+          "transition-[background-color,color,box-shadow] duration-80 " +
+          (selected
+            ? "bg-surface-1 text-foreground"
+            : "bg-[#262626] text-neutral-400 hover:bg-[#303030] hover:text-neutral-100")
+        }
+      >
+        <span className="line-clamp-3 pr-5 text-[13px] font-medium leading-snug">{name}</span>
+        {name.startsWith("Rewrite") && (
+          <span
+            className="mt-auto flex items-center gap-1 pt-2"
+            title="1 agent running here"
+            aria-label="1 agent running here"
+          >
+            <span className="size-[13px] rounded-[3px]" style={{ backgroundColor: HERO_ORANGE }} />
+          </span>
+        )}
+      </button>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md text-current opacity-0 transition-opacity duration-80 group-hover/card:opacity-100"
+      >
+        <Ellipsis size={16} />
+      </span>
+    </div>
+  );
+}
+
+const CHECKS: { label: string; state: "passing" | "skipped"; showLink?: boolean }[] = [
+  { label: "react-doctor", state: "passing" },
+  { label: "Macroscope - Correctness Check", state: "skipped" },
+  { label: "CodeRabbit", state: "passing", showLink: false },
+  { label: "GitGuardian Security Checks", state: "passing" },
+  { label: "Greptile Review", state: "passing" },
+  { label: "React Doctor", state: "passing" },
+  { label: "Vercel", state: "passing" },
+  { label: "Vercel Preview Comments", state: "passing" },
+];
+
+const REVIEW_COMMENTS = [
+  { name: "coderabbitai", count: 3, inline: 2, avatar: "rabbit" as const },
+  { name: "greptile-apps", count: 12, inline: 12, avatar: "greptile" as const },
+  { name: "github-actions", count: 1, avatar: "github" as const },
+  { name: "qodo-code-review", count: 1, avatar: "qodo" as const },
+];
+
+function StateIcon({ state }: { state: "passing" | "skipped" }) {
+  return state === "passing" ? (
+    <Check size={16} strokeWidth={2.5} className="text-[#00c58d]" />
+  ) : (
+    <Minus size={16} strokeWidth={2.5} className="text-muted-foreground/60" />
+  );
+}
+
+function ReviewAvatar({ kind }: { kind: (typeof REVIEW_COMMENTS)[number]["avatar"] }) {
+  const colors = {
+    rabbit: "bg-[#ff5a13] text-white",
+    greptile: "bg-[#25d99a] text-[#003d30]",
+    github: "bg-black text-white",
+    qodo: "bg-[#6557c7] text-white",
+  };
+  const icon = {
+    rabbit: <Rabbit size={16} fill="currentColor" />,
+    greptile: <Diamond size={17} strokeWidth={3} />,
+    github: <GitBranch size={16} strokeWidth={2.5} />,
+    qodo: <span className="text-[15px] font-bold leading-none">Q</span>,
+  }[kind];
+
+  return (
+    <span className={`grid size-5 shrink-0 place-items-center rounded-full ${colors[kind]}`}>
+      {icon}
+    </span>
+  );
+}
+
+/** Right rail: the state header (PR pill + action + tabs) over the check list. */
+function WorkspacePanel() {
+  return (
+    <aside
+      aria-label="Workspace review and checks"
+      className="flex w-96 shrink-0 flex-col overflow-y-auto border-l border-border text-left max-[1100px]:hidden"
+    >
+      {/* The git state reads as an inset glow behind the header, masked away
+          toward the bottom edge so it flows into the body instead of banding
+          across it. */}
+      <div
+        className="sticky top-0 z-20 shrink-0 rounded-tr-[16px] bg-surface-1 px-4 pb-8 pt-4"
+        style={{ backgroundImage: toneWash }}
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 rounded-tr-[16px]"
+          style={{
+            boxShadow: toneInsetShadow,
+            maskImage: "linear-gradient(to bottom, #000 60%, transparent 100%)",
+            WebkitMaskImage: "linear-gradient(to bottom, #000 60%, transparent 100%)",
+          }}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex h-7 shrink-0 items-center overflow-hidden rounded-full border-2 border-white/30 bg-white/30 text-[12px] font-semibold text-white">
+            <span className="px-2.5">#142</span>
+            <span className="flex h-full items-center bg-white/30 px-1.5">
+              <ArrowUpRight size={13} />
+            </span>
+          </span>
+          <button
+            type="button"
+            className="ml-auto flex h-7 shrink-0 items-center overflow-hidden rounded-full bg-[#FFAA4F] text-[#4a2c05] transition-colors hover:bg-[#ffbb70]"
+          >
+            <span className="pl-3 pr-1 text-[12px] font-semibold">Push</span>
+            <span className="flex items-center pl-1 pr-2">
+              <ChevronDown size={13} />
+            </span>
+          </button>
+        </div>
+        <div className="mt-3 flex items-center gap-4 text-[13px] font-medium leading-5">
+          <span className="text-[13px] font-medium capitalize text-white">Check</span>
+          <span className="text-[13px] font-medium capitalize text-white/35">Changes</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-7 px-4 py-4">
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold leading-6 text-foreground">antigravity-rewrite</h2>
+          <ul className="list-disc pl-5 text-[13px] leading-6 text-muted-foreground">
+            <li>Integrate official Antigravity ACP binary and harden connection lifecycle</li>
+          </ul>
+        </section>
+        <section className="flex flex-col gap-1.5">
+          <h3 className="text-sm font-semibold text-foreground">Deployments</h3>
+          <ul className="flex flex-col">
+            <li className="flex min-h-8 items-center gap-2.5 py-1 text-[13px]">
+              <span className="flex w-4 shrink-0 items-center justify-center">
+                <StateIcon state="passing" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-foreground">Preview</span>
+              <ArrowUpRight size={13} className="shrink-0 text-muted-foreground/70" />
+            </li>
+          </ul>
+        </section>
+        <section className="flex flex-col gap-1.5">
+          <h3 className="text-sm font-semibold text-foreground">Checks</h3>
+          <ul className="flex flex-col">
+            {CHECKS.map((check) => (
+              <li key={check.label} className="flex min-h-8 items-center gap-2.5 py-1 text-[13px]">
+                <span className="flex w-4 shrink-0 items-center justify-center">
+                  <StateIcon state={check.state} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-foreground">{check.label}</span>
+                {check.showLink !== false && (
+                  <ArrowUpRight size={13} className="shrink-0 text-muted-foreground/70" />
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+              Review comments
+            </h3>
+            <span className="flex items-center gap-1 text-[12px] text-muted-foreground">
+              Latest <ChevronDown size={13} />
+            </span>
+          </div>
+          <ul className="flex flex-col">
+            {REVIEW_COMMENTS.map((comment) => (
+              <li
+                key={comment.name}
+                className="flex min-h-9 items-center gap-2 border-b border-white/10 px-3 py-1.5 text-[13px]"
+              >
+                <ReviewAvatar kind={comment.avatar} />
+                <span className="min-w-0 truncate text-foreground">{comment.name}</span>
+                <span className="text-muted-foreground/70">{comment.count}</span>
+                {comment.inline && (
+                  <span className="truncate text-[11px] text-muted-foreground/60">
+                    {comment.inline} inline
+                  </span>
+                )}
+                <ChevronRight size={16} className="ml-auto shrink-0 text-muted-foreground" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </aside>
+  );
+}
 
 const SURPRISE_VIDEO_ID = "dQw4w9WgXcQ";
 
@@ -29,151 +365,10 @@ function loadYouTubeAPI(): Promise<any> {
   });
 }
 
-const sessions = [
-  { value: "tab-1", label: "surprise" },
-  { value: "tab-2", label: "click here" },
-];
-
-const PROJECTS = ["omni"];
-const MODELS = ["GPT - 7", "Fabel 6"];
-
-type MenuKind = "project" | "model";
-
-function Composer() {
-  const [project, setProject] = useState<string | null>(null);
-  const [model, setModel] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [menu, setMenu] = useState<MenuKind | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const placeholder = !project
-    ? "press @ for the project and @ for the model"
-    : !model
-      ? "press @ for the model"
-      : "start typing your prompt";
-
-  const focusInput = () => inputRef.current?.focus();
-
-  // Track "@" typing: first free "@" opens the project menu, the next one
-  // (once a project bubble exists) opens the model menu.
-  function handleChange(value: string) {
-    setPrompt(value);
-    if (!value.endsWith("@")) {
-      setMenu(null);
-      return;
-    }
-    if (!project) setMenu("project");
-    else if (!model) setMenu("model");
-    else setMenu(null);
-  }
-
-  function commitMenuSelection(name: string) {
-    if (menu === "project") setProject(name);
-    else if (menu === "model") setModel(name);
-    // Drop the "@" trigger char, close the menu, keep typing.
-    setPrompt((current) => (current.endsWith("@") ? current.slice(0, -1) : current));
-    setMenu(null);
-    requestAnimationFrame(focusInput);
-  }
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter" && menu) {
-      event.preventDefault();
-      const options = menu === "project" ? PROJECTS : MODELS;
-      commitMenuSelection(options[0]);
-      return;
-    }
-    if (event.key === "Escape") {
-      setMenu(null);
-      return;
-    }
-    // Empty input + Backspace removes the last bubble (model, then project).
-    if (event.key === "Backspace" && prompt === "") {
-      if (model) {
-        event.preventDefault();
-        setModel(null);
-      } else if (project) {
-        event.preventDefault();
-        setProject(null);
-      }
-    }
-  }
-
-  const menuOptions = menu === "project" ? PROJECTS : MODELS;
-
-  return (
-    <div className="relative flex w-full max-w-3xl items-center justify-center gap-2.5">
-      <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[#088139] bg-[#26B25A] text-[14px] font-semibold text-[#088139]">
-        @
-      </span>
-      {project && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#B1620D] bg-[#ffa946] px-2.5 py-1 text-[13px] font-medium text-[#a65b0e]">
-          {project}
-        </span>
-      )}
-      {model && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#2162ff] bg-[#d8e5ff] px-2.5 py-1 text-[13px] font-medium text-[#2162ff]">
-          {model}
-        </span>
-      )}
-      <input
-        ref={inputRef}
-        value={prompt}
-        onChange={(e) => handleChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        aria-label="Prompt"
-        className="min-w-0 flex-1 bg-transparent text-[14px] text-white/90 outline-none placeholder:text-white/30"
-        placeholder={placeholder}
-      />
-      {menu && (
-        <div
-          role="listbox"
-          aria-label={menu === "project" ? "Projects" : "Models"}
-          className="absolute left-11 top-full z-10 mt-2 w-52 overflow-hidden rounded-xl border border-white/10 bg-[#242424] shadow-2xl"
-        >
-          {menuOptions.map((name) => {
-            const selected = menu === "project" ? name === project : name === model;
-            return (
-              <button
-                key={name}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => commitMenuSelection(name)}
-                className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] transition-colors hover:bg-white/10 ${
-                  selected ? "bg-white/10 text-white" : "text-white/85"
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate">{name}</span>
-                {selected && (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden="true"
-                    className="shrink-0 text-white"
-                  >
-                    <path
-                      d="M4 12.5 9.5 18 20 6.5"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function ProductDemo() {
   const [activeSession, setActiveSession] = useState("tab-1");
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
   const playerHostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
 
@@ -194,6 +389,11 @@ export default function ProductDemo() {
             width: "100%",
             height: "100%",
             playerVars: { rel: 0, preload: 1 },
+            events: {
+              onReady: (event: { target: { playVideo: () => void } }) => {
+                if (!cancelled && activeSessionRef.current === "tab-2") event.target.playVideo();
+              },
+            },
           });
         })
         .catch(() => {});
@@ -225,93 +425,112 @@ export default function ProductDemo() {
   return (
     <section
       data-pipper-id="product-demo"
-      aria-label="Omni product preview"
+      aria-label="Pipper workspace preview"
       className="flex w-full shrink-0 justify-center overflow-hidden bg-transparent p-[clamp(0.9rem,2.4vw,3rem)]"
     >
-      <div className="dark relative flex h-full min-h-[36rem] w-full max-w-6xl flex-col overflow-hidden rounded-[16px] border border-white/10 bg-[#1c1c1c] text-neutral-100">
-        {/* Window header */}
-        <header className="flex items-center gap-4 border-b border-white/[0.07] px-4 py-3">
-          <div className="flex shrink-0 items-center gap-3">
-            <div className="leading-tight text-center">
-              <div className="text-[14px] font-semibold tracking-tight">omni</div>
-              <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px] text-white/40">
-                <span className="inline-flex items-center gap-1">
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 256 256"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z" />
-                  </svg>
-                  main
-                </span>
-                <span className="text-white/25">/</span>
-                <span>main</span>
+      <div className="dark relative flex h-full min-h-[44rem] w-full max-w-[96rem] overflow-hidden rounded-[18px] border border-white/10 bg-surface-1 text-foreground">
+        {/* Left rail: projects on top, workspace grid below. */}
+        <aside
+          aria-label="Projects and workspaces"
+          className="flex w-80 shrink-0 flex-col border-r border-border max-[1100px]:hidden"
+        >
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-end px-2 pt-3">
+              <span
+                aria-label="Collapse workspace sidebar"
+                className="grid size-8 place-items-center rounded-4xl text-muted-foreground"
+              >
+                <PanelLeft size={16} />
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
+              <div className="min-w-0 flex-1">
+                <ProjectTabs />
               </div>
+              <span
+                aria-label="New workspace in pipper"
+                className="grid size-8 shrink-0 place-items-center rounded-4xl text-muted-foreground"
+              >
+                <Plus size={16} />
+              </span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2">
+              <div className="columns-2 gap-2">
+                {WORKSPACES.map((workspace) => (
+                  <WorkspaceCard
+                    key={workspace.path}
+                    name={workspace.name}
+                    path={workspace.path}
+                    selected={workspace.selected}
+                  />
+                ))}
+              </div>
+              <span className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-md text-[12px] text-muted-foreground">
+                <ChevronDown size={14} />
+                Load more ({HIDDEN_WORKSPACE_COUNT})
+              </span>
             </div>
           </div>
-
-          {/* Session tab strip */}
-          <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-            <Tabs value={activeSession} onValueChange={setActiveSession} className="w-auto min-w-0">
-              <TabsList className="w-full min-w-0 flex-1 gap-1 overflow-hidden rounded-full bg-white/[0.06]">
-                {sessions.map((session) => (
-                  <TabItem key={session.value} value={session.value} label={session.label} />
-                ))}
-              </TabsList>
-            </Tabs>
-            <button
-              type="button"
-              aria-label="New session"
-              className="grid size-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path
-                  d="M7 2v10M2 7h10"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+          <div className="shrink-0 border-t border-white/5 bg-[#1a1a1a] p-2">
+            <div className="flex items-center gap-1">
+              <span className="flex h-8 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-400">
+                <FolderPlus size={16} />
+                New project
+              </span>
+            </div>
           </div>
+        </aside>
 
-          <button
-            type="button"
-            aria-label="History"
-            className="grid size-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9M2.5 8V5.5M2.5 8h2.5M8 5.5V8l1.8 1.2"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        </header>
+        <main className="relative flex min-w-0 flex-1 overflow-hidden">
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="flex h-12 shrink-0 items-center gap-2 bg-surface-1 px-3">
+              <div className="mx-auto mt-2 min-w-0 max-w-[1000px] px-4">
+                <Tabs value={activeSession} onValueChange={setActiveSession}>
+                  <TabsList className="min-w-0 max-w-full gap-1 overflow-x-auto p-1">
+                    {sessions.map((session) => (
+                      <TabItem
+                        key={session.value}
+                        value={session.value}
+                        label={session.label}
+                        icon={session.icon}
+                      />
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+              <span
+                aria-label="Toggle workspace panel"
+                className="mt-2 hidden size-8 shrink-0 place-items-center rounded-4xl text-muted-foreground max-[1100px]:grid"
+              >
+                <PanelLeft size={16} className="-scale-x-100" />
+              </span>
+            </div>
 
-        {/* Body: prompt on tab 1, preloaded video on tab 2.
-            The player host stays mounted (hidden) so the video is cued
-            before the first click — playback starts instantly. */}
-        {activeSession === "tab-1" && (
-          <div className="flex flex-1 items-start justify-center px-6 pt-8">
-            <Composer />
-          </div>
-        )}
-        <div
-          className={`flex-1 items-center justify-center px-6 py-8 ${
-            activeSession === "tab-1" ? "hidden" : "flex"
-          }`}
-        >
-          <div className="aspect-video w-full max-w-3xl overflow-hidden rounded-xl border border-white/10">
-            <div ref={playerHostRef} className="h-full w-full" />
-          </div>
-        </div>
+            <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden">
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {activeSession === "tab-1" && (
+                  <div className="relative z-20 shrink-0 px-3 pb-5 pt-2">
+                    <Composer />
+                  </div>
+                )}
+                <div
+                  aria-hidden={activeSession !== "tab-2"}
+                  className={
+                    activeSession === "tab-2"
+                      ? "flex h-full items-center justify-center p-4"
+                      : "hidden"
+                  }
+                >
+                  <div className="aspect-video w-full max-w-3xl overflow-hidden rounded-xl border border-white/10 bg-black">
+                    <div ref={playerHostRef} className="h-full w-full" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <WorkspacePanel />
+        </main>
       </div>
     </section>
   );

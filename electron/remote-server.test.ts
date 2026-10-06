@@ -11,7 +11,12 @@ vi.mock("./projects.ts", () => ({
   getProject: (id: string) =>
     id === "p1" ? { id: "p1", name: "Demo", path: "/work/demo" } : undefined,
 }));
-vi.mock("./agents/registry.ts", () => ({ listRegisteredAgents: () => [] }));
+const listRegisteredAgents = vi.fn((): unknown[] => []);
+const listAgentInstanceDescriptors = vi.fn((): unknown[] => []);
+vi.mock("./agents/registry.ts", () => ({ listRegisteredAgents: () => listRegisteredAgents() }));
+vi.mock("./agent-instances.ts", () => ({
+  listAgentInstanceDescriptors: () => listAgentInstanceDescriptors(),
+}));
 vi.mock("./threads.ts", () => ({ listThreads: () => [], getThread: () => undefined }));
 vi.mock("./worktree-manager.ts", () => ({
   createWorktree: () => {
@@ -163,6 +168,23 @@ describe("RemoteServer security", () => {
     });
     expect(res.status).toBe(401);
     expect(await res.text()).not.toContain("attestation");
+  });
+
+  it("offers each provider account to the phone, grouped by provider", async () => {
+    listRegisteredAgents.mockReturnValue([
+      { id: "codex-acp", name: "codex", displayName: "Codex" },
+    ]);
+    listAgentInstanceDescriptors.mockReturnValue([
+      { id: "codex-acp", name: "codex", displayName: "Codex", driverId: "codex-acp" },
+      { id: "codex-acp:work", name: "codex", displayName: "Codex (work)", driverId: "codex-acp" },
+    ]);
+    const res = await fetch(`${base}/api/remote/models`, { headers: authed });
+    expect(await res.json()).toEqual({
+      models: [
+        { id: "codex-acp", name: "Codex", provider: "Codex" },
+        { id: "codex-acp:work", name: "Codex (work)", provider: "Codex" },
+      ],
+    });
   });
 
   it("revokes one device without affecting the others", async () => {

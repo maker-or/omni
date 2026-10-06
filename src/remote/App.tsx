@@ -10,6 +10,7 @@ import {
   type PhoneImage,
 } from "./attachments.tsx";
 import { MAX_PROMPT_IMAGES } from "../../contracts/prompt-images.ts";
+import { groupModelsByProvider } from "./model-groups.ts";
 import type {
   RemoteDevice,
   RemoteModel,
@@ -463,11 +464,23 @@ export function RemoteApp() {
                 aria-label="Model"
               >
                 <option value="">Model…</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
+                {groupModelsByProvider(models).map((group) =>
+                  group.provider ? (
+                    <optgroup key={group.provider} label={group.provider}>
+                      {group.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    group.models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))
+                  ),
+                )}
               </select>
             </div>
             <p className="remote-hint">

@@ -194,6 +194,7 @@ export function AuthenticatedStage({
             <ul className="flex flex-col gap-2">
               {[
                 { action: "New thread", keys: `${modifierSymbol()}T` },
+                { action: "New terminal", keys: modifierSymbol() === "⌘" ? "⌘⇧T" : "Ctrl+Shift+T" },
                 { action: "Close tab", keys: `${modifierSymbol()}W` },
                 { action: "Switch tabs", keys: `${modifierSymbol()}1–9` },
               ].map(({ action, keys }) => (

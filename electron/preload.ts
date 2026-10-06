@@ -17,6 +17,9 @@ import type {
   AvailableCommand,
   SessionConfigOption,
   AcpAgentDescriptor,
+  AcpAgentInstance,
+  AcpAgentInstanceInput,
+  AgentAccountSchema,
   AgentProbeResult,
   SubagentConfig,
   SubagentRunSnapshot,
@@ -214,6 +217,12 @@ const api = {
       ipcRenderer.invoke("worktrees:create", input),
     delete: (input: { projectId: string; path: string }): Promise<Worktree> =>
       ipcRenderer.invoke("worktrees:delete", input),
+    onDeleted: (callback: (workspace: { projectId: string; path: string }) => void) => {
+      const listener = (_event: unknown, workspace: { projectId: string; path: string }) =>
+        callback(workspace);
+      ipcRenderer.on("worktrees:deleted", listener);
+      return () => ipcRenderer.removeListener("worktrees:deleted", listener);
+    },
     switch: (input: { projectId: string; path: string }): Promise<Thread> =>
       ipcRenderer.invoke("worktrees:switch", input),
     getSelections: (): Promise<Record<string, string>> =>
@@ -237,8 +246,11 @@ const api = {
       ipcRenderer.invoke("worktrees:continue", input),
   },
   git: {
-    status: (input: { projectId: string; path: string }): Promise<WorkspaceGitStatus> =>
-      ipcRenderer.invoke("git:status", input),
+    status: (input: {
+      projectId: string;
+      path: string;
+      force?: boolean;
+    }): Promise<WorkspaceGitStatus> => ipcRenderer.invoke("git:status", input),
     commit: (input: {
       projectId: string;
       path: string;
@@ -328,6 +340,13 @@ const api = {
         ipcRenderer.removeListener("tabs:newTab", listener);
       };
     },
+    onNewTerminal: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("tabs:newTerminal", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:newTerminal", listener);
+      };
+    },
     onCloseActive: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on("tabs:closeActive", listener);
@@ -381,6 +400,25 @@ const api = {
     getSelectedAgentIds: (): Promise<string[]> => ipcRenderer.invoke("agent:getSelectedAgentIds"),
     setSelectedAgentIds: (agentIds: string[]): Promise<void> =>
       ipcRenderer.invoke("agent:setSelectedAgentIds", agentIds),
+    listInstances: (): Promise<AcpAgentInstance[]> => ipcRenderer.invoke("agent:listInstances"),
+    getAccountSchemas: (): Promise<AgentAccountSchema[]> =>
+      ipcRenderer.invoke("agent:getAccountSchemas"),
+    createInstance: (input: AcpAgentInstanceInput): Promise<AcpAgentInstance> =>
+      ipcRenderer.invoke("agent:createInstance", input),
+    updateInstance: (
+      id: string,
+      input: Partial<AcpAgentInstanceInput>,
+    ): Promise<AcpAgentInstance | null> => ipcRenderer.invoke("agent:updateInstance", id, input),
+    deleteInstance: (id: string): Promise<void> => ipcRenderer.invoke("agent:deleteInstance", id),
+    launchInstanceLogin: (id: string): Promise<{ command: string; opened: boolean }> =>
+      ipcRenderer.invoke("agent:launchInstanceLogin", id),
+    onInstancesChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("agent:instancesChanged", listener);
+      return () => {
+        ipcRenderer.removeListener("agent:instancesChanged", listener);
+      };
+    },
     setConfigOption: (configId: string, value: string | boolean): Promise<SessionConfigOption[]> =>
       ipcRenderer.invoke("agent:setConfigOption", configId, value),
     respondToPermission: (response: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -53,6 +53,7 @@ import { AgentSlashCommandMenu } from "@/components/agent-slash-command-menu";
 import { AgentContinueMenu } from "@/components/agent-continue-menu";
 import { AgentQuestionCard, AgentQuestionDock } from "@/components/agent-question";
 import { cn } from "@/lib/utils";
+import { isInstanceSelected } from "@/lib/agent-selection";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import { toast } from "@/components/ui/toast";
 import type { AgentPanelSnapshot } from "@/store/agent-store";
@@ -744,6 +745,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [projectFileItems, setProjectFileItems] = useState<
     Array<{ id: string; label: string; description?: string }>
   >([]);
+  const [projectFilesRevision, setProjectFilesRevision] = useState(0);
+  const refreshProjectFiles = useCallback(() => {
+    setProjectFilesRevision((revision) => revision + 1);
+  }, []);
   const draftBootstrappedRef = useRef(false);
 
   // When in agent view with no active thread, no requested thread, and no draft,
@@ -815,7 +820,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     // Prefer the currently connected agent when it is in the user's pool.
     const registry = useAgentRegistryStore.getState();
     const availableAgents = registry.agents.filter(
-      (a) => registry.selectedAgentIds.includes(a.id) && a.available !== false,
+      (a) => isInstanceSelected(a, registry.selectedAgentIds) && a.available !== false,
     );
     const pool =
       availableAgents.length > 0
@@ -857,7 +862,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
           const pool = registry.agents.filter(
             (a) =>
               (registry.selectedAgentIds.length === 0 ||
-                registry.selectedAgentIds.includes(a.id)) &&
+                isInstanceSelected(a, registry.selectedAgentIds)) &&
               a.available !== false,
           );
           setDraftAgent(pool[0]?.id ?? null);
@@ -2061,7 +2066,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   // late or selectedAgentIds is still empty).
   const draftAgentItems = useMemo(() => {
     const available = registryAgents.filter((a) => a.available !== false);
-    const selected = available.filter((a) => selectedAgentIds.includes(a.id));
+    const selected = available.filter((a) => isInstanceSelected(a, selectedAgentIds));
     const pool = selected.length > 0 ? selected : available;
     return pool.map((a) => ({
       id: a.id,
@@ -2161,6 +2166,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   }, [isDraftMode, draftAgentItems, snapshot?.agentId, models, registryAgents]);
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
+  // Re-read whenever the picker opens so files added within the same workspace
+  // appear without switching threads or projects.
   const fileProjectId = useMemo(
     () =>
       isDraftMode
@@ -2212,7 +2219,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [fileProjectId, fileWorktreePath]);
+  }, [fileProjectId, fileWorktreePath, projectFilesRevision]);
 
   // Keep live free-text content aligned when not using entity chips from draft.
   useEffect(() => {
@@ -2223,8 +2230,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     });
   }, [inputValue, isDraftMode]);
 
-  // The active thread already knows its project context, so keep that context
-  // visible as a non-editable composer chip in both UI modes.
+  // Keep the project entity bound to the active thread internally. The live
+  // composer hides it because an existing thread already fixes the project.
   useEffect(() => {
     if (isDraftMode || !liveComposerProject) return;
     setLiveContent((prev) => {
@@ -2638,6 +2645,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           models={modelMentionItems}
                           modelProviders={modelProviderItems}
                           projectFiles={projectFileItems}
+                          onFileMentionOpen={refreshProjectFiles}
                           files={attachedFiles}
                           onFilesChange={handleFilesChange}
                           onFilesRejected={handleFilesRejected}
@@ -2708,6 +2716,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             models={modelMentionItems}
                             modelProviders={modelProviderItems}
                             projectFiles={projectFileItems}
+                            onFileMentionOpen={refreshProjectFiles}
                             files={attachedFiles}
                             onFilesChange={handleFilesChange}
                             onFilesRejected={handleFilesRejected}
@@ -2718,7 +2727,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             showImageAttach={false}
                             appearance="plain"
                             hideSendButton
-                            hideProjectChip={isAdvancedUI}
+                            hideProjectChip
                             textareaRef={composerTextareaRef}
                             placeholder={
                               isConnecting ? "Connecting to agent runtime..." : undefined

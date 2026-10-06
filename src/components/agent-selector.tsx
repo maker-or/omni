@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { createProviderLogoIcon } from "@/components/provider-logos";
 import { cn } from "@/lib/utils";
+import { isDefaultInstance, isInstanceSelected } from "@/lib/agent-selection";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 
 /**
@@ -143,14 +144,13 @@ export function AgentSelector({
   }
 
   const visibleAgents = agents.filter((agent) => {
+    // Onboarding is provider-level: show one card per driver. Extra accounts
+    // are added later from Settings, not during first-run setup.
+    if (!isDefaultInstance(agent)) return false;
     if (agent.installKind !== "mock") return true;
     const anyReady = agents.some((a) => a.available && a.installKind !== "mock");
     return !anyReady;
   });
-
-  const selectedAgentNames = agents
-    .filter((a) => selectedAgentIds.includes(a.id))
-    .map((a) => a.displayName);
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
@@ -169,7 +169,7 @@ export function AgentSelector({
               <AgentOption
                 key={agent.id}
                 agent={agent}
-                selected={selectedAgentIds.includes(agent.id)}
+                selected={isInstanceSelected(agent, selectedAgentIds)}
                 onToggle={async () => {
                   await toggleAgent(agent.id);
                   const next = useAgentRegistryStore.getState().selectedAgentIds;
@@ -197,23 +197,7 @@ export function AgentSelector({
       )}
 
       {showContinue && (
-        <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div
-            className="min-w-0 text-sm text-muted-foreground"
-            data-pipper-id="agent-selector-summary"
-          >
-            {selectedAgentIds.length > 0 ? (
-              <>
-                <span className="font-medium text-foreground">
-                  {selectedAgentIds.length} selected
-                </span>
-                <span className="text-muted-foreground"> · </span>
-                <span className="truncate">{selectedAgentNames.join(", ")}</span>
-              </>
-            ) : (
-              "Select at least one agent to continue"
-            )}
-          </div>
+        <div className="flex justify-end pt-4">
           <Button
             type="button"
             size="md"
@@ -338,7 +322,8 @@ function AgentSetupCard({
     result.status === "needs-auth"
       ? `Sign in required for ${descriptor.displayName}. Retry after authenticating`
       : `Retry ${descriptor.displayName}`;
-  const guideUrl = status === "ready" ? null : setupGuideUrl(descriptor.id);
+  // Instances carry `driverId`; the setup guide is keyed by driver.
+  const guideUrl = status === "ready" ? null : setupGuideUrl(descriptor.driverId ?? descriptor.id);
 
   const openSetupGuide = async () => {
     if (!guideUrl || !window.omni?.shell?.openExternal) return;

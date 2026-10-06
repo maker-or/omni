@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChatCircleIcon,
@@ -26,6 +27,9 @@ import { useUiModeStore } from "@/store/ui-mode-store";
 import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
+import { visibleWorkspaceThreadTabs } from "@/lib/thread-tab-state";
+import { resolveTerminalWorkspace } from "@/lib/terminal-workspace";
+import { useAnchoredPopoverPosition } from "@/lib/anchored-popover";
 import {
   OPEN_TABS_QUERY_KEY,
   useOpenTabsQuery,
@@ -37,6 +41,7 @@ import { isThreadInWorkspace, normalizeWorkspacePath } from "../../contracts/wor
 import {
   isCloseTabShortcutEvent,
   isNewTabShortcutEvent,
+  isNewTerminalShortcutEvent,
   tabIndexFromShortcutEvent,
   tabValueAtShortcutIndex,
   tabValuesInBarOrder,
@@ -105,7 +110,6 @@ export function GlobalTabBar() {
   );
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
   const setViewActiveTerminalId = useWorkspaceViewStore((state) => state.setActiveTerminalId);
-  const createSession = useTerminalStore((state) => state.createSession);
   const closeSession = useTerminalStore((state) => state.closeSession);
   const initializeGlobalListener = useTerminalStore((state) => state.initializeGlobalListener);
 
@@ -124,6 +128,7 @@ export function GlobalTabBar() {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownPosition = useAnchoredPopoverPosition(buttonRef, isDropdownOpen, 224);
   const closingTabIdsRef = useRef<Set<string>>(new Set());
   const openedDraftCompletionRef = useRef<string | null>(null);
 
@@ -158,14 +163,21 @@ export function GlobalTabBar() {
 
   const visibleOpenThreads = useMemo(() => {
     if (uiMode !== "advanced") return orderedOpenThreads;
-    if (!activeProject) return [];
-
-    return orderedOpenThreads.filter((thread) => {
-      if (thread.project_id !== activeProject.id) return false;
-      if (thread.id === optimisticRequestedThreadId) return true;
-      return isThreadInWorkspace(thread, activeWorkspacePath);
-    });
-  }, [orderedOpenThreads, uiMode, activeProject, activeWorkspacePath, optimisticRequestedThreadId]);
+    return visibleWorkspaceThreadTabs(
+      orderedOpenThreads,
+      activeProject?.id ?? null,
+      activeWorkspacePath,
+      snapshotThreadId,
+      optimisticRequestedThreadId,
+    );
+  }, [
+    orderedOpenThreads,
+    uiMode,
+    activeProject,
+    activeWorkspacePath,
+    snapshotThreadId,
+    optimisticRequestedThreadId,
+  ]);
 
   const visibleTerminalTabs = useMemo(() => {
     if (uiMode !== "advanced" || !activeProject) return terminalTabs;
@@ -429,11 +441,22 @@ export function GlobalTabBar() {
   };
 
   const handleNewTerminal = () => {
-    const project = activeProject;
-    const cwd = project
-      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
-      : undefined;
-    const id = createSession(cwd);
+    setIsDropdownOpen(false);
+    const project = useProjectStore.getState().activeProject;
+    const workspace = resolveTerminalWorkspace({
+      preferThread:
+        useUiModeStore.getState().mode === "basic" && !useWorkspaceViewStore.getState().draft,
+      thread: useAgentStore.getState().snapshot,
+      project,
+      selectedPath: project
+        ? useWorktreeStore.getState().selectedWorktreePathByProject[project.id]
+        : null,
+    });
+    const terminals = useTerminalStore.getState();
+    if (workspace) {
+      terminals.setWorkspace(makeWorkspaceKey(workspace.projectId, workspace.cwd), workspace.cwd);
+    }
+    const id = useTerminalStore.getState().createSession(workspace?.cwd);
     showTerminal(id);
   };
 
@@ -490,6 +513,8 @@ export function GlobalTabBar() {
   const handleTabChangeRef = useRef<(value: string) => void>(() => {});
   const handleNewThreadRef = useRef(handleNewThread);
   handleNewThreadRef.current = handleNewThread;
+  const handleNewTerminalRef = useRef(handleNewTerminal);
+  handleNewTerminalRef.current = handleNewTerminal;
 
   const handleTabChange = (value: string) => {
     const clickStartedAt = performance.now();
@@ -575,6 +600,11 @@ export function GlobalTabBar() {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isNewTerminalShortcutEvent(event)) {
+        event.preventDefault();
+        handleNewTerminalRef.current();
+        return;
+      }
       if (isNewTabShortcutEvent(event)) {
         event.preventDefault();
         handleNewThreadRef.current();
@@ -595,6 +625,9 @@ export function GlobalTabBar() {
     window.addEventListener("keydown", onKeyDown, true);
     const unsubscribeSelect = window.omni.tabs.onSelectByIndex?.(activateTabAtIndex);
     const unsubscribeNewTab = window.omni.tabs.onNewTab?.(() => handleNewThreadRef.current());
+    const unsubscribeNewTerminal = window.omni.tabs.onNewTerminal?.(() =>
+      handleNewTerminalRef.current(),
+    );
     const unsubscribeCloseActive = window.omni.tabs.onCloseActive?.(() =>
       handleCloseActiveTabRef.current(),
     );
@@ -602,19 +635,20 @@ export function GlobalTabBar() {
       window.removeEventListener("keydown", onKeyDown, true);
       unsubscribeSelect?.();
       unsubscribeNewTab?.();
+      unsubscribeNewTerminal?.();
       unsubscribeCloseActive?.();
     };
   }, [orderedTabValues]);
 
   return (
-    <Tabs value={selectedTabValue} onValueChange={handleTabChange}>
+    <Tabs className="w-full min-w-0" value={selectedTabValue} onValueChange={handleTabChange}>
       <div
         className="flex w-full max-w-[1000px] min-w-0 items-center gap-1"
         data-pipper-id="global-tab-bar"
       >
         <TabsList
           data-pipper-id="global-tabs"
-          className="min-w-0 flex-1 gap-1 overflow-x-auto p-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          className="min-w-0 max-w-full flex-[0_1_auto] gap-1 overflow-x-auto p-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40"
         >
           {visibleOpenThreads.map((thread, idx) => {
             const project = projectsList.find((item) => item.id === thread.project_id);
@@ -688,41 +722,52 @@ export function GlobalTabBar() {
             <PlusIcon size={16} />
           </Button>
 
-          {isDropdownOpen && (
-            <div
-              data-pipper-id="add-tab-dropdown"
-              ref={dropdownRef}
-              className="absolute left-0 top-full mt-1.5 z-[200]"
-            >
-              <Dropdown className="w-56">
-                <MenuItem
-                  index={0}
-                  label="New terminal"
-                  icon={TerminalWindowIcon}
-                  onSelect={() => {
-                    setIsDropdownOpen(false);
-                    handleNewTerminal();
-                  }}
-                />
-                <MenuItem
-                  index={1}
-                  label="New thread"
-                  icon={ChatCircleIcon}
-                  onSelect={handleNewThread}
-                />
-                <DropdownSeparator />
-                <MenuItem
-                  index={2}
-                  label="New project"
-                  icon={FolderPlusIcon}
-                  onSelect={async () => {
-                    setIsDropdownOpen(false);
-                    await window.omni.launch.show("add");
-                  }}
-                />
-              </Dropdown>
-            </div>
-          )}
+          {isDropdownOpen &&
+            dropdownPosition &&
+            createPortal(
+              <div
+                data-pipper-id="add-tab-dropdown"
+                data-placement={dropdownPosition.placement}
+                ref={dropdownRef}
+                className="fixed z-[250]"
+                style={
+                  {
+                    left: dropdownPosition.left,
+                    top: dropdownPosition.top,
+                    bottom: dropdownPosition.bottom,
+                    width: dropdownPosition.width,
+                    maxHeight: dropdownPosition.maxHeight,
+                    WebkitAppRegion: "no-drag",
+                  } as CSSProperties
+                }
+              >
+                <Dropdown className="w-full" style={{ maxHeight: dropdownPosition.maxHeight }}>
+                  <MenuItem
+                    index={0}
+                    label="New terminal"
+                    icon={TerminalWindowIcon}
+                    onSelect={handleNewTerminal}
+                  />
+                  <MenuItem
+                    index={1}
+                    label="New thread"
+                    icon={ChatCircleIcon}
+                    onSelect={handleNewThread}
+                  />
+                  <DropdownSeparator />
+                  <MenuItem
+                    index={2}
+                    label="New project"
+                    icon={FolderPlusIcon}
+                    onSelect={async () => {
+                      setIsDropdownOpen(false);
+                      await window.omni.launch.show("add");
+                    }}
+                  />
+                </Dropdown>
+              </div>,
+              document.body,
+            )}
         </div>
       </div>
     </Tabs>

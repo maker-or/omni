@@ -10,6 +10,7 @@ import { writeFakeCloudflared } from "./cloudflared-test-fixtures.ts";
 
 vi.mock("./projects.ts", () => ({ listProjects: () => [], getProject: () => undefined }));
 vi.mock("./agents/registry.ts", () => ({ listRegisteredAgents: () => [] }));
+vi.mock("./agent-instances.ts", () => ({ listAgentInstanceDescriptors: () => [] }));
 vi.mock("./threads.ts", () => ({ listThreads: () => [], getThread: () => undefined }));
 vi.mock("./worktree-manager.ts", () => ({
   createWorktree: () => {
