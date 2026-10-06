@@ -91,10 +91,10 @@ project → Custom domains). It must not be an `lt-` host.
 
 Build environment for the hosted app:
 
-| Variable                             | Value                                                                                                                          |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `VITE_REMOTE_ATTESTATION_PUBLIC_KEY` | Public half from `node scripts/generate-attestation-key.mjs`. Without it every laptop shows as "Unverified" (the build warns). |
-| `VITE_REMOTE_LAPTOP_DOMAIN`          | Default `pipper.dev`: which `lt-*` hosts the app may pair with; the CSP's `connect-src` follows it.                            |
+| Variable                             | Value                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VITE_REMOTE_ATTESTATION_PUBLIC_KEY` | Optional: the default in `vite.remote-web.config.ts` is pipper.dev's current public key. Set it only when rotating the pair (`node scripts/generate-attestation-key.mjs`), and update the default and pipper.dev's `PIPPER_LAPTOP_ATTESTATION_KEY` together. |
+| `VITE_REMOTE_LAPTOP_DOMAIN`          | Default `pipper.dev`: which `lt-*` hosts the app may pair with; the CSP's `connect-src` follows it.                                                                                                                                                          |
 
 ## Pairing confirmation and laptop owners
 

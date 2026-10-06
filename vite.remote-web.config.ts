@@ -12,12 +12,16 @@ import base from "./vite.config.ts";
  */
 const laptopDomain = process.env.VITE_REMOTE_LAPTOP_DOMAIN ?? "pipper.dev";
 /**
- * pipper.dev's public key for laptop owner statements
- * (scripts/generate-attestation-key.mjs). Without it every laptop shows as
- * "Unverified" on the pairing screen — the user is still asked to confirm,
- * but can't see a verified owner.
+ * pipper.dev's public key for laptop owner statements — the public half of
+ * the pair whose private half is PIPPER_LAPTOP_ATTESTATION_KEY on pipper.dev
+ * (scripts/generate-attestation-key.mjs). Public by design, so it's the
+ * build default here; set VITE_REMOTE_ATTESTATION_PUBLIC_KEY only when
+ * rotating the pair (then update this default and pipper.dev together).
+ * Without a valid key every laptop shows as "Unverified" on the pairing screen.
  */
-const attestationPublicKey = process.env.VITE_REMOTE_ATTESTATION_PUBLIC_KEY ?? "";
+const PIPPER_ATTESTATION_PUBLIC_KEY = "wwg9F0_hnCTB4nPa_zy3gFk5Blq2_NeVPruKcOWlAkQ";
+const attestationPublicKey =
+  process.env.VITE_REMOTE_ATTESTATION_PUBLIC_KEY ?? PIPPER_ATTESTATION_PUBLIC_KEY;
 if (!/^[A-Za-z0-9_-]{43}$/.test(attestationPublicKey)) {
   console.warn(
     "\n[remote-web] WARNING: VITE_REMOTE_ATTESTATION_PUBLIC_KEY is missing or malformed; " +
