@@ -12,18 +12,22 @@ vi.mock("./projects.ts", () => ({
     id === "p1" ? { id: "p1", name: "Demo", path: "/work/demo" } : undefined,
 }));
 const listRegisteredAgents = vi.fn((): unknown[] => []);
-const listAgentInstanceDescriptors = vi.fn((): unknown[] => []);
+// New tasks are validated against live agent instances.
+const DEFAULT_INSTANCES = [{ id: "codex-acp", name: "codex", displayName: "Codex" }];
+const listAgentInstanceDescriptors = vi.fn((): unknown[] => DEFAULT_INSTANCES);
 vi.mock("./agents/registry.ts", () => ({ listRegisteredAgents: () => listRegisteredAgents() }));
 vi.mock("./agent-instances.ts", () => ({
   listAgentInstanceDescriptors: () => listAgentInstanceDescriptors(),
 }));
 vi.mock("./threads.ts", () => ({ listThreads: () => [], getThread: () => undefined }));
 vi.mock("./worktree-manager.ts", () => ({
-  createWorktree: () => {
-    throw new Error("no worktrees in tests");
-  },
+  createWorktree: () => ({ path: "/work/demo-wt", branch: "phone-test" }),
   gitBinary: () => "git",
+  isLiveWorktree: () => true,
   removeWorktreeBestEffort: () => undefined,
+}));
+vi.mock("./siri/siri-catalog.ts", () => ({
+  buildSiriCatalog: () => ({ defaultAgentId: "codex-acp", projects: [], agents: [] }),
 }));
 
 const { RemoteServer } = await import("./remote-server.ts");
@@ -77,7 +81,7 @@ describe("RemoteServer security", () => {
       createThread: vi.fn(async () => ({
         id: "t1",
         project_id: "p1",
-        worktree_path: null,
+        worktree_path: "/work/demo-wt",
         title: "task",
         last_used_at: 0,
       })),
@@ -293,7 +297,7 @@ describe("RemoteServer security", () => {
       headers: authed,
       body: JSON.stringify({ projectId: "p1", prompt: "do it" }),
     });
-    expect(res.status).toBe(500);
+    expect(res.ok).toBe(false);
     const text = await res.text();
     expect(text).not.toContain("/Users/secret");
   });
@@ -308,7 +312,7 @@ describe("RemoteServer security", () => {
         images: [{ data: PNG_BASE64, mimeType: "image/png" }],
       }),
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     await vi.waitFor(() => expect(agent.sendPrompt).toHaveBeenCalled());
     expect(agent.sendPrompt.mock.calls[0]?.[0]).toMatchObject({
       threadId: "t1",
@@ -349,7 +353,7 @@ describe("RemoteServer security", () => {
         images: [{ data: big.toString("base64"), mimeType: "image/png" }],
       }),
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
   });
 
   it("caps how fast tasks can start", async () => {
@@ -362,7 +366,7 @@ describe("RemoteServer security", () => {
       });
       statuses.push(res.status);
     }
-    expect(statuses.slice(0, 60).every((s) => s === 201)).toBe(true);
+    expect(statuses.slice(0, 60).every((s) => s === 202)).toBe(true);
     expect(statuses[60]).toBe(429);
     expect(agent.createThread).toHaveBeenCalledTimes(60);
   });

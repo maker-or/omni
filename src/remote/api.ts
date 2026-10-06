@@ -72,15 +72,27 @@ export function forgetCurrentLaptop(): void {
   if (laptop) forgetLaptop(storage(), laptop.id);
 }
 
+/** A failed API call; `retryable` means the laptop confirmed nothing was started. */
+export class RemoteApiError extends Error {
+  readonly retryable: boolean;
+  constructor(message: string, retryable = false) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
+
 async function failure(path: string, res: Response): Promise<Error> {
   const text = await res.text().catch(() => "");
   let message = text.slice(0, 200);
+  let retryable = false;
   try {
-    message = (JSON.parse(text) as { error?: string }).error ?? message;
+    const body = JSON.parse(text) as { error?: string; retryable?: boolean };
+    message = body.error ?? message;
+    retryable = body.retryable === true;
   } catch {
     // not JSON
   }
-  return new Error(`${path} → ${res.status} ${message}`);
+  return new RemoteApiError(`${path} → ${res.status} ${message}`, retryable);
 }
 
 /** Call the active laptop's API (same origin, or cross-origin when hosted). */

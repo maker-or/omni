@@ -1,5 +1,5 @@
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync, rmSync } from "node:fs";
@@ -8,10 +8,20 @@ import { extname, join } from "node:path";
 import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
 import { listRegisteredAgents } from "./agents/registry.ts";
+import { buildSiriCatalog } from "./siri/siri-catalog.ts";
 import { listAgentInstanceDescriptors } from "./agent-instances.ts";
 import { getThread, listThreads } from "./threads.ts";
-import { createWorktree, gitBinary, removeWorktreeBestEffort } from "./worktree-manager.ts";
+import { prepareIsolatedAgentTask } from "./isolated-agent-task.ts";
+import {
+  RemoteRequestError,
+  RemoteTaskError,
+  type RemoteRequestReceipt,
+  type RemoteRequests,
+  getRemoteRequests,
+} from "./remote-requests.ts";
+import { gitBinary, isLiveWorktree } from "./worktree-manager.ts";
 import type {
+  RemoteAgentModel,
   RemoteDevice,
   RemoteDevicesState,
   RemoteModel,
@@ -126,6 +136,14 @@ function removeLegacySharedToken(userDataPath: string): void {
   }
 }
 
+/**
+ * The phone's idempotency key. Phone apps older than request receipts send
+ * none; give those a one-off id so they still work, just without retry dedup.
+ */
+function requestIdFrom(body: Record<string, unknown>): unknown {
+  return body.requestId ?? `legacy-${randomUUID()}`;
+}
+
 async function filesTouched(cwd: string | null): Promise<string[]> {
   if (!cwd || !existsSync(cwd)) return [];
   try {
@@ -185,6 +203,10 @@ const MAX_PROMPT_BODY_BYTES =
 const HEADERS_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 
+/** Building model catalogs spawns every selected agent and probes sessions,
+ * so the phone shares one recent result instead of re-probing per request. */
+const AGENT_MODELS_TTL_MS = 5 * 60_000;
+
 export class RemoteServer {
   private servers: http.Server[] = [];
   /** Hosts with a live listener — the only ones safe to advertise. */
@@ -200,7 +222,11 @@ export class RemoteServer {
   private readonly pairing = new PairingCodes();
   readonly port: number;
   private readonly deps: RemoteServerDeps;
-  private readonly isolationNotes = new Map<string, string>();
+  private readonly requests: RemoteRequests;
+  private agentModels: {
+    at: number;
+    value: Promise<Record<string, RemoteAgentModel[]>>;
+  } | null = null;
   private readonly routes: Route[];
   private lastAuthedAt = 0;
   /** Set by start(): loopback-only means the public path is a tunnel. */
@@ -214,6 +240,7 @@ export class RemoteServer {
 
   constructor(deps: RemoteServerDeps, opts?: { port?: number }) {
     this.deps = deps;
+    this.requests = getRemoteRequests(join(deps.getUserDataPath(), "remote-requests"));
     this.port = opts?.port ?? Number(process.env.PIPPER_REMOTE_PORT ?? 4173);
     this.routes = this.buildRoutes();
     removeLegacySharedToken(deps.getUserDataPath());
@@ -435,15 +462,6 @@ export class RemoteServer {
     return this.boundHosts.size > 0;
   }
 
-  /** True when a thread row already binds this worktree (keep it for retry). */
-  private threadExistsForWorktree(worktreePath: string): boolean {
-    try {
-      return listThreads().some((t) => t.worktree_path === worktreePath);
-    } catch {
-      return true;
-    }
-  }
-
   private assertTaskAllowance(): void {
     const wait = this.taskStarts.retryAfterSec("tasks");
     if (wait > 0) throw new HttpError(429, "Too many tasks", { "Retry-After": String(wait) });
@@ -460,6 +478,10 @@ export class RemoteServer {
     } catch (error) {
       if (res.headersSent) {
         res.destroy();
+        return;
+      }
+      if (error instanceof RemoteRequestError) {
+        sendApi(res, error.status, { error: error.message });
         return;
       }
       if (error instanceof HttpError) {
@@ -741,6 +763,40 @@ export class RemoteServer {
         },
       },
       {
+        // Models *inside* each agent instance (the ACP model option), keyed by
+        // the same instance ids `/models` returns.
+        method: "GET",
+        pattern: /^\/api\/remote\/agent-models$/,
+        scope: "read",
+        handle: async ({ res, am }) => {
+          if (!am) return sendApi(res, 503, { error: "Agent not ready" });
+          sendApi(res, 200, { models: await this.loadAgentModels(am) });
+        },
+      },
+      {
+        // Same shape as siri-catalog.json on the laptop, so the iOS app's
+        // Siri intents resolve projects/agents against an identical catalog
+        // (selected agents only, with availability) without a network hop.
+        method: "GET",
+        pattern: /^\/api\/remote\/catalog$/,
+        scope: "read",
+        handle: ({ res }) => sendApi(res, 200, buildSiriCatalog()),
+      },
+      {
+        method: "GET",
+        pattern: /^\/api\/remote\/diagnostics$/,
+        scope: "read",
+        handle: ({ res, am }) => {
+          const catalog = buildSiriCatalog();
+          sendApi(res, 200, {
+            paired: true,
+            agentReady: am != null,
+            availableAgents: catalog.agents.filter((a) => a.available).length,
+            projects: catalog.projects.length,
+          });
+        },
+      },
+      {
         method: "GET",
         pattern: /^\/api\/remote\/threads$/,
         scope: "read",
@@ -767,24 +823,89 @@ export class RemoteServer {
         handle: (ctx) => this.createTask(ctx),
       },
       {
+        method: "GET",
+        pattern: /^\/api\/remote\/requests\/([A-Za-z0-9-]{1,128})$/,
+        scope: "read",
+        handle: ({ res, params }) => {
+          const receipt = this.requests.get(params[0]!);
+          if (!receipt) return sendApi(res, 404, { error: "Request not found" });
+          sendApi(res, 200, { request: this.requests.status(receipt) });
+        },
+      },
+      {
         method: "POST",
         pattern: /^\/api\/remote\/threads\/([^/]+)\/prompt$/,
         scope: "run",
+        handle: (ctx) => this.sendFollowUp(ctx),
+      },
+      {
+        method: "POST",
+        pattern: /^\/api\/remote\/threads\/([^/]+)\/model$/,
+        scope: "run",
         handle: async ({ req, res, params, am }) => {
           if (!am) return sendApi(res, 503, { error: "Agent not ready" });
-          const thread = getThread(params[0]!);
-          if (!thread) return sendApi(res, 404, { error: "Thread not found" });
-          // Refuse before reading: a prompt body can be tens of MB of images.
-          this.assertTaskAllowance();
-          const body = parseJsonObject(await readBody(req, MAX_PROMPT_BODY_BYTES));
-          const prompt = typeof body.prompt === "string" ? body.prompt : "";
-          if (!prompt.trim()) return sendApi(res, 400, { error: "prompt is required" });
-          const images = parsePromptImages(body.images);
-          this.consumeTaskAllowance();
-          await am.sendPrompt(
-            { threadId: thread.id, message: prompt, images },
-            { background: true },
+          const threadId = params[0]!;
+          if (!getThread(threadId)) return sendApi(res, 404, { error: "Thread not found" });
+          const body = parseJsonObject(await readBody(req, MAX_BODY_BYTES));
+          if (typeof body.model !== "string" || !body.model) {
+            return sendApi(res, 400, { error: "model is required" });
+          }
+          const current = am.getThreadModel(threadId);
+          if (!current) {
+            return sendApi(res, 409, {
+              error:
+                "This thread can't change models right now. Open it on your Mac and try again.",
+            });
+          }
+          if (!current.options.some((o) => o.id === body.model)) {
+            return sendApi(res, 400, { error: "That model isn't offered by this thread's agent." });
+          }
+          await am.setThreadConfigOption(threadId, current.configId, body.model);
+          const next = am.getThreadModel(threadId);
+          sendApi(res, 200, {
+            model: next ? { current: next.current, options: next.options } : null,
+          });
+        },
+      },
+      {
+        method: "POST",
+        pattern: /^\/api\/remote\/threads\/([^/]+)\/stop$/,
+        scope: "run",
+        handle: async ({ res, params, am }) => {
+          if (!am) return sendApi(res, 503, { error: "Agent not ready" });
+          const threadId = params[0]!;
+          if (!getThread(threadId)) return sendApi(res, 404, { error: "Thread not found" });
+          await am.abortThread(threadId);
+          sendApi(res, 200, { ok: true });
+        },
+      },
+      {
+        method: "POST",
+        pattern: /^\/api\/remote\/threads\/([^/]+)\/permission$/,
+        scope: "run",
+        handle: async ({ req, res, params, am }) => {
+          if (!am) return sendApi(res, 503, { error: "Agent not ready" });
+          const threadId = params[0]!;
+          if (!getThread(threadId)) return sendApi(res, 404, { error: "Thread not found" });
+          const body = parseJsonObject(await readBody(req, MAX_BODY_BYTES));
+          if (
+            typeof body.decisionId !== "string" ||
+            (body.optionId != null && typeof body.optionId !== "string") ||
+            (body.cancelled != null && typeof body.cancelled !== "boolean")
+          ) {
+            return sendApi(res, 400, { error: "A valid decision and option are required" });
+          }
+          const answered = await am.respondToRemotePermission(
+            threadId,
+            body.decisionId,
+            (body.optionId as string | null | undefined) ?? undefined,
+            body.cancelled === true,
           );
+          if (!answered) {
+            return sendApi(res, 409, {
+              error: "This decision expired or was already answered. Refresh the thread.",
+            });
+          }
           sendApi(res, 200, { ok: true });
         },
       },
@@ -811,7 +932,13 @@ export class RemoteServer {
             filesTouched: await filesTouched(cwd),
             worktreePath: thread.worktree_path ?? null,
             isolated: Boolean(thread.worktree_path),
-            isolationNote: this.isolationNotes.get(thread.id) ?? null,
+            isolationNote: null,
+            permissions: am?.getRemotePermissions(thread.id) ?? [],
+            request: this.requests.latestForThread(thread.id),
+            model: (() => {
+              const m = am?.getThreadModel(thread.id);
+              return m ? { current: m.current, options: m.options } : null;
+            })(),
           };
           sendApi(res, 200, { report });
         },
@@ -819,111 +946,128 @@ export class RemoteServer {
     ];
   }
 
-  /** New phone chat = fresh worktree + fresh background thread + first turn. */
+  /**
+   * New phone chat = fresh isolated worktree + fresh background thread +
+   * first turn. Dispatched at most once per requestId, so a phone retrying
+   * after a dropped reply gets the original thread instead of a duplicate.
+   */
   private async createTask({ req, res, am }: RouteContext): Promise<void> {
-    if (!am) return sendApi(res, 503, { error: "Agent not ready" });
     // Refuse before reading: a prompt body can be tens of MB of images.
     this.assertTaskAllowance();
     const body = parseJsonObject(await readBody(req, MAX_PROMPT_BODY_BYTES));
     const projectId = typeof body.projectId === "string" ? body.projectId : "";
-    const prompt = typeof body.prompt === "string" ? body.prompt : "";
-    const modelId = typeof body.modelId === "string" ? body.modelId : null;
-    const images = parsePromptImages(body.images);
-    if (!projectId || !prompt.trim()) {
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (
+      !projectId ||
+      !prompt ||
+      (body.modelId != null && typeof body.modelId !== "string") ||
+      (body.model != null && typeof body.model !== "string")
+    ) {
       return sendApi(res, 400, { error: "projectId and prompt are required" });
     }
-    const project = getProject(projectId);
-    if (!project) return sendApi(res, 404, { error: "Project not found" });
+    const agentId = (body.modelId as string | null | undefined) ?? null;
+    const model = (body.model as string | null | undefined) || null;
+    const images = parsePromptImages(body.images);
     this.consumeTaskAllowance();
-    // If the repo can't take a worktree (e.g. no commits yet), fall back to
-    // the project root so the task still runs.
-    let worktreePath: string | null = null;
-    let worktreeBranch: string | null = null;
-    let isolationNote: string | null = null;
-    try {
-      // Fixed-length random name: never derived from the prompt text, so
-      // long/unicode/identical prompts can't produce ugly, colliding, or
-      // confusing worktree + branch names. `phone-` prefix keeps the
-      // origin identifiable in `git worktree list`.
-      let created = null;
-      let lastError: unknown = null;
-      for (let attempt = 0; attempt < 5 && !created; attempt++) {
-        const slug = `phone-${randomBytes(4).toString("hex")}`;
-        try {
-          created = createWorktree({
-            projectPath: project.path,
-            projectId: project.id,
-            name: slug,
-          });
-        } catch (err) {
-          lastError = err;
-        }
-      }
-      if (!created) throw lastError ?? new Error("worktree creation failed");
-      worktreePath = created.path;
-      worktreeBranch = created.branch;
-      console.log(`[Remote] worktree created: ${worktreePath}`);
-    } catch (err) {
-      isolationNote = err instanceof Error ? err.message : String(err);
-      console.warn(`[Remote] worktree fallback to project root: ${isolationNote}`);
-    }
-    console.log(
-      `[Remote] new phone thread project=${project.id} worktree=${worktreePath ?? "<root>"} promptLen=${prompt.length} images=${images.length}`,
-    );
-    // modelId from the phone is a provider *instance* id
-    // (listAgentInstanceDescriptors; driver id when default). Use it to pick
-    // the connection, but never as a model name — the agent's own default
-    // model applies (e.g. antigravity has no implicit default; the user's
-    // desktop default is used).
-    try {
-      const thread = await am.createThread(
-        project.id,
-        prompt.slice(0, 80),
-        null,
-        modelId,
-        worktreePath,
-        null,
-        { background: true },
-      );
-      if (isolationNote) this.isolationNotes.set(thread.id, isolationNote);
-      console.log(
-        `[Remote] prompt accepted thread=${thread.id} boundWorktree=${thread.worktree_path ?? "<root-fallback>"}`,
-      );
-      if (!thread.worktree_path) {
-        console.warn(
-          `[Remote] thread=${thread.id} running on PROJECT ROOT (no isolated workspace). ` +
-            `requested=${worktreePath ?? "<none: create failed>"} reason=${isolationNote ?? "worktree rejected as not-live"}`,
+    const receipt = await this.requests.submit(
+      requestIdFrom(body),
+      // `model` and `images` join the fingerprint only when set, so receipts
+      // written before they existed still match their retries.
+      {
+        kind: "create",
+        projectId,
+        agentId,
+        ...(model ? { model } : {}),
+        prompt,
+        ...(images.length ? { images } : {}),
+      },
+      async () => {
+        if (!am)
+          throw new RemoteTaskError("Pipper is still starting on your Mac. No task was started.");
+        console.log(
+          `[Remote] new phone thread project=${projectId} promptLen=${prompt.length} images=${images.length}`,
         );
-      }
-      // Respond before the turn runs so the phone shows progress immediately;
-      // the turn streams into the thread in the background and the report
-      // poll picks it up. A prompt failure is logged server-side — the phone
-      // sees an idle thread with no reply.
-      void am
-        .sendPrompt({ threadId: thread.id, message: prompt, images }, { background: true })
-        .then(() => console.log(`[Remote] turn completed thread=${thread.id}`))
-        .catch((promptError) => {
-          console.error(`[Remote] prompt failed, keeping thread=${thread.id}:`, promptError);
-        });
-      sendApi(res, 201, {
-        thread: {
-          id: thread.id,
-          projectId: thread.project_id,
-          worktreePath: thread.worktree_path ?? null,
-          title: thread.title,
-          running: true,
-          lastUsedAt: thread.last_used_at,
-        },
-      });
-    } catch (error) {
-      // Roll back the worktree only when thread creation itself failed —
-      // once the thread row exists the worktree is retained for retry.
-      if (worktreePath && !this.threadExistsForWorktree(worktreePath)) {
-        console.warn(`[Remote] rolling back worktree: ${worktreePath}`);
-        removeWorktreeBestEffort(project.path, worktreePath, worktreeBranch);
-      }
-      throw error;
-    }
+        return prepareIsolatedAgentTask(am, projectId, agentId, prompt, model, images);
+      },
+    );
+    this.sendReceipt(res, receipt);
+  }
+
+  /** Follow-up turn on an existing phone thread, bound to its live worktree. */
+  private async sendFollowUp({ req, res, params }: RouteContext): Promise<void> {
+    const threadId = params[0]!;
+    if (!getThread(threadId)) return sendApi(res, 404, { error: "Thread not found" });
+    // Refuse before reading: a prompt body can be tens of MB of images.
+    this.assertTaskAllowance();
+    const body = parseJsonObject(await readBody(req, MAX_PROMPT_BODY_BYTES));
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return sendApi(res, 400, { error: "prompt is required" });
+    const images = parsePromptImages(body.images);
+    this.consumeTaskAllowance();
+    const receipt = await this.requests.submit(
+      requestIdFrom(body),
+      { kind: "prompt", threadId, prompt, ...(images.length ? { images } : {}) },
+      async () => {
+        const am = this.deps.agentManager();
+        if (!am) throw new RemoteTaskError("Pipper is still starting on your Mac.");
+        const thread = getThread(threadId);
+        const project = thread ? getProject(thread.project_id) : null;
+        if (
+          !thread?.worktree_path ||
+          !project ||
+          !isLiveWorktree(thread.worktree_path, project.path)
+        ) {
+          throw new RemoteTaskError(
+            "This thread has no live isolated workspace. Restore its worktree on your Mac, or start a new thread.",
+          );
+        }
+        return {
+          threadId,
+          result: { ok: true },
+          execute: () =>
+            am.sendPrompt(
+              { threadId, message: prompt, images },
+              { background: true, requireWorktree: true },
+            ),
+        };
+      },
+    );
+    this.sendReceipt(res, receipt);
+  }
+
+  /** 202 once accepted (the turn runs in the background); 409 while unsettled or failed. */
+  private sendReceipt(res: http.ServerResponse, receipt: RemoteRequestReceipt): void {
+    sendApi(res, receipt.result ? 202 : 409, {
+      ...receipt.result,
+      request: this.requests.status(receipt),
+      ...(receipt.result
+        ? {}
+        : {
+            error: receipt.error ?? "Request is still being prepared.",
+            retryable: receipt.state === "failed",
+          }),
+    });
+  }
+
+  private loadAgentModels(am: AgentManager): Promise<Record<string, RemoteAgentModel[]>> {
+    const cached = this.agentModels;
+    if (cached && Date.now() - cached.at < AGENT_MODELS_TTL_MS) return cached.value;
+    const value = am
+      .getModelCatalogs()
+      .then((catalogs) =>
+        Object.fromEntries(
+          Object.entries(catalogs).map(([agentId, models]) => [
+            agentId,
+            models.map((m) => ({ id: m.modelId, name: m.name })),
+          ]),
+        ),
+      );
+    this.agentModels = { at: Date.now(), value };
+    // A failed probe must not be served for the whole TTL.
+    value.catch(() => {
+      if (this.agentModels?.value === value) this.agentModels = null;
+    });
+    return value;
   }
 
   private serveFile(
