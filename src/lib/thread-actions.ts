@@ -22,7 +22,10 @@ export async function selectThread(
 ): Promise<void> {
   const view = useWorkspaceViewStore.getState();
   if (options.activateView ?? true) view.showAgent();
-  if (id === useAgentStore.getState().snapshot?.threadId) {
+  const agent = useAgentStore.getState();
+  // The displayed snapshot stays on the old thread while another activation
+  // is pending. Clicking it again must supersede that activation in main.
+  if (id === agent.snapshot?.threadId && agent.pendingThreadTarget == null) {
     view.requestThread(null);
     return;
   }

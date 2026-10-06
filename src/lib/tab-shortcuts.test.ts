@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   isCloseTabShortcutEvent,
   isNewTabShortcutEvent,
+  isNewTerminalShortcutEvent,
   tabIndexFromShortcutEvent,
   tabValueAtShortcutIndex,
   tabValuesInBarOrder,
@@ -77,6 +78,33 @@ describe("global tab number shortcuts", () => {
     expect(isCloseTabShortcutEvent(keyEvent({ key: "w" }))).toBe(false);
     expect(
       isCloseTabShortcutEvent(keyEvent({ key: "w", metaKey: true, shiftKey: true, code: "KeyW" })),
+    ).toBe(false);
+  });
+
+  test.each([
+    { key: "T", code: "KeyT", metaKey: true, shiftKey: true },
+    { key: "T", code: "KeyT", ctrlKey: true, shiftKey: true },
+    { key: "t", metaKey: true, shiftKey: true },
+  ])("recognizes the new-terminal chord: %j", (chord) => {
+    const event = keyEvent(chord);
+    expect(isNewTerminalShortcutEvent(event)).toBe(true);
+    expect(isNewTabShortcutEvent(event)).toBe(false);
+    expect(tabIndexFromShortcutEvent(event)).toBeNull();
+  });
+
+  test.each([
+    { metaKey: false },
+    { shiftKey: false },
+    { altKey: true },
+    { repeat: true },
+    { isComposing: true },
+    { defaultPrevented: true },
+    { key: "W", code: "KeyW" },
+  ])("ignores other chords or handled key events: %j", (override) => {
+    expect(
+      isNewTerminalShortcutEvent(
+        keyEvent({ key: "T", code: "KeyT", metaKey: true, shiftKey: true, ...override }),
+      ),
     ).toBe(false);
   });
 });

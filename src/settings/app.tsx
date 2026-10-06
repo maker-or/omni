@@ -407,6 +407,17 @@ function KeyboardView() {
               <Kbd>{mod}T</Kbd>
             </TableCell>
           </TableRow>
+          <TableRow index={2}>
+            <TableCell>
+              <span className="font-medium text-foreground">New terminal</span>
+              <span className="mt-0.5 block text-[11px] leading-4">
+                Opens a terminal in the current workspace.
+              </span>
+            </TableCell>
+            <TableCell className="w-[1%] text-right whitespace-nowrap">
+              <Kbd>{mod === "⌘" ? "⌘⇧T" : "Ctrl+Shift+T"}</Kbd>
+            </TableCell>
+          </TableRow>
         </TableBody>
       </Table>
     </Elevated>
