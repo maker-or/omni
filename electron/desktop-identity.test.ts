@@ -63,6 +63,17 @@ describe("desktop identity", () => {
     expect(new DesktopIdentity({ dir, secretBox: box }).credential()).toBeNull();
   });
 
+  it("a memory-only save never lets an older credential come back", () => {
+    let encryptionAvailable = true;
+    const box: SecretBox = { ...fakeBox, available: () => encryptionAvailable };
+    new DesktopIdentity({ dir, secretBox: box }).saveCredential("pl1.account-a.sig");
+    encryptionAvailable = false;
+    new DesktopIdentity({ dir, secretBox: box }).saveCredential("pl1.account-b.sig");
+    encryptionAvailable = true;
+    // Next launch: account A's credential must not be loaded in place of B's.
+    expect(new DesktopIdentity({ dir, secretBox: box }).credential()).toBeNull();
+  });
+
   it("adds the handoff params to the sign-in URL", () => {
     const url = new URL(
       withSignInParams("https://www.pipper.dev/auth", {

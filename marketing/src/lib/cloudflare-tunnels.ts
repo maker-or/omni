@@ -33,7 +33,10 @@ export interface ProvisionedTunnel {
 /** Reserved hostname prefix for laptop tunnels (matched by the zone's lockdown rules). */
 export const LAPTOP_HOST_PREFIX = "lt-";
 
-/** Laptops one account may connect at a time. */
+/**
+ * Laptop tunnels one account may hold. Offline ones are reclaimed to make
+ * room (see reclaimSlot), so this caps laptops *online* at the same time.
+ */
 export const MAX_TUNNELS_PER_USER = 5;
 const API = "https://api.cloudflare.com/client/v4";
 
@@ -74,13 +77,20 @@ export function tunnelLabels(secret: string, userId: string, laptopId: string, d
 
 type Fetch = typeof fetch;
 
-async function cf<T>(
+interface CfEnvelope<T> {
+  success?: boolean;
+  result?: T;
+  result_info?: { page?: number; per_page?: number; count?: number; total_count?: number };
+  errors?: Array<{ code?: number; message?: string }>;
+}
+
+async function cfRaw<T>(
   env: TunnelEnv,
   fetchImpl: Fetch,
   method: string,
   path: string,
   body?: unknown,
-): Promise<T> {
+): Promise<CfEnvelope<T>> {
   const res = await fetchImpl(`${API}${path}`, {
     method,
     headers: {
@@ -89,21 +99,106 @@ async function cf<T>(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const json = (await res.json().catch(() => null)) as {
-    success?: boolean;
-    result?: T;
-    errors?: Array<{ code?: number; message?: string }>;
-  } | null;
+  const json = (await res.json().catch(() => null)) as CfEnvelope<T> | null;
   if (!res.ok || !json?.success) {
     const detail = json?.errors?.map((e) => `${e.code ?? ""} ${e.message ?? ""}`.trim()).join("; ");
     throw new CloudflareApiError(res.status, `${method} ${path} failed: ${detail || res.status}`);
   }
-  return json.result as T;
+  return json;
+}
+
+async function cf<T>(
+  env: TunnelEnv,
+  fetchImpl: Fetch,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return (await cfRaw<T>(env, fetchImpl, method, path, body)).result as T;
+}
+
+/** Every live tunnel in the account, across pages (the first 1,000 isn't all). */
+async function listAllTunnels(env: TunnelEnv, fetchImpl: Fetch, account: string) {
+  const perPage = 1000;
+  const all: TunnelRecord[] = [];
+  for (let page = 1; page <= 50; page++) {
+    const res = await cfRaw<TunnelRecord[]>(
+      env,
+      fetchImpl,
+      "GET",
+      `${account}/cfd_tunnel?is_deleted=false&per_page=${perPage}&page=${page}`,
+    );
+    const batch = res.result ?? [];
+    all.push(...batch);
+    const total = res.result_info?.total_count;
+    if (batch.length < perPage || (total !== undefined && all.length >= total)) break;
+  }
+  return all;
+}
+
+/** When a tunnel last had connections (or was made, if it never ran). */
+function lastActive(tunnel: TunnelRecord): number {
+  const at = tunnel.conns_inactive_at ?? tunnel.conns_active_at ?? tunnel.created_at;
+  const time = at ? Date.parse(at) : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+/**
+ * Make room for one more laptop under the per-account cap by deleting this
+ * user's longest-offline tunnels (and their DNS records). Without this, a
+ * reinstall or data reset — which mints a new laptop id — leaves its old
+ * tunnel holding a slot forever, and after a few the account is locked out.
+ * Only tunnels with no connections ("inactive"/"down") are eligible, which
+ * is also all Cloudflare allows deleting. An evicted laptop that comes back
+ * just re-provisions: its tunnel name and hostname are deterministic.
+ */
+async function reclaimSlot(
+  env: TunnelEnv,
+  fetchImpl: Fetch,
+  account: string,
+  labels: TunnelLabels,
+): Promise<void> {
+  const mine = (await listAllTunnels(env, fetchImpl, account)).filter((t) =>
+    t.name.startsWith(labels.userPrefix),
+  );
+  let excess = mine.length - (MAX_TUNNELS_PER_USER - 1);
+  if (excess <= 0) return;
+  const offline = mine
+    .filter((t) => t.status === "inactive" || t.status === "down")
+    .sort((a, b) => lastActive(a) - lastActive(b));
+  const zone = `/zones/${encodeURIComponent(env.zoneId)}`;
+  for (const tunnel of offline) {
+    if (excess <= 0) break;
+    const hostname = `${LAPTOP_HOST_PREFIX}${tunnel.name.slice(labels.userPrefix.length)}.${env.domain}`;
+    const records = await cf<DnsRecord[]>(
+      env,
+      fetchImpl,
+      "GET",
+      `${zone}/dns_records?type=CNAME&name.exact=${encodeURIComponent(hostname)}`,
+    );
+    for (const record of records) {
+      if (record.content === `${tunnel.id}.cfargotunnel.com`) {
+        await cf(env, fetchImpl, "DELETE", `${zone}/dns_records/${record.id}`);
+      }
+    }
+    await cf(env, fetchImpl, "DELETE", `${account}/cfd_tunnel/${tunnel.id}`);
+    excess -= 1;
+  }
+  if (excess > 0) {
+    throw new TunnelLimitError(
+      `This account already has ${MAX_TUNNELS_PER_USER} laptops online. Turn one off and try again.`,
+    );
+  }
 }
 
 interface TunnelRecord {
   id: string;
   name: string;
+  /** "inactive" (never ran), "healthy", "degraded", or "down" (no connections). */
+  status?: string;
+  created_at?: string;
+  conns_active_at?: string | null;
+  conns_inactive_at?: string | null;
 }
 
 interface DnsRecord {
@@ -131,17 +226,7 @@ export async function provisionLaptopTunnel(
   );
   let tunnel = existing.find((t) => t.name === labels.name);
   if (!tunnel) {
-    const all = await cf<TunnelRecord[]>(
-      env,
-      fetchImpl,
-      "GET",
-      `${account}/cfd_tunnel?is_deleted=false&per_page=1000`,
-    );
-    if (all.filter((t) => t.name.startsWith(labels.userPrefix)).length >= MAX_TUNNELS_PER_USER) {
-      throw new TunnelLimitError(
-        `This account already has ${MAX_TUNNELS_PER_USER} laptops connected.`,
-      );
-    }
+    await reclaimSlot(env, fetchImpl, account, labels);
     // Remotely managed: ingress lives in Cloudflare, so the connector only
     // needs its token and can't be pointed elsewhere by local config.
     tunnel = await cf<TunnelRecord>(env, fetchImpl, "POST", `${account}/cfd_tunnel`, {

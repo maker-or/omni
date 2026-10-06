@@ -296,6 +296,27 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     expect(readFileSync(pidsFile, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
+  it("restarts a connected tunnel when another account signs in", async () => {
+    const pidsFile = join(dir, "switch-pids.txt");
+    vi.stubEnv("FAKE_CF_PIDS", pidsFile);
+    const access = await make({
+      devTunnel: { token: "dev-connector-token", hostname: "lt-dev.example.dev" },
+    });
+    await access.start();
+    await access.setTransport("cloudflare");
+    await vi.waitFor(() => expect(access.getInfo().tunnel.state).toBe("connected"), {
+      timeout: 5_000,
+    });
+    await access.onCredentialChanged();
+    await vi.waitFor(
+      () => {
+        expect(readFileSync(pidsFile, "utf8").trim().split("\n")).toHaveLength(2);
+        expect(access.getInfo().tunnel.state).toBe("connected");
+      },
+      { timeout: 5_000 },
+    );
+  });
+
   it("rate-limits failed auth per Cloudflare client, not for everyone behind the tunnel", async () => {
     const access = await make();
     await access.start();

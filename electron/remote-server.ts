@@ -72,6 +72,8 @@ export interface RemoteServerDeps {
   buildPairingUrl?: (code: string) => string | null;
   /** pipper.dev's signed owner statement for this laptop's host, if any. */
   getLaptopAttestation?: () => string | null;
+  /** Tailscale addresses to serve (tests); defaults to 100.x interfaces. */
+  listTailscaleIps?: () => string[];
 }
 
 interface RouteContext {
@@ -206,6 +208,9 @@ export class RemoteServer {
   /** Set by start(): serve only /api/remote/* (the phone app is hosted elsewhere). */
   private apiOnly = false;
   private lastBindError: string | null = null;
+  /** Every listener, bound or still binding, with its host. */
+  private readonly serverHosts = new Map<http.Server, string>();
+  private started = false;
 
   constructor(deps: RemoteServerDeps, opts?: { port?: number }) {
     this.deps = deps;
@@ -289,6 +294,7 @@ export class RemoteServer {
 
   /** Tailscale IPv4s (100.x) — the only non-loopback interfaces we serve. */
   getTailscaleIps(): string[] {
+    if (this.deps.listTailscaleIps) return this.deps.listTailscaleIps();
     return this.getLanIps().filter((ip) => ip.startsWith("100."));
   }
 
@@ -327,59 +333,87 @@ export class RemoteServer {
     this.lastBindError = null;
     this.behindTunnel = options.loopbackOnly === true;
     this.apiOnly = options.apiOnly === true;
-    const handler = (req: http.IncomingMessage, res: http.ServerResponse) =>
-      void this.handle(req, res);
-    // Threat model: plain HTTP is intentional here. Listeners bind loopback +
-    // Tailscale only, so bearer credentials traverse either localhost or the
-    // WireGuard-encrypted tailnet — never LAN/Wi-Fi in cleartext. TLS would
-    // add self-signed cert friction on the phone with no transport gain.
-    // A PIPPER_REMOTE_HOST override is honored only for loopback/Tailscale —
-    // a LAN address would leak the bearer token + transcripts in cleartext.
+    this.started = true;
+    await Promise.all(this.desiredHosts().map((host) => this.bind(host)));
+  }
+
+  /**
+   * Hosts to listen on. Threat model: plain HTTP is intentional here.
+   * Listeners bind loopback + Tailscale only, so bearer credentials traverse
+   * either localhost or the WireGuard-encrypted tailnet — never LAN/Wi-Fi in
+   * cleartext. TLS would add self-signed cert friction on the phone with no
+   * transport gain. A PIPPER_REMOTE_HOST override is honored only for
+   * loopback/Tailscale — a LAN address would leak the bearer token +
+   * transcripts in cleartext. Behind a tunnel, loopback only.
+   */
+  private desiredHosts(): string[] {
+    if (this.behindTunnel) return ["127.0.0.1"];
     const override = process.env.PIPPER_REMOTE_HOST?.trim();
-    const hosts = this.behindTunnel
-      ? ["127.0.0.1"]
-      : override
-        ? isTrustedRemoteHost(override)
-          ? [override]
-          : (() => {
-              console.warn(`[Remote] ignoring untrusted PIPPER_REMOTE_HOST=${override}`);
-              return ["127.0.0.1", ...this.getTailscaleIps()];
-            })()
-        : ["127.0.0.1", ...this.getTailscaleIps()];
-    const binds: Promise<void>[] = [];
-    for (const host of new Set(hosts)) {
-      const server = http.createServer(handler);
-      server.headersTimeout = HEADERS_TIMEOUT_MS;
-      server.requestTimeout = REQUEST_TIMEOUT_MS;
-      this.servers.push(server);
-      binds.push(
-        new Promise<void>((resolve) => {
-          // A failed bind (port taken, interface gone) must not poison
-          // start(): drop it so a later start() can retry.
-          server.once("error", (err) => {
-            console.error(`[Remote] listen failed on ${host}:${this.port}:`, err);
-            this.lastBindError =
-              (err as NodeJS.ErrnoException).code === "EADDRINUSE"
-                ? `Port ${this.port} is already in use — is another copy of Pipper running? Quit it, or set PIPPER_REMOTE_PORT.`
-                : `Couldn't listen on ${host}:${this.port} (${(err as NodeJS.ErrnoException).code ?? err.message}).`;
-            this.servers = this.servers.filter((s) => s !== server);
-            this.boundHosts.delete(server);
-            resolve();
-          });
-          server.listen(this.port, host, () => {
-            this.boundHosts.set(server, host);
-            console.log(`[Remote] PWA server on http://${host}:${this.port}/remote`);
-            resolve();
-          });
-        }),
-      );
+    if (override && isTrustedRemoteHost(override)) return [override];
+    if (override) console.warn(`[Remote] ignoring untrusted PIPPER_REMOTE_HOST=${override}`);
+    return [...new Set(["127.0.0.1", ...this.getTailscaleIps()])];
+  }
+
+  /** Listen on one host; resolves once bound or failed (a failure is recorded, not thrown). */
+  private bind(host: string): Promise<void> {
+    const server = http.createServer((req, res) => void this.handle(req, res));
+    server.headersTimeout = HEADERS_TIMEOUT_MS;
+    server.requestTimeout = REQUEST_TIMEOUT_MS;
+    this.servers.push(server);
+    this.serverHosts.set(server, host);
+    return new Promise<void>((resolve) => {
+      // A failed bind (port taken, interface gone) must not poison start():
+      // drop it so a later start()/refreshBindings() can retry.
+      server.once("error", (err) => {
+        console.error(`[Remote] listen failed on ${host}:${this.port}:`, err);
+        this.lastBindError =
+          (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+            ? `Port ${this.port} is already in use — is another copy of Pipper running? Quit it, or set PIPPER_REMOTE_PORT.`
+            : `Couldn't listen on ${host}:${this.port} (${(err as NodeJS.ErrnoException).code ?? err.message}).`;
+        this.servers = this.servers.filter((s) => s !== server);
+        this.serverHosts.delete(server);
+        this.boundHosts.delete(server);
+        resolve();
+      });
+      server.listen(this.port, host, () => {
+        this.boundHosts.set(server, host);
+        console.log(`[Remote] PWA server on http://${host}:${this.port}/remote`);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Re-match listeners to the current interfaces after start(): Pipper often
+   * launches before Tailscale connects, and a tailnet address can change.
+   * Binds new addresses and closes ones that disappeared (never loopback).
+   * Resolves true when the set of listeners changed.
+   */
+  async refreshBindings(): Promise<boolean> {
+    if (!this.started || this.behindTunnel) return false;
+    const desired = new Set(this.desiredHosts());
+    const current = new Set(this.serverHosts.values());
+    const added = [...desired].filter((host) => !current.has(host));
+    const gone = [...this.serverHosts].filter(
+      ([, host]) => host !== "127.0.0.1" && !desired.has(host),
+    );
+    for (const [server] of gone) {
+      this.servers = this.servers.filter((s) => s !== server);
+      this.serverHosts.delete(server);
+      this.boundHosts.delete(server);
+      server.close();
+      server.closeAllConnections();
     }
-    await Promise.all(binds);
+    const before = this.boundHosts.size;
+    await Promise.all(added.map((host) => this.bind(host)));
+    return gone.length > 0 || this.boundHosts.size !== before;
   }
 
   stop(): Promise<void> {
+    this.started = false;
     const closing = this.servers.splice(0);
     this.boundHosts.clear();
+    this.serverHosts.clear();
     return Promise.all(
       closing.map(
         (server) =>

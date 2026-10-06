@@ -70,7 +70,8 @@ export function RemoteApp() {
   // Signature of the visible chat: scroll only when this actually changes,
   // and only when the user is already near the bottom (sticky-bottom).
   const chatSig = useRef("");
-  const refreshInflight = useRef(false);
+  /** Laptop a refresh is in flight for; a switch must not wait on the old one. */
+  const refreshInflight = useRef<string | null>(null);
 
   // A scanned QR opens …#pair=CODE[&host=…]. Never redeem it automatically:
   // anyone can send a link, and pairing makes that laptop the destination
@@ -103,7 +104,14 @@ export function RemoteApp() {
     return () => window.removeEventListener(UNPAIRED_EVENT, onUnpaired);
   }, []);
 
-  // Switching laptops (or losing one) starts from a clean screen.
+  // Switching laptops (or losing one) starts from a clean screen: nothing
+  // chosen or attached for the previous laptop may be sent to the next one.
+  // The typed draft stays — it's the user's text, and the header names the
+  // new destination.
+  const imagesRef = useRef(images);
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
   useEffect(() => {
     setActiveId(null);
     setReport(null);
@@ -112,13 +120,22 @@ export function RemoteApp() {
     setThreads([]);
     setDevice(null);
     setPending(null);
+    setProjectId("");
+    setModelId("");
+    releaseImages(imagesRef.current);
+    setImages([]);
+    setSendError(null);
+    setLoadError(null);
   }, [laptopId]);
 
   const refresh = useCallback(async () => {
     if (!paired) return;
-    // Poll overlap guard: a slow laptop must not stack concurrent refreshes.
-    if (refreshInflight.current) return;
-    refreshInflight.current = true;
+    const target = currentLaptop()?.id ?? null;
+    // Poll overlap guard: a slow laptop must not stack concurrent refreshes
+    // (per laptop, so a switch isn't blocked by the old laptop's request).
+    if (refreshInflight.current === target) return;
+    refreshInflight.current = target;
+    const stillCurrent = () => (currentLaptop()?.id ?? null) === target;
     try {
       const [s, p, m, t] = await Promise.all([
         api<{ device: RemoteDevice }>("/api/remote/session"),
@@ -126,6 +143,8 @@ export function RemoteApp() {
         api<{ models: RemoteModel[] }>("/api/remote/models"),
         api<{ threads: RemoteThreadSummary[] }>("/api/remote/threads"),
       ]);
+      // The user switched laptops meanwhile: never paint the old one's data.
+      if (!stillCurrent()) return;
       setDevice(s.device);
       setProjects(p.projects);
       setModels(m.models);
@@ -136,9 +155,11 @@ export function RemoteApp() {
           : null,
       );
     } catch (err) {
-      setLoadError(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (stillCurrent()) {
+        setLoadError(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
-      refreshInflight.current = false;
+      if (refreshInflight.current === target) refreshInflight.current = null;
     }
   }, [paired, laptopId]);
 
@@ -224,12 +245,17 @@ export function RemoteApp() {
           setDraft(text);
           return;
         }
+        const sentTo = currentLaptop()?.id ?? null;
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
           body: JSON.stringify({ projectId, modelId, prompt: text, images: payload }),
         });
-        setActiveId(created.thread.id);
-        setPending({ text, threadId: created.thread.id, known: 0, imageCount: payload.length });
+        // Switched laptops while this was in flight: the thread lives on the
+        // previous laptop, so don't open it under the new one's name.
+        if ((currentLaptop()?.id ?? null) === sentTo) {
+          setActiveId(created.thread.id);
+          setPending({ text, threadId: created.thread.id, known: 0, imageCount: payload.length });
+        }
       } else {
         // Optimistic: show the bubble instantly; poll confirms delivery.
         const known = (report?.messages ?? []).filter(

@@ -799,10 +799,12 @@ async function handleAuthCallback(url: string): Promise<void> {
   if (!desktopIdentity().consumeState(payload.state)) {
     throw new Error("Auth callback does not match a sign-in started by this app.");
   }
-  if (payload.credential) {
-    desktopIdentity().saveCredential(payload.credential);
-    void remoteAccess?.onCredentialChanged();
-  }
+  // Whatever the callback carries replaces the previous sign-in: with no
+  // credential (pipper.dev not configured), drop the old one rather than keep
+  // using a possibly different account's.
+  if (payload.credential) desktopIdentity().saveCredential(payload.credential);
+  else desktopIdentity().clearCredential();
+  void remoteAccess?.onCredentialChanged();
 
   const record = upsertAuthUser({
     provider: "clerk",

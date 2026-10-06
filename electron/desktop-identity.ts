@@ -77,6 +77,9 @@ export class DesktopIdentity {
     this.memoryCredential = credential;
     if (!this.box?.available()) {
       console.warn("[Identity] OS encryption unavailable; laptop credential kept in memory only.");
+      // Never leave a previous (possibly other account's) credential on disk
+      // to be loaded on the next launch in place of this one.
+      rmSync(this.credentialPath, { force: true });
       return;
     }
     mkdirSync(this.dir, { recursive: true });

@@ -132,6 +132,18 @@ requires the `state` value that only the updated `/auth/complete` echoes, so an
 older pipper.dev can't sign the app in. Users then sign in once more to
 receive a laptop credential.
 
+### Laptop slots and account capacity
+
+Each account may hold 5 laptop tunnels (`MAX_TUNNELS_PER_USER`). A reinstall
+or app-data reset mints a new laptop id (and tunnel), so when an account is at
+the limit, provisioning deletes that account's longest-offline tunnels
+(status `inactive`/`down`) and their DNS records first; an evicted laptop that
+comes back simply re-provisions the same hostname. Only 5 laptops _online at
+once_ are refused.
+
+Cloudflare's default is 1,000 tunnels per account. Watch usage as users grow
+and request an increase (or shard across accounts) before reaching it.
+
 ## Desktop environment (development)
 
 | Variable                                                 | Effect                                                                                                                          |

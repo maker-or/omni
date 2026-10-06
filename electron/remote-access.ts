@@ -7,6 +7,8 @@ import { requestNamedTunnel } from "./tunnel-provisioner.ts";
 import { RemoteServer, type RemoteServerDeps } from "./remote-server.ts";
 
 export const DEFAULT_REMOTE_APP_URL = "https://remote.pipper.dev";
+/** How often Tailscale mode re-checks interfaces for a new tailnet address. */
+const BINDING_REFRESH_MS = 30_000;
 const TRANSPORTS: readonly RemoteTransport[] = ["tailscale", "cloudflare", "cloudflare-quick"];
 
 export interface RemoteAccessOptions {
@@ -54,6 +56,7 @@ export class RemoteAccessController {
   private tunnel: CloudflaredTunnel | null = null;
   /** True between startNow() and stopNow(); guards against double starts. */
   private running = false;
+  private bindingTimer: ReturnType<typeof setInterval> | null = null;
   /** Owner statement for the current named tunnel (from pipper.dev). */
   private attestation: string | null = null;
   /** Serializes start/stop/switch so a fast toggle can't interleave binds. */
@@ -114,7 +117,24 @@ export class RemoteAccessController {
       apiOnly: this.transport === "cloudflare",
     });
     if (viaTunnel && this.server.isServing()) this.startTunnel();
+    if (!viaTunnel) {
+      // Tailscale often connects after Pipper launches; pick it up without a restart.
+      this.bindingTimer = setInterval(() => void this.refreshBindings(), BINDING_REFRESH_MS);
+      this.bindingTimer.unref?.();
+    }
     this.emit();
+  }
+
+  /** Serve newly appeared tailnet addresses (and drop vanished ones). */
+  refreshBindings(): Promise<void> {
+    return this.enqueue(async () => {
+      if (!this.running || this.transport !== "tailscale") return;
+      if (await this.server.refreshBindings()) {
+        this.emit();
+        // The pairing QR shows the advertised address.
+        this.server.emitDevicesChanged();
+      }
+    });
   }
 
   private startTunnel(): void {
@@ -162,16 +182,16 @@ export class RemoteAccessController {
   }
 
   /**
-   * After sign-in stores a new credential: a tunnel that gave up waiting for
-   * one (or is backing off) starts again right away.
+   * After sign-in changes the credential (possibly to another account):
+   * restart the named tunnel whatever its state, so a connected tunnel can't
+   * keep serving the previous account's hostname and owner statement.
    */
   onCredentialChanged(): Promise<void> {
     return this.enqueue(async () => {
       if (this.transport !== "cloudflare" || !this.tunnel) return;
-      const state = this.tunnel.status.state;
-      if (state !== "error" && state !== "reconnecting") return;
       const old = this.tunnel;
       this.tunnel = null;
+      this.attestation = null;
       await old.stop();
       this.startTunnel();
       this.emit();
@@ -180,6 +200,8 @@ export class RemoteAccessController {
 
   private async stopNow(): Promise<void> {
     this.running = false;
+    if (this.bindingTimer) clearInterval(this.bindingTimer);
+    this.bindingTimer = null;
     const tunnel = this.tunnel;
     this.tunnel = null;
     await tunnel?.stop();
@@ -238,9 +260,10 @@ export class RemoteAccessController {
     };
   }
 
-  /** After sleep, don't sit out a long backoff before reconnecting. */
+  /** After sleep: reconnect now, and re-check addresses (networks change). */
   onResume(): void {
     this.tunnel?.retryNow();
+    void this.refreshBindings();
   }
 
   dispose(): Promise<void> {
