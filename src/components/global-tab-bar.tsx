@@ -27,6 +27,7 @@ import { useUiModeStore } from "@/store/ui-mode-store";
 import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
+import { visibleWorkspaceThreadTabs } from "@/lib/thread-tab-state";
 import { useAnchoredPopoverPosition } from "@/lib/anchored-popover";
 import {
   OPEN_TABS_QUERY_KEY,
@@ -161,14 +162,21 @@ export function GlobalTabBar() {
 
   const visibleOpenThreads = useMemo(() => {
     if (uiMode !== "advanced") return orderedOpenThreads;
-    if (!activeProject) return [];
-
-    return orderedOpenThreads.filter((thread) => {
-      if (thread.project_id !== activeProject.id) return false;
-      if (thread.id === optimisticRequestedThreadId) return true;
-      return isThreadInWorkspace(thread, activeWorkspacePath);
-    });
-  }, [orderedOpenThreads, uiMode, activeProject, activeWorkspacePath, optimisticRequestedThreadId]);
+    return visibleWorkspaceThreadTabs(
+      orderedOpenThreads,
+      activeProject?.id ?? null,
+      activeWorkspacePath,
+      snapshotThreadId,
+      optimisticRequestedThreadId,
+    );
+  }, [
+    orderedOpenThreads,
+    uiMode,
+    activeProject,
+    activeWorkspacePath,
+    snapshotThreadId,
+    optimisticRequestedThreadId,
+  ]);
 
   const visibleTerminalTabs = useMemo(() => {
     if (uiMode !== "advanced" || !activeProject) return terminalTabs;
@@ -433,9 +441,7 @@ export function GlobalTabBar() {
 
   const handleNewTerminal = () => {
     const project = activeProject;
-    const cwd = project
-      ? normalizeWorkspacePath(selectedWorktreePathByProject[project.id], project.path)
-      : undefined;
+    const cwd = project ? (selectedWorktreePathByProject[project.id] ?? project.path) : undefined;
     const id = createSession(cwd);
     showTerminal(id);
   };

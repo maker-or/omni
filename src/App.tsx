@@ -5,7 +5,7 @@ import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useAgentStore } from "@/store/agent-store";
-import { makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
+import { getAllTerminalSessions, makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/toast";
 import { AgentView } from "@/components/agent-view";
@@ -72,7 +72,10 @@ export default function App() {
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalSessions = useMemo(
     () =>
-      useTerminalStore.getState().sessions.map((session) => ({ id: session.id, cwd: session.cwd })),
+      getAllTerminalSessions(useTerminalStore.getState()).map((session) => ({
+        id: session.id,
+        cwd: session.cwd,
+      })),
     [terminalTabsRevision],
   );
   const hasActiveTerminal =
@@ -473,8 +476,8 @@ export default function App() {
   }, [uiMode]);
 
   // Terminals belong to their workspace: entering another workspace (picker
-  // switch, project switch, cross-workspace activation) stashes the visible
-  // sessions and restores the target workspace's own terminals.
+  // switch, project switch, cross-workspace activation) hides the previous
+  // sessions without stopping them and shows the target workspace's terminals.
   useEffect(() => {
     if (!hasHydratedSelections || !activeProject || !selectedWorktreePath) return;
     const key = makeWorkspaceKey(activeProject.id, selectedWorktreePath);
@@ -547,12 +550,12 @@ export default function App() {
 
       {/* Title Bar / Header */}
       <header
-        className="h-14 grid grid-cols-[clamp(160px,22vw,240px)_minmax(0,1fr)_72px] items-center pl-20 pr-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
+        className="h-14 grid grid-cols-[clamp(160px,22vw,240px)_minmax(0,1fr)_clamp(160px,22vw,240px)] items-center px-4 border-b border-border/60 bg-surface-1 select-none shrink-0"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         data-pipper-id="header"
       >
         <div
-          className="relative flex w-full min-w-0 items-center gap-3 p-2"
+          className="relative flex w-full min-w-0 items-center gap-3 p-2 pl-[4.5rem]"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Project Selector Wrapper"
         >
@@ -817,7 +820,7 @@ export default function App() {
         </div>
 
         <div
-          className="mx-2 flex min-w-0 items-center"
+          className="mx-2 flex min-w-0 items-center [&_[data-pipper-id=global-tab-bar]]:mx-auto [&_[data-pipper-id=global-tab-bar]]:justify-center"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Global Tab Bar Wrapper"
         >
@@ -825,7 +828,7 @@ export default function App() {
         </div>
 
         <div
-          className="flex w-[72px] shrink-0 items-center justify-end gap-1"
+          className="flex w-[72px] shrink-0 items-center justify-self-end justify-end gap-1"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
           data-pipper-id="Theme and Flyout Controls"
         >

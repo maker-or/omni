@@ -30,7 +30,7 @@ import { toast } from "@/components/ui/toast";
 import { Elevated } from "@/lib/elevated";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
-import { useTerminalStore } from "@/store/terminal-store";
+import { getAllTerminalSessions, useTerminalStore } from "@/store/terminal-store";
 import { useWorktreeStore } from "@/store/worktree-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { cn } from "@/lib/utils";
@@ -511,7 +511,10 @@ export function AdvancedShell() {
   const terminalTabsRevision = useTerminalStore((state) => state.tabsRevision);
   const terminalSessions = useMemo(
     () =>
-      useTerminalStore.getState().sessions.map((session) => ({ id: session.id, cwd: session.cwd })),
+      getAllTerminalSessions(useTerminalStore.getState()).map((session) => ({
+        id: session.id,
+        cwd: session.cwd,
+      })),
     [terminalTabsRevision],
   );
   const workspaceMode = useWorkspaceViewStore((state) => state.mode);

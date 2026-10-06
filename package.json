@@ -5,8 +5,8 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "bunx --bun electron-vite dev",
-    "postinstall": "install-electron",
+    "dev": "node scripts/prepare-pty.mjs && bunx --bun electron-vite dev",
+    "postinstall": "install-electron && node scripts/prepare-pty.mjs",
     "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'});require('fs').chmodSync('.githooks/pre-commit',0o755)}catch{}\"",
     "build": "node scripts/build.js",
     "dist": "bun run build && electron-builder --mac --arm64 --publish never",
@@ -107,6 +107,7 @@
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.6",
+    "happy-dom": "^20.14.5",
     "oxfmt": "^0.53.0",
     "oxlint": "^1.81.0",
     "playwright": "^1.62.1",
