@@ -39,7 +39,17 @@ const payload = user
           state,
           // Signed proof of "this user, this laptop" for pipper.dev APIs.
           credential:
-              secret && laptopId ? signLaptopCredential({ sub: user.id, lid: laptopId }, secret) : null,
+              secret && laptopId
+                  ? signLaptopCredential(
+                        {
+                            sub: user.id,
+                            lid: laptopId,
+                            email: user.emailAddresses?.[0]?.emailAddress ?? null,
+                            name: user.fullName ?? user.firstName ?? user.username ?? null,
+                        },
+                        secret,
+                    )
+                  : null,
       }
     : null;
 ---

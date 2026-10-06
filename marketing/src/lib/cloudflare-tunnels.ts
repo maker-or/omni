@@ -30,6 +30,9 @@ export interface ProvisionedTunnel {
   token: string;
 }
 
+/** Reserved hostname prefix for laptop tunnels (matched by the zone's lockdown rules). */
+export const LAPTOP_HOST_PREFIX = "lt-";
+
 /** Laptops one account may connect at a time. */
 export const MAX_TUNNELS_PER_USER = 5;
 const API = "https://api.cloudflare.com/client/v4";
@@ -59,8 +62,14 @@ export function tunnelLabels(secret: string, userId: string, laptopId: string, d
   const laptop = digest(`laptop:${userId}:${laptopId}`).slice(0, 20);
   const userPrefix = `pipper-${user}-`;
   // One DNS label under the zone: Cloudflare's free certificate covers
-  // *.<zone>, not deeper levels.
-  return { name: `${userPrefix}${laptop}`, hostname: `l${laptop}.${domain}`, userPrefix };
+  // *.<zone>, not deeper levels. The reserved `lt-` prefix is what the zone's
+  // lockdown rules match (`lt-*.<zone>`): API-only, no cookies, inert
+  // responses — see docs/remote-access.md. Never use `lt-` for anything else.
+  return {
+    name: `${userPrefix}${laptop}`,
+    hostname: `${LAPTOP_HOST_PREFIX}${laptop}.${domain}`,
+    userPrefix,
+  };
 }
 
 type Fetch = typeof fetch;

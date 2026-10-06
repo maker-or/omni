@@ -134,6 +134,37 @@ describe("RemoteServer security", () => {
     expect(devicesChanged).toHaveBeenCalled();
   });
 
+  it("describes the laptop for a valid code without using the code up", async () => {
+    const offer = server.createPairingOffer(["read", "run"]);
+    const preview = await fetch(`${base}/api/remote/pair/preview`, {
+      method: "POST",
+      body: JSON.stringify({ code: offer.code }),
+    });
+    expect(preview.status).toBe(200);
+    const { laptop } = (await preview.json()) as {
+      laptop: { name: string; host: string | null; attestation: string | null };
+    };
+    expect(laptop.name.length).toBeGreaterThan(0);
+    expect(laptop.attestation).toBeNull();
+    // Still redeemable afterwards, and the pairing reply names the laptop too.
+    const pair = await fetch(`${base}/api/remote/pair`, {
+      method: "POST",
+      body: JSON.stringify({ code: offer.code }),
+    });
+    expect(pair.status).toBe(201);
+    expect(((await pair.json()) as { laptop: unknown }).laptop).toEqual(laptop);
+  });
+
+  it("won't describe the laptop without a valid code", async () => {
+    server.createPairingOffer(["read"]);
+    const res = await fetch(`${base}/api/remote/pair/preview`, {
+      method: "POST",
+      body: JSON.stringify({ code: "WRONG-CODE0" }),
+    });
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain("attestation");
+  });
+
   it("revokes one device without affecting the others", async () => {
     const other = await pair(["read", "run"], "Second phone");
     const secondId = server.getDevicesState().devices.find((d) => d.name === "Second phone")!.id;

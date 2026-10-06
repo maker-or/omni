@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { QrCode } from "@phosphor-icons/react";
-import { pairWithCode, pairingCodeFromUrl } from "./api.ts";
+import { pairWithCode, parsePairingLink } from "./api.ts";
 
 type BarcodeDetectorCtor = new (opts: { formats: string[] }) => {
   detect(v: HTMLVideoElement): Promise<Array<{ rawValue: string }>>;
@@ -30,17 +30,31 @@ async function scanQrCode(): Promise<string | null> {
   }
 }
 
-export function PairScreen({ notice, onPaired }: { notice: string | null; onPaired: () => void }) {
+export function PairScreen({
+  notice,
+  hosted,
+  onScanned,
+  onPaired,
+  onCancel,
+}: {
+  notice: string | null;
+  /** Hosted app: a laptop is identified by its pairing link, so typing a code alone can't work. */
+  hosted: boolean;
+  /** A scanned QR goes to confirmation (it could be anyone's laptop). */
+  onScanned: (link: { code: string; host: string | null }) => void;
+  onPaired: () => void;
+  onCancel?: () => void;
+}) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const redeem = async (value: string) => {
+  const redeem = async (value: string, host: string | null = null) => {
     if (!value.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await pairWithCode(value);
+      await pairWithCode(value, host);
       onPaired();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -53,8 +67,8 @@ export function PairScreen({ notice, onPaired }: { notice: string | null; onPair
     setError(null);
     try {
       const text = await scanQrCode();
-      const scanned = text ? pairingCodeFromUrl(text) : null;
-      if (scanned) await redeem(scanned);
+      const scanned = text ? parsePairingLink(text) : null;
+      if (scanned) onScanned(scanned);
       else setError("No pairing QR found in 30s — try again or type the code.");
     } catch (err) {
       setError(
@@ -70,31 +84,42 @@ export function PairScreen({ notice, onPaired }: { notice: string | null; onPair
       <h1>Omni Remote</h1>
       {notice && <p className="notice warn">{notice}</p>}
       <p>
-        On your laptop, open Settings → Remote → Pair a phone, then scan the QR or type the code.
+        {hosted
+          ? "On your laptop, open Settings → Remote → Pair a phone, then scan the QR with your phone's camera."
+          : "On your laptop, open Settings → Remote → Pair a phone, then scan the QR or type the code."}
       </p>
-      <input
-        className="pair-input"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void redeem(code);
-        }}
-        placeholder="XXXXX-XXXXX"
-        autoCapitalize="characters"
-        autoComplete="one-time-code"
-        spellCheck={false}
-      />
-      <button
-        className="pair-btn"
-        disabled={busy || !code.trim()}
-        onClick={() => void redeem(code)}
-      >
-        {busy ? "Pairing…" : "Pair"}
-      </button>
+      {!hosted && (
+        <>
+          <input
+            className="pair-input"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void redeem(code);
+            }}
+            placeholder="XXXXX-XXXXX"
+            autoCapitalize="characters"
+            autoComplete="one-time-code"
+            spellCheck={false}
+          />
+          <button
+            className="pair-btn"
+            disabled={busy || !code.trim()}
+            onClick={() => void redeem(code)}
+          >
+            {busy ? "Pairing…" : "Pair"}
+          </button>
+        </>
+      )}
       <button className="pair-btn ghost" disabled={busy} onClick={() => void scan()}>
         <QrCode size={18} style={{ verticalAlign: "-3px" }} /> Scan QR instead
       </button>
       {error && <p className="notice bad">{error}</p>}
+      {onCancel && (
+        <button className="pair-btn ghost" onClick={onCancel}>
+          Back
+        </button>
+      )}
     </main>
   );
 }

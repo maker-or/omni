@@ -63,6 +63,9 @@ export interface LaptopClaims {
   sub: string;
   /** Per-install laptop id; a credential only ever controls that laptop. */
   lid: string;
+  /** Owner shown to phones (via the laptop attestation); from Clerk at sign-in. */
+  email?: string | null;
+  name?: string | null;
   iat: number;
   exp: number;
 }
@@ -77,13 +80,15 @@ export function laptopCredentialSecret(raw: string | undefined): string | null {
 }
 
 export function signLaptopCredential(
-  claims: { sub: string; lid: string },
+  claims: { sub: string; lid: string; email?: string | null; name?: string | null },
   secret: string,
   now = Date.now(),
 ): string {
   const payload: LaptopClaims = {
     sub: claims.sub,
     lid: claims.lid,
+    email: claims.email ?? null,
+    name: claims.name ?? null,
     iat: now,
     exp: now + LAPTOP_CREDENTIAL_TTL_MS,
   };
@@ -120,5 +125,14 @@ export function verifyLaptopCredential(
   ) {
     return null;
   }
-  return claims as LaptopClaims;
+  const text = (value: unknown) =>
+    typeof value === "string" && value ? value.slice(0, 200) : null;
+  return {
+    sub: claims.sub,
+    lid: claims.lid,
+    email: text(claims.email),
+    name: text(claims.name),
+    iat: claims.iat,
+    exp: claims.exp,
+  };
 }

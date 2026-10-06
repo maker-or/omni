@@ -104,6 +104,8 @@ export interface RemoteServerInfo {
   tunnel: RemoteTunnelStatus;
   host: string | null;
   port: number | null;
+  /** Why the server isn't serving (e.g. port taken); null when it is. */
+  error: string | null;
 }
 
 export interface RemoteDevicesState {
@@ -117,7 +119,23 @@ export interface RemotePairRequest {
   deviceName?: string;
 }
 
+/**
+ * Who a phone is about to pair with, shown for confirmation before any code
+ * is redeemed. `attestation` is pipper.dev's signed owner statement (named
+ * tunnels only); `name` is whatever the laptop calls itself — unverified.
+ */
+export interface RemoteLaptopIdentity {
+  name: string;
+  host: string | null;
+  attestation: string | null;
+}
+
+export interface RemotePairPreviewResponse {
+  laptop: RemoteLaptopIdentity;
+}
+
 export interface RemotePairResponse {
   token: string;
   device: RemoteDevice;
+  laptop: RemoteLaptopIdentity;
 }

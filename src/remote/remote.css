@@ -536,3 +536,66 @@ body {
   background: var(--surface-3);
   color: var(--ink);
 }
+
+/* Where prompts go: always visible, so a switched laptop can't go unnoticed. */
+.header-laptop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 60vw;
+  margin-left: 8px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.header-laptop span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-laptop svg {
+  flex-shrink: 0;
+  color: var(--good);
+}
+
+/* Pairing confirmation: who the laptop is, before anything is sent to it. */
+.confirm-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-4);
+}
+.confirm-card p {
+  margin: 0;
+}
+.confirm-laptop {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.confirm-host {
+  font-size: 12px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+.confirm-owner {
+  color: var(--ink-dim);
+}
+.confirm-owner.good svg {
+  color: var(--good);
+  vertical-align: -3px;
+}
+.confirm-hint {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.notice svg {
+  vertical-align: -3px;
+}

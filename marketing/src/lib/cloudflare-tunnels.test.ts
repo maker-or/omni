@@ -80,7 +80,7 @@ describe("laptop tunnel provisioning", () => {
 
   test("labels are stable, single-level, and don't reveal the user id", () => {
     expect(tunnelLabels(SECRET, "user_1", "laptop-a", ENV.domain)).toEqual(labels);
-    expect(labels.hostname).toMatch(/^l[0-9a-f]{20}\.pipper-remote\.dev$/);
+    expect(labels.hostname).toMatch(/^lt-[0-9a-f]{20}\.pipper-remote\.dev$/);
     expect(labels.name.startsWith(labels.userPrefix)).toBe(true);
     expect(JSON.stringify(labels)).not.toContain("user_1");
     expect(tunnelLabels(SECRET, "user_1", "laptop-b", ENV.domain).userPrefix).toBe(

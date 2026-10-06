@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -46,6 +46,8 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     vi.stubEnv("PIPPER_REMOTE_TRANSPORT", "");
     dir = mkdtempSync(join(tmpdir(), "remote-access-"));
     fake = writeFakeCloudflared(mkdtempSync(join(dir, "bin-")));
+    // A real page, so a 404 for /remote can only mean "API-only".
+    writeFileSync(join(dir, "remote.html"), "<!doctype html><title>Remote</title>");
     infos = [];
   });
 
@@ -74,6 +76,31 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     controllers.push(controller);
     return controller;
   }
+
+  it("says why it can't serve when another app holds the port", async () => {
+    const port = await freePort();
+    const squatter = net.createServer();
+    await new Promise<void>((r) => squatter.listen(port, "127.0.0.1", () => r()));
+    try {
+      const access = new RemoteAccessController({
+        userDataPath: dir,
+        port,
+        serverDeps: {
+          agentManager: () => null,
+          getUserDataPath: () => dir,
+          getRendererDir: () => dir,
+          devices: new RemoteDeviceStore(new DatabaseSync(":memory:")),
+        },
+      });
+      controllers.push(access);
+      await access.start();
+      const info = access.getInfo();
+      expect(info.serving).toBe(false);
+      expect(info.error).toMatch(new RegExp(`Port ${port} is already in use`));
+    } finally {
+      await new Promise<void>((r) => squatter.close(() => r()));
+    }
+  });
 
   it("serves over Tailscale by default", async () => {
     const access = await make();
@@ -162,7 +189,10 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
         body: JSON.stringify({ port: access.getInfo().port }),
       });
       const offer = access.server.createPairingOffer(["read"]);
-      expect(offer.pairingUrl).toMatch(/^https:\/\/labc123\.pipper-remote\.dev\/remote#pair=/);
+      // Named tunnels pair through the hosted app, which then calls this host.
+      expect(offer.pairingUrl).toMatch(
+        /^https:\/\/remote\.pipper\.dev\/#pair=[0-9A-Z]{10}&host=labc123\.pipper-remote\.dev$/,
+      );
       const args = readFileSync(argsFile, "utf8");
       expect(args).toContain("tunnel --no-autoupdate --config");
       expect(args.split("\n")[0]).toMatch(/ run$/);
@@ -184,6 +214,85 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
     await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe("https://remote.example.dev"), {
       timeout: 5_000,
     });
+  });
+
+  it("locks a named-tunnel laptop to the API and the hosted app's origin", async () => {
+    const access = await make({
+      devTunnel: { token: "dev-connector-token", hostname: "lt-dev.example.dev" },
+      remoteAppUrl: "https://remote.example.dev/",
+    });
+    await access.start();
+    await access.setTransport("cloudflare");
+    const base = `http://127.0.0.1:${access.getInfo().port}`;
+    const app = "https://remote.example.dev";
+
+    // API-only: the phone app is never served from a laptop hostname.
+    expect((await fetch(`${base}/remote`)).status).toBe(404);
+
+    // Preflight: allowed for the hosted app, refused for anyone else.
+    const preflight = await fetch(`${base}/api/remote/session`, {
+      method: "OPTIONS",
+      headers: { Origin: app, "Access-Control-Request-Method": "GET" },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(app);
+    expect(preflight.headers.get("access-control-allow-headers")).toContain("Authorization");
+    const foreign = await fetch(`${base}/api/remote/session`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://evil.example", "Access-Control-Request-Method": "GET" },
+    });
+    expect(foreign.status).toBe(403);
+    expect(foreign.headers.get("access-control-allow-origin")).toBeNull();
+
+    // Errors stay readable by the hosted app, so it can notice it was unpaired.
+    const unauthorized = await fetch(`${base}/api/remote/session`, { headers: { Origin: app } });
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get("access-control-allow-origin")).toBe(app);
+    const other = await fetch(`${base}/api/remote/session`, {
+      headers: { Origin: "https://evil.example" },
+    });
+    expect(other.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("keeps serving the app itself (and no CORS) over Tailscale", async () => {
+    const access = await make({ remoteAppUrl: "https://remote.example.dev" });
+    await access.start();
+    const base = `http://127.0.0.1:${access.getInfo().port}`;
+    expect((await fetch(`${base}/remote`)).status).toBe(200);
+    const res = await fetch(`${base}/api/remote/session`, {
+      headers: { Origin: "https://remote.example.dev" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(access.server.createPairingOffer(["read"]).pairingUrl).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/remote#pair=/,
+    );
+  });
+
+  it("starting twice runs one connector, and dispose stops it", async () => {
+    const pidsFile = join(dir, "pids.txt");
+    vi.stubEnv("FAKE_CF_PIDS", pidsFile);
+    vi.stubEnv("PIPPER_REMOTE_TRANSPORT", "cloudflare-quick");
+    const access = await make();
+    await Promise.all([access.start(), access.start()]);
+    await access.start();
+    await vi.waitFor(() => expect(access.getInfo().publicUrl).toBe(TUNNEL_URL), {
+      timeout: 5_000,
+    });
+    const pids = readFileSync(pidsFile, "utf8").trim().split("\n").map(Number);
+    expect(pids).toHaveLength(1);
+    await access.dispose();
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    await vi.waitFor(() => expect(pids.filter(alive)).toEqual([]), { timeout: 5_000 });
+    // And it stays down: nothing is left to restart it.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(readFileSync(pidsFile, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
   it("rate-limits failed auth per Cloudflare client, not for everyone behind the tunnel", async () => {

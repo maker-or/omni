@@ -62,8 +62,12 @@ export class PairingCodes {
     this.failures = 0;
   }
 
-  /** Consume the code; returns its scopes, or null for anything but a live match. */
-  redeem(input: string, now = Date.now()): RemoteScope[] | null {
+  /**
+   * Check a code without using it up (pairing preview). Wrong guesses count
+   * toward the same discard limit as redeem(), so previews can't be used to
+   * guess freely.
+   */
+  check(input: string, now = Date.now()): RemoteScope[] | null {
     const live = this.active(now);
     if (!live) return null;
     if (!tokensEqual(normalizePairingCode(input), live.code)) {
@@ -71,7 +75,13 @@ export class PairingCodes {
       if (this.failures >= MAX_FAILED_REDEEMS) this.cancel();
       return null;
     }
-    this.cancel();
     return live.scopes;
+  }
+
+  /** Consume the code; returns its scopes, or null for anything but a live match. */
+  redeem(input: string, now = Date.now()): RemoteScope[] | null {
+    const scopes = this.check(input, now);
+    if (scopes) this.cancel();
+    return scopes;
   }
 }

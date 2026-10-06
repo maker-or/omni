@@ -35,6 +35,17 @@ describe("pairing codes", () => {
     expect(codes.redeem(second, 3)).toEqual(["read"]);
   });
 
+  it("checks a code without using it up, counting wrong guesses", () => {
+    const codes = new PairingCodes();
+    const { code } = codes.create(["read"], 0);
+    expect(codes.check(code, 1)).toEqual(["read"]);
+    expect(codes.check(code, 2)).toEqual(["read"]);
+    expect(codes.redeem(code, 3)).toEqual(["read"]);
+    const next = codes.create(["read"], 4).code;
+    for (let i = 0; i < MAX_FAILED_REDEEMS; i++) codes.check("0000000000", 5);
+    expect(codes.redeem(next, 6)).toBeNull();
+  });
+
   it("throws the code away after too many wrong guesses", () => {
     const codes = new PairingCodes();
     const { code } = codes.create(["read"], 0);

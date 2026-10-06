@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { generateKeyPairSync, verify } from "node:crypto";
 import { signLaptopCredential } from "./desktop-auth.ts";
+
+const attestationKeys = generateKeyPairSync("ed25519");
 import { POST } from "../pages/api/remote/tunnel.json.ts";
 
 const SECRET = "s".repeat(48);
 const LAPTOP = "3f2c8a1e-7b4d-4e9a-9c1f-2a6b8d0e4f17";
 
 function call(body: unknown, auth?: string) {
-  const request = new Request("https://www.pipper.dev/api/remote/tunnel", {
+  const request = new Request("https://www.pipper.dev/api/remote/tunnel.json", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(auth ? { Authorization: auth } : {}) },
     body: typeof body === "string" ? body : JSON.stringify(body),
@@ -14,11 +17,15 @@ function call(body: unknown, auth?: string) {
   return POST({ request } as Parameters<typeof POST>[0]) as Promise<Response>;
 }
 
-describe("POST /api/remote/tunnel", () => {
+describe("POST /api/remote/tunnel.json", () => {
   let cloudflareCalls: string[];
 
   beforeEach(() => {
     vi.stubEnv("PIPPER_LAPTOP_CREDENTIAL_SECRET", SECRET);
+    vi.stubEnv(
+      "PIPPER_LAPTOP_ATTESTATION_KEY",
+      attestationKeys.privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
+    );
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-secret-token");
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acct");
     vi.stubEnv("CLOUDFLARE_ZONE_ID", "zone");
@@ -43,15 +50,35 @@ describe("POST /api/remote/tunnel", () => {
     vi.unstubAllGlobals();
   });
 
-  const credential = () => signLaptopCredential({ sub: "user_1", lid: LAPTOP }, SECRET);
+  const credential = () =>
+    signLaptopCredential(
+      { sub: "user_1", lid: LAPTOP, email: "owner@example.com", name: "Owner" },
+      SECRET,
+    );
 
   test("returns this laptop's hostname and connector token, uncached", async () => {
     const res = await call({ port: 4173 }, `Bearer ${credential()}`);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    const body = (await res.json()) as { hostname: string; token: string };
+    const body = (await res.json()) as { hostname: string; token: string; attestation: string };
     expect(body.token).toBe("connector-token");
-    expect(body.hostname).toMatch(/^l[0-9a-f]{20}\.pipper-remote\.dev$/);
+    // The owner statement is signed by pipper.dev and names this hostname.
+    const [prefix, payload, sig] = body.attestation.split(".");
+    expect(
+      verify(
+        null,
+        Buffer.from(`${prefix}.${payload}`),
+        attestationKeys.publicKey,
+        Buffer.from(sig!, "base64url"),
+      ),
+    ).toBe(true);
+    expect(JSON.parse(Buffer.from(payload!, "base64url").toString())).toMatchObject({
+      host: body.hostname,
+      sub: "user_1",
+      email: "owner@example.com",
+      name: "Owner",
+    });
+    expect(body.hostname).toMatch(/^lt-[0-9a-f]{20}\.pipper-remote\.dev$/);
   });
 
   test("refuses missing, forged, or foreign-secret credentials before touching Cloudflare", async () => {

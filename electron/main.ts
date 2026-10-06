@@ -724,16 +724,13 @@ async function handleAuthCallback(url: string): Promise<void> {
   if (!payload.email) {
     throw new Error("Auth callback missing email.");
   }
-  // The callback must answer a sign-in this app started. Rollout: a
-  // callback with neither state nor credential comes from a pipper.dev that
-  // predates the handoff change; accept it (as before) but never alongside a
-  // credential. Remove this allowance once pipper.dev is redeployed.
-  const stateOk = desktopIdentity().consumeState(payload.state);
-  if (!stateOk && (payload.state || payload.credential)) {
+  // The callback must answer a sign-in this app started: anything that can
+  // reach the loopback listener could otherwise inject an identity without
+  // completing Clerk sign-in. Requires the pipper.dev /auth/complete that
+  // echoes `state`.
+  if (!desktopIdentity().consumeState(payload.state)) {
     throw new Error("Auth callback does not match a sign-in started by this app.");
   }
-  if (!stateOk)
-    console.warn("[Main] Legacy auth callback without state (pipper.dev not redeployed?).");
   if (payload.credential) {
     desktopIdentity().saveCredential(payload.credential);
     void remoteAccess?.onCredentialChanged();
@@ -2304,6 +2301,7 @@ function registerIpc(): void {
         tunnel: { state: "stopped" },
         host: null,
         port: null,
+        error: null,
       },
   );
   ipcMain.handle("remote:setTransport", async (_event, transport: RemoteTransport) => {
@@ -2732,6 +2730,9 @@ app.whenReady().then(async () => {
     const cloudflaredExe = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
     remoteAccess = new RemoteAccessController({
       userDataPath: app.getPath("userData"),
+      // Dev builds default to their own port so they can run next to an
+      // installed Pipper (which holds 4173) without failing to bind.
+      port: process.env.PIPPER_REMOTE_PORT ? undefined : app.isPackaged ? undefined : 4183,
       serverDeps: {
         agentManager: () => agentManager,
         getUserDataPath: () => app.getPath("userData"),
@@ -2759,6 +2760,7 @@ app.whenReady().then(async () => {
             }
           : null,
       pipperApiBase: process.env.PIPPER_API_BASE?.trim() || undefined,
+      remoteAppUrl: process.env.PIPPER_REMOTE_APP_URL?.trim() || undefined,
       onInfoChanged: (info) => broadcastToWindows("remote:infoChanged", info),
     });
     await remoteAccess.start();

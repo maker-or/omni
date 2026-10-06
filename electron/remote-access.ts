@@ -6,6 +6,7 @@ import { CloudflaredTunnel, type TunnelMode } from "./cloudflared-tunnel.ts";
 import { requestNamedTunnel } from "./tunnel-provisioner.ts";
 import { RemoteServer, type RemoteServerDeps } from "./remote-server.ts";
 
+export const DEFAULT_REMOTE_APP_URL = "https://remote.pipper.dev";
 const TRANSPORTS: readonly RemoteTransport[] = ["tailscale", "cloudflare", "cloudflare-quick"];
 
 export interface RemoteAccessOptions {
@@ -24,6 +25,13 @@ export interface RemoteAccessOptions {
    * between machines would let any of them receive the tunnel's traffic.
    */
   devTunnel?: { token: string; hostname: string } | null;
+  /**
+   * Hosted phone app used with the named tunnel (e.g. https://remote.pipper.dev).
+   * Laptop hostnames are locked down to API-only at the Cloudflare edge, so
+   * the app itself is served from this trusted site and calls the laptop
+   * cross-origin. See docs/remote-access.md.
+   */
+  remoteAppUrl?: string;
   onInfoChanged?: (info: RemoteServerInfo) => void;
 }
 
@@ -44,6 +52,10 @@ export class RemoteAccessController {
   private readonly binary: CloudflaredBinary;
   private transport: RemoteTransport;
   private tunnel: CloudflaredTunnel | null = null;
+  /** True between startNow() and stopNow(); guards against double starts. */
+  private running = false;
+  /** Owner statement for the current named tunnel (from pipper.dev). */
+  private attestation: string | null = null;
   /** Serializes start/stop/switch so a fast toggle can't interleave binds. */
   private queue: Promise<void> = Promise.resolve();
 
@@ -58,7 +70,13 @@ export class RemoteAccessController {
       bundledPath: options.cloudflared?.bundledPath,
     });
     this.server = new RemoteServer(
-      { ...options.serverDeps, getPublicBaseUrl: () => this.publicUrl() },
+      {
+        ...options.serverDeps,
+        getPublicBaseUrl: () => this.publicUrl(),
+        getAllowedOrigins: () => (this.transport === "cloudflare" ? [this.remoteAppOrigin] : []),
+        buildPairingUrl: (code) => this.pairingUrl(code),
+        getLaptopAttestation: () => (this.transport === "cloudflare" ? this.attestation : null),
+      },
       { port: options.port },
     );
   }
@@ -85,13 +103,22 @@ export class RemoteAccessController {
   }
 
   private async startNow(): Promise<void> {
+    // Idempotent: a second start() must not spawn a second connector whose
+    // reference would be lost (and never stopped on dispose).
+    if (this.running) return;
+    this.running = true;
     const viaTunnel = this.transport !== "tailscale";
-    await this.server.start({ loopbackOnly: viaTunnel });
+    await this.server.start({
+      loopbackOnly: viaTunnel,
+      // Named-tunnel hostnames only ever answer the API; the app is hosted.
+      apiOnly: this.transport === "cloudflare",
+    });
     if (viaTunnel && this.server.isServing()) this.startTunnel();
     this.emit();
   }
 
   private startTunnel(): void {
+    if (this.tunnel) return;
     mkdirSync(this.toolsDir, { recursive: true });
     const configPath = join(this.toolsDir, "tunnel-config.yml");
     writeFileSync(
@@ -129,6 +156,7 @@ export class RemoteAccessController {
         port,
         apiBase: this.options.pipperApiBase,
       });
+      this.attestation = tunnel.attestation;
       return { kind: "token", token: tunnel.token, hostname: tunnel.hostname };
     };
   }
@@ -151,6 +179,7 @@ export class RemoteAccessController {
   }
 
   private async stopNow(): Promise<void> {
+    this.running = false;
     const tunnel = this.tunnel;
     this.tunnel = null;
     await tunnel?.stop();
@@ -176,6 +205,19 @@ export class RemoteAccessController {
     });
   }
 
+  private get remoteAppOrigin(): string {
+    return new URL(this.options.remoteAppUrl ?? DEFAULT_REMOTE_APP_URL).origin;
+  }
+
+  /** Where a phone opens to redeem `code` against this laptop. */
+  private pairingUrl(code: string): string | null {
+    const base = this.publicUrl();
+    if (!base) return null;
+    if (this.transport !== "cloudflare") return `${base}/remote#pair=${code}`;
+    const host = new URL(base).host;
+    return `${this.remoteAppOrigin}/#pair=${code}&host=${encodeURIComponent(host)}`;
+  }
+
   publicUrl(): string | null {
     if (this.transport !== "tailscale") return this.tunnel?.url ?? null;
     const host = this.server.getAdvertisedHost();
@@ -192,6 +234,7 @@ export class RemoteAccessController {
       tunnel: this.tunnel?.status ?? { state: "stopped" },
       host: serving && this.transport === "tailscale" ? this.server.getAdvertisedHost() : null,
       port: serving ? this.server.port : null,
+      error: this.server.bindError(),
     };
   }
 

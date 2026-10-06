@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ImageSquare, List, PaperPlaneTilt, Plus } from "@phosphor-icons/react";
+import { CheckCircle, ImageSquare, List, PaperPlaneTilt, Plus } from "@phosphor-icons/react";
 import { PhoneMarkdown } from "./markdown.tsx";
 import {
   ImageTray,
@@ -18,14 +18,18 @@ import type {
   RemoteThreadSummary,
 } from "../../contracts/remote.ts";
 import {
+  IS_HOSTED_APP,
   UNPAIRED_EVENT,
   api,
-  clearToken,
-  pairWithCode,
-  pairingCodeFromUrl,
-  readToken,
+  currentLaptop,
+  forgetCurrentLaptop,
+  listLaptops,
+  parsePairingLink,
+  switchLaptop,
 } from "./api.ts";
 import { PairScreen } from "./pair-screen.tsx";
+import { ConfirmPairing } from "./confirm-pairing.tsx";
+import { laptopLabel } from "./laptops.ts";
 
 export function RemoteApp() {
   const [projects, setProjects] = useState<RemoteProject[]>([]);
@@ -37,7 +41,10 @@ export function RemoteApp() {
   const [report, setReport] = useState<RemoteReport | null>(null);
   const [sidebar, setSidebar] = useState(false);
   const [draft, setDraft] = useState("");
-  const [paired, setPaired] = useState(() => Boolean(readToken()));
+  // The laptop this screen talks to; null = not paired with any.
+  const [laptopId, setLaptopId] = useState<string | null>(() => currentLaptop()?.id ?? null);
+  const [addingLaptop, setAddingLaptop] = useState(false);
+  const paired = laptopId !== null;
   const [pairNotice, setPairNotice] = useState<string | null>(null);
   const [device, setDevice] = useState<RemoteDevice | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,37 +71,47 @@ export function RemoteApp() {
   const chatSig = useRef("");
   const refreshInflight = useRef(false);
 
-  // A scanned QR opens /remote#pair=CODE: redeem it so scan = paired. The
-  // code is single-use, so drop it from the URL (and history) right away.
-  // A link opened in an already-open tab only changes the hash, so listen
-  // for that as well as checking on load.
+  // A scanned QR opens …#pair=CODE[&host=…]. Never redeem it automatically:
+  // anyone can send a link, and pairing makes that laptop the destination
+  // for this phone's prompts. Show who it is and let the user decide. The
+  // code is single-use, so drop it from the URL (and history) right away. A
+  // link opened in an already-open tab only changes the hash, so listen too.
+  const [pendingPair, setPendingPair] = useState<{ code: string; host: string | null } | null>(
+    null,
+  );
   useEffect(() => {
-    const redeemFromHash = () => {
-      const code = pairingCodeFromUrl(window.location.hash);
-      if (!code) return;
+    const takeFromHash = () => {
+      const link = parsePairingLink(window.location.hash);
+      if (!link) return;
       window.history.replaceState(null, "", window.location.pathname);
-      pairWithCode(code)
-        .then(() => {
-          setPairNotice(null);
-          setPaired(true);
-        })
-        .catch((err: unknown) => setPairNotice(err instanceof Error ? err.message : String(err)));
+      setPendingPair(link);
     };
-    redeemFromHash();
-    window.addEventListener("hashchange", redeemFromHash);
-    return () => window.removeEventListener("hashchange", redeemFromHash);
+    takeFromHash();
+    window.addEventListener("hashchange", takeFromHash);
+    return () => window.removeEventListener("hashchange", takeFromHash);
   }, []);
 
   // The laptop rejected our token: it was revoked there or expired.
   useEffect(() => {
     const onUnpaired = () => {
-      setPaired(false);
-      setDevice(null);
-      setPairNotice("This phone is no longer paired with the laptop. Pair it again to continue.");
+      // Another paired laptop (hosted app) takes over; otherwise back to pairing.
+      setLaptopId(currentLaptop()?.id ?? null);
+      setPairNotice("A laptop removed this phone (or its access expired). Pair again to use it.");
     };
     window.addEventListener(UNPAIRED_EVENT, onUnpaired);
     return () => window.removeEventListener(UNPAIRED_EVENT, onUnpaired);
   }, []);
+
+  // Switching laptops (or losing one) starts from a clean screen.
+  useEffect(() => {
+    setActiveId(null);
+    setReport(null);
+    setProjects([]);
+    setModels([]);
+    setThreads([]);
+    setDevice(null);
+    setPending(null);
+  }, [laptopId]);
 
   const refresh = useCallback(async () => {
     if (!paired) return;
@@ -122,7 +139,7 @@ export function RemoteApp() {
     } finally {
       refreshInflight.current = false;
     }
-  }, [paired]);
+  }, [paired, laptopId]);
 
   useEffect(() => {
     void refresh();
@@ -280,26 +297,54 @@ export function RemoteApp() {
     }
   }, [confirmedTail, pendingVisible, report?.running, report?.messages.length, activeId]);
 
-  if (!paired) {
+  if (pendingPair) {
+    return (
+      <ConfirmPairing
+        key={`${pendingPair.host}:${pendingPair.code}`}
+        code={pendingPair.code}
+        host={pendingPair.host}
+        onCancel={() => setPendingPair(null)}
+        onPaired={() => {
+          setPendingPair(null);
+          setPairNotice(null);
+          setAddingLaptop(false);
+          setLaptopId(currentLaptop()?.id ?? null);
+        }}
+      />
+    );
+  }
+
+  if (!paired || addingLaptop) {
     return (
       <PairScreen
         notice={pairNotice}
+        hosted={IS_HOSTED_APP}
+        onScanned={(link) => setPendingPair(link)}
+        onCancel={paired ? () => setAddingLaptop(false) : undefined}
         onPaired={() => {
           setPairNotice(null);
-          setPaired(true);
+          setAddingLaptop(false);
+          setLaptopId(currentLaptop()?.id ?? null);
         }}
       />
     );
   }
 
   const canRun = device ? device.scopes.includes("run") : true;
+  const laptops = listLaptops();
+  // Re-read on every render so the header always names the real destination.
+  const active = currentLaptop();
   const unpair = async () => {
     // Revoke on the laptop too, so the token is dead even if it leaked.
     await api("/api/remote/session", { method: "DELETE" }).catch(() => undefined);
-    clearToken();
-    setDevice(null);
+    forgetCurrentLaptop();
     setSidebar(false);
-    setPaired(false);
+    setLaptopId(currentLaptop()?.id ?? null);
+  };
+  const openLaptop = (id: string) => {
+    switchLaptop(id);
+    setSidebar(false);
+    setLaptopId(id);
   };
 
   return (
@@ -308,6 +353,17 @@ export function RemoteApp() {
         <button className="header-btn" aria-label="History" onClick={() => setSidebar(true)}>
           <List size={22} />
         </button>
+        {active && (
+          <button
+            className="header-laptop"
+            aria-label={`Sending to ${laptopLabel(active)}`}
+            title="Where your prompts go"
+            onClick={() => setSidebar(true)}
+          >
+            {active.owner && <CheckCircle size={14} weight="fill" />}
+            <span>{laptopLabel(active)}</span>
+          </button>
+        )}
         <span className="header-spacer" />
         <button className="header-btn" aria-label="New chat" onClick={newChat}>
           <Plus size={22} />
@@ -348,6 +404,31 @@ export function RemoteApp() {
                 ))
               ) : (
                 <p className="remote-hint">No work yet — start a chat with ＋</p>
+              )}
+              {laptops.length > 1 && (
+                <div className="laptop-list">
+                  <p className="remote-hint">Laptops</p>
+                  {laptops.map((l) => (
+                    <button
+                      key={l.id}
+                      className={`thread-row${l.id === laptopId ? " active" : ""}`}
+                      onClick={() => openLaptop(l.id)}
+                    >
+                      {laptopLabel(l)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {IS_HOSTED_APP && (
+                <button
+                  className="unpair-btn"
+                  onClick={() => {
+                    setSidebar(false);
+                    setAddingLaptop(true);
+                  }}
+                >
+                  Pair another laptop
+                </button>
               )}
               <button className="unpair-btn" onClick={() => void unpair()}>
                 Unpair this phone{device ? ` (${device.name})` : ""}

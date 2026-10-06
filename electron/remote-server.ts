@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { hostname as osHostname, networkInterfaces } from "node:os";
 import { extname, join } from "node:path";
 import type { AgentManager } from "./agent-connection-manager.ts";
 import { listProjects, getProject } from "./projects.ts";
@@ -14,7 +14,9 @@ import type {
   RemoteDevice,
   RemoteDevicesState,
   RemoteModel,
+  RemoteLaptopIdentity,
   RemotePairingOffer,
+  RemotePairPreviewResponse,
   RemotePairResponse,
   RemoteProject,
   RemoteReport,
@@ -55,6 +57,20 @@ export interface RemoteServerDeps {
    * http://<tailnet host>:<port> when a Tailscale address is bound.
    */
   getPublicBaseUrl?: () => string | null;
+  /**
+   * Origins of the hosted phone app allowed to call the API cross-origin
+   * (e.g. https://remote.pipper.dev). Requests carry a bearer token, never
+   * cookies, so CORS here only decides which site's script may read replies.
+   */
+  getAllowedOrigins?: () => readonly string[];
+  /**
+   * Pairing link for a code. Defaults to <public URL>/remote#pair=CODE (the
+   * laptop serves the phone app); overridden when a hosted app pairs with
+   * this laptop by hostname instead.
+   */
+  buildPairingUrl?: (code: string) => string | null;
+  /** pipper.dev's signed owner statement for this laptop's host, if any. */
+  getLaptopAttestation?: () => string | null;
 }
 
 interface RouteContext {
@@ -186,6 +202,9 @@ export class RemoteServer {
   private lastAuthedAt = 0;
   /** Set by start(): loopback-only means the public path is a tunnel. */
   private behindTunnel = false;
+  /** Set by start(): serve only /api/remote/* (the phone app is hosted elsewhere). */
+  private apiOnly = false;
+  private lastBindError: string | null = null;
 
   constructor(deps: RemoteServerDeps, opts?: { port?: number }) {
     this.deps = deps;
@@ -220,12 +239,21 @@ export class RemoteServer {
             code: formatPairingCode(live.code),
             // The code rides in the fragment, which browsers never send to
             // the server (or to any proxy in front of it).
-            pairingUrl: base ? `${base}/remote#pair=${live.code}` : null,
+            pairingUrl: this.deps.buildPairingUrl
+              ? this.deps.buildPairingUrl(live.code)
+              : base
+                ? `${base}/remote#pair=${live.code}`
+                : null,
             expiresAt: live.expiresAt,
             scopes: live.scopes,
           }
         : null,
     };
+  }
+
+  private allowedOrigin(origin: string | undefined): string | null {
+    if (!origin) return null;
+    return (this.deps.getAllowedOrigins?.() ?? []).includes(origin) ? origin : null;
   }
 
   /** Push the current devices/offer state, e.g. after the public URL changed. */
@@ -293,9 +321,11 @@ export class RemoteServer {
    * `loopbackOnly` is for tunnel mode: the connector reaches us on 127.0.0.1
    * and nothing else on the network can.
    */
-  async start(options: { loopbackOnly?: boolean } = {}): Promise<void> {
+  async start(options: { loopbackOnly?: boolean; apiOnly?: boolean } = {}): Promise<void> {
     if (this.servers.length > 0) return;
+    this.lastBindError = null;
     this.behindTunnel = options.loopbackOnly === true;
+    this.apiOnly = options.apiOnly === true;
     const handler = (req: http.IncomingMessage, res: http.ServerResponse) =>
       void this.handle(req, res);
     // Threat model: plain HTTP is intentional here. Listeners bind loopback +
@@ -327,6 +357,10 @@ export class RemoteServer {
           // start(): drop it so a later start() can retry.
           server.once("error", (err) => {
             console.error(`[Remote] listen failed on ${host}:${this.port}:`, err);
+            this.lastBindError =
+              (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+                ? `Port ${this.port} is already in use — is another copy of Pipper running? Quit it, or set PIPPER_REMOTE_PORT.`
+                : `Couldn't listen on ${host}:${this.port} (${(err as NodeJS.ErrnoException).code ?? err.message}).`;
             this.servers = this.servers.filter((s) => s !== server);
             this.boundHosts.delete(server);
             resolve();
@@ -354,6 +388,11 @@ export class RemoteServer {
           }),
       ),
     ).then(() => undefined);
+  }
+
+  /** Why the last start() couldn't serve, for Settings; null when it bound. */
+  bindError(): string | null {
+    return this.isServing() ? null : this.lastBindError;
   }
 
   /** True when at least one listener is bound. Meaningful after start() resolves. */
@@ -414,6 +453,36 @@ export class RemoteServer {
     // HEAD (link previews, uptime checks) gets the same headers as GET; Node
     // drops the body for HEAD responses on its own.
     const readOnly = req.method === "GET" || req.method === "HEAD";
+    const isApi = path.startsWith("/api/remote/");
+
+    if (isApi) {
+      // Set before any writeHead so every API reply — errors included — is
+      // readable by the hosted phone app (it must see a 401 to unpair).
+      const origin = this.allowedOrigin(req.headers.origin);
+      if (origin) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Access-Control-Expose-Headers", "Retry-After");
+        res.setHeader("Vary", "Origin");
+      }
+      if (req.method === "OPTIONS") {
+        res.writeHead(origin ? 204 : 403, {
+          ...BASE_SECURITY_HEADERS,
+          ...(origin
+            ? {
+                "Access-Control-Allow-Methods": "GET, POST, DELETE",
+                "Access-Control-Allow-Headers": "Authorization, Content-Type",
+                "Access-Control-Max-Age": "600",
+              }
+            : {}),
+        });
+        res.end();
+        return;
+      }
+    } else if (this.apiOnly) {
+      // The phone app is served by its own trusted site; this host is API-only.
+      send(res, 404, { error: "Not found" });
+      return;
+    }
 
     // Serve the PWA shell without auth so "Add to Home Screen" works; the
     // app stores its device token after pairing and sends it per request.
@@ -451,12 +520,15 @@ export class RemoteServer {
         ],
       });
     }
-    if (!path.startsWith("/api/remote/")) {
+    if (!isApi) {
       send(res, 404, { error: "Not found" });
       return;
     }
     if (req.method === "POST" && path === "/api/remote/pair") {
       return this.pair(req, res);
+    }
+    if (req.method === "POST" && path === "/api/remote/pair/preview") {
+      return this.pairPreview(req, res);
     }
     // Everything else under /api/remote/ needs a paired device's token —
     // including health and the phone's debug log, which would otherwise let
@@ -506,6 +578,39 @@ export class RemoteServer {
     sendApi(res, 404, { error: "Not found" });
   }
 
+  /** How this laptop introduces itself to a phone that is about to pair. */
+  laptopIdentity(): RemoteLaptopIdentity {
+    const base = this.publicBaseUrl();
+    return {
+      name: sanitizeLogText(osHostname().replace(/\.local$/i, ""), 60) || "Laptop",
+      host: base ? new URL(base).host : null,
+      attestation: this.deps.getLaptopAttestation?.() ?? null,
+    };
+  }
+
+  /**
+   * Describe this laptop to a phone holding a valid code, without using the
+   * code up, so the phone can show who it is about to pair with and ask the
+   * user first. Requires the code so an owner's identity isn't public.
+   */
+  private async pairPreview(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const client = clientKey(req, this.behindTunnel);
+    const wait = this.authFailures.retryAfterSec(client);
+    if (wait > 0) {
+      sendApi(res, 429, { error: "Too many attempts" }, { "Retry-After": String(wait) });
+      return;
+    }
+    const body = parseJsonObject(await readBody(req, MAX_PAIR_BODY_BYTES));
+    if (!this.pairing.check(typeof body.code === "string" ? body.code : "")) {
+      this.authFailures.record(client);
+      this.deps.onDevicesChanged?.(this.getDevicesState());
+      sendApi(res, 401, { error: "Invalid or expired pairing code" });
+      return;
+    }
+    const response: RemotePairPreviewResponse = { laptop: this.laptopIdentity() };
+    sendApi(res, 200, response);
+  }
+
   /** Redeem a pairing code for a new device token. */
   private async pair(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const client = clientKey(req, this.behindTunnel);
@@ -529,7 +634,7 @@ export class RemoteServer {
     });
     console.log(`[Remote] paired device ${device.id} scopes=${device.scopes.join(",")}`);
     this.deps.onDevicesChanged?.(this.getDevicesState());
-    const response: RemotePairResponse = { token, device };
+    const response: RemotePairResponse = { token, device, laptop: this.laptopIdentity() };
     sendApi(res, 201, response);
   }
 

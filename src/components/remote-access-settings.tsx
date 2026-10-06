@@ -246,7 +246,7 @@ export function RemoteAccessSettings() {
   }
 
   const unreachable = !info.serving
-    ? "The remote server couldn't start. Check the app log for [Remote] lines."
+    ? (info.error ?? "The remote server couldn't start. Check the app log for [Remote] lines.")
     : info.publicUrl
       ? null
       : info.transport === "tailscale"
