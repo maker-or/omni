@@ -5,6 +5,7 @@ struct SettingsView: View {
   @Environment(RemoteSession.self) private var session
   @Environment(\.dismiss) private var dismiss
   @State private var refreshing = false
+  @State private var unpairing = false
   /// Shown as a tab rather than a sheet, so there's nothing to dismiss.
   var inTab = false
 
@@ -12,8 +13,15 @@ struct SettingsView: View {
     NavigationStack {
       Form {
         Section("Mac") {
-          LabeledContent("Host", value: session.config?.host ?? "—")
-          LabeledContent("Port", value: session.config.map { String($0.port) } ?? "—")
+          LabeledContent("Name", value: session.config?.laptopName ?? "—")
+          LabeledContent("Address", value: session.config?.address ?? "—")
+          if let owner = session.config?.owner {
+            Label("Belongs to \(owner.label) — verified by Pipper", systemImage: "checkmark.seal.fill")
+              .foregroundStyle(.green)
+          }
+          if let device = session.config?.deviceName {
+            LabeledContent("This phone", value: device)
+          }
         }
         ConnectionCheckView()
         Section {
@@ -70,10 +78,23 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
         }
         Section {
-          Button("Unpair", role: .destructive) {
-            session.unpair()
-            dismiss()
+          Button(role: .destructive) {
+            Task {
+              unpairing = true
+              await session.unpair()
+              unpairing = false
+              dismiss()
+            }
+          } label: {
+            HStack {
+              Text("Unpair")
+              Spacer()
+              if unpairing { ProgressView() }
+            }
           }
+          .disabled(unpairing)
+        } footer: {
+          Text("Removes this phone from your Mac too, so its access ends everywhere.")
         }
       }
       .navigationTitle("Settings")
@@ -122,7 +143,7 @@ struct ConnectionCheckView: View {
           .font(.footnote).foregroundStyle(.orange)
       } else if let error {
         Text(error).font(.footnote).foregroundStyle(.red)
-        Text("Keep Pipper open on the Mac and connect both devices to the same Tailscale network.")
+        Text("Keep Pipper open on your Mac. If you changed how it connects in Settings → Remote, pair this phone again.")
           .font(.footnote).foregroundStyle(.secondary)
       }
       if let diagnostics {
@@ -152,8 +173,8 @@ struct ConnectionCheckView: View {
       checkedAt = Date()
       await session.refreshCatalog()
     } catch RemoteClientError.http(status: 404, _) {
-      // Older Macs lack diagnostics, and health needs no token, so
-      // confirm the pairing against an endpoint every version serves.
+      // Older Macs lack diagnostics; confirm the pairing against an
+      // endpoint every version serves.
       do {
         _ = try await client.listThreads()
         macOutdated = true

@@ -10,7 +10,7 @@ enum StartThreadError: Error, CustomLocalizedStringResourceConvertible {
   var localizedStringResource: LocalizedStringResource {
     switch self {
     case .notPaired:
-      return "Pipper isn't paired with your Mac yet. Open the app and scan the pairing code."
+      return "Pipper isn't paired with your Mac. Open the app and scan the pairing code from your Mac's Settings → Remote."
     case .noAgent:
       return "No agent is installed on your Mac. Pick one in Pipper on the Mac first."
     case .agentUnavailable(let name):
@@ -23,7 +23,7 @@ enum StartThreadError: Error, CustomLocalizedStringResourceConvertible {
 
 /// Siri-first entry point: "Start a Pipper thread in FolkLore with Codex".
 /// Runs in the app process in the background (no app launch), POSTs to the
-/// laptop over Tailscale, and speaks the result.
+/// laptop (through its Pipper tunnel), and speaks the result.
 struct StartThreadIntent: AppIntent {
   static var title: LocalizedStringResource = "Start Pipper thread"
   static var description = IntentDescription(
@@ -91,7 +91,7 @@ struct StartThreadIntent: AppIntent {
 struct CheckMacIntent: AppIntent {
   static var title: LocalizedStringResource = "Check Pipper Mac"
   static var description = IntentDescription(
-    "Checks whether your Mac is reachable over Tailscale and how many threads are running.",
+    "Checks whether your Mac is reachable and how many threads are running.",
     categoryName: "Productivity")
   static var openAppWhenRun: Bool = false
 

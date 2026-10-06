@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import PipperRemoteCore
@@ -36,13 +37,21 @@ final class StubURLProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
-private func stubClient(_ handler: @escaping (URLRequest) -> (Int, Data)) -> RemoteClient {
+private let laptopBase = URL(string: "https://lt-ab12cd.pipper.dev")!
+
+private func stubSession(_ handler: @escaping (URLRequest) -> (Int, Data)) -> URLSession {
   StubURLProtocol.handler = handler
   let c = URLSessionConfiguration.ephemeral
   c.protocolClasses = [StubURLProtocol.self]
-  return RemoteClient(
-    config: RemoteConfig(host: "100.64.0.9", port: 4173, token: "abc123"),
-    session: URLSession(configuration: c))
+  return URLSession(configuration: c)
+}
+
+private func stubClient(
+  onUnauthorized: (@Sendable () -> Void)? = nil, _ handler: @escaping (URLRequest) -> (Int, Data)
+) -> RemoteClient {
+  RemoteClient(
+    config: RemoteConfig(baseURL: laptopBase, token: "abc123"),
+    session: stubSession(handler), onUnauthorized: onUnauthorized)
 }
 
 private func json(_ value: Any) -> Data {
@@ -63,36 +72,151 @@ private let sampleCatalog = RemoteCatalog(
     RemoteCatalogAgent(id: "opencode-acp", displayName: "opencode", available: false),
   ])
 
-@Suite("Pairing URL")
-struct PairingURLTests {
-  @Test func parsesLaptopQr() {
-    let cfg = PairingURL.parse("http://100.101.102.103:4173/remote#token=deadBEEF42")
-    #expect(cfg == RemoteConfig(host: "100.101.102.103", port: 4173, token: "deadBEEF42"))
+@Suite("Pairing link")
+struct PairingLinkTests {
+  @Test func parsesHostedAppLinkForANamedTunnel() throws {
+    let link = try #require(
+      PairingLink.parse("https://remote.pipper.dev/#pair=7KD2MQX9HT&host=LT-ab12cd.pipper.dev"))
+    #expect(link.code == "7KD2MQX9HT")
+    // The laptop is the `host` parameter, never the page that carried it.
+    #expect(link.baseURL == URL(string: "https://lt-ab12cd.pipper.dev"))
+    #expect(link.isNamedTunnel)
   }
 
-  @Test func defaultsPortWhenOmitted() {
-    #expect(PairingURL.parse("http://100.1.2.3/remote#token=x1")?.port == 4173)
+  @Test func parsesLaptopServedLinks() throws {
+    let quick = try #require(PairingLink.parse("https://calm-fox.trycloudflare.com/remote#pair=ABCDE-12345"))
+    #expect(quick.baseURL == URL(string: "https://calm-fox.trycloudflare.com"))
+    #expect(!quick.isNamedTunnel)
+    let tailnet = try #require(PairingLink.parse("http://100.101.102.103:4173/remote#pair=ABCDE12345"))
+    #expect(tailnet.baseURL == URL(string: "http://100.101.102.103:4173"))
   }
 
-  @Test func rejectsForeignUrls() {
-    #expect(PairingURL.parse("https://example.com/#token=abc") == nil)
-    #expect(PairingURL.parse("http://100.1.2.3:4173/remote") == nil)
-    #expect(PairingURL.parse("not a url") == nil)
+  @Test func neverPointsTheAppAtAForeignHost() {
+    for text in [
+      "https://remote.pipper.dev/#pair=ABCDE&host=evil.example.com",
+      "https://remote.pipper.dev/#pair=ABCDE&host=www.pipper.dev",
+      "https://remote.pipper.dev/#pair=ABCDE&host=lt-x.pipper.dev.evil.com",
+      "https://example.com/remote#pair=ABCDE",
+      "http://192.168.1.4:4173/remote#pair=ABCDE",
+      "http://lt-ab12cd.pipper.dev/remote#pair=ABCDE",
+      "http://100.1.2.3:4173/remote#token=deadbeef",
+      "https://lt-ab12cd.pipper.dev/#pair=bad%20code",
+      "not a url",
+    ] {
+      #expect(PairingLink.parse(text) == nil, "\(text)")
+    }
   }
 
-  @Test func hostInputTolerance() {
-    #expect(PairingURL.parseHostInput("100.82.38.10")! == ("100.82.38.10", nil, nil))
-    #expect(PairingURL.parseHostInput(" 100.82.38.10:4173 ")! == ("100.82.38.10", 4173, nil))
-    #expect(PairingURL.parseHostInput("http://100.82.38.10:4173/remote#token=abc")! == ("100.82.38.10", 4173, "abc"))
-    #expect(PairingURL.parseHostInput("http://100.82.38.10:4173/remote")! == ("100.82.38.10", 4173, nil))
-    #expect(PairingURL.parseHostInput("100.82.38.10:notaport") == nil)
-    #expect(PairingURL.parseHostInput("") == nil)
+  @Test func manualEntryAcceptsAddressesOrAWholeLink() {
+    #expect(
+      PairingLink.manual(address: "lt-ab12cd.pipper.dev", code: " ABCDE-12345 ")?.baseURL
+        == URL(string: "https://lt-ab12cd.pipper.dev"))
+    #expect(
+      PairingLink.manual(address: "100.82.38.10", code: "ABCDE")?.baseURL
+        == URL(string: "http://100.82.38.10:4173"))
+    #expect(
+      PairingLink.manual(address: "100.82.38.10:5000", code: "ABCDE")?.baseURL
+        == URL(string: "http://100.82.38.10:5000"))
+    let pasted = PairingLink.manual(
+      address: "https://remote.pipper.dev/#pair=FROMLINK&host=lt-ab12cd.pipper.dev", code: "")
+    #expect(pasted?.code == "FROMLINK")
+    #expect(PairingLink.manual(address: "example.com", code: "ABCDE") == nil)
+    #expect(PairingLink.manual(address: "lt-ab12cd.pipper.dev", code: "") == nil)
+  }
+}
+
+@Suite("Laptop owner statement")
+struct LaptopAttestationTests {
+  private static func base64URL(_ data: Data) -> String {
+    data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
   }
 
-  @Test func bareTokenDetection() {
-    #expect(PairingURL.isBareToken(" a1b2c3 "))
-    #expect(!PairingURL.isBareToken("http://x"))
-    #expect(!PairingURL.isBareToken(""))
+  /// Signs like pipper.dev: `pa1.<b64url JSON>.<b64url Ed25519 sig>`.
+  private static func sign(_ claims: [String: Any], key: Curve25519.Signing.PrivateKey) throws -> String {
+    let body = "pa1.\(base64URL(try JSONSerialization.data(withJSONObject: claims)))"
+    return "\(body).\(base64URL(try key.signature(for: Data(body.utf8))))"
+  }
+
+  private let key = Curve25519.Signing.PrivateKey()
+  private var publicKey: String { Self.base64URL(key.publicKey.rawRepresentation) }
+  private let now = Date(timeIntervalSince1970: 1_800_000_000)
+  private var claims: [String: Any] {
+    ["host": "lt-ab12cd.pipper.dev", "sub": "user_1", "email": "me@example.com", "name": "Me",
+     "exp": (now.timeIntervalSince1970 + 3600) * 1000]
+  }
+
+  @Test func verifiesTheOwnerForThisExactHost() throws {
+    let statement = try Self.sign(claims, key: key)
+    let check = LaptopAttestation.verify(
+      statement, host: "LT-ab12cd.pipper.dev", publicKey: publicKey, now: now)
+    #expect(check == .verified(LaptopOwner(sub: "user_1", email: "me@example.com", name: "Me")))
+  }
+
+  @Test func refusesForgedMovedOrExpiredStatements() throws {
+    let statement = try Self.sign(claims, key: key)
+    let forged = try Self.sign(claims, key: Curve25519.Signing.PrivateKey())
+    var expired = claims
+    expired["exp"] = (now.timeIntervalSince1970 - 1) * 1000
+    for (text, host) in [
+      (forged, "lt-ab12cd.pipper.dev"),
+      (statement, "lt-other.pipper.dev"),
+      (try Self.sign(expired, key: key), "lt-ab12cd.pipper.dev"),
+      ("pa1.garbage", "lt-ab12cd.pipper.dev"),
+    ] {
+      guard case .unverified = LaptopAttestation.verify(text, host: host, publicKey: publicKey, now: now)
+      else { Issue.record("accepted \(text) for \(host)"); continue }
+    }
+    #expect(LaptopAttestation.verify(nil, host: "lt-ab12cd.pipper.dev") != .verified(
+      LaptopOwner(sub: "user_1", email: nil, name: nil)))
+  }
+
+  @Test func shipsAUsablePublicKey() {
+    #expect(LaptopAttestation.base64URLDecode(LaptopAttestation.pipperPublicKey)?.count == 32)
+  }
+}
+
+/// Pairing calls share the URLProtocol stub, so they run in the serialized
+/// "Remote client" suite.
+extension RemoteClientTests {
+  private var link: PairingLink { PairingLink(code: "ABCDE12345", baseURL: laptopBase)! }
+
+  @Test func previewSendsOnlyTheCodeAndNoCredential() async throws {
+    let session = stubSession { request in
+      #expect(request.url?.absoluteString == "https://lt-ab12cd.pipper.dev/api/remote/pair/preview")
+      #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+      return (200, json(["laptop": ["name": "Studio", "host": "lt-ab12cd.pipper.dev", "attestation": NSNull()]]))
+    }
+    let laptop = try await RemoteClient.previewPairing(link, session: session)
+    #expect(laptop == RemoteLaptopIdentity(name: "Studio", host: "lt-ab12cd.pipper.dev", attestation: nil))
+    let body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody!) as! [String: Any]
+    #expect(body as NSDictionary == ["code": "ABCDE12345"])
+  }
+
+  @Test func redeemReturnsThisPhonesOwnToken() async throws {
+    let session = stubSession { request in
+      #expect(request.url?.path == "/api/remote/pair")
+      return (201, json([
+        "token": "device-token",
+        "device": ["id": "d1", "name": "iPhone · Pipper", "scopes": ["read", "run"], "createdAt": 1, "lastSeenAt": NSNull()],
+        "laptop": ["name": "Studio", "host": "lt-ab12cd.pipper.dev", "attestation": NSNull()],
+      ]))
+    }
+    let paired = try await RemoteClient.redeemPairing(link, deviceName: "iPhone · Pipper", session: session)
+    #expect(paired.token == "device-token")
+    #expect(paired.device.canRun)
+    let body = try JSONSerialization.jsonObject(with: StubURLProtocol.lastBody!) as! [String: Any]
+    #expect(body["deviceName"] as? String == "iPhone · Pipper")
+  }
+
+  @Test func wrongOrExpiredCodeReadsAsSuch() async {
+    let session = stubSession { _ in (401, json(["error": "Invalid or expired pairing code"])) }
+    do {
+      _ = try await RemoteClient.redeemPairing(link, deviceName: "iPhone", session: session)
+      Issue.record("expected throw")
+    } catch let error as RemoteClientError {
+      #expect(error.errorDescription?.contains("expired") == true)
+    } catch { Issue.record("unexpected \(error)") }
   }
 }
 
@@ -155,8 +279,8 @@ struct RemoteClientTests {
     }
     let catalog = try await client.fetchCatalog()
     #expect(catalog == sampleCatalog)
-    #expect(StubURLProtocol.lastRequest?.url?.host == "100.64.0.9")
-    #expect(StubURLProtocol.lastRequest?.url?.port == 4173)
+    #expect(StubURLProtocol.lastRequest?.url?.host == "lt-ab12cd.pipper.dev")
+    #expect(StubURLProtocol.lastRequest?.url?.scheme == "https")
   }
 
   @Test func createThreadPostsAgentAsModelId() async throws {
@@ -212,20 +336,24 @@ struct RemoteClientTests {
   }
 
   @Test func unauthorizedSurfacesPairingError() async {
-    let client = stubClient { _ in (401, json(["error": "Unauthorized"])) }
+    let revoked = UnauthorizedFlag()
+    let client = stubClient(onUnauthorized: { revoked.set() }) { _ in
+      (401, json(["error": "Unauthorized"]))
+    }
     do {
       _ = try await client.listThreads()
       Issue.record("expected throw")
     } catch let error as RemoteClientError {
       #expect(error == .http(status: 401, body: "Unauthorized"))
       #expect(error.errorDescription?.contains("Pair again") == true)
+      #expect(revoked.value)
     } catch {
       Issue.record("unexpected \(error)")
     }
   }
 
   @Test func unpairedConfigNeverHitsNetwork() async {
-    let client = RemoteClient(config: RemoteConfig(host: "", token: ""))
+    let client = RemoteClient(config: RemoteConfig(baseURL: laptopBase, token: ""))
     do {
       _ = try await client.health()
       Issue.record("expected throw")
@@ -317,6 +445,13 @@ struct RemoteClientTests {
 
 }
 
+
+final class UnauthorizedFlag: @unchecked Sendable {
+  private let lock = NSLock()
+  private var flag = false
+  func set() { lock.withLock { flag = true } }
+  var value: Bool { lock.withLock { flag } }
+}
 
 @Suite("Durable submission identities")
 @MainActor

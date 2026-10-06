@@ -212,3 +212,35 @@ public struct RemoteDiagnostics: Codable, Equatable, Sendable {
     return "Ready. Start a sample task to check the full connection."
   }
 }
+
+// MARK: Pairing (contracts/remote.ts: RemoteLaptopIdentity, RemoteDevice, RemotePairResponse)
+
+/// How a laptop introduces itself to a phone that holds a valid code.
+public struct RemoteLaptopIdentity: Codable, Equatable, Sendable {
+  public var name: String
+  public var host: String?
+  /// pipper.dev's signed owner statement (named tunnels only).
+  public var attestation: String?
+
+  public init(name: String, host: String?, attestation: String?) {
+    self.name = name
+    self.host = host
+    self.attestation = attestation
+  }
+}
+
+/// This phone as the laptop lists it under Settings → Remote.
+public struct RemoteDevice: Codable, Equatable, Sendable {
+  public var id: String
+  public var name: String
+  /// "read" and/or "run"; kept as strings so a new scope can't break decoding.
+  public var scopes: [String]
+
+  public var canRun: Bool { scopes.contains("run") }
+}
+
+public struct RemotePairResponse: Codable, Equatable, Sendable {
+  public var token: String
+  public var device: RemoteDevice
+  public var laptop: RemoteLaptopIdentity?
+}

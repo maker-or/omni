@@ -13,10 +13,14 @@ public enum RemoteClientError: Error, LocalizedError, Equatable {
     switch self {
     case .notPaired: return "Not paired with a Mac yet."
     case .badURL: return "The Mac address is invalid."
-    case .unreachable(let why): return "Couldn't reach your Mac (\(why)). Is Tailscale connected?"
+    case .unreachable(let why):
+      return "Couldn't reach your Mac (\(why)). Keep Pipper open on your Mac and check your connection."
     case .http(let status, let body):
-      if status == 401 { return "The Mac rejected the pairing token. Pair again." }
+      if status == 401 { return "Your Mac no longer accepts this phone. Pair again." }
+      if status == 429 { return "Too many attempts. Wait a minute and try again." }
       if status == 503 { return "The agent on your Mac isn't ready yet." }
+      // 403 explains itself (e.g. a read-only phone starting work).
+      if status == 403, !body.isEmpty { return body }
       let detail = body.trimmingCharacters(in: .whitespacesAndNewlines)
       return detail.isEmpty ? "Mac returned HTTP \(status)." : "Mac returned HTTP \(status): \(detail)"
     case .rejected(let message): return message
@@ -25,23 +29,29 @@ public enum RemoteClientError: Error, LocalizedError, Equatable {
   }
 }
 
-/// Thin async client for the laptop's `/api/remote/*` routes. Bearer token on
-/// every call; short timeouts because Siri waits on `perform()`.
+/// Thin async client for the laptop's `/api/remote/*` routes. This phone's
+/// device token on every call; short timeouts because Siri waits on `perform()`.
 public struct RemoteClient: Sendable {
   public let config: RemoteConfig
   private let session: URLSession
+  /// Called when the laptop refuses this phone's token (revoked or expired).
+  private let onUnauthorized: (@Sendable () -> Void)?
 
-  public init(config: RemoteConfig, session: URLSession? = nil) {
+  public init(
+    config: RemoteConfig, session: URLSession? = nil,
+    onUnauthorized: (@Sendable () -> Void)? = nil
+  ) {
     self.config = config
-    if let session {
-      self.session = session
-    } else {
-      let c = URLSessionConfiguration.ephemeral
-      c.timeoutIntervalForRequest = 15
-      c.timeoutIntervalForResource = 30
-      c.waitsForConnectivity = false
-      self.session = URLSession(configuration: c)
-    }
+    self.session = session ?? Self.defaultSession()
+    self.onUnauthorized = onUnauthorized
+  }
+
+  static func defaultSession() -> URLSession {
+    let c = URLSessionConfiguration.ephemeral
+    c.timeoutIntervalForRequest = 15
+    c.timeoutIntervalForResource = 30
+    c.waitsForConnectivity = false
+    return URLSession(configuration: c)
   }
 
   // MARK: Routes
@@ -50,6 +60,19 @@ public struct RemoteClient: Sendable {
     struct Health: Decodable { var ok: Bool }
     let h: Health = try await get("/api/remote/health")
     return h.ok
+  }
+
+  /// The laptop's view of this phone (name and scopes).
+  public func device() async throws -> RemoteDevice {
+    struct Body: Decodable { var device: RemoteDevice }
+    let b: Body = try await get("/api/remote/session")
+    return b.device
+  }
+
+  /// Unpair on the laptop too, so the token is dead even if it leaked.
+  public func revokeThisDevice() async throws {
+    struct Body: Decodable { var ok: Bool }
+    let _: Body = try await perform(request("/api/remote/session", method: "DELETE", body: nil))
   }
 
   public func diagnostics() async throws -> RemoteDiagnostics {
@@ -140,8 +163,8 @@ public struct RemoteClient: Sendable {
   }
 
   private func request(_ path: String, method: String, body: Data?) throws -> URLRequest {
-    guard config.isComplete, let base = config.baseURL, let url = URL(string: path, relativeTo: base)
-    else { throw config.token.isEmpty || config.host.isEmpty ? RemoteClientError.notPaired : .badURL }
+    guard config.isComplete else { throw RemoteClientError.notPaired }
+    guard let url = URL(string: path, relativeTo: config.baseURL) else { throw RemoteClientError.badURL }
     var req = URLRequest(url: url)
     req.httpMethod = method
     req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
@@ -162,7 +185,59 @@ public struct RemoteClient: Sendable {
 
   private struct Rejection: Decodable { var error: String; var retryable: Bool? }
 
+  // MARK: Pairing (no token yet)
+
+  /// Ask the laptop who it is without using the code up, so the user can
+  /// confirm before this phone sends it anything (pairing-link hijack defense).
+  public static func previewPairing(
+    _ link: PairingLink, session: URLSession? = nil
+  ) async throws -> RemoteLaptopIdentity {
+    struct Input: Encodable { var code: String }
+    struct Body: Decodable { var laptop: RemoteLaptopIdentity }
+    let b: Body = try await pairingCall(
+      "/api/remote/pair/preview", link: link, input: Input(code: link.code), session: session)
+    return b.laptop
+  }
+
+  /// Redeem the one-time code for this phone's own device token.
+  public static func redeemPairing(
+    _ link: PairingLink, deviceName: String, session: URLSession? = nil
+  ) async throws -> RemotePairResponse {
+    struct Input: Encodable { var code: String; var deviceName: String }
+    return try await pairingCall(
+      "/api/remote/pair", link: link, input: Input(code: link.code, deviceName: deviceName),
+      session: session)
+  }
+
+  private static func pairingCall<T: Decodable, I: Encodable>(
+    _ path: String, link: PairingLink, input: I, session: URLSession?
+  ) async throws -> T {
+    guard let url = URL(string: path, relativeTo: link.baseURL) else { throw RemoteClientError.badURL }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue("application/json", forHTTPHeaderField: "Accept")
+    req.httpBody = try JSONEncoder().encode(input)
+    do {
+      return try await send(req, session: session ?? defaultSession())
+    } catch RemoteClientError.http(status: 401, _) {
+      throw RemoteClientError.rejected("That code is wrong or has expired. Make a new one on your Mac.")
+    } catch RemoteClientError.http(status: 404, _) {
+      throw RemoteClientError.rejected(
+        "That Mac's Pipper is too old for this app. Update Pipper on your Mac, then pair again.")
+    }
+  }
+
   private func perform<T: Decodable>(_ req: URLRequest) async throws -> T {
+    do {
+      return try await Self.send(req, session: session)
+    } catch RemoteClientError.http(status: 401, let body) {
+      onUnauthorized?()
+      throw RemoteClientError.http(status: 401, body: body)
+    }
+  }
+
+  static func send<T: Decodable>(_ req: URLRequest, session: URLSession) async throws -> T {
     let data: Data
     let response: URLResponse
     do {

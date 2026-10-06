@@ -40,8 +40,10 @@
   </array>
   <key>NSCameraUsageDescription</key>
   <string>Scan the pairing QR code shown by Pipper on your Mac.</string>
-  <!-- The laptop serves plain HTTP on a Tailscale IP (WireGuard-encrypted
-       tailnet, see electron/remote-server.ts). ATS must allow it. -->
+  <!-- Cloudflare-tunnel laptops are HTTPS. A laptop on the Tailscale
+       transport serves plain HTTP on its tailnet IP (WireGuard-encrypted),
+       which ATS can't except by address, so loads stay allowed here;
+       PairingLink.isAllowedBase limits plain HTTP to Tailscale/loopback. -->
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>

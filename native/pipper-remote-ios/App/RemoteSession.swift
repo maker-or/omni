@@ -1,6 +1,7 @@
 import AppIntents
 import Foundation
 import Observation
+import UIKit
 
 /// Process-wide state shared by the SwiftUI app and the in-process App
 /// Intents: pairing config, the cached catalog, and a client built from them.
@@ -10,13 +11,21 @@ final class RemoteSession {
   static let shared = RemoteSession()
 
   private enum Keys {
-    static let host = "remote.host"
-    static let port = "remote.port"
-    static let token = "remote.token"
+    /// The paired laptop (address, name, owner) without its token.
+    static let laptop = "remote.laptop"
+    /// This phone's device token for that laptop.
+    static let deviceToken = "remote.deviceToken"
     static let lastSiriThreadId = "remote.lastSiriThreadId"
+    /// Before device pairing: one shared Tailscale token per laptop. The
+    /// laptop no longer accepts it, so it is only ever cleaned up.
+    static let legacyHost = "remote.host"
+    static let legacyPort = "remote.port"
+    static let legacyToken = "remote.token"
   }
 
   private(set) var config: RemoteConfig?
+  /// Why the phone is back on the pairing screen (revoked, or an old pairing).
+  private(set) var pairNotice: String?
   private(set) var catalog: RemoteCatalog
   private(set) var catalogError: String?
   private(set) var lastCatalogRefresh: Date?
@@ -32,14 +41,6 @@ final class RemoteSession {
   private let submissions = RemoteSubmissionStore()
   #if DEBUG
   private var isPreview = false
-
-  /// Debug builds auto-pair to this Mac so testing skips the QR flow, but
-  /// only when nothing is stored: a real (re-)pairing always wins, so a stale
-  /// token here can't mask it. In memory only, nothing is persisted.
-  /// Never compiled into Release.
-  private static let devPairing: RemoteConfig? = RemoteConfig(
-    host: "100.82.38.10", port: 4173,
-    token: "3433463b635681a46d5d10019562a495e2a65cb202dd010f")
   #endif
 
   func createThread(
@@ -48,7 +49,7 @@ final class RemoteSession {
     guard let client, let config else { throw RemoteClientError.notPaired }
     // `model` joins the scope only when set, keeping pending IDs from before
     // model choice stable.
-    let scope = [config.host, String(config.port), "create", projectId, agentId ?? ""]
+    let scope = [config.baseURL.absoluteString, "create", projectId, agentId ?? ""]
       + (model.map { ["model:\($0)"] } ?? []) + [prompt]
     let id = try submissions.requestId(for: scope)
     do {
@@ -66,7 +67,7 @@ final class RemoteSession {
 
   func sendPrompt(threadId: String, prompt: String) async throws {
     guard let client, let config else { throw RemoteClientError.notPaired }
-    let scope = [config.host, String(config.port), "prompt", threadId, prompt]
+    let scope = [config.baseURL.absoluteString, "prompt", threadId, prompt]
     let id = try submissions.requestId(for: scope)
     do {
       try await client.sendPrompt(threadId: threadId, prompt: prompt, requestId: id)
@@ -80,17 +81,27 @@ final class RemoteSession {
   private init() {
     let defaults = UserDefaults.standard
     lastSiriThreadId = defaults.string(forKey: Keys.lastSiriThreadId)
-    if let host = defaults.string(forKey: Keys.host), !host.isEmpty,
-      let token = Keychain.read(Keys.token), !token.isEmpty
+    if let data = defaults.data(forKey: Keys.laptop),
+      var stored = try? JSONDecoder().decode(RemoteConfig.self, from: data),
+      let token = Keychain.read(Keys.deviceToken), !token.isEmpty
     {
-      let port = defaults.integer(forKey: Keys.port)
-      config = RemoteConfig(host: host, port: port == 0 ? RemoteConfig.defaultPort : port, token: token)
+      stored.token = token
+      config = stored
     }
     catalog = catalogStore.load() ?? .empty
     lastCatalogRefresh = catalogStore.modifiedAt
-    #if DEBUG
-    if config == nil, let devPairing = Self.devPairing { config = devPairing }
-    #endif
+    if defaults.string(forKey: Keys.legacyHost) != nil || Keychain.read(Keys.legacyToken) != nil {
+      defaults.removeObject(forKey: Keys.legacyHost)
+      defaults.removeObject(forKey: Keys.legacyPort)
+      Keychain.delete(Keys.legacyToken)
+      if config == nil {
+        catalogStore.clear()
+        catalog = .empty
+        lastCatalogRefresh = nil
+        pairNotice =
+          "Pipper now pairs each phone with a one-time code. On your Mac, open Settings → Remote → Pair a phone, then scan the new QR."
+      }
+    }
   }
 
   #if DEBUG
@@ -99,7 +110,12 @@ final class RemoteSession {
   /// config, while `client` remains nil so previews never make network requests.
   init(previewCatalog: RemoteCatalog, paired: Bool = false, agentModels: [String: [RemoteAgentModel]] = [:]) {
     self.agentModels = agentModels
-    config = paired ? RemoteConfig(host: "preview.invalid", port: RemoteConfig.defaultPort, token: "preview") : nil
+    config =
+      paired
+      ? RemoteConfig(
+        baseURL: URL(string: "https://lt-preview.pipper.dev")!, token: "preview", laptopName: "Studio",
+        owner: LaptopOwner(sub: "preview", email: "me@example.com", name: nil))
+      : nil
     catalog = previewCatalog
     catalogError = nil
     lastCatalogRefresh = nil
@@ -122,29 +138,59 @@ final class RemoteSession {
     if isPreview { return nil }
     #endif
     guard let config, config.isComplete else { return nil }
-    return RemoteClient(config: config)
+    let token = config.token
+    return RemoteClient(config: config) {
+      // The laptop revoked this phone (or its access expired). Only drop the
+      // pairing that was refused, not one made since the request started.
+      Task { @MainActor in
+        let session = RemoteSession.shared
+        guard session.config?.token == token else { return }
+        session.forget(notice: "Your Mac removed this phone, or its access expired. Pair again to use it.")
+      }
+    }
   }
 
-  /// Persist a pairing after `health()` succeeded. Token goes to the Keychain,
-  /// host/port to defaults.
-  func pair(_ next: RemoteConfig) throws {
-    try Keychain.write(Keys.token, value: next.token)
-    let defaults = UserDefaults.standard
-    defaults.set(next.host, forKey: Keys.host)
-    defaults.set(next.port, forKey: Keys.port)
+  /// Name this phone gets in the laptop's device list.
+  static var deviceName: String { "\(UIDevice.current.model) · Pipper app" }
+
+  /// Redeem a confirmed pairing link and keep this phone's device token.
+  /// The token goes to the Keychain; the laptop's address and owner to defaults.
+  func pair(_ link: PairingLink, owner: LaptopOwner?) async throws {
+    let paired = try await RemoteClient.redeemPairing(link, deviceName: Self.deviceName)
+    let next = RemoteConfig(
+      baseURL: link.baseURL, token: paired.token, laptopName: paired.laptop?.name, owner: owner,
+      deviceName: paired.device.name)
+    try Keychain.write(Keys.deviceToken, value: next.token)
+    var stored = next
+    stored.token = ""
+    UserDefaults.standard.set(try JSONEncoder().encode(stored), forKey: Keys.laptop)
+    if config?.baseURL != next.baseURL { clearCatalog() }
     config = next
+    pairNotice = nil
+    await refreshCatalog()
   }
 
-  func unpair() {
-    let defaults = UserDefaults.standard
-    defaults.removeObject(forKey: Keys.host)
-    defaults.removeObject(forKey: Keys.port)
+  /// Unpair from Settings: revoke on the laptop first (best effort), so the
+  /// token is dead even if it leaked, then forget it here.
+  func unpair() async {
+    try? await client?.revokeThisDevice()
+    forget(notice: nil)
+  }
+
+  private func forget(notice: String?) {
+    UserDefaults.standard.removeObject(forKey: Keys.laptop)
+    Keychain.delete(Keys.deviceToken)
     lastSiriThreadId = nil
-    Keychain.delete(Keys.token)
-    catalogStore.clear()
+    clearCatalog()
     config = nil
+    pairNotice = notice
+  }
+
+  private func clearCatalog() {
+    catalogStore.clear()
     catalog = .empty
     lastCatalogRefresh = nil
+    agentModels = [:]
     Task { PipperRemoteShortcuts.updateAppShortcutParameters() }
   }
 
