@@ -272,7 +272,59 @@ body {
   background: var(--surface-3);
   border: 1px solid rgb(255 255 255 / 0.08);
   border-radius: 28px;
-  padding: 6px 6px 6px 18px;
+  padding: 6px 6px 6px 6px;
+}
+.composer-attach {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.composer-attach:disabled {
+  opacity: 0.4;
+}
+/* Attached-image thumbnails above the composer bar. */
+.image-tray {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 4px 10px;
+}
+.image-chip {
+  position: relative;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-3);
+  border: 1px solid rgb(255 255 255 / 0.08);
+}
+.image-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.image-chip-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.65);
+  color: var(--ink);
+  cursor: pointer;
 }
 .composer-bar input {
   flex: 1;
@@ -483,6 +535,69 @@ body {
 .pair-btn.ghost {
   background: var(--surface-3);
   color: var(--ink);
+}
+
+/* Where prompts go: always visible, so a switched laptop can't go unnoticed. */
+.header-laptop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 60vw;
+  margin-left: 8px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.header-laptop span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-laptop svg {
+  flex-shrink: 0;
+  color: var(--good);
+}
+
+/* Pairing confirmation: who the laptop is, before anything is sent to it. */
+.confirm-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-4);
+}
+.confirm-card p {
+  margin: 0;
+}
+.confirm-laptop {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.confirm-host {
+  font-size: 12px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+.confirm-owner {
+  color: var(--ink-dim);
+}
+.confirm-owner.good svg {
+  color: var(--good);
+  vertical-align: -3px;
+}
+.confirm-hint {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.notice svg {
+  vertical-align: -3px;
 }
 
 .remote-decision {

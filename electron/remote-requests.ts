@@ -9,6 +9,18 @@ interface Receipt extends RemoteRequestStatus {
   createdAt: number;
 }
 
+export type RemoteRequestReceipt = Receipt;
+
+/**
+ * A pre-dispatch failure whose message was written for the user. Any other
+ * error is logged on the laptop and stored as a generic message, so a phone
+ * never learns internal paths or stack details.
+ */
+export class RemoteTaskError extends Error {}
+
+const GENERIC_PREPARE_ERROR =
+  "Pipper couldn't prepare this task, so nothing was started. Check Pipper on your Mac.";
+
 export class RemoteRequestError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -150,11 +162,14 @@ export class RemoteRequests {
         return accepted;
       } catch (error) {
         this.active.delete(id);
+        if (!(error instanceof RemoteTaskError)) {
+          console.error(`[Remote] request ${id} failed before dispatch:`, error);
+        }
         const failed: Receipt = {
           ...receipt,
           state: "failed",
           updatedAt: Date.now(),
-          error: error instanceof Error ? error.message : String(error),
+          error: error instanceof RemoteTaskError ? error.message : GENERIC_PREPARE_ERROR,
         };
         this.save(failed);
         return failed;

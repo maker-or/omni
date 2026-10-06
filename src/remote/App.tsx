@@ -1,52 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { List, PaperPlaneTilt, Plus, QrCode } from "@phosphor-icons/react";
+import { CheckCircle, ImageSquare, List, PaperPlaneTilt, Plus } from "@phosphor-icons/react";
 import { Elevated } from "@/lib/elevated";
 import { acknowledgeSubmission, submissionId } from "./submissions.ts";
 import { PhoneMarkdown } from "./markdown.tsx";
+import {
+  ImageTray,
+  PHONE_IMAGE_ACCEPT,
+  prepareImages,
+  releaseImages,
+  type PhoneImage,
+} from "./attachments.tsx";
+import { MAX_PROMPT_IMAGES } from "../../contracts/prompt-images.ts";
 import { groupModelsByProvider } from "./model-groups.ts";
 import type {
+  RemoteDevice,
   RemoteDiagnostics,
   RemoteModel,
   RemoteProject,
   RemoteReport,
   RemoteThreadSummary,
 } from "../../contracts/remote.ts";
-
-const TOKEN_KEY = "omni:remote-token";
-
-class RemoteApiError extends Error {
-  readonly retryable: boolean;
-  constructor(message: string, retryable = false) {
-    super(message);
-    this.retryable = retryable;
-  }
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem(TOKEN_KEY) ?? "";
-  const res = await fetch(path, {
-    signal: AbortSignal.timeout(15_000),
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; retryable?: boolean };
-    if (res.status === 401)
-      throw new Error(
-        "Pairing was rejected. Open History and pair again with the token from your Mac.",
-      );
-    throw new RemoteApiError(
-      body.error ?? `Your Mac returned an error (${res.status}).`,
-      body.retryable === true,
-    );
-  }
-  return (await res.json()) as T;
-}
+import {
+  IS_HOSTED_APP,
+  RemoteApiError,
+  UNPAIRED_EVENT,
+  api,
+  currentLaptop,
+  forgetCurrentLaptop,
+  listLaptops,
+  parsePairingLink,
+  switchLaptop,
+} from "./api.ts";
+import { PairScreen } from "./pair-screen.tsx";
+import { ConfirmPairing } from "./confirm-pairing.tsx";
+import { laptopLabel } from "./laptops.ts";
 
 export function RemoteApp() {
   const [projects, setProjects] = useState<RemoteProject[]>([]);
@@ -58,10 +46,13 @@ export function RemoteApp() {
   const [report, setReport] = useState<RemoteReport | null>(null);
   const [sidebar, setSidebar] = useState(false);
   const [draft, setDraft] = useState("");
-  const [paired, setPaired] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
-  const [tokenInput, setTokenInput] = useState("");
+  // The laptop this screen talks to; null = not paired with any.
+  const [laptopId, setLaptopId] = useState<string | null>(() => currentLaptop()?.id ?? null);
+  const [addingLaptop, setAddingLaptop] = useState(false);
+  const paired = laptopId !== null;
+  const [pairNotice, setPairNotice] = useState<string | null>(null);
+  const [device, setDevice] = useState<RemoteDevice | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const sendInflight = useRef(false);
@@ -69,44 +60,121 @@ export function RemoteApp() {
   const [diagnostics, setDiagnostics] = useState<RemoteDiagnostics | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [lastConnected, setLastConnected] = useState<number | null>(null);
+  const [images, setImages] = useState<PhoneImage[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Optimistic follow-up, scoped to its thread: `known` counts how many
   // identical user messages the report already had at send time, so a repeat
   // of an earlier message can't be "confirmed" by the old entry, and a fast
   // agent reply after the user entry still confirms (match anywhere, not tail).
-  const [pending, setPending] = useState<{ text: string; threadId: string; known: number } | null>(
-    null,
-  );
+  const [pending, setPending] = useState<{
+    text: string;
+    threadId: string;
+    known: number;
+    imageCount: number;
+  } | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Signature of the visible chat: scroll only when this actually changes,
   // and only when the user is already near the bottom (sticky-bottom).
   const chatSig = useRef("");
-  const refreshInflight = useRef(false);
+  /** Laptop a refresh is in flight for; a switch must not wait on the old one. */
+  const refreshInflight = useRef<string | null>(null);
 
-  // Scanned QR opens /remote#token=… — auto-save so scan = paired.
+  // A scanned QR opens …#pair=CODE[&host=…]. Never redeem it automatically:
+  // anyone can send a link, and pairing makes that laptop the destination
+  // for this phone's prompts. Show who it is and let the user decide. The
+  // code is single-use, so drop it from the URL (and history) right away. A
+  // link opened in an already-open tab only changes the hash, so listen too.
+  const [pendingPair, setPendingPair] = useState<{ code: string; host: string | null } | null>(
+    null,
+  );
   useEffect(() => {
-    const hash = window.location.hash;
-    const match = hash.match(/token=([A-Za-z0-9]+)/);
-    if (match?.[1]) {
-      localStorage.setItem(TOKEN_KEY, match[1]);
-      setPaired(true);
+    const takeFromHash = () => {
+      const link = parsePairingLink(window.location.hash);
+      if (!link) return;
       window.history.replaceState(null, "", window.location.pathname);
-    }
+      setPendingPair(link);
+    };
+    takeFromHash();
+    window.addEventListener("hashchange", takeFromHash);
+    return () => window.removeEventListener("hashchange", takeFromHash);
   }, []);
+
+  // The laptop rejected our token: it was revoked there or expired.
+  useEffect(() => {
+    const onUnpaired = () => {
+      // Another paired laptop (hosted app) takes over; otherwise back to pairing.
+      setLaptopId(currentLaptop()?.id ?? null);
+      setPairNotice("A laptop removed this phone (or its access expired). Pair again to use it.");
+    };
+    window.addEventListener(UNPAIRED_EVENT, onUnpaired);
+    return () => window.removeEventListener(UNPAIRED_EVENT, onUnpaired);
+  }, []);
+
+  // Switching laptops (or losing one) starts from a clean screen: nothing
+  // chosen or attached for the previous laptop may be sent to the next one.
+  // Drafts are kept per laptop, so text meant for one is never sent to
+  // another, and a send that fails after a switch lands back in its own
+  // laptop's draft (with a notice) instead of being lost.
+  const imagesRef = useRef(images);
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  const draftsByLaptop = useRef(new Map<string, string>());
+  const unsentNotices = useRef(new Map<string, string>());
+  const shownLaptop = useRef(laptopId);
+  useEffect(() => {
+    const previous = shownLaptop.current;
+    shownLaptop.current = laptopId;
+    if (previous && previous !== laptopId) draftsByLaptop.current.set(previous, draftRef.current);
+    const key = laptopId ?? "";
+    setDraft(draftsByLaptop.current.get(key) ?? (previous === laptopId ? draftRef.current : ""));
+    draftsByLaptop.current.delete(key);
+    const notice = unsentNotices.current.get(key) ?? null;
+    unsentNotices.current.delete(key);
+    setSendError(notice);
+    setActiveId(null);
+    setReport(null);
+    setProjects([]);
+    setModels([]);
+    setThreads([]);
+    setDevice(null);
+    setDiagnostics(null);
+    setLastConnected(null);
+    setPending(null);
+    setProjectId("");
+    setModelId("");
+    releaseImages(imagesRef.current);
+    setImages([]);
+    setLoadError(null);
+  }, [laptopId]);
 
   const refresh = useCallback(async () => {
     if (!paired) return;
-    // Poll overlap guard: a slow laptop must not stack concurrent refreshes.
-    if (refreshInflight.current) return;
-    refreshInflight.current = true;
+    const target = currentLaptop()?.id ?? null;
+    // Poll overlap guard: a slow laptop must not stack concurrent refreshes
+    // (per laptop, so a switch isn't blocked by the old laptop's request).
+    if (refreshInflight.current === target) return;
+    refreshInflight.current = target;
+    const stillCurrent = () => (currentLaptop()?.id ?? null) === target;
     try {
-      const [p, m, t, d] = await Promise.all([
+      const [s, p, m, t, d] = await Promise.all([
+        api<{ device: RemoteDevice }>("/api/remote/session"),
         api<{ projects: RemoteProject[] }>("/api/remote/projects"),
         api<{ models: RemoteModel[] }>("/api/remote/models"),
         api<{ threads: RemoteThreadSummary[] }>("/api/remote/threads"),
-        api<RemoteDiagnostics>("/api/remote/diagnostics"),
+        // Laptops on builds before diagnostics existed answer 404; that's fine.
+        api<RemoteDiagnostics>("/api/remote/diagnostics").catch(() => null),
       ]);
+      // The user switched laptops meanwhile: never paint the old one's data.
+      if (!stillCurrent()) return;
+      setDevice(s.device);
       setDiagnostics(d);
       setLastConnected(Date.now());
       setProjects(p.projects);
@@ -114,15 +182,17 @@ export function RemoteApp() {
       setThreads(t.threads);
       setLoadError(
         p.projects.length === 0 && m.models.length === 0
-          ? "Add a Git project and select an installed coding agent in Pipper on your Mac."
+          ? "Add a Git project and select an installed coding agent in Pipper on your laptop."
           : null,
       );
     } catch (err) {
-      setLoadError(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (stillCurrent()) {
+        setLoadError(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
-      refreshInflight.current = false;
+      if (refreshInflight.current === target) refreshInflight.current = null;
     }
-  }, [paired]);
+  }, [paired, laptopId]);
 
   useEffect(() => {
     void refresh();
@@ -173,64 +243,58 @@ export function RemoteApp() {
     };
   }, [activeId, paired, refresh]);
 
-  const scanQr = async () => {
-    setScanError(null);
+  const attachFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const target = currentLaptop()?.id ?? null;
+    setAttaching(true);
+    setSendError(null);
     try {
-      const Detector = (
-        window as unknown as {
-          BarcodeDetector?: new (opts: { formats: string[] }) => {
-            detect(v: HTMLVideoElement): Promise<Array<{ rawValue: string }>>;
-          };
-        }
-      ).BarcodeDetector;
-      if (!Detector) {
-        setScanError("Camera scan not supported here — paste the token instead.");
+      const prepared = await prepareImages(files, images.length);
+      // Switched laptops while preparing: these were picked for the previous
+      // one and must not appear in (and be sent to) the new one's composer.
+      if ((currentLaptop()?.id ?? null) !== target) {
+        releaseImages(prepared.images);
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      try {
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        await video.play();
-        const detector = new Detector({ formats: ["qr_code"] });
-        const deadline = Date.now() + 30_000;
-        let found: string | null = null;
-        while (Date.now() < deadline && !found) {
-          const codes = await detector.detect(video).catch(() => []);
-          found = codes[0]?.rawValue ?? null;
-          if (!found) await new Promise((r) => setTimeout(r, 300));
-        }
-        const token = found?.match(/token=([A-Za-z0-9]+)/)?.[1];
-        if (token) {
-          localStorage.setItem(TOKEN_KEY, token);
-          setPaired(true);
-        } else {
-          setScanError("No QR found in 30s — try again or paste the token.");
-        }
-      } finally {
-        stream.getTracks().forEach((t) => t.stop());
-      }
-    } catch {
-      setScanError("Camera unavailable — paste the token instead.");
+      setImages((current) => [...current, ...prepared.images]);
+      if (prepared.errors.length) setSendError(prepared.errors.join(" "));
+    } finally {
+      setAttaching(false);
     }
+  };
+
+  const removeImage = (id: string) => {
+    releaseImages(images.filter((image) => image.id === id));
+    setImages((current) => current.filter((image) => image.id !== id));
   };
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sendInflight.current || report?.running) return;
+    if (!text || sendInflight.current || attaching || report?.running) return;
     sendInflight.current = true;
+    // Images stay in the tray until the laptop accepts them, so a failed
+    // send can simply be retried.
+    const sentImages = images;
+    const payload = sentImages.map(({ data, mimeType }) => ({ data, mimeType }));
+    // Everything after an await checks we're still on the laptop this went
+    // to: a late reply must not touch the next laptop's screen or composer.
+    const sentTo = currentLaptop()?.id ?? null;
+    const stillHere = () => (currentLaptop()?.id ?? null) === sentTo;
     setSending(true);
     setSendError(null);
     // Move the draft into the optimistic bubble immediately; on failure it
     // is restored below so nothing the user typed is ever lost.
     setDraft("");
-    let submitted: { scope: string[]; id: string } | null = null;
+    // One request id per distinct send, kept until the laptop answers, so a
+    // retry after a dropped reply can't start the same task twice.
+    const scope = [
+      sentTo ?? "",
+      ...(activeId ? ["prompt", activeId] : ["create", projectId, modelId]),
+      text,
+      ...sentImages.map((image) => image.id),
+    ];
+    const requestId = submissionId(localStorage, scope);
     try {
-      const scope = activeId ? ["prompt", activeId, text] : ["create", projectId, modelId, text];
-      const requestId = submissionId(localStorage, scope);
-      submitted = { scope, id: requestId };
       if (!activeId) {
         if (!projectId || !modelId) {
           setDraft(text);
@@ -238,36 +302,64 @@ export function RemoteApp() {
         }
         const created = await api<{ thread: RemoteThreadSummary }>("/api/remote/threads", {
           method: "POST",
-          body: JSON.stringify({ requestId, projectId, modelId, prompt: text }),
+          body: JSON.stringify({ requestId, projectId, modelId, prompt: text, images: payload }),
         });
-        setActiveId(created.thread.id);
-        setPending({ text, threadId: created.thread.id, known: 0 });
+        // Switched laptops while this was in flight: the thread lives on the
+        // previous laptop, so don't open it under the new one's name.
+        if (stillHere()) {
+          setActiveId(created.thread.id);
+          setPending({ text, threadId: created.thread.id, known: 0, imageCount: payload.length });
+        }
       } else {
         // Optimistic: show the bubble instantly; poll confirms delivery.
         const known = (report?.messages ?? []).filter(
           (m) => m.role === "user" && m.text === text,
         ).length;
-        setPending({ text, threadId: activeId, known });
+        setPending({ text, threadId: activeId, known, imageCount: payload.length });
         await api(`/api/remote/threads/${activeId}/prompt`, {
           method: "POST",
-          body: JSON.stringify({ requestId, prompt: text }),
+          body: JSON.stringify({ requestId, prompt: text, images: payload }),
         });
       }
       acknowledgeSubmission(localStorage, scope, requestId);
-      void refresh();
+      // Remove exactly what was sent — not images attached since (or on
+      // another laptop after a switch).
+      releaseImages(sentImages);
+      const sent = new Set(sentImages.map((image) => image.id));
+      setImages((current) => current.filter((image) => !sent.has(image.id)));
+      if (stillHere()) void refresh();
     } catch (err) {
-      if (submitted && err instanceof RemoteApiError && err.retryable) {
-        acknowledgeSubmission(localStorage, submitted.scope, submitted.id);
+      // The laptop confirmed nothing ran: a retry may start fresh.
+      if (err instanceof RemoteApiError && err.retryable) {
+        acknowledgeSubmission(localStorage, scope, requestId);
       }
-      setDraft(text);
-      setPending(null);
-      setSendError(`Send failed: ${err instanceof Error ? err.message : String(err)}`);
+      const reason = err instanceof Error ? err.message : String(err);
+      if (stillHere()) {
+        // Restore the text unless something new was typed meanwhile.
+        setDraft((current) => (current.trim() ? current : text));
+        setPending(null);
+        setSendError(`Send failed: ${reason}`);
+      } else {
+        // The user moved to another laptop: put the text back into *this*
+        // laptop's draft, never the current composer, and say so on return.
+        const key = sentTo ?? "";
+        const saved = draftsByLaptop.current.get(key);
+        const boxTaken = Boolean(saved?.trim());
+        if (!boxTaken) draftsByLaptop.current.set(key, text);
+        unsentNotices.current.set(
+          key,
+          boxTaken
+            ? `Your last message didn't send (${reason}): "${text}"`
+            : `Your last message didn't send (${reason}). It's back in the box.`,
+        );
+      }
     } finally {
       setSending(false);
       sendInflight.current = false;
     }
   };
 
+  /** Stop the open thread, or answer one of its permission requests. */
   const control = async (decisionId?: string, optionId?: string) => {
     if (!activeId || controlling) return;
     const threadId = activeId;
@@ -282,9 +374,7 @@ export function RemoteApp() {
       void refresh();
     } catch (error) {
       setSendError(
-        error instanceof Error
-          ? error.message
-          : "Couldn't reach your Mac. Check Tailscale and retry.",
+        error instanceof Error ? error.message : "Couldn't reach your laptop. Try again.",
       );
     } finally {
       setControlling(false);
@@ -313,6 +403,7 @@ export function RemoteApp() {
   }, [pendingConfirmed]);
   const pendingVisible =
     pending && !pendingConfirmed && pending.threadId === activeId ? pending.text : null;
+  const pendingImageCount = pendingVisible ? (pending?.imageCount ?? 0) : 0;
   useEffect(() => {
     // Sticky-bottom: never yank a user who scrolled up to read. Only scroll
     // when the chat actually grew AND the user was already near the bottom
@@ -335,37 +426,55 @@ export function RemoteApp() {
     }
   }, [confirmedTail, pendingVisible, report?.running, report?.messages.length, activeId]);
 
-  if (!paired) {
+  if (pendingPair) {
     return (
-      <main className="pair-wrap">
-        <h1>Pipper Remote</h1>
-        <p>
-          Keep Pipper open on your Mac and connect both devices to Tailscale. Paste the token from
-          Settings → Remote access, or scan its QR.
-        </p>
-        <input
-          className="pair-input"
-          value={tokenInput}
-          onChange={(e) => setTokenInput(e.target.value)}
-          placeholder="Pairing token"
-          inputMode="text"
-        />
-        <button
-          className="pair-btn"
-          onClick={() => {
-            localStorage.setItem(TOKEN_KEY, tokenInput.trim());
-            setPaired(true);
-          }}
-        >
-          Pair
-        </button>
-        <button className="pair-btn ghost" onClick={() => void scanQr()}>
-          <QrCode size={18} style={{ verticalAlign: "-3px" }} /> Scan QR instead
-        </button>
-        {scanError && <p className="notice bad">{scanError}</p>}
-      </main>
+      <ConfirmPairing
+        key={`${pendingPair.host}:${pendingPair.code}`}
+        code={pendingPair.code}
+        host={pendingPair.host}
+        onCancel={() => setPendingPair(null)}
+        onPaired={() => {
+          setPendingPair(null);
+          setPairNotice(null);
+          setAddingLaptop(false);
+          setLaptopId(currentLaptop()?.id ?? null);
+        }}
+      />
     );
   }
+
+  if (!paired || addingLaptop) {
+    return (
+      <PairScreen
+        notice={pairNotice}
+        hosted={IS_HOSTED_APP}
+        onScanned={(link) => setPendingPair(link)}
+        onCancel={paired ? () => setAddingLaptop(false) : undefined}
+        onPaired={() => {
+          setPairNotice(null);
+          setAddingLaptop(false);
+          setLaptopId(currentLaptop()?.id ?? null);
+        }}
+      />
+    );
+  }
+
+  const canRun = device ? device.scopes.includes("run") : true;
+  const laptops = listLaptops();
+  // Re-read on every render so the header always names the real destination.
+  const active = currentLaptop();
+  const unpair = async () => {
+    // Revoke on the laptop too, so the token is dead even if it leaked.
+    await api("/api/remote/session", { method: "DELETE" }).catch(() => undefined);
+    forgetCurrentLaptop();
+    setSidebar(false);
+    setLaptopId(currentLaptop()?.id ?? null);
+  };
+  const openLaptop = (id: string) => {
+    switchLaptop(id);
+    setSidebar(false);
+    setLaptopId(id);
+  };
 
   return (
     <div className="remote-shell">
@@ -378,6 +487,17 @@ export function RemoteApp() {
         >
           <List size={22} />
         </button>
+        {active && (
+          <button
+            className="header-laptop"
+            aria-label={`Sending to ${laptopLabel(active)}`}
+            title="Where your prompts go"
+            onClick={() => setSidebar(true)}
+          >
+            {active.owner && <CheckCircle size={14} weight="fill" />}
+            <span>{laptopLabel(active)}</span>
+          </button>
+        )}
         <span className="header-spacer" />
         <button className="header-btn" aria-label="New chat" disabled={sending} onClick={newChat}>
           <Plus size={22} />
@@ -419,14 +539,33 @@ export function RemoteApp() {
               ) : (
                 <p className="remote-hint">No work yet — start a chat with ＋</p>
               )}
-              <button
-                className="unpair-btn"
-                onClick={() => {
-                  localStorage.removeItem(TOKEN_KEY);
-                  setPaired(false);
-                }}
-              >
-                Unpair / enter new token
+              {laptops.length > 1 && (
+                <div className="laptop-list">
+                  <p className="remote-hint">Laptops</p>
+                  {laptops.map((l) => (
+                    <button
+                      key={l.id}
+                      className={`thread-row${l.id === laptopId ? " active" : ""}`}
+                      onClick={() => openLaptop(l.id)}
+                    >
+                      {laptopLabel(l)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {IS_HOSTED_APP && (
+                <button
+                  className="unpair-btn"
+                  onClick={() => {
+                    setSidebar(false);
+                    setAddingLaptop(true);
+                  }}
+                >
+                  Pair another laptop
+                </button>
+              )}
+              <button className="unpair-btn" onClick={() => void unpair()}>
+                Unpair this phone{device ? ` (${device.name})` : ""}
               </button>
             </motion.aside>
           </>
@@ -434,11 +573,7 @@ export function RemoteApp() {
       </AnimatePresence>
 
       <div className="remote-body" ref={bodyRef}>
-        {loadError && (
-          <p className="notice bad">
-            {loadError} Keep Pipper open and check Tailscale on both devices.
-          </p>
-        )}
+        {loadError && <p className="notice bad">{loadError}</p>}
         {!activeId && (
           <section aria-label="Connection checks">
             <button className="pair-btn ghost" onClick={() => void refresh()}>
@@ -456,14 +591,15 @@ export function RemoteApp() {
               </p>
             )}
             {diagnostics?.availableAgents === 0 && (
-              <p className="notice warn">Install and select an agent in Pipper on your Mac.</p>
+              <p className="notice warn">Install and select an agent in Pipper on your laptop.</p>
             )}
             {diagnostics?.projects === 0 && (
-              <p className="notice warn">Add a Git project in Pipper on your Mac.</p>
+              <p className="notice warn">Add a Git project in Pipper on your laptop.</p>
             )}
             <button
               className="pair-btn ghost"
               disabled={
+                !canRun ||
                 !projectId ||
                 !modelId ||
                 !!loadError ||
@@ -534,8 +670,7 @@ export function RemoteApp() {
               <>
                 {reportError && (
                   <p className="notice warn">
-                    {reportError} Showing the last update; check Tailscale and keep Pipper open on
-                    your Mac.
+                    Couldn't refresh — showing the last update. Keep Pipper open on your laptop.
                   </p>
                 )}
                 <details className="remote-card thread-meta">
@@ -579,7 +714,7 @@ export function RemoteApp() {
                       <button
                         className="pair-btn ghost"
                         key={option.optionId}
-                        disabled={controlling || !!reportError}
+                        disabled={!canRun || controlling || !!reportError}
                         onClick={() => void control(decision.id, option.optionId)}
                       >
                         {option.name}
@@ -587,14 +722,14 @@ export function RemoteApp() {
                     ))}
                     <button
                       className="pair-btn ghost"
-                      disabled={controlling || !!reportError}
+                      disabled={!canRun || controlling || !!reportError}
                       onClick={() => void control(decision.id)}
                     >
                       Dismiss request
                     </button>
                   </Elevated>
                 ))}
-                {(report.running || !!report.permissions?.length) && (
+                {canRun && (report.running || !!report.permissions?.length) && (
                   <button
                     className="pair-btn ghost"
                     disabled={controlling}
@@ -618,6 +753,11 @@ export function RemoteApp() {
                 {pendingVisible && (
                   <div className="bubble me pending">
                     <p>{pendingVisible}</p>
+                    {pendingImageCount > 0 && (
+                      <span className="bubble-state">
+                        {pendingImageCount === 1 ? "1 image" : `${pendingImageCount} images`}
+                      </span>
+                    )}
                     <span className="bubble-state">
                       {sending ? "Sending…" : "Sent · waiting for laptop…"}
                     </span>
@@ -648,12 +788,36 @@ export function RemoteApp() {
       )}
 
       <footer className="remote-composer">
+        <ImageTray images={images} onRemove={removeImage} />
         <div className="composer-bar">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={PHONE_IMAGE_ACCEPT}
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              void attachFiles(files);
+            }}
+          />
+          <button
+            type="button"
+            className="composer-attach"
+            aria-label="Attach images"
+            disabled={!canRun || attaching || sending || images.length >= MAX_PROMPT_IMAGES}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <ImageSquare size={22} />
+          </button>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder={!activeId ? "Pick project + model first…" : "Follow up…"}
-            disabled={!activeId && (!projectId || !modelId)}
+            placeholder={
+              !canRun ? "Read-only phone" : !activeId ? "Pick project + model first…" : "Follow up…"
+            }
+            disabled={!canRun || (!activeId && (!projectId || !modelId))}
             onKeyDown={(e) => {
               if (e.key === "Enter") void send();
             }}
@@ -662,7 +826,7 @@ export function RemoteApp() {
             className="composer-send"
             onClick={() => void send()}
             aria-label="Send"
-            disabled={!draft.trim() || sending || report?.running === true}
+            disabled={!canRun || !draft.trim() || sending || attaching || report?.running === true}
             whileTap={{ scale: 0.9 }}
             transition={{ duration: 0.08 }}
           >

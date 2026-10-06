@@ -9,6 +9,7 @@
     "postinstall": "install-electron && node scripts/prepare-pty.mjs",
     "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'});require('fs').chmodSync('.githooks/pre-commit',0o755)}catch{}\"",
     "build": "node scripts/build.js",
+    "build:remote-web": "bunx --bun vite build --config vite.remote-web.config.ts",
     "dist": "bun run build && electron-builder --mac --arm64 --publish never",
     "dist:win": "bun run build && electron-builder --win --x64 --publish never",
     "package:mac": "electron-builder --mac --arm64 --publish never",

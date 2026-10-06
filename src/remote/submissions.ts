@@ -2,7 +2,7 @@ const KEY = "omni:remote-pending-submissions";
 type Pending = Record<string, string>;
 
 /** Keep uncertain submissions across reloads; only an acknowledgement clears them.
- * getRandomValues also works on the HTTP Tailscale origin (randomUUID does not).
+ * getRandomValues also works on plain-HTTP origins (randomUUID does not).
  */
 export function submissionId(storage: Storage, scope: string[]): string {
   const pending: Pending = JSON.parse(storage.getItem(KEY) ?? "{}");

@@ -48,6 +48,12 @@ import type {
 import type { MonitorService } from "./monitor/service.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
 import type {
+  RemoteDevicesState,
+  RemotePairingOffer,
+  RemoteServerInfo,
+  RemoteTransport,
+} from "../contracts/remote.ts";
+import type {
   ThreadBenchmarkIngestedTurn,
   ThreadBenchmarkMode,
   ThreadBenchmarkOpenPath,
@@ -117,14 +123,26 @@ const api = {
     },
   },
   remote: {
-    getInfo: (): Promise<{
-      enabled: boolean;
-      port: number | null;
-      token: string | null;
-      pairingUrl: string | null;
-    }> => ipcRenderer.invoke("remote:getInfo"),
-    regenerateToken: (): Promise<{ token: string | null; pairingUrl: string | null }> =>
-      ipcRenderer.invoke("remote:regenerateToken"),
+    getInfo: (): Promise<RemoteServerInfo> => ipcRenderer.invoke("remote:getInfo"),
+    setTransport: (transport: RemoteTransport): Promise<RemoteServerInfo | null> =>
+      ipcRenderer.invoke("remote:setTransport", transport),
+    onInfoChanged: (callback: (info: RemoteServerInfo) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, info: RemoteServerInfo) =>
+        callback(info);
+      ipcRenderer.on("remote:infoChanged", listener);
+      return () => ipcRenderer.removeListener("remote:infoChanged", listener);
+    },
+    getDevices: (): Promise<RemoteDevicesState | null> => ipcRenderer.invoke("remote:getDevices"),
+    createPairing: (options: { allowRun: boolean }): Promise<RemotePairingOffer | null> =>
+      ipcRenderer.invoke("remote:createPairing", options),
+    cancelPairing: (): Promise<void> => ipcRenderer.invoke("remote:cancelPairing"),
+    revokeDevice: (id: string): Promise<boolean> => ipcRenderer.invoke("remote:revokeDevice", id),
+    onDevicesChanged: (callback: (state: RemoteDevicesState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: RemoteDevicesState) =>
+        callback(state);
+      ipcRenderer.on("remote:devicesChanged", listener);
+      return () => ipcRenderer.removeListener("remote:devicesChanged", listener);
+    },
     setStandby: (active: boolean): Promise<void> => ipcRenderer.invoke("remote:setStandby", active),
   },
   launcherUpdate: {
