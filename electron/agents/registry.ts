@@ -48,7 +48,7 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     docsUrl: "https://cursor.com/docs/cli/acp",
     authHint: "Run `agent login` in your terminal (or set CURSOR_API_KEY) before connecting.",
     installHint:
-      "Install Cursor CLI, then ensure `agent` is on your PATH (often ~/.local/bin/agent).",
+      "Install the Cursor CLI (no GUI needed): `curl https://cursor.com/install -fsS | bash`, then ensure `agent` is on your PATH.",
     installKind: "binary",
     detectCommands: ["agent"],
   },
@@ -61,8 +61,10 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: [],
     icon: "openai-codex",
     docsUrl: "https://github.com/agentclientprotocol/codex-acp",
-    authHint: "Sign in with ChatGPT or provide CODEX_API_KEY / OPENAI_API_KEY.",
-    installHint: "npm install -g @agentclientprotocol/codex-acp  (or use npx on first launch)",
+    authHint:
+      "Run `codex` once and choose Sign in with ChatGPT (or set CODEX_API_KEY / OPENAI_API_KEY).",
+    installHint:
+      "Install the Codex CLI (no GUI needed): `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then run `codex` once to sign in. Pipper connects over ACP automatically.",
     installKind: "npx",
     npmPackage: "@agentclientprotocol/codex-acp",
     detectCommands: ["codex-acp"],
@@ -76,9 +78,9 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: [],
     icon: "anthropic",
     docsUrl: "https://github.com/agentclientprotocol/claude-agent-acp",
-    authHint: "Authenticate Claude Code / set ANTHROPIC_API_KEY before connecting.",
+    authHint: "Run `claude` once and complete the login prompt (or set ANTHROPIC_API_KEY).",
     installHint:
-      "npm install -g @agentclientprotocol/claude-agent-acp  (or use npx on first launch)",
+      "Install the Claude CLI (no GUI needed): `curl -fsSL https://claude.ai/install.sh | bash` (native install auto-updates). Pipper connects over ACP automatically.",
     installKind: "npx",
     npmPackage: "@agentclientprotocol/claude-agent-acp",
     detectCommands: ["claude-agent-acp"],
@@ -107,8 +109,10 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: ["agent", "stdio"],
     icon: "xai",
     docsUrl: "https://www.npmjs.com/package/@xai-official/grok",
-    authHint: "Run `grok login` to sign in with your xAI account before connecting.",
-    installHint: "npm install -g @xai-official/grok  (or use npx on first launch)",
+    authHint:
+      "Run `grok login` to sign in via browser (or `grok login --device-auth` on headless machines).",
+    installHint:
+      "Install the Grok CLI (no GUI needed): `curl -fsSL https://x.ai/cli/install.sh | bash`, then verify with `grok --version`.",
     installKind: "npx",
     npmPackage: "@xai-official/grok",
     detectCommands: ["grok"],
@@ -484,6 +488,16 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
   // Drop ambient provider credentials for isolated accounts so the child can't
   // authenticate as the machine's default login instead of the chosen account.
   for (const name of agent.unsetEnv ?? []) delete env[name];
+  // `bun run --bun` prepends a temp dir whose `node` symlinks to bun. npx-based
+  // agents are `#!/usr/bin/env node` scripts; run under bun, npm derives its
+  // global prefix from the bun binary (~/.bun) and fails with ENOENT on
+  // ~/.bun/lib. Strip the shim so agents run under real node.
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const sep = process.platform === "win32" ? ";" : ":";
+  env[pathKey] = (env[pathKey] ?? env.PATH ?? "")
+    .split(sep)
+    .filter((dir) => !/[\\/]bun-node-[^\\/]+$/.test(dir))
+    .join(sep);
 
   if (agent.id === "pipper-mock" || agent.installKind === "mock") {
     const mockPath = join(registryDir, "mock-agent.mjs");

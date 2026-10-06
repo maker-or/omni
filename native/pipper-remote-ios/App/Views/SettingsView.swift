@@ -1,0 +1,203 @@
+import AppIntents
+import SwiftUI
+
+struct SettingsView: View {
+  @Environment(RemoteSession.self) private var session
+  @Environment(\.dismiss) private var dismiss
+  @State private var refreshing = false
+  @State private var unpairing = false
+  /// Shown as a tab rather than a sheet, so there's nothing to dismiss.
+  var inTab = false
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Mac") {
+          LabeledContent("Name", value: session.config?.laptopName ?? "—")
+          LabeledContent("Address", value: session.config?.address ?? "—")
+          if let owner = session.config?.owner {
+            Label("Belongs to \(owner.label) — verified by Pipper", systemImage: "checkmark.seal.fill")
+              .foregroundStyle(.green)
+          }
+          if let device = session.config?.deviceName {
+            LabeledContent("This phone", value: device)
+          }
+        }
+        ConnectionCheckView()
+        Section {
+          Button {
+            Task {
+              refreshing = true
+              await session.refreshCatalog()
+              refreshing = false
+            }
+          } label: {
+            HStack {
+              Text("Refresh catalog")
+              Spacer()
+              if refreshing { ProgressView() }
+            }
+          }
+          if let err = session.catalogError {
+            Text(err).font(.footnote).foregroundStyle(.red)
+          }
+          if let last = session.lastCatalogRefresh {
+            LabeledContent("Updated", value: last.formatted(date: .abbreviated, time: .shortened))
+          }
+        } header: {
+          Text("Siri catalog")
+        } footer: {
+          Text("Siri resolves project and agent names from this cached list, so it works even when the Mac is asleep. It refreshes automatically when the app opens.")
+        }
+        Section("Projects (\(session.catalog.projects.count))") {
+          ForEach(session.catalog.projects) { p in
+            VStack(alignment: .leading) {
+              Text(p.name)
+              Text(p.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+          }
+        }
+        Section("Agents") {
+          ForEach(session.catalog.agents) { a in
+            HStack {
+              Text(a.displayName)
+              if a.id == session.catalog.defaultAgentId {
+                Text("default").font(.caption).foregroundStyle(.secondary)
+              }
+              Spacer()
+              Text(a.available ? "available" : "not installed")
+                .font(.caption)
+                .foregroundStyle(a.available ? .green : .secondary)
+            }
+          }
+        }
+        Section("Siri") {
+          ShortcutsLink()
+          Text("Try: “Start a Pipper thread in \(session.catalog.projects.first?.name ?? "FolkLore") with \(session.catalog.preferredAgent?.displayName ?? "Codex")”")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+        Section {
+          Button(role: .destructive) {
+            Task {
+              unpairing = true
+              await session.unpair()
+              unpairing = false
+              dismiss()
+            }
+          } label: {
+            HStack {
+              Text("Unpair")
+              Spacer()
+              if unpairing { ProgressView() }
+            }
+          }
+          .disabled(unpairing)
+        } footer: {
+          Text("Removes this phone from your Mac too, so its access ends everywhere.")
+        }
+      }
+      .navigationTitle("Settings")
+      .toolbar {
+        if !inTab {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+          }
+        }
+      }
+    }
+  }
+
+ }
+
+/// Shared by setup and settings; authentication is checked by diagnostics,
+/// unlike the public reachability endpoint.
+struct ConnectionCheckView: View {
+  @Environment(RemoteSession.self) private var session
+  @State private var diagnostics: RemoteDiagnostics?
+  @State private var error: String?
+  @State private var checking = false
+  @State private var checkedAt: Date?
+  @State private var showSample = false
+  /// The Mac answered but predates /api/remote/diagnostics (404). The
+  /// pairing works; only the newer endpoints are missing.
+  @State private var macOutdated = false
+
+  var body: some View {
+    Section("Connection checks") {
+      // Modifiers on a Section inside a List/Form are applied to every row,
+      // which would register one sheet (and one task) per row. Anchor them to
+      // this always-present row instead.
+      Button(checking ? "Checking…" : "Test connection") { Task { await check() } }
+        .disabled(checking)
+        .task { await check() }
+        .sheet(isPresented: $showSample) {
+          NewThreadSheet(onCreated: { thread in
+            session.lastSiriThreadId = thread.id
+            showSample = false
+          }, sampleTask: true)
+        }
+      if macOutdated {
+        Label("Mac reachable · pairing accepted", systemImage: "checkmark.circle")
+        Text("Pipper on your Mac is older than this app, so connection checks and Siri project names aren't available. Update Pipper on your Mac.")
+          .font(.footnote).foregroundStyle(.orange)
+      } else if let error {
+        Text(error).font(.footnote).foregroundStyle(.red)
+        Text("Keep Pipper open on your Mac. If you changed how it connects in Settings → Remote, pair this phone again.")
+          .font(.footnote).foregroundStyle(.secondary)
+      }
+      if let diagnostics {
+        Label("Mac reachable · pairing accepted", systemImage: "checkmark.circle")
+        Label(diagnostics.agentReady ? "Pipper is ready" : "Pipper is starting",
+          systemImage: diagnostics.agentReady ? "checkmark.circle" : "clock")
+        Text("\(diagnostics.availableAgents) available agents · \(diagnostics.projects) projects")
+        Text(diagnostics.guidance).font(.footnote).foregroundStyle(.secondary)
+        Button("Run a sample task") { showSample = true }
+          .disabled(!diagnostics.ready || error != nil || checking)
+      }
+      if let checkedAt {
+        Text("Last checked \(checkedAt.formatted(date: .omitted, time: .standard))")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func check() async {
+    guard let client = session.client, !checking else { return }
+    checking = true
+    error = nil
+    macOutdated = false
+    defer { checking = false }
+    do {
+      diagnostics = try await client.diagnostics()
+      checkedAt = Date()
+      await session.refreshCatalog()
+    } catch RemoteClientError.http(status: 404, _) {
+      // Older Macs lack diagnostics; confirm the pairing against an
+      // endpoint every version serves.
+      do {
+        _ = try await client.listThreads()
+        macOutdated = true
+        checkedAt = Date()
+      } catch {
+        self.error = error.localizedDescription
+      }
+    } catch {
+      self.error = error.localizedDescription
+    }
+  }
+}
+
+#if DEBUG
+#Preview("Settings") {
+  SettingsView()
+    .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+
+#Preview("Connection check") {
+  Form {
+    ConnectionCheckView()
+  }
+  .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+}
+#endif

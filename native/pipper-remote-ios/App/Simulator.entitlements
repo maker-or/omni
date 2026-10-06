@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Simulator-only entitlements, linked into the __TEXT,__entitlements section
+     via LD_ENTITLEMENTS_SECTION (the same place Xcode puts them when it signs
+     for the simulator). The simulator's keychain reads them from there; without
+     them SecItemAdd fails with errSecMissingEntitlement (-34018). They must not
+     go into the code signature: see scripts/sign-simulator.sh. -->
+<plist version="1.0">
+<dict>
+  <key>application-identifier</key>
+  <string>com.maker-or.omni.remote</string>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>com.maker-or.omni.remote</string>
+  </array>
+  <key>get-task-allow</key>
+  <true/>
+</dict>
+</plist>

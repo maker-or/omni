@@ -131,4 +131,21 @@ describe("PermissionCoordinator", () => {
     await expect(coordinator.handle(requestParams(), "r1")).resolves.toBe(auto);
     expect(events).toEqual([]);
   });
+  test("remote decisions validate thread ownership, options and stale request generations", async () => {
+    const { coordinator } = makeCoordinator();
+    const first = coordinator.handle(requestParams(), "r1");
+    const decision = coordinator.listForThread("t1")[0]!;
+    expect(coordinator.listForThread("another-thread")).toEqual([]);
+    expect(await coordinator.respondForThread("another-thread", decision.id, "allow")).toBe(false);
+    expect(await coordinator.respondForThread("t1", decision.id, "invented")).toBe(false);
+    const replacement = coordinator.handle(requestParams(), "r1");
+    await expect(first).resolves.toEqual({ outcome: { outcome: "cancelled" } });
+    expect(await coordinator.respondForThread("t1", decision.id, "allow")).toBe(false);
+    const current = coordinator.listForThread("t1")[0]!;
+    expect(await coordinator.respondForThread("t1", current.id, "deny")).toBe(true);
+    await expect(replacement).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "deny" },
+    });
+    expect(await coordinator.respondForThread("t1", current.id, "deny")).toBe(false);
+  });
 });

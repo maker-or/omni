@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { RemotePermission } from "../contracts/remote.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { AcpBridgeEvent, AcpPermissionRequest } from "../contracts/acp.ts";
 import type { AgentOsNotification } from "./os-notifications.ts";
@@ -6,6 +8,7 @@ import type { AgentOsNotification } from "./os-notifications.ts";
 const PERMISSION_TIMEOUT_MS = 120_000;
 
 interface PendingPermission {
+  decisionId: string;
   resolve: (response: acp.RequestPermissionResponse) => void;
   request: AcpPermissionRequest;
   timer: ReturnType<typeof setTimeout>;
@@ -76,7 +79,7 @@ export class PermissionCoordinator {
         displaced.resolve({ outcome: { outcome: "cancelled" } });
         this.deps.emit({ type: "permission-resolved", sessionId, requestId: stableRequestId });
       }
-      this.pending.set(key, { resolve, request, timer });
+      this.pending.set(key, { decisionId: randomUUID(), resolve, request, timer });
       this.deps.emit({ type: "permission-request", request });
       // An agent blocked on permissions while the user is away is dead time;
       // the in-app prompt cannot be seen, so escalate to the OS.
@@ -89,6 +92,40 @@ export class PermissionCoordinator {
             : undefined,
       });
     });
+  }
+
+  listForThread(threadId: string): RemotePermission[] {
+    return [...this.pending.values()]
+      .filter((p) => p.request.threadId === threadId)
+      .map((p) => ({
+        id: p.decisionId,
+        title: p.request.toolCall.title ?? "Agent needs your input",
+        detail:
+          p.request.toolCall.rawInput == null
+            ? null
+            : JSON.stringify(p.request.toolCall.rawInput).slice(0, 8000),
+        options: p.request.options.map((o) => ({ ...o })),
+      }));
+  }
+
+  async respondForThread(
+    threadId: string,
+    decisionId: string,
+    optionId?: string,
+    cancelled = false,
+  ): Promise<boolean> {
+    const pending = [...this.pending.values()].find(
+      (p) => p.decisionId === decisionId && p.request.threadId === threadId,
+    );
+    if (!pending) return false;
+    if (!cancelled && !pending.request.options.some((o) => o.optionId === optionId)) return false;
+    await this.respond({
+      sessionId: pending.request.sessionId,
+      requestId: pending.request.requestId,
+      optionId,
+      cancelled,
+    });
+    return true;
   }
 
   async respond(response: {

@@ -1,9 +1,11 @@
 import { defineConfig } from "vitest/config";
 import { createCustomResolver } from "./src/lib/alias-resolver.ts";
+import { nodeModulesGuardPlugin } from "./src/lib/node-modules-guard.ts";
 
 const resolveCache = new Map<string, string | null>();
 
 export default defineConfig({
+  plugins: [nodeModulesGuardPlugin(__dirname)],
   resolve: {
     alias: [
       {
