@@ -5,7 +5,7 @@ import { PermissionCoordinator } from "./permission-coordinator.ts";
 
 /**
  * Pending-permission lifecycle: requests surface as bridge events, settle via
- * user response, timeout without approval, displace duplicates, and cancel when
+ * user response, timeout cancellation, displace duplicates, and cancel when
  * their session goes away.
  */
 
@@ -79,7 +79,7 @@ describe("PermissionCoordinator", () => {
     });
   });
 
-  test("expires unanswered prompts without approving them", async () => {
+  test("cancels an unanswered request instead of granting permission", async () => {
     const { coordinator, events } = makeCoordinator();
     const promise = coordinator.handle(requestParams(), "r1");
     await vi.advanceTimersByTimeAsync(121_000);

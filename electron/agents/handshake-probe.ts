@@ -19,6 +19,7 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 import { getAgentDescriptor, resolveAgentSpawn } from "./registry.ts";
+import { ensureAntigravityInstalled } from "./antigravity-official.ts";
 
 /** Covers initialize + throwaway session/new (Codex init alone can take a few seconds). */
 const DEFAULT_PROBE_TIMEOUT_MS = 20_000;
@@ -67,6 +68,7 @@ export async function probeAgentHandshake(
   let child: ChildProcessWithoutNullStreams;
   let spawnCommand = "";
   try {
+    if (descriptor.id === "antigravity-acp") await ensureAntigravityInstalled();
     const { command, args, env } = resolveAgentSpawn(descriptor);
     spawnCommand = command;
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
@@ -91,6 +93,8 @@ export async function probeAgentHandshake(
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let probeCwd: string | null = null;
+  let authMethods: acp.AuthMethod[] = [];
+  let canCloseSession = false;
   /** Once true, exit/error listeners must not reject — teardown kill is expected. */
   let settled = false;
 
@@ -130,7 +134,7 @@ export async function probeAgentHandshake(
     });
 
     const run = async () => {
-      await connection.agent.request(acp.methods.agent.initialize, {
+      const initialized = await connection.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: true, writeTextFile: true },
@@ -142,6 +146,8 @@ export async function probeAgentHandshake(
           version: options.clientVersion ?? "0.0.0",
         },
       });
+      authMethods = initialized.authMethods ?? [];
+      canCloseSession = Boolean(initialized.agentCapabilities?.sessionCapabilities?.close);
 
       // Throwaway session proves the agent will accept work in Pipper — including
       // that the user is authenticated when the agent requires it. No prompt is
@@ -153,7 +159,7 @@ export async function probeAgentHandshake(
       })) as { sessionId?: string };
 
       const sessionId = created?.sessionId;
-      if (sessionId) {
+      if (sessionId && canCloseSession) {
         try {
           await connection.agent.request(acp.methods.agent.session.close, { sessionId });
         } catch {
@@ -174,6 +180,7 @@ export async function probeAgentHandshake(
         message:
           descriptor.authHint ??
           `${descriptor.displayName} requires authentication. Sign in from your terminal first.`,
+        authMethods,
       };
     }
     const message = err instanceof Error ? err.message : String(err);
