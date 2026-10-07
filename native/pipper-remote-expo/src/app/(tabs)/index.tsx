@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -53,6 +53,8 @@ export default function ThreadsScreen() {
     : (choices[0]?.id ?? "");
   const selectedName = choices.find((c) => c.id === selected)?.label ?? null;
   const visible = sorted.filter((t) => t.projectId === selected);
+  // Share the resolved choice so New preselects the project shown here.
+  useEffect(() => remoteSession.setShownProjectId(selected), [selected]);
 
   return (
     <SafeAreaView edges={["top"]} style={[styles.flex, { backgroundColor: theme.background }]}>

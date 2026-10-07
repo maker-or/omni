@@ -52,6 +52,12 @@ export default function ThreadScreen() {
   const [switchingModel, setSwitchingModel] = useState(false);
   const [pickingModel, setPickingModel] = useState(false);
   const [draft, setDraft] = useState("");
+  /** Live draft for async handlers, whose `draft` is from when they started. */
+  const draftRef = useRef("");
+  const changeDraft = (text: string) => {
+    draftRef.current = text;
+    setDraft(text);
+  };
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   /** Optimistic bubble until the transcript includes the message. */
@@ -129,16 +135,19 @@ export default function ThreadScreen() {
     if (!text || sending) return;
     setSending(true);
     setSendError(null);
-    setDraft("");
+    changeDraft("");
     forceScroll.current = true;
     setPending({ text, known: countUserMessages(report, text) });
     try {
       await remoteSession.sendPrompt(threadId, text);
       await load();
     } catch (e) {
-      setDraft(text);
+      // The field stays editable while sending: put the failed message back
+      // only if nothing new was typed, and never overwrite a newer draft.
+      const typedSince = draftRef.current.trim().length > 0;
+      if (!typedSince) changeDraft(text);
       setPending(null);
-      setSendError(errorMessage(e));
+      setSendError(typedSince ? `Couldn't send "${text}": ${errorMessage(e)}` : errorMessage(e));
     } finally {
       setSending(false);
     }
@@ -312,7 +321,7 @@ export default function ThreadScreen() {
             <TextInput
               style={[styles.input, { color: theme.text }]}
               value={draft}
-              onChangeText={setDraft}
+              onChangeText={changeDraft}
               placeholder={running ? "Working on your Mac…" : "Follow up…"}
               placeholderTextColor={theme.textSecondary}
               multiline

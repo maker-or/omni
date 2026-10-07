@@ -51,6 +51,11 @@ export interface SessionState {
   agentModelsSupported: boolean;
   agentModelsError: string | null;
   homeProjectId: string;
+  /**
+   * The project Home is showing right now: the stored choice, or the most
+   * active project when none is stored. Not persisted; New preselects it.
+   */
+  shownProjectId: string;
 }
 
 const initialState: SessionState = {
@@ -65,6 +70,7 @@ const initialState: SessionState = {
   agentModelsSupported: true,
   agentModelsError: null,
   homeProjectId: "",
+  shownProjectId: "",
 };
 
 /**
@@ -80,6 +86,8 @@ class RemoteSessionStore {
     () => Crypto.randomUUID(),
   );
   private hydration: Promise<void> | null = null;
+  /** Token of the pairing whose agent-models request is in flight. */
+  private agentModelsRequest: string | null = null;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -177,16 +185,20 @@ class RemoteSessionStore {
       SecureStore.deleteItemAsync(Keys.deviceToken, SECURE_OPTIONS),
     ]).catch(() => undefined);
     await this.clearCatalog();
-    this.set({ config: null, pairNotice: notice });
+    this.set({ config: null, pairNotice: notice, shownProjectId: "" });
   }
 
   private async clearCatalog(): Promise<void> {
     await AsyncStorage.multiRemove([Keys.catalog, Keys.catalogRefreshedAt]).catch(() => undefined);
+    // Orphan any in-flight models request: the next laptop gets its own.
+    this.agentModelsRequest = null;
     this.set({
       catalog: EMPTY_CATALOG,
       catalogError: null,
       lastCatalogRefresh: null,
       agentModels: {},
+      loadingAgentModels: false,
+      agentModelsSupported: true,
       agentModelsError: null,
     });
   }
@@ -231,20 +243,34 @@ class RemoteSessionStore {
    */
   async refreshAgentModels(): Promise<void> {
     const client = this.client;
-    if (!client || this.state.loadingAgentModels) return;
+    if (!client) return;
+    const token = client.config.token;
+    if (this.agentModelsRequest === token) return;
+    this.agentModelsRequest = token;
     this.set({ loadingAgentModels: true });
+    // The probe can take 30s; a pairing change meanwhile makes its answer
+    // belong to another laptop, so it must not land in this session.
+    const current = () => this.state.config?.token === token;
     try {
       const agentModels = await client.agentModels();
-      this.set({ agentModels, agentModelsSupported: true, agentModelsError: null });
+      if (current()) this.set({ agentModels, agentModelsSupported: true, agentModelsError: null });
     } catch (error) {
+      if (!current()) return;
       if (isHttpStatus(error, 404)) {
         this.set({ agentModelsSupported: false, agentModelsError: null });
       } else {
         this.set({ agentModelsError: errorMessage(error) });
       }
     } finally {
-      this.set({ loadingAgentModels: false });
+      if (this.agentModelsRequest === token) {
+        this.agentModelsRequest = null;
+        this.set({ loadingAgentModels: false });
+      }
     }
+  }
+
+  setShownProjectId(id: string): void {
+    if (id !== this.state.shownProjectId) this.set({ shownProjectId: id });
   }
 
   setHomeProjectId(id: string): void {

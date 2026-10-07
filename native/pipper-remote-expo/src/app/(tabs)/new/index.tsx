@@ -4,11 +4,11 @@ import { NewThreadForm } from "@/components/new-thread-form";
 import { remoteSession, useRemoteSession } from "@/remote/session";
 
 export default function NewThreadTab() {
-  const { homeProjectId } = useRemoteSession();
+  const { shownProjectId, homeProjectId } = useRemoteSession();
   return (
     <NewThreadForm
       title="New thread"
-      initialProjectId={homeProjectId || null}
+      initialProjectId={shownProjectId || homeProjectId || null}
       onCreated={(thread) => {
         // Land on Home for that project, with the new thread open on top.
         remoteSession.setHomeProjectId(thread.projectId);

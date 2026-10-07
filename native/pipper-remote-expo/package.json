@@ -9,7 +9,7 @@
     "android": "expo run:android",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/remote/*.test.ts"
+    "test": "cd ../.. && bun run test native/pipper-remote-expo"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",
