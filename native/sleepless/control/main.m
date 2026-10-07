@@ -8,7 +8,7 @@ static NSString *const kLabel = @"com.maker-or.omni.sleeplessd";
 static NSString *const kInstalledDaemon = @"/Library/PrivilegedHelperTools/com.maker-or.omni.sleeplessd";
 static NSString *const kInstalledPlist = @"/Library/LaunchDaemons/com.maker-or.omni.sleeplessd.plist";
 static NSString *const kInstalledConfig = @"/Library/PrivilegedHelperTools/com.maker-or.omni.sleeplessd.plist";
-static const NSInteger kInstallerVersion = 1;
+static const NSInteger kInstallerVersion = 2;
 
 static void PrintResult(NSString *status, NSError *error) {
     NSMutableDictionary *body = [@{ @"status": status } mutableCopy];

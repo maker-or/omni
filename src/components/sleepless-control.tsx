@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MoonStars, WarningCircle } from "@phosphor-icons/react";
 import type { SleeplessStatus } from "../../contracts/sleepless.ts";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 function statusLabel(status: SleeplessStatus): string {
@@ -31,25 +32,13 @@ function Toggle({
   onChange: () => void;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
+    <Switch
+      label={label}
+      checked={checked}
       disabled={disabled}
-      onClick={onChange}
-      className={cn(
-        "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
-        checked ? "bg-[#6B97FF]" : "bg-accent",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform",
-          checked ? "translate-x-[18px]" : "translate-x-0.5",
-        )}
-      />
-    </button>
+      onToggle={onChange}
+      className="shrink-0 gap-0 px-0 py-0 [&>span:last-of-type]:sr-only"
+    />
   );
 }
 
