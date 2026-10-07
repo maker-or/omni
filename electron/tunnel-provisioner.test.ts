@@ -58,6 +58,7 @@ describe("named tunnel request", () => {
   it("needs a sign-in first, and says so without retrying", async () => {
     const error = await failure(requestNamedTunnel({ credential: null, port: 4173 }));
     expect(error.fatal).toBe(true);
+    expect(error.signInRequired).toBe(true);
     expect(error.message).toMatch(/Sign in/);
   });
 
@@ -70,7 +71,12 @@ describe("named tunnel request", () => {
           fetchImpl: respond(status, { error: `no (${status})` }),
         }),
       );
-      expect(error).toMatchObject({ fatal: true, message: `no (${status})` });
+      // Only a refused credential is fixed by signing in again.
+      expect(error).toMatchObject({
+        fatal: true,
+        signInRequired: status === 401,
+        message: `no (${status})`,
+      });
     }
   });
 

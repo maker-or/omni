@@ -176,6 +176,7 @@ describe.skipIf(process.platform === "win32")("remote access controller", () => 
         expect(access.getInfo().tunnel).toEqual({
           state: "error",
           message: "Sign in to Pipper to use the Cloudflare tunnel.",
+          signInRequired: true,
         }),
       );
       expect(requests).toHaveLength(0);

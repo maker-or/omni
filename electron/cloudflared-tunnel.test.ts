@@ -102,6 +102,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
         calls++;
         throw Object.assign(new Error("Sign in to Pipper to use the Cloudflare tunnel."), {
           fatal: true,
+          signInRequired: true,
         });
       },
       configPath: join(dir, "config.yml"),
@@ -115,6 +116,7 @@ describe.skipIf(process.platform === "win32")("cloudflared tunnel supervisor", (
     expect(tunnel.status).toEqual({
       state: "error",
       message: "Sign in to Pipper to use the Cloudflare tunnel.",
+      signInRequired: true,
     });
   });
 

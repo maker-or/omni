@@ -15,9 +15,12 @@ export const PIPPER_TUNNEL_API_PATH = "/api/remote/tunnel.json";
 /** Tunnel setup failure. `fatal` ones need the user (sign in, free a slot), so don't retry. */
 export class TunnelSetupError extends Error {
   readonly fatal: boolean;
-  constructor(message: string, fatal: boolean) {
+  /** Only a fresh sign-in fixes it: no laptop credential, or pipper.dev refused it. */
+  readonly signInRequired: boolean;
+  constructor(message: string, fatal: boolean, signInRequired = false) {
     super(message);
     this.fatal = fatal;
+    this.signInRequired = signInRequired;
   }
 }
 
@@ -37,7 +40,7 @@ export async function requestNamedTunnel(options: {
   fetchImpl?: typeof fetch;
 }): Promise<NamedTunnel> {
   if (!options.credential) {
-    throw new TunnelSetupError("Sign in to Pipper to use the Cloudflare tunnel.", true);
+    throw new TunnelSetupError("Sign in to Pipper to use the Cloudflare tunnel.", true, true);
   }
   const base = options.apiBase ?? DEFAULT_PIPPER_API_BASE;
   let res: Response;
@@ -78,6 +81,7 @@ export async function requestNamedTunnel(options: {
     throw new TunnelSetupError(
       message,
       res.status === 401 || res.status === 409 || res.status === 503,
+      res.status === 401,
     );
   }
   const hostname = typeof body?.hostname === "string" ? body.hostname.toLowerCase() : "";

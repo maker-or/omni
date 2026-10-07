@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Pipper",
+    "slug": "pipper-remote-expo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "pipper-remote",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.maker-or.omni.remote.expo",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the pairing QR code shown by Pipper on your Mac.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.makeror.omni.remote",
+      "adaptiveIcon": {
+        "backgroundColor": "#171717",
+        "foregroundImage": "./assets/images/icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#171717",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 120
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing QR code shown by Pipper on your Mac.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

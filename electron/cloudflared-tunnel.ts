@@ -138,8 +138,13 @@ export class CloudflaredTunnel {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[Tunnel] setup failed:", message);
       if (!this.wanted || generation !== this.generation) return;
-      if ((error as { fatal?: unknown }).fatal === true) {
-        this.setStatus({ state: "error", message });
+      const setup = error as { fatal?: unknown; signInRequired?: unknown };
+      if (setup.fatal === true) {
+        this.setStatus(
+          setup.signInRequired === true
+            ? { state: "error", message, signInRequired: true }
+            : { state: "error", message },
+        );
         return;
       }
       this.scheduleRetry(generation, message);
