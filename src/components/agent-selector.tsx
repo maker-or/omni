@@ -323,8 +323,13 @@ function AgentSetupCard({
     result.status === "needs-auth"
       ? `Sign in required for ${descriptor.displayName}. Retry after authenticating`
       : `Retry ${descriptor.displayName}`;
+  // Antigravity signs in through Pipper's own auth buttons, not a docs page.
+  const isAntigravity = (descriptor.driverId ?? descriptor.id) === "antigravity-acp";
   // Instances carry `driverId`; the setup guide is keyed by driver.
-  const guideUrl = status === "ready" ? null : setupGuideUrl(descriptor.driverId ?? descriptor.id);
+  const guideUrl =
+    status === "ready" || isAntigravity
+      ? null
+      : setupGuideUrl(descriptor.driverId ?? descriptor.id);
 
   const openSetupGuide = async () => {
     if (!guideUrl || !window.omni?.shell?.openExternal) return;
@@ -340,13 +345,7 @@ function AgentSetupCard({
       <CardMedia icon={BrandIcon} />
       <CardHeader>
         <CardTitle>{descriptor.displayName}</CardTitle>
-        {descriptor.id === "antigravity-acp" && (
-          <p className="text-xs text-muted-foreground">
-            Google’s official ACP server is downloaded to Pipper’s cache on first use. Sign in here
-            to use its interactive tool approvals.
-          </p>
-        )}
-        {result.status === "needs-auth" && descriptor.id === "antigravity-acp" && (
+        {isAntigravity && (
           <AgentAuthActions
             agentId={descriptor.id}
             methods={result.authMethods}

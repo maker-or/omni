@@ -691,6 +691,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [inputValue, setInputValue] = useState(demoInputValue ?? "");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Optimistic turn shown the instant a draft send starts, so the user sees
+  // their message (text + images) and a thinking indicator while a cold agent
+  // (e.g. Antigravity) is still starting up — before the thread/session exists.
+  const [pendingDraftTurn, setPendingDraftTurn] = useState<{
+    text: string;
+    images: ChatImageAttachment[];
+  } | null>(null);
   const [isAborting, setIsAborting] = useState(false);
   const [isRuntimeActionPending, setIsRuntimeActionPending] = useState(false);
   const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
@@ -1648,7 +1655,30 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
     if (isSubmitting) return;
     setIsSubmitting(true);
+    // Turn the question into a bubble immediately, before the (possibly slow)
+    // agent startup/handshake, so the user always sees their message land.
+    const previousDraftContent = draftContent;
+    setPendingDraftTurn({ text: check.text, images: [] });
+    setDraftContent(blankContent());
+    setAttachedFiles([]);
     try {
+      // Read attachments up front so the optimistic bubble can show them and
+      // the same blocks feed the prompt (no double read).
+      const newImages = await Promise.all(files.map(fileToPromptImage));
+      if (newImages.length) {
+        setPendingDraftTurn((current) =>
+          current
+            ? {
+                ...current,
+                images: newImages.map((image, index) => ({
+                  ...image,
+                  id: `pending-image-${index}`,
+                  name: files[index]?.name,
+                })),
+              }
+            : current,
+        );
+      }
       const projectPath =
         projectsList.find((p) => p.id === check.projectId)?.path ??
         (activeProject?.id === check.projectId ? activeProject.path : null) ??
@@ -1671,7 +1701,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       completeDraft(thread.id);
       setDraftContent(blankContent());
 
-      const newImages = await Promise.all(files.map(fileToPromptImage));
       if (newImages.length > MAX_AGENT_IMAGES) {
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
@@ -1694,6 +1723,11 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       });
       setAttachedFiles([]);
     } catch (err) {
+      // Thread creation failed before the turn was sent: drop the speculative
+      // bubble and put the draft text + attachments back so nothing is lost.
+      setPendingDraftTurn(null);
+      setDraftContent(previousDraftContent);
+      setAttachedFiles(files);
       const failure = sendFailureToast(err, check.agentId, "Create thread failed");
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
@@ -1701,6 +1735,9 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       });
     } finally {
       setIsSubmitting(false);
+      // The real optimistic user turn (from sendPrompt) now owns the view;
+      // retire the speculative bubble in the same render.
+      setPendingDraftTurn(null);
     }
   };
 
@@ -2090,7 +2127,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const runtimeControlsDisabled =
     isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
   const composerDisabled = isDraftMode
-    ? isSubmitting
+    ? false
     : isSwitchingThread ||
       isConnecting ||
       !snapshot ||
@@ -2362,7 +2399,28 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               aria-busy={isSwitchingThread}
             >
               <div className="flex min-h-full flex-col">
-                {isDraftMode || allMessages.length === 0 ? null : (
+                {isDraftMode || allMessages.length === 0 ? (
+                  pendingDraftTurn ? (
+                    <div className="p-4" data-pipper-id="pending-draft-turn">
+                      <ChatMessage
+                        from="user"
+                        pipperId="user-message"
+                        images={pendingDraftTurn.images}
+                        onImageClick={setPreviewImage}
+                      >
+                        <div className="whitespace-pre-wrap break-words text-[14px] leading-6">
+                          {pendingDraftTurn.text}
+                        </div>
+                      </ChatMessage>
+                      <div
+                        className="flex shrink-0 items-start gap-3 px-4 py-2"
+                        data-pipper-id="Thinking-indicator"
+                      >
+                        <ThinkingIndicator showIcon className="h-9 p-0" />
+                      </div>
+                    </div>
+                  ) : null
+                ) : (
                   <>
                     <div
                       data-pipper-id="messages-list"
