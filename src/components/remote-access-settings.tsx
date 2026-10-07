@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { CloudArrowUp, DeviceMobile, QrCode as QrCodeIcon, Trash } from "@phosphor-icons/react";
+import {
+  CloudArrowUp,
+  DeviceMobile,
+  QrCode as QrCodeIcon,
+  SignIn,
+  Trash,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import type {
@@ -43,6 +49,57 @@ function tunnelLabel(status: RemoteTunnelStatus, now: number): string {
     case "error":
       return status.message;
   }
+}
+
+/**
+ * The named tunnel needs the laptop credential pipper.dev issues at sign-in.
+ * Sign-ins from before it existed lack one, and pipper.dev can expire or
+ * revoke it; either way only a fresh browser sign-in fixes it. The tunnel
+ * restarts on its own once the sign-in completes.
+ */
+function ReauthenticatePrompt() {
+  const [state, setState] = useState<"idle" | "opening" | "waiting">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const signIn = async () => {
+    setState("opening");
+    setError(null);
+    try {
+      await window.omni.shell.openExternal("clerk:sign-in");
+      setState("waiting");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setState("idle");
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-[10px] bg-surface-3 px-3 py-2.5 shadow-surface-1">
+      <div className="text-[12px] font-medium text-foreground">Sign in again to connect</div>
+      <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+        Pipper on this Mac doesn't have a valid laptop credential, the key pipper.dev uses to give
+        this laptop its own tunnel address. Sign-ins from older versions of Pipper didn't receive
+        one, and pipper.dev stops accepting it if it expires or is revoked. Signing in again in your
+        browser issues a new one; the tunnel starts as soon as it finishes.
+      </div>
+      {error && <div className="mt-1 text-[11px] leading-4 text-red-500">{error}</div>}
+      <div className="mt-2 flex items-center gap-3">
+        <Button
+          size="sm"
+          leadingIcon={SignIn}
+          disabled={state === "opening"}
+          onClick={() => void signIn()}
+        >
+          {state === "opening" ? "Opening browser…" : "Sign in again"}
+        </Button>
+        {state === "waiting" && (
+          <span className="text-[11px] text-muted-foreground">
+            Finish signing in in your browser, then come back here.
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Choose how phones reach this laptop: Tailscale or a Cloudflare tunnel. */
@@ -90,6 +147,9 @@ function ConnectionSection({
           >
             {tunnelLabel(info.tunnel, now)}
           </div>
+        )}
+        {viaTunnel && info.tunnel.state === "error" && info.tunnel.signInRequired && (
+          <ReauthenticatePrompt />
         )}
       </div>
     </div>
@@ -251,7 +311,9 @@ export function RemoteAccessSettings() {
       ? null
       : info.transport === "tailscale"
         ? "No Tailscale address — connect Tailscale, then reopen Settings."
-        : "Waiting for the tunnel to come online before phones can pair.";
+        : info.tunnel.state === "error" && info.tunnel.signInRequired
+          ? "Sign in again above; phones can pair once the tunnel is online."
+          : "Waiting for the tunnel to come online before phones can pair.";
   const devices = state?.devices ?? [];
 
   return (

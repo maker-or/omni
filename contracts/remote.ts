@@ -138,7 +138,12 @@ export type RemoteTunnelStatus =
   | { state: "starting" }
   | { state: "connected"; url: string }
   | { state: "reconnecting"; attempt: number; retryAt: number; lastError: string | null }
-  | { state: "error"; message: string };
+  | {
+      state: "error";
+      message: string;
+      /** Signed out, or pipper.dev refused the laptop credential: sign in again. */
+      signInRequired?: boolean;
+    };
 
 export interface RemoteServerInfo {
   enabled: boolean;
