@@ -16,7 +16,7 @@ const agents: AgentDoc[] = [
   { id: "cursor", handle: "@cursor", installCmd: "curl https://cursor.com/install -fsS | bash", signinCmd: "agent login" },
   { id: "opencode", handle: "@opencode", installCmd: "curl -fsSL https://opencode.ai/install | bash", signinCmd: "opencode auth login" },
   { id: "gemini", handle: "@Gemini", installCmd: "npm install -g @google/gemini-cli", signinCmd: "gemini" },
-  { id: "antigravity", handle: "@antigravity", installCmd: "curl -fsSL https://antigravity.google/cli/install.sh | bash", signinCmd: "agy" },
+  { id: "antigravity", handle: "@antigravity" },
   { id: "devin", handle: "@devin", installCmd: "curl -fsSL https://cli.devin.ai/install.sh | bash", signinCmd: "devin" },
 ];
 ---
@@ -48,7 +48,13 @@ const agents: AgentDoc[] = [
                 <a href="/download" class="absolute no-underline text-[1.05rem] px-7 py-2.5" style="top:1.25rem;right:1.25rem;background:#e8d9fa;color:#a54cf1;border:1.5px solid #a54cf1;font-family:'Figtree Variable',sans-serif;">Download</a>
                 {agents.map((a, i) => (
                     <div data-agent-panel={a.id} class="flex-col gap-7" style={`display:${i === 0 ? "flex" : "none"};`} role="tabpanel" aria-label={a.handle}>
-                        <ol class="list-none m-0 mt-10 p-0 flex flex-col gap-6" style="font-family:'Figtree Variable',sans-serif;">
+                        {a.id === "antigravity" ? (
+                          <ol class="list-none m-0 mt-10 p-0 flex flex-col gap-6 text-[clamp(1.3rem,2.2vw,1.8rem)]" style="font-family:'Figtree Variable',sans-serif;">
+                            <li>1. Select Antigravity in Pipper.</li>
+                            <li>2. Pipper downloads Google’s official ACP server into its app cache.</li>
+                            <li>3. Choose a Google sign-in method in the setup card. Pipper handles the server’s ACP tool approval requests.</li>
+                          </ol>
+                        ) : <ol class="list-none m-0 mt-10 p-0 flex flex-col gap-6" style="font-family:'Figtree Variable',sans-serif;">
                             <li class="flex items-baseline gap-4 text-[clamp(1.3rem,2.2vw,1.8rem)]" style="letter-spacing:-0.02em;">
                                 <svg viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:1.1em;height:1.1em;flex-shrink:0;align-self:center;overflow:visible;"><path d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z" fill="#FFAA4F" stroke="#B1620D" stroke-width="3"/></svg>
                                 <span>Open the Terminal</span>
@@ -71,7 +77,7 @@ const agents: AgentDoc[] = [
                                 <svg viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:1.1em;height:1.1em;flex-shrink:0;align-self:center;overflow:visible;"><path d="M8.7 25.1 39.2 9.8c2.8-1.4 5.8 1.2 4.8 4.2l-9.5 30.1c-.9 2.8-4.8 3.1-6.1.5l-6.4-12.8-12.6-1.6c-3-.4-3.5-3.9-.7-5.1Z" fill="#FFAA4F" stroke="#B1620D" stroke-width="3"/></svg>
                                 <span>reopen pipper and retry</span>
                             </li>
-                        </ol>
+                        </ol>}
                     </div>
                 ))}
             </div>

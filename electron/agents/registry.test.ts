@@ -48,8 +48,11 @@ describe("ACP agent registry", () => {
     expect(copilot.docsUrl).toContain("copilot-cli-reference/acp-server");
 
     const antigravity = BUILTIN_ACP_AGENTS.find((a) => a.id === "antigravity-acp")!;
-    expect(antigravity.npmPackage).toBe("antigravity-acp");
-    expect(antigravity.detectCommands).toEqual(["antigravity-acp", "agy-acp"]);
+    expect(antigravity.npmPackage).toBeUndefined();
+    expect(antigravity.command).toBe("agy_acp_server.par");
+    expect(antigravity.installKind).toBe("binary");
+    expect(antigravity.env).toBeUndefined();
+    expect(antigravity.detectCommands).toEqual(["agy_acp_server.par", "agy_acp_server.exe"]);
     expect(antigravity.docsUrl).toContain("antigravity.google");
 
     const devin = BUILTIN_ACP_AGENTS.find((a) => a.id === "devin-acp")!;
@@ -104,7 +107,7 @@ describe("ACP agent registry", () => {
     const codex = listRegisteredAgents().find((a) => a.id === "codex-acp");
     if (!codex?.available) return; // skip if neither codex-acp nor npx is on PATH
     const spawn = resolveAgentSpawn(codex);
-    if (/npx/.test(spawn.command)) {
+    if (/(?:^|[/\\])npx(?:\.cmd)?$/i.test(spawn.command)) {
       // npx fallback path: args must contain -y and the package name exactly once
       expect(spawn.args).toContain("-y");
       expect(spawn.args).toContain("@agentclientprotocol/codex-acp");

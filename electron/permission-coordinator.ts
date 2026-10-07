@@ -4,7 +4,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { AcpBridgeEvent, AcpPermissionRequest } from "../contracts/acp.ts";
 import type { AgentOsNotification } from "./os-notifications.ts";
 
-/** Unanswered decisions expire without granting permission. */
+/** Cancel unanswered permissions after this long; never grant unattended access. */
 const PERMISSION_TIMEOUT_MS = 120_000;
 
 interface PendingPermission {
