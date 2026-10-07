@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Pipper",
-    "slug": "pipper-remote-expo",
+    "slug": "pipper-code",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -57,6 +57,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "26799358-011c-4b72-9aeb-1d0a92dc7e17"
+      }
     }
   }
 }
