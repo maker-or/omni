@@ -204,6 +204,21 @@ describe("createWorktree", () => {
     expect(worktree.head).toBe(remoteHead);
     expect(readFileSync(join(worktree.path, "README.md"), "utf8")).toBe("updated on remote");
     expect(git(projectPath, ["rev-parse", "main"])).not.toBe(remoteHead);
+    // Starting from origin/main must not make the feature publish to main.
+    expect(() => git(worktree.path, ["rev-parse", "@{u}"])).toThrow();
+    const continued = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    expect(continued.head).toBe(remoteHead);
+    expect(() => git(continued.path, ["rev-parse", "@{u}"])).toThrow();
+    expect(git(projectPath, ["rev-parse", "--abbrev-ref", "main@{u}"])).toBe("origin/main");
+  });
+
+  test("does not inherit tracking from a local base with automatic tracking enabled", () => {
+    git(projectPath, ["config", "branch.autoSetupMerge", "always"]);
+    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Tracking" });
+    expect(() => git(worktree.path, ["rev-parse", "@{u}"])).toThrow();
+    const continued = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    expect(() => git(continued.path, ["rev-parse", "@{u}"])).toThrow();
+    expect(git(projectPath, ["config", "branch.autoSetupMerge"])).toBe("always");
   });
 
   test("suffixes the branch name when the auto branch already exists", () => {

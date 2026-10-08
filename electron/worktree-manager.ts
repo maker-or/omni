@@ -559,8 +559,9 @@ export function createWorktree(options: CreateWorktreeOptions): Worktree {
   // `git worktree add` needs the leaf absent but the parent present.
   mkdirSync(dirname(worktreePath), { recursive: true });
 
-  // 1. Add the worktree on a new branch off the base branch.
-  git(projectPath, ["worktree", "add", worktreePath, "-b", branch, base]);
+  // The base is a starting point, not this feature branch's push destination.
+  // Remote bases otherwise inherit tracking to origin/main by default.
+  git(projectPath, ["worktree", "add", "--no-track", worktreePath, "-b", branch, base]);
   invalidateWorktreeCache(projectPath);
 
   try {
@@ -893,7 +894,7 @@ export function continueWorktreeOnNewBranch(projectPath: string, worktreePath: s
   const startPoint = resolveBaseBranch(projectPath);
   const name = target.workspaceName ?? worktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
   const branch = resolveBranchName(projectPath, name);
-  git(target.path, ["switch", "-c", branch, startPoint]);
+  git(target.path, ["switch", "--no-track", "-c", branch, startPoint]);
   invalidateWorktreeCache(projectPath);
   const next = listWorktrees(projectPath).find((worktree) => samePath(worktree.path, target.path));
   if (!next) throw new Error("Worktree disappeared after switching branches");

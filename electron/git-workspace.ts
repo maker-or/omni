@@ -1217,20 +1217,26 @@ export function commitWorkspace(worktreePath: string, message: string): string {
   return git(worktreePath, ["rev-parse", "--short", "HEAD"]);
 }
 
-/** Push the current branch; sets upstream on first push. */
+/** Publish the current branch under its own name and track that remote branch. */
 export async function pushWorkspace(worktreePath: string): Promise<void> {
   assertInsideRepo(worktreePath);
-  const upstream = await tryGitAsync(worktreePath, [
-    "rev-parse",
-    "--abbrev-ref",
-    "--symbolic-full-name",
-    "@{u}",
+  const branch = await tryGitAsync(worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (!branch) throw new Error("Check out a branch before pushing this workspace.");
+  const upstreamRemote = await gitAsync(worktreePath, [
+    "for-each-ref",
+    "--format=%(upstream:remotename)",
+    `refs/heads/${branch}`,
   ]);
-  const branch = await gitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  // Preserve a configured remote, but never publish a feature to its base
+  // branch or let push.default / remote push refspecs choose another branch.
+  const remote = upstreamRemote && upstreamRemote !== "." ? upstreamRemote : "origin";
   // Generous timeout: first pushes and slow networks take a while, but a
   // credential prompt must never hang the UI forever (stdin is ignored).
-  if (upstream) await gitAsync(worktreePath, ["push"], 120_000);
-  else await gitAsync(worktreePath, ["push", "-u", "origin", branch], 120_000);
+  await gitAsync(
+    worktreePath,
+    ["push", "-u", remote, `refs/heads/${branch}:refs/heads/${branch}`],
+    120_000,
+  );
 }
 
 /** Create a GitHub PR for the workspace branch via `gh`. Returns the PR URL. */
