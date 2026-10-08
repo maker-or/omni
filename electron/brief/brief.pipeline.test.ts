@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -216,6 +216,16 @@ afterEach(async () => {
 });
 
 describe("Morning Brief pipeline", () => {
+  test("manual generation opens the brief tab and starts a fresh run", async () => {
+    const status = service.generateNow();
+    expect(status.phase).toBe("collecting");
+    expect(opened).toEqual([{ url: BRIEF_LATEST_URL, activate: true }]);
+
+    const doc = await service.generate("refresh");
+    expect(doc?.trigger).toBe("refresh");
+    expect(service.getStatus().phase).toBe("ready");
+  });
+
   test("turns connected tools into a ranked brief that leads with what's waiting on the user", async () => {
     const doc = await service.generate("launch");
     expect(doc).not.toBeNull();
@@ -292,8 +302,21 @@ describe("Morning Brief pipeline", () => {
     expect(html).toContain('data-connect="gmail"');
   });
 
-  test("without a Composio key nothing is fetched and setup explains what's missing", async () => {
+  test("a build without Composio configuration never asks users for a key", async () => {
     service.dispose();
+    const settingsPath = join(dir, "settings.json");
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        enabled: false,
+        composioApiKey: "obsolete-user-override",
+        typesafeApiKey: "obsolete-typesafe-override",
+      }),
+    );
+    const store = new BriefStore(dir);
+    await expect(store.readSettings()).resolves.toMatchObject({ enabled: false });
+    await store.removeLegacyCredentialOverrides();
+    expect(await readFile(settingsPath, "utf8")).not.toContain("ApiKey");
     service = makeService({
       composio: null as unknown as string,
       typesafe: "ts_test",
@@ -302,7 +325,8 @@ describe("Morning Brief pipeline", () => {
     await service.generate("launch");
     expect(executed).toHaveLength(0);
     const html = await (await page("/today")).text();
-    expect(html).toContain("a Composio API key");
+    expect(html).toContain("Morning Brief is unavailable in this build.");
+    expect(html).not.toContain("API key");
   });
 
   test("cycles through onboarding ACP providers using default models until brief generation succeeds", async () => {
@@ -358,6 +382,7 @@ describe("Morning Brief pipeline", () => {
     expect(html).toContain("written with Codex");
     expect(providerAttempts).toContain("claude-agent-acp");
     expect(providerAttempts).toContain("codex-acp");
+    expect(providerAttempts).toEqual(["claude-agent-acp", "codex-acp", "codex-acp"]);
   });
 
   test("serves connector SVGs with image/svg+xml over pipper-brief scheme", async () => {

@@ -38,6 +38,7 @@ import {
 } from "./launch-state.ts";
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
+import { HeadlessResponse } from "./brief/headless-response.ts";
 import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
 import { listAgentInstanceDescriptors, hasAgentInstances } from "./agent-instances.ts";
 import {
@@ -1190,6 +1191,7 @@ export class AgentConnectionManager {
     promptText: string;
     timeoutMs?: number;
     cwd?: string;
+    includeMcpServers?: boolean;
   }): Promise<string> {
     const { agentId, promptText, timeoutMs = 150_000 } = options;
     const live = await this.acquireConnection(agentId);
@@ -1199,27 +1201,28 @@ export class AgentConnectionManager {
       (this.activeProjectId
         ? (getProject(this.activeProjectId)?.path ?? process.cwd())
         : process.cwd());
-    const attached = await this.sessionMcpServers(live, cwd);
+    const attached =
+      options.includeMcpServers === false ? null : await this.sessionMcpServers(live, cwd);
     let sessionId: string | null = null;
-    let slice: AcpSessionSlice = createEmptySessionSlice();
+    const response = new HeadlessResponse();
 
     try {
       // ACP agent creates session configured with its default model
       const created = (await requestWithTimeout(
         live.agent.request(acp.methods.agent.session.new, {
           cwd,
-          mcpServers: attached.servers as never,
+          mcpServers: (attached?.servers ?? []) as never,
         }),
         ACP_SWITCH_PHASE_TIMEOUT_MS,
         "agent/headless-session-new",
       )) as { sessionId: string; configOptions?: SessionConfigOption[] | null };
 
       sessionId = created.sessionId;
-      attached.bind(sessionId);
+      attached?.bind(sessionId);
 
       this.headlessSessions.set(sessionId, {
         onUpdate: (update) => {
-          slice = applySessionUpdate(slice, update);
+          response.add(update);
         },
       });
 
@@ -1243,15 +1246,25 @@ export class AgentConnectionManager {
         throw new Error(`Headless prompt for agent ${agentId} timed out after ${timeoutMs}ms`);
       }
 
-      slice = applyTurnStop(slice);
-      let text = slice.entries
-        .filter((entry) => entry.type === "agent_text")
-        .map((entry) => entry.text)
-        .join("")
-        .trim();
+      if (
+        promptResult.stopReason === "refusal" ||
+        promptResult.stopReason === "cancelled" ||
+        promptResult.stopReason === "max_tokens"
+      ) {
+        throw new Error(
+          `Headless prompt for agent ${agentId} stopped before answering (${promptResult.stopReason}).`,
+        );
+      }
 
-      if (!text && promptResult && typeof promptResult === "object" && "text" in promptResult) {
-        text = String((promptResult as { text?: unknown }).text || "").trim();
+      // Codex marks final_answer chunks explicitly. A progress/status message
+      // from a turn with no final answer must not be parsed as brief JSON.
+      const text = response.text(agentId === "codex-acp" || agentId.startsWith("codex-acp:"));
+      if (!text) {
+        const stopReason =
+          promptResult && typeof promptResult === "object" && "stopReason" in promptResult
+            ? String(promptResult.stopReason)
+            : "unknown";
+        throw new Error(`Headless prompt for agent ${agentId} returned no answer (${stopReason}).`);
       }
 
       return text;
@@ -1268,7 +1281,7 @@ export class AgentConnectionManager {
           // best effort
         }
       }
-      attached.release();
+      attached?.release();
     }
   }
 

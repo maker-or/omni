@@ -144,6 +144,22 @@ export function extractJson(text: string): unknown {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+function parseAcpOutput<T>(schema: z.ZodType<T>, value: unknown, label: string): T {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const fields =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.keys(value).slice(0, 12).join(", ") || "none"
+      : typeof value;
+  const invalid = parsed.error.issues
+    .map((issue) => issue.path.join(".") || "root")
+    .slice(0, 12)
+    .join(", ");
+  throw new Error(
+    `${label} returned invalid fields (${invalid}); received top-level fields: ${fields}`,
+  );
+}
+
 export class ClaudeCliWriter implements WriterBackend {
   readonly name = "claude-cli";
   private readonly binary: string;
@@ -230,7 +246,11 @@ export class AcpWriter implements WriterBackend {
   }
 
   async focus(input: string): Promise<FocusOutput> {
-    return FocusSchema.parse(await this.run(FOCUS_SYSTEM, input, "{ focus: string }"));
+    return parseAcpOutput(
+      FocusSchema,
+      await this.run(FOCUS_SYSTEM, input, "{ focus: string }"),
+      "ACP focus",
+    );
   }
 
   async write(input: string): Promise<WrittenBrief> {
@@ -241,7 +261,11 @@ export class AcpWriter implements WriterBackend {
   push: { id: string; pitch: string; agent_prompt: string | null } | null;
   agenda_notes: { id: string; note: string }[];
 }`;
-    return WrittenBriefSchema.parse(await this.run(WRITE_SYSTEM, input, shape));
+    return parseAcpOutput(
+      WrittenBriefSchema,
+      await this.run(WRITE_SYSTEM, input, shape),
+      "ACP writer",
+    );
   }
 }
 

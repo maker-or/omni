@@ -198,35 +198,16 @@ export interface BriefSettings {
   scheduleTime: string;
   /** Open the brief automatically on the first launch of the day. */
   openOnLaunch: boolean;
-  /** Overrides for the baked-in / env keys. Empty string means "use default". */
-  composioApiKey: string;
-  typesafeApiKey: string;
-  anthropicApiKey: string;
 }
 
-/** Settings as exposed to the renderer: keys are never sent back in clear. */
+/** Settings as exposed to the renderer. Integration credentials stay in the app. */
 export interface BriefSettingsView {
   enabled: boolean;
   scheduleTime: string;
   openOnLaunch: boolean;
-  hasComposioKey: boolean;
-  hasTypesafeKey: boolean;
-  hasWriterKey: boolean;
-  composioKeySource: "settings" | "env" | "none";
-  typesafeKeySource: "settings" | "env" | "none";
 }
 
-export type BriefSettingsPatch = Partial<
-  Pick<
-    BriefSettings,
-    | "enabled"
-    | "scheduleTime"
-    | "openOnLaunch"
-    | "composioApiKey"
-    | "typesafeApiKey"
-    | "anthropicApiKey"
-  >
->;
+export type BriefSettingsPatch = Partial<BriefSettings>;
 
 /** Main → renderer: open (or focus) the brief in the embedded browser. */
 export interface BriefOpenRequest {

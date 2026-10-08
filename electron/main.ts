@@ -2855,13 +2855,27 @@ app.whenReady().then(async () => {
   registerIpc();
   briefIntegration = installBrief({
     getMainWindow: () => mainWindow,
+    getSettingsWindow: () => settingsWindow,
     getTheme: () => currentTheme,
     getUser: () => {
       const user = getAuthenticatedUserForLaunch();
       return user ? { id: user.provider_user_id, name: user.name ?? null } : null;
     },
     getSelectedAgentIds: () => getSelectedAgentIds(),
-    runAcpPrompt: (opts) => requireAgentManager().runHeadlessPrompt(opts),
+    runAcpPrompt: async (opts) => {
+      // Brief writing needs only the digest. Keep repo instructions and MCP tools
+      // out of this session so coding-agent providers act as plain writers.
+      const cwd = fs.mkdtempSync(join(os.tmpdir(), "pipper-brief-writer-"));
+      try {
+        return await requireAgentManager().runHeadlessPrompt({
+          ...opts,
+          cwd,
+          includeMcpServers: false,
+        });
+      } finally {
+        await fs.promises.rm(cwd, { recursive: true, force: true }).catch(() => {});
+      }
+    },
   });
 
   logStartupMilestone("launch-state:read:start");

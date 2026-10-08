@@ -1282,23 +1282,14 @@ export function renderSetupPage(
   connections: BriefConnection[],
   status: BriefStatus,
   ctx: RenderContext,
-  missingKeys: string[] = [],
 ): string {
-  const keysNote =
-    missingKeys.length > 0
-      ? `<p class="summary">Pipper is missing ${escapeHtml(missingKeys.join(" and "))}. Add ${
-          missingKeys.length > 1 ? "them" : "it"
-        } in Settings → Morning Brief.</p>`
-      : "";
   const rows = connections
     .map(
       (c) =>
         `<div class="connect">${sourceBadge(c.source)}<span class="name">${escapeHtml(c.label)}</span>${
           c.connected
             ? `<span class="ok">Connected</span>`
-            : `<button class="btn${c.pending ? "" : " primary"}" data-connect="${c.source}"${
-                missingKeys.length ? " disabled" : ""
-              }>${c.pending ? "Waiting for sign-in…" : "Connect"}</button>`
+            : `<button class="btn${c.pending ? "" : " primary"}" data-connect="${c.source}">${c.pending ? "Waiting for sign-in…" : "Connect"}</button>`
         }</div>`,
     )
     .join("");
@@ -1307,7 +1298,6 @@ export function renderSetupPage(
   <div class="eyebrow">Morning Brief</div>
   <h1 class="headline">Connect your tools and Pipper will brief you every morning</h1>
   <p class="summary">Your brief pulls what matters from your inbox, calendar, code reviews, tickets and Slack — the to-dos you owe, context you'd otherwise miss, and one thing Pipper can move forward for you.</p>
-  ${keysNote}
   <div class="connect-grid">${rows}</div>
   ${
     connectedCount > 0

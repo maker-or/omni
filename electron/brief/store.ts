@@ -23,9 +23,6 @@ export const DEFAULT_BRIEF_SETTINGS: BriefSettings = {
   enabled: true,
   scheduleTime: DEFAULT_SCHEDULE_TIME,
   openOnLaunch: true,
-  composioApiKey: "",
-  typesafeApiKey: "",
-  anthropicApiKey: "",
 };
 
 const DEFAULT_STATE: BriefPersistedState = {
@@ -52,9 +49,6 @@ export function parseSettings(raw: unknown): BriefSettings {
       typeof value.openOnLaunch === "boolean"
         ? value.openOnLaunch
         : DEFAULT_BRIEF_SETTINGS.openOnLaunch,
-    composioApiKey: str(value.composioApiKey, "")!.trim(),
-    typesafeApiKey: str(value.typesafeApiKey, "")!.trim(),
-    anthropicApiKey: str(value.anthropicApiKey, "")!.trim(),
   };
 }
 
@@ -101,6 +95,23 @@ export class BriefStore {
 
   async readSettings(): Promise<BriefSettings> {
     return parseSettings(await this.readJson("settings.json"));
+  }
+
+  /** Remove credentials saved by older versions; integrations now use build configuration. */
+  removeLegacyCredentialOverrides(): Promise<void> {
+    return this.enqueue(async () => {
+      const raw = await this.readJson("settings.json");
+      if (!raw || typeof raw !== "object") return;
+      const value = raw as Record<string, unknown>;
+      if (
+        !("composioApiKey" in value) &&
+        !("typesafeApiKey" in value) &&
+        !("anthropicApiKey" in value)
+      ) {
+        return;
+      }
+      await this.writeJson("settings.json", parseSettings(raw));
+    });
   }
 
   updateSettings(patch: Partial<BriefSettings>): Promise<BriefSettings> {

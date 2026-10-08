@@ -18,7 +18,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
-import { getAgentDescriptor, resolveAgentSpawn } from "./registry.ts";
+import { agentProcessCwd, getAgentDescriptor, resolveAgentSpawn } from "./registry.ts";
 
 /** Covers initialize + throwaway session/new (Codex init alone can take a few seconds). */
 const DEFAULT_PROBE_TIMEOUT_MS = 20_000;
@@ -73,6 +73,7 @@ export async function probeAgentHandshake(
     child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      cwd: agentProcessCwd(command),
       ...(useShell && { shell: true }),
     }) as ChildProcessWithoutNullStreams;
   } catch (err) {

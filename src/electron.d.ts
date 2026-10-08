@@ -106,6 +106,7 @@ declare global {
       };
       brief: {
         getStatus: () => Promise<BriefStatus>;
+        generate: () => Promise<BriefStatus>;
         getSettings: () => Promise<BriefSettingsView>;
         updateSettings: (patch: BriefSettingsPatch) => Promise<BriefSettingsView>;
         getConnections: () => Promise<BriefConnection[]>;

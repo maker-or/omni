@@ -169,12 +169,8 @@ export class BriefService {
 
   // ── Keys & clients ─────────────────────────────────────────────────────
 
-  private resolveKeys(settings: BriefSettings): BriefKeys {
-    return {
-      composio: settings.composioApiKey || this.deps.envKeys.composio || null,
-      typesafe: settings.typesafeApiKey || this.deps.envKeys.typesafe || null,
-      anthropic: settings.anthropicApiKey || this.deps.envKeys.anthropic || null,
-    };
+  private resolveKeys(): BriefKeys {
+    return this.deps.envKeys;
   }
 
   private async getGateway(keys: BriefKeys): Promise<ComposioGateway | null> {
@@ -211,34 +207,21 @@ export class BriefService {
 
   async getSettingsView(): Promise<BriefSettingsView> {
     const settings = await this.deps.store.readSettings();
-    const keys = this.resolveKeys(settings);
     return {
       enabled: settings.enabled,
       scheduleTime: settings.scheduleTime,
       openOnLaunch: settings.openOnLaunch,
-      hasComposioKey: Boolean(keys.composio),
-      hasTypesafeKey: Boolean(keys.typesafe),
-      hasWriterKey:
-        Boolean(this.deps.runAcpPrompt) ||
-        Boolean(keys.anthropic) ||
-        Boolean(this.deps.resolveClaudeBinary()),
-      composioKeySource: settings.composioApiKey ? "settings" : keys.composio ? "env" : "none",
-      typesafeKeySource: settings.typesafeApiKey ? "settings" : keys.typesafe ? "env" : "none",
     };
   }
 
   async updateSettings(patch: BriefSettingsPatch): Promise<BriefSettingsView> {
     await this.deps.store.updateSettings(patch);
-    if (patch.composioApiKey !== undefined || patch.typesafeApiKey !== undefined) {
-      this.lastConnections = null;
-    }
     this.armSchedule(await this.deps.store.readSettings());
     return this.getSettingsView();
   }
 
   async getConnections(refresh = true): Promise<BriefConnection[]> {
-    const settings = await this.deps.store.readSettings();
-    const gateway = await this.getGateway(this.resolveKeys(settings));
+    const gateway = await this.getGateway(this.resolveKeys());
     if (gateway && (refresh || !this.lastConnections)) {
       try {
         this.lastConnections = await gateway.connections();
@@ -337,12 +320,22 @@ export class BriefService {
     return this.running;
   }
 
+  /** Start a user-requested brief and show its progress in the brief tab. */
+  generateNow(): BriefStatus {
+    void this.generate("refresh");
+    this.openWhenReady();
+    return this.getStatus();
+  }
+
   private async runGeneration(trigger: BriefTrigger): Promise<BriefDocument | null> {
-    const settings = await this.deps.store.readSettings();
-    const keys = this.resolveKeys(settings);
+    const keys = this.resolveKeys();
     const gateway = await this.getGateway(keys);
     if (!gateway) {
-      this.setStatus({ phase: "needs-setup", message: null, error: "Missing Composio API key." });
+      this.setStatus({
+        phase: "error",
+        message: null,
+        error: "Morning Brief is unavailable in this build.",
+      });
       return null;
     }
     this.setStatus({ phase: "collecting", message: "Checking your connected tools…", error: null });
@@ -419,7 +412,11 @@ export class BriefService {
         focus,
         now,
       });
-      const result = await firstSuccessful(writers, (w) => w.write(writerInput));
+      const preferredWriter = writers.find((writer) => writer.name === focusResult?.backend);
+      const writingCandidates = preferredWriter
+        ? [preferredWriter, ...writers.filter((writer) => writer !== preferredWriter)]
+        : writers;
+      const result = await firstSuccessful(writingCandidates, (w) => w.write(writerInput));
       if (result) {
         written = result.value;
         writerName = result.backend;
@@ -508,8 +505,7 @@ export class BriefService {
         message: "Draft ready in a new thread — review and send.",
       };
     }
-    const settings = await this.deps.store.readSettings();
-    const gateway = await this.getGateway(this.resolveKeys(settings));
+    const gateway = await this.getGateway(this.resolveKeys());
     if (!gateway) throw new Error("Composio isn't configured.");
     const body = typeof text === "string" && text.trim() ? text.trim() : action.preview;
     const args = { ...action.arguments };
@@ -528,9 +524,8 @@ export class BriefService {
       throw new Error("Unknown source.");
     }
     const brief = source as BriefSource;
-    const settings = await this.deps.store.readSettings();
-    const gateway = await this.getGateway(this.resolveKeys(settings));
-    if (!gateway) throw new Error("Add a Composio API key in Settings first.");
+    const gateway = await this.getGateway(this.resolveKeys());
+    if (!gateway) throw new Error("Morning Brief is unavailable in this build.");
     const url = await gateway.authorize(brief);
     this.deps.openExternal(url);
     this.pending.add(brief);
@@ -643,16 +638,15 @@ export class BriefService {
     const ctx = this.renderContext();
     const status = this.status;
     if (this.running) return renderProgressPage(status, ctx);
-    const settings = await this.deps.store.readSettings();
-    const keys = this.resolveKeys(settings);
-    const setup = async () =>
-      renderSetupPage(
-        await this.getConnections(true),
-        status,
+    const keys = this.resolveKeys();
+    const setup = async () => renderSetupPage(await this.getConnections(true), status, ctx);
+    if (!keys.composio) {
+      return renderErrorPage(
+        { ...status, error: "Morning Brief is unavailable in this build." },
         ctx,
-        keys.composio ? [] : ["a Composio API key"],
       );
-    if (status.phase === "needs-setup" || !keys.composio) return setup();
+    }
+    if (status.phase === "needs-setup") return setup();
     // A failed refresh keeps showing the last good brief rather than an error.
     const latest = await this.deps.store.loadLatest();
     if (latest) return renderBriefPage(latest, ctx, this.now());

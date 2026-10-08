@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
+  ArrowClockwiseIcon,
   ClockIcon,
-  KeyIcon,
   NewspaperIcon,
   PlugsConnectedIcon,
   SunHorizonIcon,
@@ -12,6 +12,7 @@ import type {
   BriefConnection,
   BriefSettingsPatch,
   BriefSettingsView,
+  BriefStatus,
 } from "../../contracts/brief.ts";
 
 function Row({
@@ -41,77 +42,13 @@ function Row({
 
 const Divider = () => <div className="h-px bg-border/70" />;
 
-function KeyField({
-  label,
-  configured,
-  source,
-  status: statusOverride,
-  onSave,
-}: {
-  label: string;
-  configured: boolean;
-  source?: "settings" | "env" | "none";
-  status?: string;
-  onSave: (value: string) => Promise<void>;
-}) {
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const status =
-    statusOverride ??
-    (configured
-      ? source === "env"
-        ? "Using Pipper's built-in key"
-        : "Using your key"
-      : "Not configured");
-  return (
-    <Row
-      icon={<KeyIcon weight="duotone" className="size-[18px]" />}
-      title={label}
-      description={status}
-    >
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (saving) return;
-          setSaving(true);
-          void onSave(value.trim())
-            .then(() => setValue(""))
-            .finally(() => setSaving(false));
-        }}
-      >
-        <input
-          type="password"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder={configured ? "Replace key…" : "Paste key…"}
-          aria-label={label}
-          className="w-44 rounded-md bg-surface-3 px-2 py-1.5 text-[12px] text-foreground outline-none ring-1 ring-border placeholder:text-muted-foreground/60 focus:ring-ring"
-        />
-        <Button type="submit" variant="secondary" size="sm" disabled={!value.trim() || saving}>
-          Save
-        </Button>
-        {source === "settings" && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={saving}
-            onClick={() => void onSave("")}
-          >
-            Reset
-          </Button>
-        )}
-      </form>
-    </Row>
-  );
-}
-
-/** Settings → Morning Brief: schedule, connected tools, and API keys. */
+/** Settings → Morning Brief: schedule and connected tools. */
 export function MorningBriefSettings() {
   const [settings, setSettings] = useState<BriefSettingsView | null>(null);
   const [connections, setConnections] = useState<BriefConnection[]>([]);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [status, setStatus] = useState<BriefStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -132,10 +69,36 @@ export function MorningBriefSettings() {
     return () => window.removeEventListener("focus", onFocus);
   }, [load]);
 
+  useEffect(() => {
+    void window.omni.brief
+      .getStatus()
+      .then(setStatus)
+      .catch(() => {});
+    return window.omni.brief.onStatus(setStatus);
+  }, []);
+
+  const generating =
+    starting ||
+    status?.phase === "collecting" ||
+    status?.phase === "analyzing" ||
+    status?.phase === "writing" ||
+    status?.phase === "rendering";
+
+  const generateNow = async () => {
+    setStarting(true);
+    try {
+      setError(null);
+      setStatus(await window.omni.brief.generate());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start the brief.");
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const update = async (patch: BriefSettingsPatch) => {
     try {
       setSettings(await window.omni.brief.updateSettings(patch));
-      if ("composioApiKey" in patch) setConnections(await window.omni.brief.getConnections());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
     }
@@ -161,6 +124,21 @@ export function MorningBriefSettings() {
           checked={settings.enabled}
           onToggle={() => void update({ enabled: !settings.enabled })}
         />
+      </Row>
+      <Divider />
+      <Row
+        icon={<ArrowClockwiseIcon weight="duotone" className="size-[18px]" />}
+        title="Build a fresh brief"
+        description="Read your connected tools and open the latest brief."
+      >
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={generating}
+          onClick={() => void generateNow()}
+        >
+          {generating ? "Building…" : "Build brief now"}
+        </Button>
       </Row>
       <Divider />
       <Row
@@ -212,7 +190,7 @@ export function MorningBriefSettings() {
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={!settings.hasComposioKey || connecting === connection.source}
+                disabled={connecting === connection.source}
                 onClick={() => {
                   setConnecting(connection.source);
                   void window.omni.brief
@@ -230,31 +208,6 @@ export function MorningBriefSettings() {
           {index < connections.length - 1 && <Divider />}
         </div>
       ))}
-      <Divider />
-      <KeyField
-        label="Composio API key"
-        configured={settings.hasComposioKey}
-        source={settings.composioKeySource}
-        onSave={(value) => update({ composioApiKey: value })}
-      />
-      <Divider />
-      <KeyField
-        label="TypeSafe API key (Jev)"
-        configured={settings.hasTypesafeKey}
-        source={settings.typesafeKeySource}
-        onSave={(value) => update({ typesafeApiKey: value })}
-      />
-      <Divider />
-      <KeyField
-        label="Claude API key (optional)"
-        configured={settings.hasWriterKey}
-        status={
-          settings.hasWriterKey
-            ? "Brief prose is written with Claude (API key or your local Claude Code)."
-            : "Without it, Pipper writes the brief itself from Jev's analysis."
-        }
-        onSave={(value) => update({ anthropicApiKey: value })}
-      />
       {error && <div className="px-4 pb-3 text-[11px] text-red-500">{error}</div>}
     </div>
   );

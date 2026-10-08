@@ -115,6 +115,7 @@ function hardenWebviews(): void {
 
 export interface BriefIntegrationOptions {
   getMainWindow: () => BrowserWindow | null;
+  getSettingsWindow?: () => BrowserWindow | null;
   getTheme: () => "light" | "dark" | "system";
   getUser: () => { id: string | null; name: string | null } | null;
   getSelectedAgentIds?: () => string[];
@@ -132,6 +133,9 @@ export function installBrief(options: BriefIntegrationOptions): BriefIntegration
   hardenWebviews();
 
   const store = new BriefStore(join(app.getPath("userData"), "brief"));
+  void store.removeLegacyCredentialOverrides().catch((error) => {
+    console.warn("[Brief] Could not remove legacy credential overrides:", error);
+  });
   let pendingOpen: BriefOpenRequest | null = null;
 
   const sendToMain = (channel: string, payload: unknown): boolean => {
@@ -181,6 +185,14 @@ export function installBrief(options: BriefIntegrationOptions): BriefIntegration
     },
     broadcastStatus: (status: BriefStatus) => {
       sendToMain("brief:status", status);
+      const settingsWindow = options.getSettingsWindow?.();
+      if (
+        settingsWindow &&
+        !settingsWindow.isDestroyed() &&
+        !settingsWindow.webContents.isLoading()
+      ) {
+        settingsWindow.webContents.send("brief:status", status);
+      }
     },
   });
 
@@ -189,6 +201,10 @@ export function installBrief(options: BriefIntegrationOptions): BriefIntegration
     .protocol.handle(BRIEF_SCHEME, (request) => service.handleRequest(request));
 
   ipcMain.handle("brief:getStatus", () => service.getStatus());
+  ipcMain.handle("brief:generate", () => {
+    focusMain();
+    return service.generateNow();
+  });
   ipcMain.handle("brief:takePendingOpen", () => {
     const request = pendingOpen;
     pendingOpen = null;

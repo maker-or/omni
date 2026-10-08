@@ -10,7 +10,7 @@ import type {
   MonitorSwitchRecord,
 } from "../contracts/monitor.ts";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
-import { resolveAgentSpawn } from "./agents/registry.ts";
+import { agentProcessCwd, resolveAgentSpawn } from "./agents/registry.ts";
 import type { TerminalManager } from "./terminal-manager.ts";
 
 const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
@@ -303,6 +303,7 @@ export class ConnectionLifecycle {
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      cwd: agentProcessCwd(command),
       ...(useShell && { shell: true }),
     }) as ChildProcessWithoutNullStreams;
 

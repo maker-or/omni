@@ -109,6 +109,14 @@ Hope this helps!`;
     expect(written.push?.pitch).toContain("Pipper can run tests");
   });
 
+  test("reports the received JSON fields when an ACP writer returns the wrong shape", async () => {
+    const writer = new AcpWriter({
+      agentId: "codex-acp",
+      runner: async () => '{"status":"working"}',
+    });
+    await expect(writer.write("input items")).rejects.toThrow(/received top-level fields: status/);
+  });
+
   test("extractJson extracts raw JSON without fences", () => {
     const raw = 'Leading commentary {"focus":"Engineering lead"} trailing notes';
     expect(extractJson(raw)).toEqual({ focus: "Engineering lead" });

@@ -4,12 +4,19 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   BUILTIN_ACP_AGENTS,
+  agentProcessCwd,
   listRegisteredAgents,
   probeAgentAvailability,
   resolveAgentSpawn,
 } from "./registry.ts";
 
 describe("ACP agent registry", () => {
+  test("starts npx agents outside a Bun project", () => {
+    expect(agentProcessCwd("/usr/local/bin/npx")).toBe(tmpdir());
+    expect(agentProcessCwd("C:\\node\\npx.cmd")).toBe(tmpdir());
+    expect(agentProcessCwd("/usr/local/bin/copilot")).toBeUndefined();
+  });
+
   test("catalog includes Cursor, Codex, Claude, Gemini, Copilot, Devin, and Antigravity adapters", () => {
     const ids = BUILTIN_ACP_AGENTS.map((a) => a.id);
     expect(ids).toContain("cursor-acp");

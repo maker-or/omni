@@ -121,6 +121,7 @@ const api = {
   },
   brief: {
     getStatus: (): Promise<BriefStatus> => ipcRenderer.invoke("brief:getStatus"),
+    generate: (): Promise<BriefStatus> => ipcRenderer.invoke("brief:generate"),
     getSettings: (): Promise<BriefSettingsView> => ipcRenderer.invoke("brief:getSettings"),
     updateSettings: (patch: BriefSettingsPatch): Promise<BriefSettingsView> =>
       ipcRenderer.invoke("brief:updateSettings", patch),
