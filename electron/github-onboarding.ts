@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { GitHubCliStatus, GitHubRepositoryPage } from "../contracts/github.ts";
 import type { Project } from "../contracts/projects.ts";
@@ -168,8 +168,13 @@ async function cloneAndRegister(fullName: string): Promise<Project> {
   }
 
   const path = await realpath(destination);
-  const existing = listProjects().find((project) => resolve(project.path) === path);
-  return existing ?? createProject({ name: fullName, path, icon: "GithubLogo" });
+  for (const project of listProjects()) {
+    // Local projects can point through symlinks, including on macOS's /var.
+    // A stale project path should not prevent opening another checkout.
+    const projectPath = await realpath(project.path).catch(() => null);
+    if (projectPath === path) return project;
+  }
+  return createProject({ name: fullName, path, icon: "GithubLogo" });
 }
 
 export function cloneGitHubRepository(input: string): Promise<Project> {

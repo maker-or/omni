@@ -1217,24 +1217,36 @@ export function commitWorkspace(worktreePath: string, message: string): string {
   return git(worktreePath, ["rev-parse", "--short", "HEAD"]);
 }
 
-/** Publish the current branch under its own name and track that remote branch. */
+/** Publish the current branch under its own name using Git's push remote precedence. */
 export async function pushWorkspace(worktreePath: string): Promise<void> {
   assertInsideRepo(worktreePath);
   const branch = await tryGitAsync(worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (!branch) throw new Error("Check out a branch before pushing this workspace.");
-  const upstreamRemote = await gitAsync(worktreePath, [
-    "for-each-ref",
-    "--format=%(upstream:remotename)",
-    `refs/heads/${branch}`,
+  const [branchPushRemote, defaultPushRemote, upstream] = await Promise.all([
+    tryGitAsync(worktreePath, ["config", "--get", `branch.${branch}.pushRemote`]),
+    tryGitAsync(worktreePath, ["config", "--get", "remote.pushDefault"]),
+    gitAsync(worktreePath, [
+      "for-each-ref",
+      "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+      `refs/heads/${branch}`,
+    ]),
   ]);
-  // Preserve a configured remote, but never publish a feature to its base
+  const [upstreamRemote, upstreamRef] = upstream.split("\0");
+  // Honor triangular workflows (fetch upstream, push fork), but never publish to the base
   // branch or let push.default / remote push refspecs choose another branch.
-  const remote = upstreamRemote && upstreamRemote !== "." ? upstreamRemote : "origin";
+  const remote =
+    branchPushRemote ||
+    defaultPushRemote ||
+    (upstreamRemote && upstreamRemote !== "." ? upstreamRemote : "origin");
+  const branchRef = `refs/heads/${branch}`;
+  // Keep a same-name fetch upstream on another remote. Only establish tracking
+  // on first publication or repair the inherited base-branch upstream.
+  const setUpstream = !upstreamRemote || upstreamRemote === "." || upstreamRef !== branchRef;
   // Generous timeout: first pushes and slow networks take a while, but a
   // credential prompt must never hang the UI forever (stdin is ignored).
   await gitAsync(
     worktreePath,
-    ["push", "-u", remote, `refs/heads/${branch}:refs/heads/${branch}`],
+    ["push", ...(setUpstream ? ["-u"] : []), remote, `${branchRef}:${branchRef}`],
     120_000,
   );
 }

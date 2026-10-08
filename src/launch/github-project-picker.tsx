@@ -288,9 +288,21 @@ export function GitHubProjectPicker({
         </p>
       )}
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+          {!isLoading && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={cloning !== null || disabled}
+              onClick={() => void refresh()}
+            >
+              Retry
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

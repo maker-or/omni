@@ -3,9 +3,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -161,6 +163,24 @@ describe("managed GitHub checkouts", () => {
     expect(existsSync(join(path, "README.md"))).toBe(true);
     expect(fixture.gh).not.toHaveBeenCalled();
     expect(fixture.projects).toHaveLength(0);
+  });
+
+  test("reuses a local project registered through a symlink and tolerates stale paths", async () => {
+    const destination = join(fixture.home, ".pipper", "repos", "github.com", "team", "app");
+    initCheckout(destination);
+    const alias = join(fixture.home, "local-app");
+    symlinkSync(destination, alias, process.platform === "win32" ? "junction" : "dir");
+    const existing = { id: "local", name: "Local App", path: alias, icon: "Folder" };
+    fixture.projects = [
+      { ...existing, id: "stale", path: join(fixture.home, "no-longer-exists") },
+      existing,
+    ];
+    const project = await cloneGitHubRepository("Team/App");
+    expect(project).toBe(existing);
+    expect(project.path).toBe(alias);
+    expect(fixture.projects).toHaveLength(2);
+    expect(fixture.gh).not.toHaveBeenCalled();
+    expect(readFileSync(join(alias, "README.md"), "utf8")).toBe("local work");
   });
 
   test.each([

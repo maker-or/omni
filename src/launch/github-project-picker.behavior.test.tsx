@@ -136,6 +136,44 @@ test("keeps clone failures reviewable and allows retry", async () => {
   expect(onCreated).toHaveBeenCalledWith(project);
 });
 
+test.each(["status", "repositories"])(
+  "retries a failed %s request without a window focus change",
+  async (request) => {
+    const failed = request === "status" ? getStatus : listRepositories;
+    failed.mockRejectedValueOnce(new Error("Connection interrupted"));
+    await render();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("Connection interrupted");
+    let finish!: (value: GitHubCliStatus) => void;
+    getStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const statusCalls = getStatus.mock.calls.length;
+    await act(async () => button("Retry").click());
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(button("Retry")).toBeUndefined();
+    expect(host.textContent).toContain("Checking GitHub CLI");
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(getStatus.mock.calls.length).toBe(statusCalls + 1);
+    await act(async () => finish(ready));
+    expect(host.textContent).toContain("team/app");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  },
+);
+
+test("restarts pagination when retrying a failed later repository page", async () => {
+  listRepositories.mockResolvedValueOnce({ repositories: [repo], hasMore: true });
+  listRepositories.mockRejectedValueOnce(new Error("Connection interrupted"));
+  await render();
+  expect(host.textContent).toContain("team/app");
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  await act(async () => button("Retry").click());
+  expect(listRepositories.mock.calls.map(([page]) => page)).toEqual([1, 2, 1]);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.querySelectorAll('button[aria-label="Search repositories"]')).toHaveLength(1);
+});
+
 test("rechecks when the user returns from terminal login and works in Strict Mode", async () => {
   getStatus.mockResolvedValue({ ...ready, state: "signed-out", username: null });
   await act(async () =>

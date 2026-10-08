@@ -329,6 +329,44 @@ describe("pushWorkspace", () => {
     expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(head);
   });
 
+  test.each(["branch", "default", "both"])(
+    "honors the %s push remote setting and preserves a separate fetch upstream",
+    async (setting) => {
+      const { work } = setUpTeamRepo();
+      await pushWorkspace(work);
+      const upstreamHead = git(join(dir, "origin.git"), ["rev-parse", "side"]);
+      for (const remote of ["fork", "default-fork"]) {
+        const path = join(dir, `${remote}.git`);
+        git(dir, ["init", "--bare", path]);
+        git(work, ["remote", "add", remote, path]);
+      }
+      if (setting !== "default") git(work, ["config", "branch.side.pushRemote", "fork"]);
+      if (setting !== "branch")
+        git(work, ["config", "remote.pushDefault", setting === "both" ? "default-fork" : "fork"]);
+      const head = commitFeature(work);
+      await pushWorkspace(work);
+      expect(git(join(dir, "fork.git"), ["rev-parse", "side"])).toBe(head);
+      expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(upstreamHead);
+      expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("origin/side");
+      expect(git(join(dir, "default-fork.git"), ["for-each-ref", "--format=%(refname)"])).toBe("");
+    },
+  );
+
+  test("uses the default push remote for first publication and establishes tracking", async () => {
+    const { work } = setUpTeamRepo();
+    const fork = join(dir, "fork.git");
+    git(dir, ["init", "--bare", fork]);
+    git(work, ["remote", "add", "fork", fork]);
+    git(work, ["config", "remote.pushDefault", "fork"]);
+    const head = commitFeature(work);
+    await pushWorkspace(work);
+    expect(git(fork, ["rev-parse", "side"])).toBe(head);
+    expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("fork/side");
+    expect(git(join(dir, "origin.git"), ["for-each-ref", "--format=%(refname)"])).toBe(
+      "refs/heads/main",
+    );
+  });
+
   test("rejects diverging remote history without overwriting it", async () => {
     const { work, other } = setUpTeamRepo();
     commitFeature(work);

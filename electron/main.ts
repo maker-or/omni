@@ -2378,6 +2378,7 @@ function registerIpc(): void {
     "add_project_started",
     "add_project_completed",
     "add_project_abandoned",
+    "github_project_opened",
     "project_opened",
     "project_open_failed",
   ]);
