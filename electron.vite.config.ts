@@ -4,6 +4,7 @@ import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { createCustomResolver } from "./src/lib/alias-resolver.ts";
+import { nodeModulesGuardPlugin } from "./src/lib/node-modules-guard.ts";
 
 const resolveCache = new Map<string, string | null>();
 
@@ -66,6 +67,7 @@ export default defineConfig({
       react(),
       babel({ presets: [reactCompilerPreset()] }),
       cacheInvalidatorPlugin,
+      nodeModulesGuardPlugin(__dirname),
     ],
     build: {
       outDir: "out/renderer",

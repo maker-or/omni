@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -14,6 +14,7 @@ import { ChatMessage } from "@/components/ui/chat-message";
 import { ThreadComposer, initialDraftContent } from "@/components/thread-composer";
 import { ConversationTurnIdentity } from "@/components/conversation-turn-identity";
 import { AgentRuntimeControls } from "@/components/agent-runtime-controls";
+import { AgentAuthBanner } from "@/components/agent-auth-actions";
 import type { MentionProvider } from "@/components/mention-popover";
 import { useIcon } from "@/lib/icon-context";
 import { Elevated } from "@/lib/elevated";
@@ -599,6 +600,33 @@ function cleanRuntimeStatusText(text: string | null | undefined): string | null 
   return cleaned ? cleaned : null;
 }
 
+function isAntigravityAuthFailure(message: string): boolean {
+  return /auth(?:entication)?[\s_-]*(?:required|failed)|not authenticated|sign in to .*antigravity/i.test(
+    message,
+  );
+}
+
+function sendFailureToast(
+  error: unknown,
+  agentId: string | null | undefined,
+  fallbackTitle: string,
+) {
+  if (
+    agentId === "antigravity-acp" &&
+    error instanceof Error &&
+    isAntigravityAuthFailure(error.message)
+  ) {
+    return {
+      title: "Antigravity not authenticated",
+      description: "Sign in to Antigravity, then try again.",
+    };
+  }
+  return {
+    title: fallbackTitle,
+    description: error instanceof Error ? error.message : "The agent did not accept the message.",
+  };
+}
+
 export function getRuntimeStatusItems(snapshot: AgentPanelSnapshot | null): string[] {
   if (!snapshot) return [];
 
@@ -642,6 +670,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     snapshot,
     error: agentError,
     isConnecting,
+    authMethods,
     uiRequest,
     uiRequestQueue,
     subagentRuns,
@@ -662,6 +691,13 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [inputValue, setInputValue] = useState(demoInputValue ?? "");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Optimistic turn shown the instant a draft send starts, so the user sees
+  // their message (text + images) and a thinking indicator while a cold agent
+  // (e.g. Antigravity) is still starting up — before the thread/session exists.
+  const [pendingDraftTurn, setPendingDraftTurn] = useState<{
+    text: string;
+    images: ChatImageAttachment[];
+  } | null>(null);
   const [isAborting, setIsAborting] = useState(false);
   const [isRuntimeActionPending, setIsRuntimeActionPending] = useState(false);
   const [streamingBehavior, setStreamingBehavior] = useState<"followUp" | "steer">("followUp");
@@ -745,6 +781,10 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const [projectFileItems, setProjectFileItems] = useState<
     Array<{ id: string; label: string; description?: string }>
   >([]);
+  const [projectFilesRevision, setProjectFilesRevision] = useState(0);
+  const refreshProjectFiles = useCallback(() => {
+    setProjectFilesRevision((revision) => revision + 1);
+  }, []);
   const draftBootstrappedRef = useRef(false);
 
   // When in agent view with no active thread, no requested thread, and no draft,
@@ -1628,7 +1668,30 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
     if (isSubmitting) return;
     setIsSubmitting(true);
+    // Turn the question into a bubble immediately, before the (possibly slow)
+    // agent startup/handshake, so the user always sees their message land.
+    const previousDraftContent = draftContent;
+    setPendingDraftTurn({ text: check.text, images: [] });
+    setDraftContent(blankContent());
+    setAttachedFiles([]);
     try {
+      // Read attachments up front so the optimistic bubble can show them and
+      // the same blocks feed the prompt (no double read).
+      const newImages = await Promise.all(files.map(fileToPromptImage));
+      if (newImages.length) {
+        setPendingDraftTurn((current) =>
+          current
+            ? {
+                ...current,
+                images: newImages.map((image, index) => ({
+                  ...image,
+                  id: `pending-image-${index}`,
+                  name: files[index]?.name,
+                })),
+              }
+            : current,
+        );
+      }
       const projectPath =
         projectsList.find((p) => p.id === check.projectId)?.path ??
         (activeProject?.id === check.projectId ? activeProject.path : null) ??
@@ -1651,7 +1714,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       completeDraft(thread.id);
       setDraftContent(blankContent());
 
-      const newImages = await Promise.all(files.map(fileToPromptImage));
       if (newImages.length > MAX_AGENT_IMAGES) {
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
@@ -1666,21 +1728,29 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         message: check.text,
         images: newImages.length ? newImages : undefined,
       }).catch((err) => {
+        const failure = sendFailureToast(err, check.agentId, "Send failed");
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
-          title: "Send failed",
-          description: err instanceof Error ? err.message : "The agent did not accept the message.",
+          ...failure,
         });
       });
       setAttachedFiles([]);
     } catch (err) {
+      // Thread creation failed before the turn was sent: drop the speculative
+      // bubble and put the draft text + attachments back so nothing is lost.
+      setPendingDraftTurn(null);
+      setDraftContent(previousDraftContent);
+      setAttachedFiles(files);
+      const failure = sendFailureToast(err, check.agentId, "Create thread failed");
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
-        title: "Create thread failed",
-        description: err instanceof Error ? err.message : "The thread was not created.",
+        ...failure,
       });
     } finally {
       setIsSubmitting(false);
+      // The real optimistic user turn (from sendPrompt) now owns the view;
+      // retire the speculative bubble in the same render.
+      setPendingDraftTurn(null);
     }
   };
 
@@ -1782,10 +1852,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                 streamingBehavior: isStreaming ? streamingBehavior : undefined,
               });
       sendOp.catch((err) => {
+        const failure = sendFailureToast(
+          err,
+          snapshot?.agentId,
+          editState ? "Edit failed" : "Send failed",
+        );
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,
-          title: editState ? "Edit failed" : "Send failed",
-          description: err instanceof Error ? err.message : "The agent did not accept the message.",
+          ...failure,
         });
       });
       if (useAgentStore.getState().state?.threadId === operationThreadId) {
@@ -1801,10 +1875,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       }
       setStreamingBehavior("followUp");
     } catch (err) {
+      const failure = sendFailureToast(
+        err,
+        snapshot?.agentId,
+        editState ? "Edit failed" : "Send failed",
+      );
       toast({
         icon: <WarningIcon className="size-5 text-red-500" />,
-        title: editState ? "Edit failed" : "Send failed",
-        description: err instanceof Error ? err.message : "The agent did not accept the message.",
+        ...failure,
       });
     } finally {
       setIsSubmitting(false);
@@ -2048,11 +2126,21 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     }
   };
 
-  const visibleAgentError = agentError && agentError !== dismissedAgentError ? agentError : null;
+  // Antigravity sign-in failures are rendered as the persistent auth banner
+  // above (with in-place sign-in buttons), not as a dismissible switch error.
+  // Suppress the raw error only when that banner actually renders; a text
+  // match without an auth_required message must stay visible.
+  const authBannerVisible = Boolean(snapshot?.authRequiredMessage);
+  const visibleAgentError =
+    agentError &&
+    agentError !== dismissedAgentError &&
+    !(snapshot?.agentId === "antigravity-acp" && authBannerVisible)
+      ? agentError
+      : null;
   const runtimeControlsDisabled =
     isRuntimeActionPending || isSwitchingThread || isConnecting || !snapshot;
   const composerDisabled = isDraftMode
-    ? isSubmitting
+    ? false
     : isSwitchingThread ||
       isConnecting ||
       !snapshot ||
@@ -2175,6 +2263,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   }, [isDraftMode, draftAgentItems, snapshot?.agentId, models, registryAgents]);
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
+  // Re-read whenever the picker opens so files added within the same workspace
+  // appear without switching threads or projects.
   const fileProjectId = useMemo(
     () =>
       isDraftMode
@@ -2226,7 +2316,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [fileProjectId, fileWorktreePath]);
+  }, [fileProjectId, fileWorktreePath, projectFilesRevision]);
 
   // Keep live free-text content aligned when not using entity chips from draft.
   useEffect(() => {
@@ -2237,8 +2327,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
     });
   }, [inputValue, isDraftMode]);
 
-  // The active thread already knows its project context, so keep that context
-  // visible as a non-editable composer chip in both UI modes.
+  // Keep the project entity bound to the active thread internally. The live
+  // composer hides it because an existing thread already fixes the project.
   useEffect(() => {
     if (isDraftMode || !liveComposerProject) return;
     setLiveContent((prev) => {
@@ -2322,7 +2412,28 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
               aria-busy={isSwitchingThread}
             >
               <div className="flex min-h-full flex-col">
-                {isDraftMode || allMessages.length === 0 ? null : (
+                {isDraftMode || allMessages.length === 0 ? (
+                  pendingDraftTurn ? (
+                    <div className="p-4" data-pipper-id="pending-draft-turn">
+                      <ChatMessage
+                        from="user"
+                        pipperId="user-message"
+                        images={pendingDraftTurn.images}
+                        onImageClick={setPreviewImage}
+                      >
+                        <div className="whitespace-pre-wrap break-words text-[14px] leading-6">
+                          {pendingDraftTurn.text}
+                        </div>
+                      </ChatMessage>
+                      <div
+                        className="flex shrink-0 items-start gap-3 px-4 py-2"
+                        data-pipper-id="Thinking-indicator"
+                      >
+                        <ThinkingIndicator showIcon className="h-9 p-0" />
+                      </div>
+                    </div>
+                  ) : null
+                ) : (
                   <>
                     <div
                       data-pipper-id="messages-list"
@@ -2507,6 +2618,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                   )}
                 >
                   <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+                    {snapshot?.authRequiredMessage && (
+                      <AgentAuthBanner
+                        message={snapshot.authRequiredMessage}
+                        agentId={snapshot.agentId}
+                        methods={authMethods}
+                        onAuthenticated={() => refresh()}
+                      />
+                    )}
                     {visibleAgentError && (
                       <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-500">
                         <WarningIcon className="mt-0.5 size-4 shrink-0" />
@@ -2652,6 +2771,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                           models={modelMentionItems}
                           modelProviders={modelProviderItems}
                           projectFiles={projectFileItems}
+                          onFileMentionOpen={refreshProjectFiles}
                           files={attachedFiles}
                           onFilesChange={handleFilesChange}
                           onFilesRejected={handleFilesRejected}
@@ -2722,6 +2842,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             models={modelMentionItems}
                             modelProviders={modelProviderItems}
                             projectFiles={projectFileItems}
+                            onFileMentionOpen={refreshProjectFiles}
                             files={attachedFiles}
                             onFilesChange={handleFilesChange}
                             onFilesRejected={handleFilesRejected}
@@ -2732,7 +2853,7 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
                             showImageAttach={false}
                             appearance="plain"
                             hideSendButton
-                            hideProjectChip={isAdvancedUI}
+                            hideProjectChip
                             textareaRef={composerTextareaRef}
                             placeholder={
                               isConnecting ? "Connecting to agent runtime..." : undefined

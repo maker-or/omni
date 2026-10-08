@@ -56,6 +56,12 @@ import type {
   BriefStatus,
 } from "../contracts/brief.ts";
 import type {
+  RemoteDevicesState,
+  RemotePairingOffer,
+  RemoteServerInfo,
+  RemoteTransport,
+} from "../contracts/remote.ts";
+import type {
   ThreadBenchmarkIngestedTurn,
   ThreadBenchmarkMode,
   ThreadBenchmarkOpenPath,
@@ -99,6 +105,11 @@ const api = {
     reportVisibility: (visible: boolean): void => {
       ipcRenderer.send("window:reportVisibility", visible);
     },
+  },
+  siri: {
+    getCatalog: (): Promise<unknown> => ipcRenderer.invoke("siri:getCatalog"),
+    consumeRequest: (requestId: string): Promise<unknown> =>
+      ipcRenderer.invoke("siri:consumeRequest", requestId),
   },
   sleepless: {
     getStatus: (): Promise<SleeplessStatus | null> => ipcRenderer.invoke("sleepless:getStatus"),
@@ -150,14 +161,26 @@ const api = {
     },
   },
   remote: {
-    getInfo: (): Promise<{
-      enabled: boolean;
-      port: number | null;
-      token: string | null;
-      pairingUrl: string | null;
-    }> => ipcRenderer.invoke("remote:getInfo"),
-    regenerateToken: (): Promise<{ token: string | null; pairingUrl: string | null }> =>
-      ipcRenderer.invoke("remote:regenerateToken"),
+    getInfo: (): Promise<RemoteServerInfo> => ipcRenderer.invoke("remote:getInfo"),
+    setTransport: (transport: RemoteTransport): Promise<RemoteServerInfo | null> =>
+      ipcRenderer.invoke("remote:setTransport", transport),
+    onInfoChanged: (callback: (info: RemoteServerInfo) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, info: RemoteServerInfo) =>
+        callback(info);
+      ipcRenderer.on("remote:infoChanged", listener);
+      return () => ipcRenderer.removeListener("remote:infoChanged", listener);
+    },
+    getDevices: (): Promise<RemoteDevicesState | null> => ipcRenderer.invoke("remote:getDevices"),
+    createPairing: (options: { allowRun: boolean }): Promise<RemotePairingOffer | null> =>
+      ipcRenderer.invoke("remote:createPairing", options),
+    cancelPairing: (): Promise<void> => ipcRenderer.invoke("remote:cancelPairing"),
+    revokeDevice: (id: string): Promise<boolean> => ipcRenderer.invoke("remote:revokeDevice", id),
+    onDevicesChanged: (callback: (state: RemoteDevicesState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: RemoteDevicesState) =>
+        callback(state);
+      ipcRenderer.on("remote:devicesChanged", listener);
+      return () => ipcRenderer.removeListener("remote:devicesChanged", listener);
+    },
     setStandby: (active: boolean): Promise<void> => ipcRenderer.invoke("remote:setStandby", active),
   },
   launcherUpdate: {
@@ -237,6 +260,12 @@ const api = {
       ipcRenderer.invoke("worktrees:create", input),
     delete: (input: { projectId: string; path: string }): Promise<Worktree> =>
       ipcRenderer.invoke("worktrees:delete", input),
+    onDeleted: (callback: (workspace: { projectId: string; path: string }) => void) => {
+      const listener = (_event: unknown, workspace: { projectId: string; path: string }) =>
+        callback(workspace);
+      ipcRenderer.on("worktrees:deleted", listener);
+      return () => ipcRenderer.removeListener("worktrees:deleted", listener);
+    },
     switch: (input: { projectId: string; path: string }): Promise<Thread> =>
       ipcRenderer.invoke("worktrees:switch", input),
     getSelections: (): Promise<Record<string, string>> =>
@@ -260,8 +289,11 @@ const api = {
       ipcRenderer.invoke("worktrees:continue", input),
   },
   git: {
-    status: (input: { projectId: string; path: string }): Promise<WorkspaceGitStatus> =>
-      ipcRenderer.invoke("git:status", input),
+    status: (input: {
+      projectId: string;
+      path: string;
+      force?: boolean;
+    }): Promise<WorkspaceGitStatus> => ipcRenderer.invoke("git:status", input),
     commit: (input: {
       projectId: string;
       path: string;
@@ -351,6 +383,13 @@ const api = {
         ipcRenderer.removeListener("tabs:newTab", listener);
       };
     },
+    onNewTerminal: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("tabs:newTerminal", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:newTerminal", listener);
+      };
+    },
     onCloseActive: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on("tabs:closeActive", listener);
@@ -436,6 +475,8 @@ const api = {
     > => ipcRenderer.invoke("agent:getModelCatalogs"),
     probeAgent: (agentId: string): Promise<AgentProbeResult> =>
       ipcRenderer.invoke("agent:probeAgent", agentId),
+    authenticate: (agentId: string, methodId: string): Promise<void> =>
+      ipcRenderer.invoke("agent:authenticate", agentId, methodId),
     switchAgent: (agentId: string): Promise<void> =>
       ipcRenderer.invoke("agent:switchAgent", agentId),
     getPreferredAgentId: (): Promise<string> => ipcRenderer.invoke("agent:getPreferredAgentId"),

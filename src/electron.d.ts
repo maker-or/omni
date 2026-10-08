@@ -1,4 +1,10 @@
 import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
+import type {
+  RemoteDevicesState,
+  RemotePairingOffer,
+  RemoteServerInfo,
+  RemoteTransport,
+} from "../contracts/remote.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../../contracts/worktrees.ts";
 import type {
   ProjectRepoState,
@@ -118,13 +124,14 @@ declare global {
         onAgentPrompt: (callback: (request: BriefAgentPromptRequest) => void) => () => void;
       };
       remote: {
-        getInfo: () => Promise<{
-          enabled: boolean;
-          port: number | null;
-          token: string | null;
-          pairingUrl: string | null;
-        }>;
-        regenerateToken: () => Promise<{ token: string | null; pairingUrl: string | null }>;
+        getInfo: () => Promise<RemoteServerInfo>;
+        setTransport: (transport: RemoteTransport) => Promise<RemoteServerInfo | null>;
+        onInfoChanged: (callback: (info: RemoteServerInfo) => void) => () => void;
+        getDevices: () => Promise<RemoteDevicesState | null>;
+        createPairing: (options: { allowRun: boolean }) => Promise<RemotePairingOffer | null>;
+        cancelPairing: () => Promise<void>;
+        revokeDevice: (id: string) => Promise<boolean>;
+        onDevicesChanged: (callback: (state: RemoteDevicesState) => void) => () => void;
         setStandby: (active: boolean) => Promise<void>;
       };
       launcherUpdate: {
@@ -160,6 +167,9 @@ declare global {
         list: (projectId: string) => Promise<Worktree[]>;
         create: (input: { projectId: string; name: string }) => Promise<Worktree>;
         delete: (input: { projectId: string; path: string }) => Promise<Worktree>;
+        onDeleted: (
+          callback: (workspace: { projectId: string; path: string }) => void,
+        ) => () => void;
         switch: (input: { projectId: string; path: string }) => Promise<Thread>;
         getSelections: () => Promise<Record<string, string>>;
         onSetupProgress: (callback: (progress: WorktreeSetupProgress) => void) => () => void;
@@ -174,7 +184,11 @@ declare global {
         continue: (input: { projectId: string; path: string }) => Promise<Worktree>;
       };
       git: {
-        status: (input: { projectId: string; path: string }) => Promise<WorkspaceGitStatus>;
+        status: (input: {
+          projectId: string;
+          path: string;
+          force?: boolean;
+        }) => Promise<WorkspaceGitStatus>;
         commit: (input: {
           projectId: string;
           path: string;
@@ -243,6 +257,7 @@ declare global {
         onChanged: (callback: (state: OpenTabsState) => void) => () => void;
         onSelectByIndex: (callback: (index: number) => void) => () => void;
         onNewTab: (callback: () => void) => () => void;
+        onNewTerminal: (callback: () => void) => () => void;
         onCloseActive: (callback: () => void) => () => void;
       };
       agent: {
@@ -298,6 +313,7 @@ declare global {
           Record<string, Array<{ modelId: string; name: string; provider?: string }>>
         >;
         probeAgent: (agentId: string) => Promise<AgentProbeResult>;
+        authenticate: (agentId: string, methodId: string) => Promise<void>;
         switchAgent: (agentId: string) => Promise<void>;
         getPreferredAgentId: () => Promise<string>;
         setPreferredAgentId: (agentId: string) => Promise<void>;

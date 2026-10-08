@@ -326,6 +326,28 @@ static BOOL ValidateClient(int fd) {
     return YES;
 }
 
+// Identifies the on-disk app executable so the daemon notices when the app is
+// replaced in place (an update or a rebuild). A long-running daemon keeps
+// rejecting the new build's signature until it restarts.
+static NSString *ClientIdentity(void) {
+    NSString *root = AppBundleRoot().stringByResolvingSymlinksInPath;
+    NSString *path = root ? ExpectedClientPath(root) : nil;
+    struct stat info = {0};
+    if (!path || stat(path.fileSystemRepresentation, &info) != 0) return nil;
+    return [NSString stringWithFormat:@"%@:%llu:%llu:%ld.%ld:%lld", path,
+        (unsigned long long)info.st_dev, (unsigned long long)info.st_ino,
+        (long)info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec, (long long)info.st_size];
+}
+
+static void RestartSelf(void) {
+    char path[PROC_PIDPATHINFO_MAXSIZE] = {0};
+    if (proc_pidpath(getpid(), path, sizeof(path)) > 0) {
+        char *arguments[] = { path, NULL };
+        execv(path, arguments);
+    }
+    exit(0); // KeepAlive relaunches the daemon.
+}
+
 static int MakeServerSocket(void) {
     unlink(kSocketPath);
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -420,9 +442,20 @@ int main(void) {
 
         int server = MakeServerSocket();
         if (server < 0) return 1;
+        NSString *clientIdentity = ClientIdentity();
         for (;;) {
             int client = accept(server, NULL, NULL);
-            if (client >= 0) HandleClient(client, manager);
+            if (client < 0) continue;
+            // Clients are served one at a time and a disconnect drops the lease,
+            // so no lease is active here and restarting is safe. The client
+            // reconnects and reaches the fresh process.
+            NSString *currentIdentity = ClientIdentity();
+            if (currentIdentity && ![currentIdentity isEqualToString:clientIdentity]) {
+                close(client);
+                close(server);
+                RestartSelf();
+            }
+            HandleClient(client, manager);
         }
     }
 }

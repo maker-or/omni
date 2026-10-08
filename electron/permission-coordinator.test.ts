@@ -5,7 +5,7 @@ import { PermissionCoordinator } from "./permission-coordinator.ts";
 
 /**
  * Pending-permission lifecycle: requests surface as bridge events, settle via
- * user response, timeout to allow_once, displace duplicates, and cancel when
+ * user response, timeout cancellation, displace duplicates, and cancel when
  * their session goes away.
  */
 
@@ -79,14 +79,12 @@ describe("PermissionCoordinator", () => {
     });
   });
 
-  test("times out to allow_once so an agent never blocks forever", async () => {
+  test("cancels an unanswered request instead of granting permission", async () => {
     const { coordinator, events } = makeCoordinator();
     const promise = coordinator.handle(requestParams(), "r1");
     await vi.advanceTimersByTimeAsync(121_000);
 
-    await expect(promise).resolves.toEqual({
-      outcome: { outcome: "selected", optionId: "allow" },
-    });
+    await expect(promise).resolves.toEqual({ outcome: { outcome: "cancelled" } });
     expect(events.at(-1)?.type).toBe("permission-resolved");
   });
 
@@ -132,5 +130,22 @@ describe("PermissionCoordinator", () => {
 
     await expect(coordinator.handle(requestParams(), "r1")).resolves.toBe(auto);
     expect(events).toEqual([]);
+  });
+  test("remote decisions validate thread ownership, options and stale request generations", async () => {
+    const { coordinator } = makeCoordinator();
+    const first = coordinator.handle(requestParams(), "r1");
+    const decision = coordinator.listForThread("t1")[0]!;
+    expect(coordinator.listForThread("another-thread")).toEqual([]);
+    expect(await coordinator.respondForThread("another-thread", decision.id, "allow")).toBe(false);
+    expect(await coordinator.respondForThread("t1", decision.id, "invented")).toBe(false);
+    const replacement = coordinator.handle(requestParams(), "r1");
+    await expect(first).resolves.toEqual({ outcome: { outcome: "cancelled" } });
+    expect(await coordinator.respondForThread("t1", decision.id, "allow")).toBe(false);
+    const current = coordinator.listForThread("t1")[0]!;
+    expect(await coordinator.respondForThread("t1", current.id, "deny")).toBe(true);
+    await expect(replacement).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "deny" },
+    });
+    expect(await coordinator.respondForThread("t1", current.id, "deny")).toBe(false);
   });
 });

@@ -7,6 +7,7 @@
  *
  * ⌘T / Ctrl+T opens a new thread draft — the same action as "New thread" in
  * the tab-bar plus menu. A draft is tab-less until the first send.
+ * ⌘⇧T / Ctrl+Shift+T opens a new terminal in the current workspace.
  *
  * Bindings live here so a future settings keymap can override the defaults
  * without changing the tab-bar itself.
@@ -60,6 +61,13 @@ export function tabIndexFromShortcutEvent(event: KeyboardEvent): number | null {
 /** ⌘T / Ctrl+T — new thread draft. */
 export function isNewTabShortcutEvent(event: KeyboardEvent): boolean {
   if (!isPlainModShortcut(event)) return false;
+  return event.code === "KeyT" || event.key.toLowerCase() === "t";
+}
+
+/** ⌘⇧T / Ctrl+Shift+T — new terminal. */
+export function isNewTerminalShortcutEvent(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.altKey || event.repeat || event.isComposing) return false;
+  if (!event.shiftKey || !(event.metaKey || event.ctrlKey)) return false;
   return event.code === "KeyT" || event.key.toLowerCase() === "t";
 }
 

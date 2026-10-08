@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
+import { antigravityRelease, installedAntigravityPath } from "./antigravity-official.ts";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
 
 interface RegistryFile {
@@ -47,7 +48,7 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     docsUrl: "https://cursor.com/docs/cli/acp",
     authHint: "Run `agent login` in your terminal (or set CURSOR_API_KEY) before connecting.",
     installHint:
-      "Install Cursor CLI, then ensure `agent` is on your PATH (often ~/.local/bin/agent).",
+      "Install the Cursor CLI (no GUI needed): `curl https://cursor.com/install -fsS | bash`, then ensure `agent` is on your PATH.",
     installKind: "binary",
     detectCommands: ["agent"],
   },
@@ -60,8 +61,10 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: [],
     icon: "openai-codex",
     docsUrl: "https://github.com/agentclientprotocol/codex-acp",
-    authHint: "Sign in with ChatGPT or provide CODEX_API_KEY / OPENAI_API_KEY.",
-    installHint: "npm install -g @agentclientprotocol/codex-acp  (or use npx on first launch)",
+    authHint:
+      "Run `codex` once and choose Sign in with ChatGPT (or set CODEX_API_KEY / OPENAI_API_KEY).",
+    installHint:
+      "Install the Codex CLI (no GUI needed): `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then run `codex` once to sign in. Pipper connects over ACP automatically.",
     installKind: "npx",
     npmPackage: "@agentclientprotocol/codex-acp",
     detectCommands: ["codex-acp"],
@@ -75,9 +78,9 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: [],
     icon: "anthropic",
     docsUrl: "https://github.com/agentclientprotocol/claude-agent-acp",
-    authHint: "Authenticate Claude Code / set ANTHROPIC_API_KEY before connecting.",
+    authHint: "Run `claude` once and complete the login prompt (or set ANTHROPIC_API_KEY).",
     installHint:
-      "npm install -g @agentclientprotocol/claude-agent-acp  (or use npx on first launch)",
+      "Install the Claude CLI (no GUI needed): `curl -fsSL https://claude.ai/install.sh | bash` (native install auto-updates). Pipper connects over ACP automatically.",
     installKind: "npx",
     npmPackage: "@agentclientprotocol/claude-agent-acp",
     detectCommands: ["claude-agent-acp"],
@@ -106,8 +109,10 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     args: ["agent", "stdio"],
     icon: "xai",
     docsUrl: "https://www.npmjs.com/package/@xai-official/grok",
-    authHint: "Run `grok login` to sign in with your xAI account before connecting.",
-    installHint: "npm install -g @xai-official/grok  (or use npx on first launch)",
+    authHint:
+      "Run `grok login` to sign in via browser (or `grok login --device-auth` on headless machines).",
+    installHint:
+      "Install the Grok CLI (no GUI needed): `curl -fsSL https://x.ai/cli/install.sh | bash`, then verify with `grok --version`.",
     installKind: "npx",
     npmPackage: "@xai-official/grok",
     detectCommands: ["grok"],
@@ -146,19 +151,15 @@ export const BUILTIN_ACP_AGENTS: AcpAgentDescriptor[] = [
     id: "antigravity-acp",
     name: "antigravity",
     displayName: "Antigravity",
-    description: "Google Antigravity CLI via ACP adapter (stdio JSON-RPC).",
-    command: "npx",
+    description: "Google's official ACP agent, installed into Pipper's cache on first use.",
+    command: "agy_acp_server.par",
     args: [],
     icon: "antigravity",
-    docsUrl: "https://antigravity.google/docs",
-    authHint: "Run `agy` in your terminal to sign in (or set GEMINI_API_KEY) before connecting.",
-    installHint: "npm install -g antigravity-acp  (or use npx on first launch)",
-    installKind: "npx",
-    npmPackage: "antigravity-acp",
-    detectCommands: ["antigravity-acp", "agy-acp"],
-    env: {
-      AGY_EXTRA_ARGS: "--dangerously-skip-permissions",
-    },
+    docsUrl: "https://antigravity.google/docs/ide/extensions/zed/",
+    authHint: "Sign in to Google Antigravity to continue.",
+    installHint: "Pipper downloads Google's official ACP server on first use.",
+    installKind: "binary",
+    detectCommands: ["agy_acp_server.par", "agy_acp_server.exe"],
   },
   {
     id: "devin-acp",
@@ -337,6 +338,18 @@ export function probeAgentAvailability(agent: AcpAgentDescriptor): AcpAgentDescr
     };
   }
 
+  if (base.id === "antigravity-acp") {
+    const release = antigravityRelease();
+    return {
+      ...base,
+      available: Boolean(release),
+      resolvedCommand: installedAntigravityPath(),
+      statusMessage: release
+        ? "Google's official ACP server downloads to Pipper's cache on first use."
+        : `Official Antigravity ACP is not supported on ${process.platform} ${process.arch}.`,
+    };
+  }
+
   // Cursor's CLI binary is literally named `agent`, a name other unrelated CLIs also
   // install (e.g. Grok). A generic PATH lookup can silently pick one of those instead,
   // which then hangs forever because it doesn't speak ACP — so resolve it separately
@@ -475,6 +488,16 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
   // Drop ambient provider credentials for isolated accounts so the child can't
   // authenticate as the machine's default login instead of the chosen account.
   for (const name of agent.unsetEnv ?? []) delete env[name];
+  // `bun run --bun` prepends a temp dir whose `node` symlinks to bun. npx-based
+  // agents are `#!/usr/bin/env node` scripts; run under bun, npm derives its
+  // global prefix from the bun binary (~/.bun) and fails with ENOENT on
+  // ~/.bun/lib. Strip the shim so agents run under real node.
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const sep = process.platform === "win32" ? ";" : ":";
+  env[pathKey] = (env[pathKey] ?? env.PATH ?? "")
+    .split(sep)
+    .filter((dir) => !/[\\/]bun-node-[^\\/]+$/.test(dir))
+    .join(sep);
 
   if (agent.id === "pipper-mock" || agent.installKind === "mock") {
     const mockPath = join(registryDir, "mock-agent.mjs");
@@ -483,6 +506,18 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
     return {
       command: process.execPath.includes("Electron") ? "node" : process.execPath,
       args: [script],
+      env,
+    };
+  }
+
+  if (descriptorDriverId(agent) === "antigravity-acp") {
+    const binary = installedAntigravityPath();
+    if (!binary || !existsSync(binary))
+      throw new Error("Google Antigravity ACP is not installed in Pipper's cache yet.");
+    delete env.AGY_EXTRA_ARGS;
+    return {
+      command: binary,
+      args: [...(antigravityRelease()?.args ?? [])],
       env,
     };
   }

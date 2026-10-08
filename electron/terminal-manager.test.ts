@@ -54,4 +54,18 @@ describe("TerminalManager", () => {
     expect(result.text.startsWith("😀")).toBe(true);
     expect(result.truncated).toBe(true);
   });
+  test("stopping one session leaves other sessions' terminals running", async () => {
+    const manager = new TerminalManager();
+    const command = { command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"] };
+    const target = manager.create({ ...command, sessionId: "phone-session" });
+    const other = manager.create({ ...command, sessionId: "desktop-session" });
+    try {
+      manager.killRunning("phone-session");
+      await manager.waitForExit(target);
+      expect(manager.getOutput(target).exitStatus).not.toBeNull();
+      expect(manager.getOutput(other).exitStatus).toBeNull();
+    } finally {
+      manager.killAll();
+    }
+  });
 });

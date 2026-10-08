@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { makeWorkspaceKey, useTerminalStore } from "./terminal-store";
+import { getAllTerminalSessions, makeWorkspaceKey, useTerminalStore } from "./terminal-store";
 
 function resetStore() {
   useTerminalStore.setState({
@@ -101,7 +101,7 @@ describe("terminal store session behavior", () => {
     expect(useTerminalStore.getState().sessions).toEqual([]);
   });
 
-  test("switching workspace kills the visible ptys and stashes their sessions", () => {
+  test("switching workspace keeps the previous workspace's ptys alive", () => {
     const kill = vi.fn();
     (globalThis as any).window = { omni: { terminal: { kill } } };
     const keyA = makeWorkspaceKey("project-1", "/repo");
@@ -109,26 +109,42 @@ describe("terminal store session behavior", () => {
     useTerminalStore.setState({
       workspaceKey: keyA,
       sessions: [
-        { id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "old output" },
-        { id: "term-a-2", title: "Terminal 2", cwd: "/repo", history: "" },
+        {
+          id: "term-a-1",
+          title: "Terminal 1",
+          cwd: "/repo",
+          status: "running",
+          history: "old output",
+        },
+        { id: "term-a-2", title: "Terminal 2", cwd: "/repo", status: "starting", history: "" },
       ],
     });
 
     const newActiveId = useTerminalStore.getState().setWorkspace(keyB, "/repo/worktrees/feature");
 
-    expect(kill).toHaveBeenCalledWith("term-a-1");
-    expect(kill).toHaveBeenCalledWith("term-a-2");
+    expect(kill).not.toHaveBeenCalled();
     // Workspace B has no stash: the bucket starts empty.
     expect(newActiveId).toBeNull();
     expect(useTerminalStore.getState().sessions).toEqual([]);
     expect(useTerminalStore.getState().workspaceKey).toBe(keyB);
     expect(useTerminalStore.getState().stashByWorkspace[keyA]).toEqual([
-      { id: "term-a-1", title: "Terminal 1", history: "old output" },
-      { id: "term-a-2", title: "Terminal 2", history: "" },
+      {
+        id: "term-a-1",
+        title: "Terminal 1",
+        cwd: "/repo",
+        status: "running",
+        history: "old output",
+      },
+      { id: "term-a-2", title: "Terminal 2", cwd: "/repo", status: "starting", history: "" },
     ]);
+    // The shells keep rendering these same ids, even though B's tab list is
+    // empty. Removing them here would unmount the terminal emulator.
+    expect(
+      getAllTerminalSessions(useTerminalStore.getState()).map((session) => session.id),
+    ).toEqual(["term-a-1", "term-a-2"]);
   });
 
-  test("returning to a workspace restores stable session ids with fresh ptys in the workspace cwd", () => {
+  test("returning to a workspace preserves the original sessions and running status", () => {
     const ids = ["term-b-1"];
     vi.spyOn(crypto, "randomUUID").mockImplementation(() => ids.shift() ?? "term-fallback");
     const kill = vi.fn();
@@ -138,8 +154,21 @@ describe("terminal store session behavior", () => {
     useTerminalStore.setState({
       workspaceKey: keyA,
       sessions: [
-        { id: "term-a-1", title: "Terminal 1", cwd: "/repo", history: "root scrollback" },
-        { id: "term-a-2", title: "Terminal 2", cwd: "/repo", history: "" },
+        {
+          id: "term-a-1",
+          title: "Terminal 1",
+          cwd: "/repo",
+          status: "running",
+          history: "root scrollback",
+        },
+        {
+          id: "term-a-2",
+          title: "Terminal 2",
+          cwd: "/repo",
+          status: "exited",
+          exitCode: 0,
+          history: "",
+        },
       ],
     });
 
@@ -152,14 +181,15 @@ describe("terminal store session behavior", () => {
         id: "term-a-1",
         title: "Terminal 1",
         cwd: "/repo",
-        status: "starting",
+        status: "running",
         history: "root scrollback",
       },
       {
         id: "term-a-2",
         title: "Terminal 2",
         cwd: "/repo",
-        status: "starting",
+        status: "exited",
+        exitCode: 0,
         history: "",
       },
     ]);
@@ -168,9 +198,168 @@ describe("terminal store session behavior", () => {
     // A's stash was consumed; B's terminal is stashed for its own return.
     expect(useTerminalStore.getState().stashByWorkspace[keyA]).toBeUndefined();
     expect(useTerminalStore.getState().stashByWorkspace[keyB]).toEqual([
-      { id: "terminal:term-b-1", title: "Terminal 1", history: "" },
+      {
+        id: "terminal:term-b-1",
+        title: "Terminal 1",
+        cwd: "/repo/worktrees/feature",
+        status: "starting",
+        history: "",
+      },
     ]);
-    expect(kill).toHaveBeenCalledWith("terminal:term-b-1");
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  test("background output and exits are retained across workspace switches", () => {
+    let dataHandler = (_payload: { sessionId: string; data: string }) => {};
+    let exitHandler = (_payload: { sessionId: string; exitCode: number; signal?: number }) => {};
+    const kill = vi.fn();
+    (globalThis as any).window = {
+      omni: {
+        terminal: {
+          kill,
+          onData: (handler: typeof dataHandler) => {
+            dataHandler = handler;
+          },
+          onExit: (handler: typeof exitHandler) => {
+            exitHandler = handler;
+          },
+        },
+      },
+    };
+    const state = useTerminalStore.getState;
+    const keyA = makeWorkspaceKey("project", "/a");
+    state().setWorkspace(keyA, "/a");
+    const idA = state().createSession("/a");
+    state().initializeGlobalListener();
+    // A split escape sequence can straddle navigation; neither half should
+    // leak into recovered history.
+    dataHandler({ sessionId: idA, data: "before\u001b[" });
+    state().setWorkspace(makeWorkspaceKey("project", "/b"), "/b");
+    state().createSession("/b");
+    state().markRunning(idA);
+    expect(state().stashByWorkspace[keyA][0].status).toBe("running");
+    const tabsRevision = state().tabsRevision;
+    dataHandler({ sessionId: idA, data: "31mafter\u001b[0m\n" });
+    expect(state().tabsRevision).toBe(tabsRevision);
+    exitHandler({ sessionId: idA, exitCode: 2, signal: 15 });
+    state().setWorkspace(keyA, "/a");
+    expect(state().sessions[0]).toMatchObject({
+      id: idA,
+      cwd: "/a",
+      status: "exited",
+      exitCode: 2,
+      exitSignal: 15,
+    });
+    expect(state().sessions[0].history).toBe("beforeafter\n\r\n[Process completed (exit 2)]\r\n");
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  test("first workspace binding retains terminals created before project hydration", () => {
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    const state = useTerminalStore.getState;
+    const id = state().createSession("/a");
+    state().markRunning(id);
+    expect(state().setWorkspace(makeWorkspaceKey("project", "/a"), "/a")).toBe(id);
+    expect(state().sessions[0]).toMatchObject({ id, cwd: "/a", status: "running" });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  test("closing a background session kills only that session and prevents restoration", () => {
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    const state = useTerminalStore.getState;
+    const keyA = makeWorkspaceKey("project", "/a");
+    state().setWorkspace(keyA, "/a");
+    const idA = state().createSession("/a");
+    state().setWorkspace(makeWorkspaceKey("project", "/b"), "/b");
+    const idB = state().createSession("/b");
+    state().closeSession(idA);
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith(idA);
+    expect(state().sessions[0].id).toBe(idB);
+    expect(state().setWorkspace(keyA, "/a")).toBeNull();
+  });
+
+  test("clearing terminals includes background workspaces", () => {
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    const state = useTerminalStore.getState;
+    state().setWorkspace(makeWorkspaceKey("project", "/a"), "/a");
+    const idA = state().createSession("/a");
+    state().setWorkspace(makeWorkspaceKey("project", "/b"), "/b");
+    const idB = state().createSession("/b");
+    state().clearSessions();
+    expect(kill.mock.calls).toEqual([[idB], [idA]]);
+    expect(state().sessions).toEqual([]);
+    expect(state().stashByWorkspace).toEqual({});
+  });
+
+  test.each(["visible", "background"])(
+    "deleting a %s workspace stops only its terminals and forgets its bucket",
+    (location) => {
+      const kill = vi.fn();
+      (globalThis as any).window = { omni: { terminal: { kill } } };
+      const state = useTerminalStore.getState;
+      const keyA = makeWorkspaceKey("project-a", "/workspace-a");
+      const keyB = makeWorkspaceKey("project-a", "/workspace-b");
+      // The same path in a different project is a different owner.
+      const keyC = makeWorkspaceKey("project-c", "/workspace-a");
+      state().setWorkspace(keyA, "/workspace-a");
+      const idA1 = state().createSession("/workspace-a");
+      const idA2 = state().createSession("/workspace-a/subdirectory");
+      state().markRunning(idA1);
+      state().appendHistory(idA1, "old output\u001b[");
+      state().setWorkspace(keyC, "/workspace-a");
+      const idC = state().createSession("/workspace-a");
+      state().appendHistory(idC, "keep\u001b[");
+      state().setWorkspace(keyB, "/workspace-b");
+      const idB = state().createSession("/workspace-b");
+      if (location === "visible") state().setWorkspace(keyA, "/workspace-a");
+      const tabsRevision = state().tabsRevision;
+
+      expect(state().closeWorkspace(keyA)).toEqual([idA2, idA1]);
+
+      expect(kill.mock.calls).toEqual([[idA2], [idA1]]);
+      expect(state().stashByWorkspace[keyA]).toBeUndefined();
+      expect(state().historyControlRemainders[idA1]).toBeUndefined();
+      expect(state().historyControlRemainders[idC]).toBe("\u001b[");
+      expect(state().tabsRevision).toBe(tabsRevision + 1);
+      expect(
+        getAllTerminalSessions(state())
+          .map((session) => session.id)
+          .sort(),
+      ).toEqual([idB, idC].sort());
+      // A late process event cannot recreate the deleted session or history.
+      state().appendHistory(idA1, "late output");
+      state().markRunning(idA1);
+      expect(state().historyControlRemainders[idA1]).toBeUndefined();
+      state().setWorkspace(keyB, "/workspace-b");
+      expect(state().setWorkspace(keyA, "/workspace-a")).toBeNull();
+      expect(state().sessions).toEqual([]);
+      // Repeated cleanup is harmless and does not disturb surviving shells.
+      expect(state().closeWorkspace(keyA)).toEqual([]);
+      expect(kill).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test("visiting more than ten workspaces does not discard live terminals", () => {
+    const kill = vi.fn();
+    (globalThis as any).window = { omni: { terminal: { kill } } };
+    const state = useTerminalStore.getState;
+    const keys = Array.from({ length: 12 }, (_, i) =>
+      makeWorkspaceKey("project", `/workspace-${i}`),
+    );
+    state().setWorkspace(keys[0], "/workspace-0");
+    const id = state().createSession("/workspace-0");
+    state().markRunning(id);
+    for (let i = 1; i < keys.length; i++) {
+      state().setWorkspace(keys[i], `/workspace-${i}`);
+      state().createSession(`/workspace-${i}`);
+    }
+    expect(state().setWorkspace(keys[0], "/workspace-0")).toBe(id);
+    expect(state().sessions[0].status).toBe("running");
+    expect(kill).not.toHaveBeenCalled();
   });
 
   test("re-entering the current workspace is a no-op", () => {

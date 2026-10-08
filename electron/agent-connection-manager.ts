@@ -286,6 +286,7 @@ export class AgentConnectionManager {
     threadDisplayTitle: (threadId) => this.threadDisplayTitle(threadId),
   });
   private readonly prompts = new PromptScheduler();
+  private readonly abortGenerations = new Map<string, number>();
   private readonly terminalManager: TerminalManager;
   private broadcaster!: RendererBroadcaster;
   private lifecycle!: ConnectionLifecycle;
@@ -950,6 +951,29 @@ export class AgentConnectionManager {
    * Returns accumulated agent_text + user_text so the phone can show the
    * entire final message at once when the turn ends. Falls back to the
    * persisted snapshot when the thread is not resident in memory. */
+  /** The thread's model selector, for the phone. Null when the thread is not
+   * loaded in memory or its agent exposes no model choice. */
+  getThreadModel(threadId: string): {
+    configId: string;
+    current: string | null;
+    options: Array<{ id: string; name: string }>;
+  } | null {
+    const runtime = this.sessions.get(threadId);
+    if (!runtime) return null;
+    const option = runtime.slice.configOptions.find(
+      (o) => o.category === "model" || o.id === "model",
+    );
+    if (!option) return null;
+    const options = modelOptionsFromConfig([option]).map((m) => ({ id: m.modelId, name: m.name }));
+    if (!options.length) return null;
+    const current = (option as { currentValue?: unknown }).currentValue;
+    return {
+      configId: option.id,
+      current: typeof current === "string" ? current : null,
+      options,
+    };
+  }
+
   getThreadTranscript(threadId: string): {
     finalText: string | null;
     messages: Array<{ role: "user" | "agent"; text: string }>;
@@ -1019,6 +1043,56 @@ export class AgentConnectionManager {
     // signal — signed-in agents advertise them too — so we must not nag based
     // on that alone (that false positive is what made onboarding unreliable).
     return this.lifecycle.active?.authRequiredMessage ?? null;
+  }
+
+  /**
+   * Record a genuine "not signed in" signal. Only an ACP `auth_required`
+   * rejection proves it — advertising `authMethods` at `initialize` does not —
+   * so every session phase records it the same way for `authMessage()` and the
+   * renderer's persistent auth banner.
+   */
+  private recordAuthRequired(live: LiveConnection, error: unknown): void {
+    if (!isAuthRequiredError(error)) return;
+    const descriptor = getAgentDescriptor(live.agentId);
+    live.authRequiredMessage =
+      descriptor?.authHint ??
+      `${descriptor?.displayName ?? live.agentId} requires authentication. Please sign in from your terminal first.`;
+  }
+
+  /**
+   * A snapshot-restored Antigravity thread stays displayable when its agent
+   * session cannot be established — a legacy `pipper-agy-` id the official
+   * server cannot resume, a missing install, a sign-in failure. Removing the
+   * runtime would blank the transcript the user opened the project for, so
+   * keep it with `agentReady: false` (prompts reject via `waitForThreadReady`)
+   * and drop any partial replay so a later retry does not append onto it.
+   * Other agents keep the existing eviction: their fallback chain already
+   * tried load → resume → new, so a failure there is a dead placeholder.
+   */
+  private preserveSnapshotRuntimeAfterFailure(
+    threadId: string,
+    runtime: ThreadSessionRuntime | undefined,
+  ): boolean {
+    if (!runtime || runtime.agentReady !== false || !runtime.snapshotRestored) return false;
+    if (runtime.agentId !== "antigravity-acp") return false;
+    // A prompt queued onto the in-flight load was appended optimistically; the
+    // failed load never delivered it, so it must not be published as history.
+    const pending = runtime.pendingLocalEntries ?? [];
+    if (pending.length > 0) {
+      const pendingIds = new Set(pending.map((entry) => entry.id));
+      runtime.slice = {
+        ...runtime.slice,
+        entries: runtime.slice.entries.filter((entry) => !pendingIds.has(entry.id)),
+        isStreaming: false,
+      };
+    }
+    runtime.pendingLocalEntries = [];
+    runtime.replaySlice = undefined;
+    runtime.replayToolPayloads = undefined;
+    this.threadActivationGenerations.delete(threadId);
+    this.endThreadLoad(threadId);
+    this.pushState(threadId);
+    return true;
   }
 
   private buildSessionState(threadId: string): AcpSessionState {
@@ -1285,6 +1359,35 @@ export class AgentConnectionManager {
     }
   }
 
+  async authenticateAgent(agentId: string, methodId: string): Promise<void> {
+    const live = await this.acquireConnection(agentId);
+    const method = live.authMethods.find((candidate) => candidate.id === methodId);
+    if (!method || ("type" in method && method.type === "terminal"))
+      throw new Error("This authentication method cannot be started from Pipper.");
+    await requestWithTimeout(
+      live.agent.request(acp.methods.agent.authenticate, { methodId }),
+      5 * 60_000,
+      "agent/authenticate",
+    );
+    live.authRequiredMessage = null;
+    // A thread whose restore failed with `auth_required` is still snapshot-only.
+    // Now that credentials exist, re-run its activation in the background so
+    // signing in unblocks the thread it was requested from. Not awaited: the
+    // caller's button state must not hang on a slow re-activation.
+    const threadId = this.activeThreadId;
+    const runtime = threadId ? this.sessions.get(threadId) : undefined;
+    if (
+      threadId &&
+      runtime?.agentReady === false &&
+      runtime.agentId === agentId &&
+      !this.loadingSessionThreads.has(threadId)
+    ) {
+      void this.switchThread(threadId).catch((error) => {
+        console.warn(`[agent-auth] retry activation for ${threadId} failed:`, error);
+      });
+    }
+  }
+
   async switchAgent(agentId: string): Promise<LiveConnection> {
     this.emit({
       type: "session-state",
@@ -1412,6 +1515,18 @@ export class AgentConnectionManager {
         threadId: null,
         update,
       });
+      return;
+    }
+
+    // A preserved snapshot runtime has no activation owning its session: a
+    // failed or superseded session/load can keep streaming, and those updates
+    // must not be written into the restored transcript as live content. Only a
+    // new activation (which marks the thread loading) may receive them again.
+    if (
+      runtime.agentReady === false &&
+      runtime.snapshotRestored &&
+      !this.loadingSessionThreads.has(runtime.threadId)
+    ) {
       return;
     }
 
@@ -1569,9 +1684,10 @@ export class AgentConnectionManager {
         this.emit({
           type: "thread-tool-calls",
           threadId: runtime.threadId,
-          toolCalls: changedToolCall
-            ? { [updateToolCallId]: changedToolCall }
-            : runtime.slice.toolCalls,
+          toolCalls:
+            changedToolCall && updateToolCallId
+              ? { [updateToolCallId]: changedToolCall }
+              : runtime.slice.toolCalls,
           replace: !changedToolCall,
         });
       } else {
@@ -1593,6 +1709,19 @@ export class AgentConnectionManager {
     requestId?: string | number | null,
   ): Promise<acp.RequestPermissionResponse> {
     return this.permissions.handle(params, requestId ?? null);
+  }
+
+  getRemotePermissions(threadId: string) {
+    return this.permissions.listForThread(threadId);
+  }
+
+  respondToRemotePermission(
+    threadId: string,
+    decisionId: string,
+    optionId?: string,
+    cancelled = false,
+  ) {
+    return this.permissions.respondForThread(threadId, decisionId, optionId, cancelled);
   }
 
   respondToPermission(response: {
@@ -1644,6 +1773,7 @@ export class AgentConnectionManager {
 
     void this.requestPrompt(live, runtime, prompt.blocks, prompt.streamingBehavior)
       .then((result) => {
+        live.authRequiredMessage = null;
         this.settleRuntime(runtime);
         this.captureAnalytics?.("turn_completed", {
           ...agentProps,
@@ -1674,6 +1804,11 @@ export class AgentConnectionManager {
         prompt.resolve(result);
       })
       .catch((error) => {
+        if (isAuthRequiredError(error)) {
+          live.authRequiredMessage =
+            getAgentDescriptor(live.agentId)?.authHint ?? "Sign in to your agent CLI, then retry.";
+          this.prompts.rejectQueued(runtime.threadId, live.authRequiredMessage);
+        }
         this.settleRuntime(runtime);
         this.captureAnalytics?.("turn_failed", {
           ...agentProps,
@@ -1772,7 +1907,7 @@ export class AgentConnectionManager {
 
   /**
    * Normalize and sanitize session config options. Some third-party ACP adapters
-   * (e.g. antigravity-acp) leak raw tab-separated output from CLI discovery (`id\tDisplay Name`).
+   * Some legacy adapters leak raw tab-separated output from CLI discovery (`id\tDisplay Name`).
    * Clean them so modelId matches what the CLI expects and UI renders clean names.
    */
   private sanitizeConfigOptions(
@@ -1828,7 +1963,8 @@ export class AgentConnectionManager {
     live: LiveConnection,
     options: SessionConfigOption[],
   ): SessionConfigOption[] {
-    const sanitized = this.sanitizeConfigOptions(options);
+    const sanitized =
+      live.agentId === "antigravity-acp" ? options : this.sanitizeConfigOptions(options);
     const ms = live.modelState;
     const models = ms?.availableModels ?? [];
     if (models.length === 0) return sanitized;
@@ -1882,12 +2018,7 @@ export class AgentConnectionManager {
     } catch (err) {
       // A genuine "not signed in" surfaces here as an ACP `auth_required`
       // error — the only reliable signal — so record it for `authMessage()`.
-      if (isAuthRequiredError(err)) {
-        const descriptor = getAgentDescriptor(live.agentId);
-        live.authRequiredMessage =
-          descriptor?.authHint ??
-          `${descriptor?.displayName ?? live.agentId} requires authentication. Please sign in from your terminal first.`;
-      }
+      this.recordAuthRequired(live, err);
       attached.release();
       throw err;
     }
@@ -1899,50 +2030,32 @@ export class AgentConnectionManager {
       (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
     );
 
-    // If an agent (e.g. antigravity-acp) provided a raw/tab-separated default model,
-    // explicitly sync the clean model back to the adapter session so it doesn't
-    // pass the raw tab-separated string to its CLI subprocess.
-    const modelOpt = configOptions.find((o) => o.category === "model" || o.id === "model");
-    if (modelOpt && typeof modelOpt.currentValue === "string") {
-      const rawOpt = (
-        (result.configOptions as SessionConfigOption[] | null | undefined) ?? []
-      ).find((o) => o.category === "model" || o.id === "model");
-      if (
-        live.agentId.includes("antigravity") ||
-        (typeof rawOpt?.currentValue === "string" && rawOpt.currentValue.includes("\t"))
-      ) {
-        try {
-          await requestWithTimeout(
-            live.agent.request(acp.methods.agent.session.setConfigOption, {
-              sessionId: result.sessionId,
-              configId: modelOpt.id,
-              value: modelOpt.currentValue as never,
-            }),
-            ACP_SWITCH_PHASE_TIMEOUT_MS,
-            "session/set_config_option",
-          );
-        } catch {
-          // best-effort sync
-        }
-      }
-    }
-
-    // For antigravity-acp, also ensure mode is initialized to bypassPermissions
-    // so tool executions never deadlock waiting on headless stdin.
-    const modeOpt = configOptions.find((o) => o.category === "mode" || o.id === "mode");
-    if (modeOpt && live.agentId.includes("antigravity")) {
+    // Preserve the compatibility sync for other adapters that leak tab-separated
+    // defaults. Official Antigravity ACP values remain opaque and are never rewritten.
+    const rawModel = result.configOptions?.find(
+      (option) => option.category === "model" || option.id === "model",
+    );
+    const cleanModel = configOptions.find(
+      (option) => option.category === "model" || option.id === "model",
+    );
+    if (
+      live.agentId !== "antigravity-acp" &&
+      typeof rawModel?.currentValue === "string" &&
+      rawModel.currentValue.includes("\t") &&
+      cleanModel
+    ) {
       try {
         await requestWithTimeout(
           live.agent.request(acp.methods.agent.session.setConfigOption, {
             sessionId: result.sessionId,
-            configId: modeOpt.id,
-            value: "bypassPermissions" as never,
+            configId: cleanModel.id,
+            value: cleanModel.currentValue,
           }),
           ACP_SWITCH_PHASE_TIMEOUT_MS,
           "session/set_config_option",
         );
       } catch {
-        // best-effort sync
+        /* compatibility sync is best effort */
       }
     }
 
@@ -1970,9 +2083,14 @@ export class AgentConnectionManager {
         "session/load",
       );
     } catch (err) {
+      // A restore that needs sign-in is the same persistent signal as a new
+      // session: without this the renderer hides the transient switch error
+      // and shows nothing lasting to act on.
+      this.recordAuthRequired(live, err);
       attached.release();
       throw err;
     }
+    live.authRequiredMessage = null;
     attached.bind(result?.sessionId ?? sessionId);
     return {
       sessionId: result?.sessionId ?? sessionId,
@@ -1990,7 +2108,7 @@ export class AgentConnectionManager {
     try {
       result = await requestWithTimeout(
         live.agent.request(acp.methods.agent.session.resume, {
-          prevSessionId,
+          sessionId: prevSessionId,
           cwd,
           mcpServers: attached.servers as never,
         } as never),
@@ -1998,9 +2116,11 @@ export class AgentConnectionManager {
         "session/resume",
       );
     } catch (err) {
+      this.recordAuthRequired(live, err);
       attached.release();
       throw err;
     }
+    live.authRequiredMessage = null;
     attached.bind(result?.sessionId ?? prevSessionId);
     return {
       sessionId: result?.sessionId ?? prevSessionId,
@@ -2087,7 +2207,29 @@ export class AgentConnectionManager {
     // switchThread reconciles the persisted workspace to the activated
     // thread's cwd, so header/tabs/terminals agree after restart and after
     // project switches.
-    await this.switchThreadInternal(thread.id, "restore", signal);
+    try {
+      await this.switchThreadInternal(thread.id, "restore", signal);
+    } catch (error) {
+      // A newer activation superseded this one: the caller must not treat the
+      // abandoned switch as a completed launch.
+      if (isActivationSuperseded(error)) throw error;
+      // A snapshot-restored thread must not block project launch: the user
+      // needs the workspace open to read its saved history and start a
+      // replacement thread (e.g. a legacy `pipper-agy-` id the official
+      // Antigravity server cannot resume). The failure is still recorded on
+      // the switch monitor and the transcript stays displayable.
+      if (!this.sessions.get(thread.id)?.snapshotRestored) throw error;
+      console.warn(`[thread-restore] opening ${thread.id} snapshot-only:`, error);
+      // switchThreadCore's reconciliation never ran, so a snapshot-only launch
+      // must still select the thread's workspace and give it an open tab.
+      await Promise.all([
+        updateWorkspaceSelection(
+          project.id,
+          this.resolveThreadCwd(thread.worktree_path, project.path),
+        ),
+        recordThreadSwitch(thread.id),
+      ]);
+    }
 
     await updateLaunchSelection({ projectId, threadId: thread.id });
   }
@@ -2259,7 +2401,7 @@ export class AgentConnectionManager {
         try {
           await raceActivation(this.switchAgent(thread.agent_id), signal);
         } catch (err) {
-          if (isActivationSuperseded(err)) throw err;
+          if (isActivationSuperseded(err) || thread.agent_id === "antigravity-acp") throw err;
           await raceActivation(this.ensureConnection(this.preferredAgentId), signal);
         }
       } else {
@@ -2269,6 +2411,7 @@ export class AgentConnectionManager {
         );
       }
     } catch (error) {
+      if (this.preserveSnapshotRuntimeAfterFailure(threadId, runtime)) throw error;
       if (runtime?.agentReady === false) {
         this.sessions.remove(threadId);
         this.endThreadLoad(threadId);
@@ -2331,6 +2474,10 @@ export class AgentConnectionManager {
         let sessionId = thread.agent_session_id;
         let configOptions: SessionConfigOption[] = [];
         try {
+          if (live.agentId === "antigravity-acp" && sessionId?.startsWith("pipper-agy-"))
+            throw new Error(
+              "This Antigravity thread used Pipper's earlier CLI bridge. Its saved history is preserved, but the official ACP server cannot resume that CLI session. Start a new Antigravity thread to continue.",
+            );
           const loaded = await raceActivation(this.sessionLoad(live, cwd, sessionId), signal);
           if (this.threadActivationGenerations.get(threadId) !== generation) {
             throw new Error(`Stale activation for thread ${threadId}`);
@@ -2345,6 +2492,9 @@ export class AgentConnectionManager {
           // Same rule when superseded: nobody is waiting on this thread, so
           // abandon instead of establishing sessions behind the newer request.
           if (isActivationSuperseded(err)) throw err;
+          // Antigravity session IDs belong to a specific implementation. A failed
+          // restore must leave its snapshot and identity intact.
+          if (live.agentId === "antigravity-acp") throw err;
           // Agent restarted — try resume. A failed load may have streamed a
           // partial replay before erroring; drop it so the fallback path
           // doesn't append onto half a timeline.
@@ -2367,7 +2517,11 @@ export class AgentConnectionManager {
             configOptions = resumed.configOptions;
             updateThreadAgentSessionId(threadId, sessionId);
           } catch (err) {
-            if (isActivationSuperseded(err)) throw err;
+            if (
+              isActivationSuperseded(err) ||
+              (err instanceof Error && /timed out/i.test(err.message))
+            )
+              throw err;
             const created = await raceActivation(this.sessionNew(live, cwd), signal);
             onPhase("session_new");
             sessionId = created.sessionId;
@@ -2408,22 +2562,28 @@ export class AgentConnectionManager {
         runtime.agentReady = true;
         if (!runtime.slice.isStreaming) this.scheduleSnapshot(runtime);
       } catch (err) {
-        // No session could be established — remove the placeholder so a
-        // retry doesn't silently reuse a dead runtime.
-        this.sessions.remove(threadId);
-        this.monitorObserver?.onSessionCacheEvent?.({
-          timestamp: Date.now(),
-          action: "evict",
-          threadId,
-          agentSessionId: runtime.agentSessionId,
-          agentId: runtime.agentId,
-          trigger: "switch_load",
-          cachedSessionCount: this.sessions.size,
-          openTabCount: 0,
-          cachedThreadIds: [...this.sessions.keys()],
-          reason: "Session establishment failed",
-        });
-        this.threadActivationGenerations.delete(threadId);
+        // A snapshot-restored Antigravity thread keeps its runtime: the
+        // restored transcript is the user's only access to that history, and
+        // evicting it here is what blanked the view. Everything else is a
+        // placeholder with nothing to lose.
+        if (!this.preserveSnapshotRuntimeAfterFailure(threadId, runtime)) {
+          // No session could be established — remove the placeholder so a
+          // retry doesn't silently reuse a dead runtime.
+          this.sessions.remove(threadId);
+          this.monitorObserver?.onSessionCacheEvent?.({
+            timestamp: Date.now(),
+            action: "evict",
+            threadId,
+            agentSessionId: runtime.agentSessionId,
+            agentId: runtime.agentId,
+            trigger: "switch_load",
+            cachedSessionCount: this.sessions.size,
+            openTabCount: 0,
+            cachedThreadIds: [...this.sessions.keys()],
+            reason: "Session establishment failed",
+          });
+          this.threadActivationGenerations.delete(threadId);
+        }
         throw err;
       } finally {
         this.endThreadLoad(threadId);
@@ -2471,7 +2631,7 @@ export class AgentConnectionManager {
     agentId?: string | null,
     worktreePath?: string | null,
     initialModelId?: string | null,
-    opts?: { background?: boolean },
+    opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<Thread> {
     return this.enqueueThreadActivation(() =>
       this.createThreadInternal(
@@ -2493,7 +2653,7 @@ export class AgentConnectionManager {
     agentId?: string | null,
     worktreePath?: string | null,
     initialModelId?: string | null,
-    opts?: { background?: boolean },
+    opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -2502,6 +2662,11 @@ export class AgentConnectionManager {
     // stale/invalid path is never persisted as this thread's worktree.
     const cwd = this.resolveThreadCwd(worktreePath, project.path);
     const boundWorktree = cwd === project.path ? null : cwd;
+    if (opts?.requireWorktree && !boundWorktree) {
+      throw new Error(
+        "An isolated workspace is required. Restore the worktree on your Mac before retrying.",
+      );
+    }
 
     const targetAgentId = agentId ?? this.preferredAgentId;
     // Background creation must not flip the desktop-active agent: spawning
@@ -2510,6 +2675,9 @@ export class AgentConnectionManager {
     const live = opts?.background
       ? await this.acquireConnection(targetAgentId)
       : await this.ensureConnection(targetAgentId);
+    if (opts?.requireWorktree && !isLiveWorktree(cwd, project.path)) {
+      throw new Error("The isolated workspace is no longer available. No task was started.");
+    }
     const created = await this.sessionNew(live, cwd);
     this.registerWorkspaceRoot(created.sessionId, cwd);
 
@@ -2606,14 +2774,13 @@ export class AgentConnectionManager {
 
     // Seed model after the session exists so the first prompt lands on the
     // user's chosen model. Best-effort: a failed seed still leaves a usable thread.
-    // Skipped for background threads: setConfigOption targets the active
-    // thread, so seeding here would hit the desktop's thread, not this one.
-    if (initialModelId && !opts?.background) {
+    // Thread-scoped, so a background (phone) seed never hits the desktop's thread.
+    if (initialModelId) {
       try {
         const modelOpt = created.configOptions.find(
           (option) => option.id === "model" || option.category === "model",
         );
-        await this.setConfigOption(modelOpt?.id ?? "model", initialModelId);
+        await this.setThreadConfigOption(thread.id, modelOpt?.id ?? "model", initialModelId);
       } catch (err) {
         console.warn("[createThread] initial model seed failed:", err);
       }
@@ -2753,17 +2920,41 @@ export class AgentConnectionManager {
     return thread;
   }
 
-  async sendPrompt(input: AcpPromptInput, opts?: { background?: boolean }): Promise<void> {
+  async sendPrompt(
+    input: AcpPromptInput,
+    opts?: { background?: boolean; requireWorktree?: boolean },
+  ): Promise<void> {
     return this.sendPromptInternal(input, true, opts);
   }
 
   private async sendPromptInternal(
     input: AcpPromptInput,
     appendUserMessage: boolean,
-    opts?: { background?: boolean },
+    opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<void> {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
+    const abortGeneration = this.abortGenerations.get(threadId) ?? 0;
+    const assertIsolation = () => {
+      if ((this.abortGenerations.get(threadId) ?? 0) !== abortGeneration) {
+        throw new Error("Task stopped before the agent was ready.");
+      }
+      if (!opts?.requireWorktree) return;
+      const thread = getThread(threadId);
+      const project = thread ? getProject(thread.project_id) : null;
+      const runtime = this.sessions.get(threadId);
+      if (
+        !thread?.worktree_path ||
+        !project ||
+        !isLiveWorktree(thread.worktree_path, project.path) ||
+        (runtime && runtime.cwd !== thread.worktree_path)
+      ) {
+        throw new Error(
+          "This thread has no live isolated workspace. Restore its worktree on your Mac before sending more work.",
+        );
+      }
+    };
+    assertIsolation();
     if (!this.sessions.has(threadId)) {
       // Background senders (phone) must not leave desktop focus behind on a
       // restored thread: remember the active thread and put it back after.
@@ -2796,7 +2987,16 @@ export class AgentConnectionManager {
     if (!runtime) throw new Error("No session for thread");
     let appendedWhileLoading = false;
     if (runtime.agentReady === false || this.loadingSessionThreads.has(threadId)) {
-      if (appendUserMessage && (input.message || input.images?.length)) {
+      // Only append optimistically while a load is actually in progress. An
+      // unready runtime with no load is a failed restore kept for its snapshot
+      // (see preserveSnapshotRuntimeAfterFailure); it can never accept the
+      // prompt, so reject before writing a phantom user turn into the restored
+      // history or leaving isStreaming set.
+      if (
+        this.loadingSessionThreads.has(threadId) &&
+        appendUserMessage &&
+        (input.message || input.images?.length)
+      ) {
         const nextSlice = appendLocalUserMessage(
           runtime.slice,
           input.message ?? "",
@@ -2820,6 +3020,7 @@ export class AgentConnectionManager {
       throw new Error("A prompt is already in flight; choose follow-up or steer to queue it.");
     }
 
+    assertIsolation();
     const caps = live.agentCapabilities.promptCapabilities;
     const blocks = assemblePromptBlocks({
       message: input.message,
@@ -2931,8 +3132,12 @@ export class AgentConnectionManager {
   }
 
   async abort(): Promise<void> {
-    const threadId = this.activeThreadId;
+    return this.abortThread(this.activeThreadId);
+  }
+
+  async abortThread(threadId: string | null): Promise<void> {
     if (!threadId) return;
+    this.abortGenerations.set(threadId, (this.abortGenerations.get(threadId) ?? 0) + 1);
     const runtime = this.sessions.get(threadId);
     const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !owner) return;
@@ -2947,12 +3152,22 @@ export class AgentConnectionManager {
     this.subagents.cancelRunsForParent(runtime.agentSessionId);
     // Cascade cancel to ACP agent terminals (session/cancel → terminal/kill).
     // Kill keeps terminalIds valid for final output queries; release is agent-owned.
-    this.terminalManager.killRunning();
+    this.terminalManager.killRunning(runtime.agentSessionId);
   }
 
   async setConfigOption(configId: string, value: string | boolean): Promise<SessionConfigOption[]> {
     const threadId = this.activeThreadId;
     if (!threadId) return [];
+    return this.setThreadConfigOption(threadId, configId, value);
+  }
+
+  /** Thread-scoped config change, so background (phone) threads can switch
+   * models without touching whatever the desktop has open. */
+  async setThreadConfigOption(
+    threadId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOption[]> {
     const runtime = this.sessions.get(threadId);
     const owner = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !owner) return [];
@@ -2999,7 +3214,10 @@ export class AgentConnectionManager {
     const rawResultOptions =
       (result.configOptions as SessionConfigOption[] | null | undefined) ??
       runtime.slice.configOptions;
-    const options = this.sanitizeConfigOptions(rawResultOptions);
+    const options =
+      owner.agentId === "antigravity-acp"
+        ? rawResultOptions
+        : this.sanitizeConfigOptions(rawResultOptions);
     runtime.slice = { ...runtime.slice, configOptions: options };
     this.pushState(threadId);
     return options;

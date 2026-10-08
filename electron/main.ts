@@ -1,5 +1,14 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, dialog } from "electron";
-import { join, dirname } from "node:path";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  shell,
+  ipcMain,
+  dialog,
+  powerMonitor,
+  safeStorage,
+} from "electron";
+import { join, dirname, relative, resolve, isAbsolute } from "node:path";
 import http from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -76,6 +85,8 @@ import {
   deleteAgentInstance,
 } from "./agent-instances";
 import { AgentManager } from "./agent";
+import { RemoteTaskError, getRemoteRequests } from "./remote-requests.ts";
+import { prepareIsolatedAgentTask } from "./isolated-agent-task.ts";
 import { createElectronOsNotifier } from "./os-notifications";
 import { WindowVisibilityGate } from "./window-visibility";
 import { MonitorService } from "./monitor/service.ts";
@@ -112,7 +123,10 @@ import {
 import type { AnalyticsEventName, AnalyticsProperties } from "./analytics-schema";
 import { sanitizeErrorType } from "./analytics-sanitize";
 import { SleeplessController, resolveSleeplessHelperPath } from "./sleepless-controller.ts";
-import { RemoteServer } from "./remote-server.ts";
+import { RemoteAccessController } from "./remote-access.ts";
+import { DesktopIdentity, withSignInParams } from "./desktop-identity.ts";
+import { RemoteDeviceStore } from "./remote-devices.ts";
+import type { RemoteScope, RemoteTransport } from "../contracts/remote.ts";
 import { ThreadBenchmarkController } from "./thread-benchmark.ts";
 import type {
   ThreadBenchmarkMode,
@@ -330,6 +344,30 @@ if (!gotSingleInstanceLock) {
   app.quit();
 }
 
+if (!app.isDefaultProtocolClient("pipper")) {
+  app.setAsDefaultProtocolClient("pipper");
+}
+
+app.on("second-instance", (_event, argv) => {
+  const url = argv.find((arg) => arg.startsWith("pipper://"));
+  if (url) {
+    void handlePipperDeepLink(url).catch((err) => {
+      console.error("[Main] Failed to handle deep link:", err);
+    });
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  void handlePipperDeepLink(url).catch((err) => {
+    console.error("[Main] Failed to handle deep link:", err);
+  });
+});
+
 // Without these, an uncaught error anywhere in the main process (e.g. handling
 // an ACP session/update from an agent) crashes the whole process and takes
 // every window down with it. Log and keep running instead.
@@ -418,8 +456,22 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
-let remoteServer: RemoteServer | null = null;
 let briefIntegration: BriefIntegration | null = null;
+let remoteAccess: RemoteAccessController | null = null;
+let desktopIdentityInstance: DesktopIdentity | null = null;
+
+/** Laptop id, sign-in state, and the pipper.dev laptop credential (encrypted at rest). */
+function desktopIdentity(): DesktopIdentity {
+  desktopIdentityInstance ??= new DesktopIdentity({
+    dir: app.getPath("userData"),
+    secretBox: {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (cipher) => safeStorage.decryptString(cipher),
+    },
+  });
+  return desktopIdentityInstance;
+}
 let authCallbackServer: http.Server | null = null;
 let authCallbackPort: number | null = null;
 let pendingAuthCallback: Promise<void> | null = null;
@@ -465,6 +517,263 @@ function requireAgentManager(): AgentManager {
     throw new Error("Agent manager is not initialized.");
   }
   return agentManager;
+}
+
+/**
+ * Deep links that arrived before the agent manager was ready (cold launch).
+ * Drained once initialization completes in `app.whenReady()`.
+ */
+const pendingDeepLinks: string[] = [];
+
+/**
+ * Single-flight guard: concurrent deliveries of the same staged request
+ * (startup scan, activation, deep link, renderer, IPC) share one promise.
+ */
+const inFlightSiriRequests = new Map<string, Promise<unknown>>();
+
+/** Staged requests are durably claimed before creating a session. Retried
+ * activations reopen the same thread; uncertain prompt delivery is never replayed. */
+async function consumeSiriRequest(requestId: string, preferredDir?: string): Promise<unknown> {
+  if (typeof requestId !== "string" || !/^[A-Za-z0-9-]{1,123}$/.test(requestId)) {
+    return null;
+  }
+  const existing = inFlightSiriRequests.get(requestId);
+  if (existing) return existing;
+  const task = consumeSiriRequestInner(requestId, preferredDir).finally(() => {
+    if (inFlightSiriRequests.get(requestId) === task) inFlightSiriRequests.delete(requestId);
+  });
+  inFlightSiriRequests.set(requestId, task);
+  return task;
+}
+
+async function consumeSiriRequestInner(requestId: string, preferredDir?: string): Promise<unknown> {
+  const { getSiriRequestsDir, getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  // Resolve the request from every supported directory so legacy-only
+  // staged requests are delivered, not orphaned. The caller's `preferredDir`
+  // (which replica was newest) wins so the scan consumes the same file it
+  // ranked, not whichever dir happens to be listed first.
+  let dir = resolve(getSiriRequestsDir());
+  let file: string | null = null;
+  const dirs = getSiriRequestsDirs().map((rawDir) => resolve(rawDir));
+  const preferred = preferredDir ? resolve(preferredDir) : null;
+  const orderedDirs =
+    preferred && dirs.includes(preferred)
+      ? [preferred, ...dirs.filter((d) => d !== preferred)]
+      : dirs;
+  for (const candidateDir of orderedDirs) {
+    const candidate = resolve(join(candidateDir, `${requestId}.json`));
+    const rel = relative(candidateDir, candidate);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    if (fs.existsSync(candidate)) {
+      dir = candidateDir;
+      file = candidate;
+      break;
+    }
+  }
+  const requests = getRemoteRequests(join(app.getPath("userData"), "remote-requests"));
+  const id = `siri-${requestId}`;
+  if (!file) {
+    const previous = requests.get(id);
+    return previous?.threadId ? getThread(previous.threadId) : null;
+  }
+  const raw = fs.readFileSync(file, "utf8");
+  let parsed: { projectId: string; agentId?: string; prompt?: string };
+  try {
+    parsed = JSON.parse(raw) as typeof parsed;
+  } catch {
+    fs.rmSync(file, { force: true });
+    return null;
+  }
+  if (!parsed || typeof parsed.projectId !== "string" || !parsed.projectId) {
+    fs.rmSync(file, { force: true });
+    return null;
+  }
+  if (
+    (parsed.agentId != null && typeof parsed.agentId !== "string") ||
+    (parsed.prompt != null && typeof parsed.prompt !== "string")
+  )
+    return null;
+  const markerFile =
+    orderedDirs
+      .map((candidate) => resolve(join(candidate, `.done-${requestId}.json`)))
+      .find((candidate) => fs.existsSync(candidate)) ??
+    resolve(join(dir, `.done-${requestId}.json`));
+  const receipt = await requests.submit(
+    id,
+    {
+      kind: "siri",
+      projectId: parsed.projectId,
+      agentId: parsed.agentId ?? null,
+      prompt: parsed.prompt ?? "",
+    },
+    async () => {
+      // Old builds could have sent the prompt without confirming delivery.
+      // Preserve their thread, but never replay that ambiguous request.
+      if (fs.existsSync(markerFile)) {
+        const marker = JSON.parse(fs.readFileSync(markerFile, "utf8")) as {
+          threadId?: string;
+          delivered?: boolean;
+        };
+        if (!marker.threadId || !getThread(marker.threadId))
+          throw new RemoteTaskError(
+            "An older Siri request could not be recovered. Check Pipper before starting another task.",
+          );
+        return {
+          threadId: marker.threadId,
+          result: { ok: true },
+          execute: async () => {
+            if (!marker.delivered)
+              throw new RemoteTaskError(
+                "This Siri request was handled by an older Pipper version. Check its thread before resending the task; delivery could not be confirmed.",
+              );
+          },
+        };
+      }
+      return prepareIsolatedAgentTask(
+        requireAgentManager(),
+        parsed.projectId,
+        parsed.agentId,
+        parsed.prompt ?? "",
+      );
+    },
+  );
+  if (receipt.threadId) {
+    // The receipt now owns recovery, so staged prompt replicas can be removed.
+    finalizeSiriRequest(file, markerFile, dir, requestId);
+    return getThread(receipt.threadId);
+  }
+  throw new Error(receipt.error ?? "Siri request is still being prepared.");
+}
+
+/**
+ * Remove a consumed request and its marker, then clean up replicas in the
+ * other candidate directories. Safe to call more than once.
+ */
+function finalizeSiriRequest(
+  file: string,
+  markerFile: string,
+  dir: string,
+  requestId: string,
+): void {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    // Best-effort.
+  }
+  try {
+    fs.rmSync(markerFile, { force: true });
+  } catch {
+    // Best-effort.
+  }
+  void cleanupSiriRequestReplicas(dir, requestId);
+}
+
+async function cleanupSiriRequestReplicas(dir: string, requestId: string): Promise<void> {
+  const { getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  for (const rawDir of getSiriRequestsDirs()) {
+    const otherDir = resolve(rawDir);
+    if (otherDir === dir) continue;
+    try {
+      fs.rmSync(resolve(join(otherDir, `${requestId}.json`)), { force: true });
+      fs.rmSync(resolve(join(otherDir, `.done-${requestId}.json`)), { force: true });
+    } catch {
+      // Best-effort replica cleanup.
+    }
+  }
+}
+
+async function openSiriThread(thread: unknown): Promise<void> {
+  const threadId = (thread as { id?: string })?.id;
+  if (!threadId) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  const next = await openThreadTab(threadId);
+  broadcastOpenTabsChanged(mainWindow, next);
+  await requireAgentManager().switchThread(threadId);
+}
+
+/**
+ * App Intents extensions cannot launch Electron directly. They leave a
+ * request in the shared directory and open `pipper://siri/<id>`. Consume the
+ * pending files (oldest first) whenever Pipper starts or is activated from
+ * Shortcuts. Callers must not block window creation on this.
+ */
+async function consumePendingSiriRequests(): Promise<void> {
+  if (!agentManager) return;
+  const { getSiriRequestsDirs } = await import("./siri/siri-catalog.ts");
+  // Key by request id, but keep the winning replica's dir so the consume
+  // step reads the newest copy rather than whichever dir is listed first.
+  const seen = new Map<string, { mtimeMs: number; dir: string }>();
+  for (const rawDir of getSiriRequestsDirs()) {
+    const dir = resolve(rawDir);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/^[A-Za-z0-9-]{1,128}\.json$/.test(entry.name)) continue;
+      const requestId = entry.name.slice(0, -5);
+      const mtimeMs = fs.statSync(join(dir, entry.name)).mtimeMs;
+      const previous = seen.get(requestId);
+      if (!previous || mtimeMs > previous.mtimeMs) seen.set(requestId, { mtimeMs, dir });
+    }
+  }
+  const requests = [...seen.entries()]
+    .map(([requestId, info]) => ({ requestId, mtimeMs: info.mtimeMs, dir: info.dir }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  for (const { requestId, dir } of requests) {
+    try {
+      const thread = await consumeSiriRequest(requestId, dir);
+      if (thread) await openSiriThread(thread);
+    } catch (error) {
+      // Leave failed requests on disk so a later app activation can retry.
+      console.error(`[Main] Failed to consume pending Siri request ${requestId}:`, error);
+    }
+  }
+}
+
+/**
+ * Route a `pipper://siri/<requestId>` deep link (opened by the Swift
+ * StartThreadIntent): focus the main window, consume the staged request, and
+ * land the user on the new thread. Returns true when the URL was handled.
+ */
+async function handlePipperDeepLink(url: string): Promise<boolean> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "pipper:") return false;
+  const match = /^siri\/([A-Za-z0-9-]{1,128})\/?$/.exec(`${parsed.host}${parsed.pathname}`);
+  if (!match?.[1]) return false;
+  if (!agentManager) {
+    // Cold launch: the open-url/second-instance event can arrive before
+    // initialization. Queue it; it drains once the manager is ready.
+    if (!pendingDeepLinks.includes(url)) pendingDeepLinks.push(url);
+    return true;
+  }
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+  const thread = await consumeSiriRequest(match[1]);
+  if (thread) await openSiriThread(thread);
+  return true;
+}
+
+async function drainStartupSiriRequests(): Promise<void> {
+  try {
+    await consumePendingSiriRequests();
+  } catch (err) {
+    console.error("[Main] Failed to consume pending Siri requests at startup:", err);
+  }
+  for (const queued of pendingDeepLinks.splice(0)) {
+    await handlePipperDeepLink(queued).catch((err) => {
+      console.error("[Main] Failed to handle queued deep link:", err);
+    });
+  }
 }
 
 function requireLauncherUpdateManager(): LauncherUpdateManager {
@@ -744,6 +1053,8 @@ function parseAuthCallback(url: string): {
   email: string | null;
   name: string | null;
   avatarUrl: string | null;
+  state: string | null;
+  credential: string | null;
 } {
   try {
     const parsed = new URL(url);
@@ -752,9 +1063,18 @@ function parseAuthCallback(url: string): {
       email: parsed.searchParams.get("email"),
       name: parsed.searchParams.get("name"),
       avatarUrl: parsed.searchParams.get("avatarUrl"),
+      state: parsed.searchParams.get("state"),
+      credential: parsed.searchParams.get("credential"),
     };
   } catch {
-    return { providerUserId: null, email: null, name: null, avatarUrl: null };
+    return {
+      providerUserId: null,
+      email: null,
+      name: null,
+      avatarUrl: null,
+      state: null,
+      credential: null,
+    };
   }
 }
 
@@ -766,6 +1086,19 @@ async function handleAuthCallback(url: string): Promise<void> {
   if (!payload.email) {
     throw new Error("Auth callback missing email.");
   }
+  // The callback must answer a sign-in this app started: anything that can
+  // reach the loopback listener could otherwise inject an identity without
+  // completing Clerk sign-in. Requires the pipper.dev /auth/complete that
+  // echoes `state`.
+  if (!desktopIdentity().consumeState(payload.state)) {
+    throw new Error("Auth callback does not match a sign-in started by this app.");
+  }
+  // Whatever the callback carries replaces the previous sign-in: with no
+  // credential (pipper.dev not configured), drop the old one rather than keep
+  // using a possibly different account's.
+  if (payload.credential) desktopIdentity().saveCredential(payload.credential);
+  else desktopIdentity().clearCredential();
+  void remoteAccess?.onCredentialChanged();
 
   const record = upsertAuthUser({
     provider: "clerk",
@@ -1245,7 +1578,7 @@ function notifyAnalyticsIdentity(): void {
 }
 
 function sendMainWindowTabEvent(
-  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:closeActive",
+  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:newTerminal" | "tabs:closeActive",
   ...args: unknown[]
 ) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1300,6 +1633,11 @@ function buildAppMenu(): void {
               click: () => sendMainWindowTabEvent("tabs:newTab"),
             },
             {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
+            },
+            {
               label: "Close Tab",
               accelerator: "CommandOrControl+W",
               click: () => sendMainWindowTabEvent("tabs:closeActive"),
@@ -1315,6 +1653,11 @@ function buildAppMenu(): void {
               label: "New Tab",
               accelerator: "CommandOrControl+T",
               click: () => sendMainWindowTabEvent("tabs:newTab"),
+            },
+            {
+              label: "New Terminal",
+              accelerator: "CommandOrControl+Shift+T",
+              click: () => sendMainWindowTabEvent("tabs:newTerminal"),
             },
             {
               label: "Close Tab",
@@ -1501,6 +1844,24 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:list", () => listProjects());
 
+  ipcMain.handle("siri:getCatalog", async () => {
+    const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+    return refreshSiriCatalog();
+  });
+
+  ipcMain.handle("siri:consumeRequest", async (_event, requestId: string) => {
+    const thread = await consumeSiriRequest(requestId);
+    if (thread) {
+      const threadId = (thread as { id?: string })?.id;
+      if (threadId) {
+        const next = await openThreadTab(threadId);
+        broadcastOpenTabsChanged(mainWindow, next);
+        await requireAgentManager().switchThread(threadId);
+      }
+    }
+    return thread;
+  });
+
   ipcMain.handle("projects:getActive", () => {
     const id = getActiveProjectId();
     return id ? getProject(id) : null;
@@ -1538,9 +1899,15 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "projects:create",
-    (_event, input: { name: string; path: string; icon: string }) => {
+    async (_event, input: { name: string; path: string; icon: string }) => {
       requireAuthenticatedUserForLaunch();
       const project = createProject(input);
+      try {
+        const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+        refreshSiriCatalog();
+      } catch (err) {
+        console.warn("[Main] Siri catalog refresh failed after project create:", err);
+      }
       captureAnalytics("project_created", {
         windowType: "launch",
         properties: {
@@ -1647,17 +2014,20 @@ function registerIpc(): void {
     return target;
   }
 
-  ipcMain.handle("git:status", async (_event, input: { projectId: string; path: string }) => {
-    try {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
-      return await getWorkspaceGitStatus(target.path);
-    } catch (err) {
-      logMain(
-        `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      throw err;
-    }
-  });
+  ipcMain.handle(
+    "git:status",
+    async (_event, input: { projectId: string; path: string; force?: boolean }) => {
+      try {
+        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        return await getWorkspaceGitStatus(target.path, { force: input.force === true });
+      } catch (err) {
+        logMain(
+          `[Main] git:status failed project=${input.projectId} path=${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    },
+  );
 
   ipcMain.handle(
     "git:commit",
@@ -1835,6 +2205,9 @@ function registerIpc(): void {
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = removeWorktree(project.path, target.path, project.id);
+    // Terminals are owned by renderer workspace buckets. Notify it as soon
+    // as Git removes the worktree, even if later chat cleanup fails.
+    broadcastToWindows("worktrees:deleted", { projectId: project.id, path: target.path });
 
     // Run every cleanup operation even if one fails. Git has already removed
     // the workspace, so leaving the remaining tabs or threads untouched would
@@ -1943,7 +2316,11 @@ function registerIpc(): void {
     await ensureAuthCallbackServer();
     const resolvedCallbackUrl = getAuthCallbackUrl();
     const appendReturnTo = (inputUrl: string): string =>
-      `${inputUrl}${inputUrl.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(resolvedCallbackUrl)}`;
+      withSignInParams(inputUrl, {
+        returnTo: resolvedCallbackUrl,
+        state: desktopIdentity().beginSignIn(),
+        laptopId: desktopIdentity().laptopId(),
+      });
     const resolvedUrl =
       url === "clerk:sign-up"
         ? appendReturnTo(resolveExternalUrl("clerkSignUp"))
@@ -2299,6 +2676,9 @@ function registerIpc(): void {
     }
     return result;
   });
+  ipcMain.handle("agent:authenticate", (_event, agentId: string, methodId: string) =>
+    requireAgentManager().authenticateAgent(agentId, methodId),
+  );
   ipcMain.handle("agent:switchAgent", (_event, agentId: string) =>
     requireAgentManager().switchAgent(agentId),
   );
@@ -2307,8 +2687,14 @@ function registerIpc(): void {
     requireAgentManager().setPreferredAgentId(agentId);
   });
   ipcMain.handle("agent:getSelectedAgentIds", () => getSelectedAgentIds());
-  ipcMain.handle("agent:setSelectedAgentIds", (_event, agentIds: string[]) => {
+  ipcMain.handle("agent:setSelectedAgentIds", async (_event, agentIds: string[]) => {
     setSelectedAgentIds(agentIds);
+    try {
+      const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+      refreshSiriCatalog();
+    } catch (err) {
+      console.warn("[Main] Siri catalog refresh failed after agent selection change:", err);
+    }
   });
   ipcMain.handle("agent:listInstances", () => listAgentInstancesForRenderer());
   ipcMain.handle("agent:getAccountSchemas", () => listAgentAccountSchemas());
@@ -2347,23 +2733,33 @@ function registerIpc(): void {
   );
   ipcMain.handle("sleepless:refresh", () => sleeplessController?.refreshServiceStatus());
   ipcMain.handle("sleepless:openSystemSettings", () => sleeplessController?.openSystemSettings());
-  ipcMain.handle("remote:getInfo", () => {
-    const serving = remoteServer?.isServing() ?? false;
-    const host = serving ? (remoteServer?.getAdvertisedHost() ?? null) : null;
-    return {
-      enabled: serving,
-      port: serving ? (remoteServer?.port ?? null) : null,
-      token: serving ? (remoteServer?.getPairingToken() ?? null) : null,
-      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
-    };
+  ipcMain.handle(
+    "remote:getInfo",
+    () =>
+      remoteAccess?.getInfo() ?? {
+        enabled: false,
+        serving: false,
+        transport: "tailscale",
+        publicUrl: null,
+        tunnel: { state: "stopped" },
+        host: null,
+        port: null,
+        error: null,
+      },
+  );
+  ipcMain.handle("remote:setTransport", async (_event, transport: RemoteTransport) => {
+    await remoteAccess?.setTransport(transport);
+    return remoteAccess?.getInfo() ?? null;
   });
-  ipcMain.handle("remote:regenerateToken", () => {
-    const host = remoteServer?.getAdvertisedHost() ?? null;
-    return {
-      token: remoteServer?.regenerateToken() ?? null,
-      pairingUrl: remoteServer && host ? remoteServer.pairingUrl(host) : null,
-    };
+  ipcMain.handle("remote:getDevices", () => remoteAccess?.server.getDevicesState() ?? null);
+  ipcMain.handle("remote:createPairing", (_event, options: { allowRun?: boolean } | undefined) => {
+    const scopes: RemoteScope[] = options?.allowRun === false ? ["read"] : ["read", "run"];
+    return remoteAccess?.server.createPairingOffer(scopes) ?? null;
   });
+  ipcMain.handle("remote:cancelPairing", () => remoteAccess?.server.cancelPairingOffer());
+  ipcMain.handle("remote:revokeDevice", (_event, id: string) =>
+    typeof id === "string" ? (remoteAccess?.server.revokeDevice(id) ?? false) : false,
+  );
   ipcMain.handle("remote:setStandby", (_event, active: boolean) =>
     sleeplessController?.setRemoteActive(Boolean(active)),
   );
@@ -2734,6 +3130,12 @@ app.whenReady().then(async () => {
   // Seed per-driver default instances and wire instance→descriptor resolution
   // into the agent registry before anything spawns an agent.
   installAgentInstanceProvider();
+  try {
+    const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
+    refreshSiriCatalog();
+  } catch (err) {
+    console.warn("[Main] Siri catalog refresh failed at startup:", err);
+  }
   await prepareBenchmarkLaunchState();
   const authUser = getAuthenticatedUserForLaunch();
   if (authUser) {
@@ -2777,44 +3179,68 @@ app.whenReady().then(async () => {
   });
   sleeplessController.setRunningThreadIds(agentManager.getRunningThreadIds());
   if (process.env.PIPPER_REMOTE_ENABLED !== "0") {
-    remoteServer = new RemoteServer({
-      agentManager: () => agentManager,
-      getUserDataPath: () => app.getPath("userData"),
-      getRendererDir: () => join(mainDir, "../renderer"),
-      onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+    const cloudflaredExe = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
+    remoteAccess = new RemoteAccessController({
+      userDataPath: app.getPath("userData"),
+      // Dev builds default to their own port so they can run next to an
+      // installed Pipper (which holds 4173) without failing to bind.
+      port: process.env.PIPPER_REMOTE_PORT ? undefined : app.isPackaged ? undefined : 4183,
+      serverDeps: {
+        agentManager: () => agentManager,
+        getUserDataPath: () => app.getPath("userData"),
+        getRendererDir: () => join(mainDir, "../renderer"),
+        devices: new RemoteDeviceStore(getDb()),
+        onRemoteActiveChanged: (active) => sleeplessController?.setRemoteActive(active),
+        onDevicesChanged: (state) => broadcastToWindows("remote:devicesChanged", state),
+      },
+      cloudflared: {
+        overridePath: process.env.PIPPER_CLOUDFLARED_PATH?.trim() || null,
+        bundledPath: app.isPackaged
+          ? join(process.resourcesPath, "cloudflared", cloudflaredExe)
+          : null,
+      },
+      getLaptopCredential: () => desktopIdentity().credential(),
+      // Dev builds only: a tunnel you created yourself (token + its public
+      // hostname). Packaged apps always get their own tunnel from pipper.dev.
+      devTunnel:
+        !app.isPackaged &&
+        process.env.PIPPER_DEV_TUNNEL_TOKEN?.trim() &&
+        process.env.PIPPER_DEV_TUNNEL_HOSTNAME?.trim()
+          ? {
+              token: process.env.PIPPER_DEV_TUNNEL_TOKEN.trim(),
+              hostname: process.env.PIPPER_DEV_TUNNEL_HOSTNAME.trim().toLowerCase(),
+            }
+          : null,
+      pipperApiBase: process.env.PIPPER_API_BASE?.trim() || undefined,
+      remoteAppUrl: process.env.PIPPER_REMOTE_APP_URL?.trim() || undefined,
+      onInfoChanged: (info) => broadcastToWindows("remote:infoChanged", info),
     });
-    remoteServer.start();
+    await remoteAccess.start();
+    powerMonitor.on("resume", () => remoteAccess?.onResume());
     // Standby lease: an idle paired phone (authed request within the window)
     // keeps Sleepless armed even with zero running threads, so the laptop is
     // awake when the next phone task arrives.
     const leaseTimer = setInterval(() => {
       const running = agentManager?.getRunningThreadIds() ?? [];
       sleeplessController?.setRemoteActive(
-        running.length > 0 || (remoteServer?.hasLiveLease() ?? false),
+        running.length > 0 || (remoteAccess?.server.hasLiveLease() ?? false),
       );
     }, 60_000);
     leaseTimer.unref?.();
     {
-      const tailscale = remoteServer.getAdvertisedHost();
-      if (!remoteServer.isServing()) {
+      // No credential is printed here: phones pair with a one-time code from
+      // Settings → Remote, so nothing reusable ever lands in the log.
+      const info = remoteAccess.getInfo();
+      if (!info.serving) {
         console.warn("[Remote] Server failed to bind — remote access unavailable.");
-      } else if (!tailscale) {
-        console.warn(
-          "[Remote] No Tailscale address — pairing QR unavailable. Token only:",
-          `\x1b[32m${remoteServer.getPairingToken()}\x1b[0m`,
-        );
+      } else if (info.transport !== "tailscale") {
+        console.log("[Remote] Serving on loopback; starting Cloudflare tunnel.");
+      } else if (!info.publicUrl) {
+        console.warn("[Remote] No Tailscale address — phones can't reach this laptop yet.");
       } else {
-        const url = remoteServer.pairingUrl(tailscale);
         console.log(
-          `\x1b[32m[Remote] PWA: http://${tailscale}:${remoteServer.port}/remote  token: ${remoteServer.getPairingToken()}\x1b[0m`,
+          `[Remote] Serving ${info.publicUrl}/remote — pair a phone from Settings → Remote.`,
         );
-        try {
-          const { default: qrcode } = await import("qrcode-terminal");
-          console.log("\x1b[32m[Remote] Scan to pair (opens link + auto-connects):\x1b[0m");
-          qrcode.generate(url, { small: true });
-        } catch (err) {
-          console.warn("[Remote] QR render failed:", err);
-        }
       }
       console.log(`[Remote] PATH=${process.env.PATH}`);
     }
@@ -2844,10 +3270,29 @@ app.whenReady().then(async () => {
     (process.env.PIPPER_ENABLE_LAUNCHER_UPDATES_IN_DEV === "1" && launcherManifestUrl != null);
   if (!launcherManifestUrl)
     console.info("[LauncherUpdate] Disabled: manifest URL is not configured.");
+  // One-time migration: previous releases stored launcher-update state
+  // under ~/Library/pipper; the App Group relocation must reuse it instead
+  // of stranding completed downloads.
+  let launcherRoot = join(getPipperLibraryPath(), "launcher-updates");
+  if (process.platform === "darwin" && !process.env.PIPPER_LIBRARY_PATH) {
+    try {
+      const legacyRoot = join(os.homedir(), "Library", "pipper", "launcher-updates");
+      if (
+        legacyRoot !== launcherRoot &&
+        fs.existsSync(legacyRoot) &&
+        !fs.existsSync(join(launcherRoot, "state.json"))
+      ) {
+        fs.mkdirSync(launcherRoot, { recursive: true });
+        fs.cpSync(legacyRoot, launcherRoot, { recursive: true, force: false });
+      }
+    } catch (err) {
+      console.warn("[LauncherUpdate] Legacy migration failed:", err);
+    }
+  }
   launcherUpdateManager = new LauncherUpdateManager({
     currentVersion: app.getVersion(),
     manifestUrl: launcherManifestUrl,
-    rootPath: join(getPipperLibraryPath(), "launcher-updates"),
+    rootPath: launcherRoot,
     enabled: launcherUpdatesEnabled,
     broadcastState: (state) => broadcastToWindows("launcher-update:stateChanged", state),
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
@@ -2888,6 +3333,11 @@ app.whenReady().then(async () => {
     }
     logStartupMilestone("main-window:starting-before-agent-activation");
     void createMainWindow();
+    // Siri/Shortcuts requests staged before launch (and deep links that
+    // arrived before the agent manager existed) are consumed only once the
+    // window is on its way up, and never awaited: consumption creates threads
+    // and talks to agents, which must not gate first paint.
+    void drainStartupSiriRequests();
     if (state.projectId) {
       // ACP activation spawns and handshakes with child processes. It must not
       // overlap Chromium's renderer bootstrap or first paint. The renderer's
@@ -2908,6 +3358,9 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", async () => {
+    await consumePendingSiriRequests().catch((err) => {
+      console.error("[Main] Failed to consume pending Siri requests on activation:", err);
+    });
     const hasMain = mainWindow && !mainWindow.isDestroyed();
     const hasLaunch = launchWindow && !launchWindow.isDestroyed();
     if (!hasMain && !hasLaunch) {
@@ -2980,6 +3433,11 @@ app.on("will-quit", (event) => {
       await agentManager?.dispose();
     } catch (err) {
       console.error("[Main] Failed to dispose agent manager on quit:", err);
+    }
+    try {
+      await remoteAccess?.dispose();
+    } catch (err) {
+      console.error("[Main] Failed to stop remote server on quit:", err);
     }
     try {
       await sleeplessController?.dispose();
