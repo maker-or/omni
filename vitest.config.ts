@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 import { createCustomResolver } from "./src/lib/alias-resolver.ts";
 import { nodeModulesGuardPlugin } from "./src/lib/node-modules-guard.ts";
@@ -20,7 +20,24 @@ if (!expoInstalled && process.env.VITEST) {
 export default defineConfig({
   plugins: [nodeModulesGuardPlugin(__dirname)],
   resolve: {
+    dedupe: ["react", "react-dom"],
     alias: [
+      {
+        find: /^react$/,
+        replacement: resolve(__dirname, "node_modules/react"),
+      },
+      {
+        find: /^react\/(.*)$/,
+        replacement: resolve(__dirname, "node_modules/react/$1"),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: resolve(__dirname, "node_modules/react-dom"),
+      },
+      {
+        find: /^react-dom\/(.*)$/,
+        replacement: resolve(__dirname, "node_modules/react-dom/$1"),
+      },
       {
         find: /^@\/(.*)$/,
         replacement: "$1",
@@ -29,6 +46,11 @@ export default defineConfig({
     ],
   },
   test: {
+    server: {
+      deps: {
+        inline: true,
+      },
+    },
     environment: "node",
     include: [
       "src/**/*.test.{ts,tsx}",

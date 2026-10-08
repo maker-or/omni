@@ -2,7 +2,7 @@ import { existsSync, readFileSync, accessSync, constants, realpathSync } from "n
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { antigravityRelease, installedAntigravityPath } from "./antigravity-official.ts";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
 
@@ -540,4 +540,9 @@ export function resolveAgentSpawn(agent: AcpAgentDescriptor): {
     args: probed.args ?? [],
     env,
   };
+}
+
+/** npm exec reads the current project's devEngines before starting an agent. */
+export function agentProcessCwd(command: string): string | undefined {
+  return /(?:^|[/\\])npx(?:\.cmd)?$/i.test(command) ? tmpdir() : undefined;
 }

@@ -10,7 +10,7 @@ import type {
   MonitorSwitchRecord,
 } from "../contracts/monitor.ts";
 import type { AcpAgentDescriptor } from "../contracts/acp.ts";
-import { resolveAgentSpawn } from "./agents/registry.ts";
+import { agentProcessCwd, resolveAgentSpawn } from "./agents/registry.ts";
 import {
   ANTIGRAVITY_INSTALL_WAIT_MS,
   waitForAntigravityInstall,
@@ -296,6 +296,7 @@ export class ConnectionLifecycle {
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      cwd: agentProcessCwd(command),
       ...(useShell && { shell: true }),
     }) as ChildProcessWithoutNullStreams;
 

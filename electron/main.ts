@@ -138,6 +138,11 @@ import type {
 prependStandardPaths();
 
 import { getPipperLibraryPath } from "./paths";
+import {
+  installBrief,
+  registerBriefScheme,
+  type BriefIntegration,
+} from "./brief/electron-integration.ts";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 import { launchLauncherInstaller } from "./launcher-update-install.ts";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
@@ -330,6 +335,9 @@ if (benchmarkEnabled && process.env.PIPPER_DEV_USER_DATA_PATH) {
   app.setPath("userData", devUserDataPath);
 }
 
+// Custom schemes must be registered before the app is ready.
+registerBriefScheme();
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -448,6 +456,7 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
 let monitorService: MonitorService | null = null;
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
+let briefIntegration: BriefIntegration | null = null;
 let remoteAccess: RemoteAccessController | null = null;
 let desktopIdentityInstance: DesktopIdentity | null = null;
 
@@ -477,6 +486,8 @@ function startDeferredStartupWork(): void {
   deferredStartupWorkStarted = true;
 
   initializeMonitorService();
+  // First paint is done: the Morning Brief may now generate and auto-open.
+  briefIntegration?.onMainWindowReady();
   void sleeplessController?.initialize().catch((error) => {
     console.error("[Sleepless] Initialization failed:", error);
   });
@@ -1268,6 +1279,9 @@ async function createMainWindow(): Promise<void> {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      // The embedded browser (Morning Brief, links) uses <webview>; every
+      // attach is locked down in brief/electron-integration.ts.
+      webviewTag: true,
     },
   });
 
@@ -3284,6 +3298,30 @@ app.whenReady().then(async () => {
     broadcastProgress: (progress) => broadcastToWindows("launcher-update:progress", progress),
   });
   registerIpc();
+  briefIntegration = installBrief({
+    getMainWindow: () => mainWindow,
+    getSettingsWindow: () => settingsWindow,
+    getTheme: () => currentTheme,
+    getUser: () => {
+      const user = getAuthenticatedUserForLaunch();
+      return user ? { id: user.provider_user_id, name: user.name ?? null } : null;
+    },
+    getSelectedAgentIds: () => getSelectedAgentIds(),
+    runAcpPrompt: async (opts) => {
+      // Brief writing needs only the digest. Keep repo instructions and MCP tools
+      // out of this session so coding-agent providers act as plain writers.
+      const cwd = fs.mkdtempSync(join(os.tmpdir(), "pipper-brief-writer-"));
+      try {
+        return await requireAgentManager().runHeadlessPrompt({
+          ...opts,
+          cwd,
+          includeMcpServers: false,
+        });
+      } finally {
+        await fs.promises.rm(cwd, { recursive: true, force: true }).catch(() => {});
+      }
+    },
+  });
 
   logStartupMilestone("launch-state:read:start");
   const state = await readLaunchState();
@@ -3388,6 +3426,7 @@ app.on("will-quit", (event) => {
   });
   killAllPtyProcesses("Quit");
   monitorService?.stop();
+  briefIntegration?.dispose();
 
   void (async () => {
     try {

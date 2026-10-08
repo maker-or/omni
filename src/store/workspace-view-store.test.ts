@@ -78,3 +78,19 @@ describe("workspace-view-store draft", () => {
     expect(draft?.modelId).toBe("sonnet");
   });
 });
+
+describe("workspace-view-store browser + seeded drafts", () => {
+  test("a seeded draft (e.g. from the Morning Brief) starts dirty with its text", () => {
+    useWorkspaceViewStore.getState().beginDraft({ projectId: "p1", seedText: "Review PR #42" });
+    const draft = useWorkspaceViewStore.getState().draft;
+    expect(draft?.seedText).toBe("Review PR #42");
+    expect(draft?.dirty).toBe(true);
+  });
+
+  test("showBrowser switches the workspace to that browser tab", () => {
+    useWorkspaceViewStore.getState().showBrowser("browser-1");
+    const state = useWorkspaceViewStore.getState();
+    expect(state.mode).toBe("browser");
+    expect(state.activeBrowserTabId).toBe("browser-1");
+  });
+});

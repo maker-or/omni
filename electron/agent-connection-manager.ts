@@ -38,6 +38,7 @@ import {
 } from "./launch-state.ts";
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
+import { HeadlessResponse } from "./brief/headless-response.ts";
 import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
 import { listAgentInstanceDescriptors, hasAgentInstances } from "./agent-instances.ts";
 import {
@@ -262,8 +263,23 @@ export class AgentConnectionManager {
   private snapshotWritesDisabled = false;
   /** Per-session filesystem containment for agent reads/writes/terminals. */
   private readonly workspaceGuard = new WorkspaceGuard();
+  /** Headless sessions (e.g. Morning Brief) receiving private session updates. */
+  private readonly headlessSessions = new Map<
+    string,
+    {
+      onUpdate: (update: SessionUpdate) => void;
+    }
+  >();
   private readonly permissions = new PermissionCoordinator({
-    autoResponse: (params) => this.subagents.autoPermissionResponse(params),
+    autoResponse: (params) => {
+      if (this.headlessSessions.has(params.sessionId)) {
+        const options = params.options ?? [];
+        const allow = options.find((o) => o.kind === "allow_once") ?? options[0];
+        if (!allow) return { outcome: { outcome: "cancelled" } };
+        return { outcome: { outcome: "selected", optionId: allow.optionId } };
+      }
+      return this.subagents.autoPermissionResponse(params);
+    },
     findThreadBySessionId: (sessionId) => this.findThreadBySessionId(sessionId),
     emit: (event) => this.emit(event),
     notifyIfHidden: (notification) => this.notifyIfHidden(notification),
@@ -1239,6 +1255,110 @@ export class AgentConnectionManager {
     return this.lifecycle.acquire(descriptor);
   }
 
+  /**
+   * Run a prompt to completion against an isolated headless ACP session.
+   * Chunks are accumulated privately without leaking to thread timelines or the renderer.
+   * Used by features like Morning Brief that need LLM inference from supported agents.
+   */
+  async runHeadlessPrompt(options: {
+    agentId: string;
+    promptText: string;
+    timeoutMs?: number;
+    cwd?: string;
+    includeMcpServers?: boolean;
+  }): Promise<string> {
+    const { agentId, promptText, timeoutMs = 150_000 } = options;
+    const live = await this.acquireConnection(agentId);
+    const cwd =
+      options.cwd ??
+      this.getActiveCwd() ??
+      (this.activeProjectId
+        ? (getProject(this.activeProjectId)?.path ?? process.cwd())
+        : process.cwd());
+    const attached =
+      options.includeMcpServers === false ? null : await this.sessionMcpServers(live, cwd);
+    let sessionId: string | null = null;
+    const response = new HeadlessResponse();
+
+    try {
+      // ACP agent creates session configured with its default model
+      const created = (await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.new, {
+          cwd,
+          mcpServers: (attached?.servers ?? []) as never,
+        }),
+        ACP_SWITCH_PHASE_TIMEOUT_MS,
+        "agent/headless-session-new",
+      )) as { sessionId: string; configOptions?: SessionConfigOption[] | null };
+
+      sessionId = created.sessionId;
+      attached?.bind(sessionId);
+
+      this.headlessSessions.set(sessionId, {
+        onUpdate: (update) => {
+          response.add(update);
+        },
+      });
+
+      const promptBlocks: ContentBlock[] = [{ type: "text", text: promptText }];
+      let timedOut = false;
+
+      const promptResult = await requestWithTimeout(
+        live.agent.request(acp.methods.agent.session.prompt, {
+          sessionId,
+          prompt: promptBlocks,
+        }),
+        timeoutMs,
+        "agent/headless-session-prompt",
+        () => {
+          timedOut = true;
+          void live.agent.notify(acp.methods.agent.session.cancel, { sessionId }).catch(() => {});
+        },
+      );
+
+      if (timedOut) {
+        throw new Error(`Headless prompt for agent ${agentId} timed out after ${timeoutMs}ms`);
+      }
+
+      if (
+        promptResult.stopReason === "refusal" ||
+        promptResult.stopReason === "cancelled" ||
+        promptResult.stopReason === "max_tokens"
+      ) {
+        throw new Error(
+          `Headless prompt for agent ${agentId} stopped before answering (${promptResult.stopReason}).`,
+        );
+      }
+
+      // Codex marks final_answer chunks explicitly. A progress/status message
+      // from a turn with no final answer must not be parsed as brief JSON.
+      const text = response.text(agentId === "codex-acp" || agentId.startsWith("codex-acp:"));
+      if (!text) {
+        const stopReason =
+          promptResult && typeof promptResult === "object" && "stopReason" in promptResult
+            ? String(promptResult.stopReason)
+            : "unknown";
+        throw new Error(`Headless prompt for agent ${agentId} returned no answer (${stopReason}).`);
+      }
+
+      return text;
+    } finally {
+      if (sessionId) {
+        this.headlessSessions.delete(sessionId);
+        try {
+          await requestWithTimeout(
+            live.agent.request(acp.methods.agent.session.close, { sessionId }),
+            ACP_SWITCH_PHASE_TIMEOUT_MS,
+            "agent/headless-session-close",
+          );
+        } catch {
+          // best effort
+        }
+      }
+      attached?.release();
+    }
+  }
+
   async authenticateAgent(agentId: string, methodId: string): Promise<void> {
     const live = await this.acquireConnection(agentId);
     const method = live.authMethods.find((candidate) => candidate.id === methodId);
@@ -1372,6 +1492,11 @@ export class AgentConnectionManager {
 
   private async handleSessionUpdate(sessionId: string, update: SessionUpdate): Promise<void> {
     const startedAt = performance.now();
+    const headless = this.headlessSessions.get(sessionId);
+    if (headless) {
+      headless.onUpdate(update);
+      return;
+    }
     // Headless subagent sessions accumulate into their run's slice; their
     // streaming must not leak into thread timelines or the renderer.
     if (this.subagents.handleSessionUpdate(sessionId, update)) return;

@@ -160,4 +160,22 @@ if (!posthogKey) {
 if (posthogKey) process.env.VITE_POSTHOG_KEY = posthogKey;
 process.env.VITE_POSTHOG_HOST = posthogHost;
 console.log(`[build] PostHog host: ${posthogHost}`);
+// Morning Brief credentials come from the build environment, never user settings.
+for (const [target, aliases] of [
+  ["VITE_PIPPER_COMPOSIO_API_KEY", ["PIPPER_COMPOSIO_API_KEY", "COMPOSIO_API_KEY"]],
+  ["VITE_PIPPER_TYPESAFE_API_KEY", ["PIPPER_TYPESAFE_API_KEY", "TYPESAFE_API_KEY"]],
+]) {
+  const value = firstNonEmpty(
+    process.env[target],
+    ...aliases.map((name) => process.env[name]),
+    loadedEnv[target],
+    ...aliases.map((name) => loadedEnv[name]),
+  );
+  if (value) {
+    process.env[target] = value;
+    console.log(`[build] ${target} present; Morning Brief default key will be baked in.`);
+  } else {
+    console.warn(`[build] ${target} not set; Morning Brief may be unavailable in this build.`);
+  }
+}
 run(["electron-vite", "build"]);

@@ -7,6 +7,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { AgentAccountsSettings } from "@/components/agent-accounts-settings";
+import { MorningBriefSettings } from "@/components/morning-brief-settings";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
 import { ThemePicker } from "@/components/theme-picker";
@@ -47,13 +48,14 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-type SectionId = "appearance" | "agents" | "accounts" | "keyboard" | "power" | "remote";
+type SectionId = "appearance" | "agents" | "accounts" | "keyboard" | "brief" | "power" | "remote";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
   { id: "agents", label: "Agents" },
   { id: "accounts", label: "Account" },
   { id: "keyboard", label: "Keyboard" },
+  { id: "brief", label: "Morning Brief" },
   { id: "power", label: "Power" },
   { id: "remote", label: "Remote" },
 ];
@@ -343,6 +345,10 @@ const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
     title: "Keyboard",
     blurb: "Shortcuts for moving fast around Pipper.",
   },
+  brief: {
+    title: "Morning Brief",
+    blurb: "Configure your daily morning brief and connected tools.",
+  },
   power: {
     title: "Power",
     blurb: "Keep agents running when your Mac would rather sleep.",
@@ -462,6 +468,25 @@ function RemoteView() {
   );
 }
 
+function BriefView() {
+  return (
+    <>
+      <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
+        <MorningBriefSettings />
+      </Elevated>
+      <Accordion type="single" collapsible className="mt-2 w-full">
+        <AccordionItem value="brief-privacy">
+          <AccordionTrigger>Privacy & automation</AccordionTrigger>
+          <AccordionContent>
+            Tools connect through Composio; Jev by TypeSafe decides what matters. Nothing is sent on
+            your behalf without a click in the brief.
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </>
+  );
+}
+
 export function SettingsApp() {
   const [section, setSection] = useState<SectionId>("appearance");
   const meta = SECTION_META[section];
@@ -518,6 +543,7 @@ export function SettingsApp() {
                 {section === "agents" && <AgentsSettingsSection />}
                 {section === "accounts" && <AccountsView />}
                 {section === "keyboard" && <KeyboardView />}
+                {section === "brief" && <BriefView />}
                 {section === "power" && <PowerView />}
                 {section === "remote" && <RemoteView />}
               </main>

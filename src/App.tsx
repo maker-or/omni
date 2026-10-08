@@ -39,6 +39,9 @@ const TerminalSession = lazy(() =>
 const ProjectFileTree = lazy(() =>
   import("@/components/project-file-tree").then((m) => ({ default: m.ProjectFileTree })),
 );
+const BrowserView = lazy(() =>
+  import("@/components/browser-view").then((m) => ({ default: m.BrowserView })),
+);
 const LauncherUpdateBanner = lazy(() =>
   import("@/components/launcher-update").then((m) => ({ default: m.LauncherUpdateBanner })),
 );
@@ -52,6 +55,8 @@ import {
   startMonitorRuntimeObserver,
 } from "@/lib/monitor-runtime-observer";
 import { useMonitorTabSync } from "@/lib/monitor-tab-sync";
+import { useMorningBriefBridge } from "@/lib/morning-brief";
+import { useBrowserStore } from "@/store/browser-store";
 import { AdvancedShell } from "@/components/advanced-shell";
 import { useUiModeStore } from "@/store/ui-mode-store";
 
@@ -88,6 +93,11 @@ export default function App() {
   const showAgent = useWorkspaceViewStore((state) => state.showAgent);
   const showDiffSplit = useIsDiffSplit();
   const showTerminalView = workspaceMode === "terminal" && hasActiveTerminal;
+  const browserTabs = useBrowserStore((state) => state.tabs);
+  const activeBrowserTabId = useWorkspaceViewStore((state) => state.activeBrowserTabId);
+  const showBrowserView =
+    workspaceMode === "browser" && browserTabs.some((tab) => tab.id === activeBrowserTabId);
+  useMorningBriefBridge();
   // Draft chrome: never show ambient activeProject just because one is open.
   // Only show a project name when the draft bound one (chip) or we're live.
   const isDraftMode = draft != null;
@@ -623,7 +633,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-          ) : isDraftMode ? (
+          ) : isDraftMode && workspaceMode === "agent" ? (
             <div className="flex min-w-0 items-center gap-2 px-1">
               <span className="truncate text-[15px] font-semibold tracking-tight text-muted-foreground">
                 New thread
@@ -999,6 +1009,30 @@ export default function App() {
                   <TerminalSession sessionId={session.id} cwd={session.cwd} isActive={isActive} />
                 </Suspense>
               </div>
+            </section>
+          );
+        })}
+
+        {/* Embedded browser tabs (Morning Brief, links): global views like
+            terminals, overlaid so the agent view stays mounted underneath. */}
+        {browserTabs.map((tab) => {
+          const isActive = showBrowserView && activeBrowserTabId === tab.id;
+          return (
+            <section
+              key={tab.id}
+              className={cn(
+                "absolute inset-0 z-30 flex flex-col overflow-hidden bg-surface-1 p-2",
+                isActive
+                  ? "pointer-events-auto visible opacity-100"
+                  : "pointer-events-none invisible opacity-0 -z-10",
+              )}
+              aria-hidden={!isActive}
+              inert={!isActive}
+              data-pipper-id={`browser-panel-${tab.id}`}
+            >
+              <Suspense fallback={null}>
+                <BrowserView tab={tab} isActive={isActive} />
+              </Suspense>
             </section>
           );
         })}
