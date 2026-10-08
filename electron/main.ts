@@ -1023,6 +1023,7 @@ const PIPPER_DOCS_URL_PREFIXES = ["https://www.pipper.dev/docs/", "https://pippe
 const GITHUB_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/;
 
 function isAllowedExternalUrl(inputUrl: string): boolean {
+  if (inputUrl === "https://cli.github.com/") return true;
   if (isAllowedClerkAuthUrl(inputUrl)) return true;
   if (GITHUB_PR_URL.test(inputUrl)) return true;
   // Onboarding verification cards link failing agents to their setup guide.
@@ -1830,6 +1831,22 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:list", () => listProjects());
 
+  ipcMain.handle("github:getStatus", async () => {
+    requireAuthenticatedUserForLaunch();
+    const { getGitHubCliStatus } = await import("./github-onboarding.ts");
+    return getGitHubCliStatus();
+  });
+  ipcMain.handle("github:listRepositories", async (_event, page?: number) => {
+    requireAuthenticatedUserForLaunch();
+    const { listGitHubRepositories } = await import("./github-onboarding.ts");
+    return listGitHubRepositories(page);
+  });
+  ipcMain.handle("github:cloneRepository", async (_event, fullName: string) => {
+    requireAuthenticatedUserForLaunch();
+    const { cloneGitHubRepository } = await import("./github-onboarding.ts");
+    return cloneGitHubRepository(fullName);
+  });
+
   ipcMain.handle("siri:getCatalog", async () => {
     const { refreshSiriCatalog } = await import("./siri/siri-catalog.ts");
     return refreshSiriCatalog();
@@ -2361,6 +2378,7 @@ function registerIpc(): void {
     "add_project_started",
     "add_project_completed",
     "add_project_abandoned",
+    "github_project_opened",
     "project_opened",
     "project_open_failed",
   ]);

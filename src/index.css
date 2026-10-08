@@ -631,9 +631,9 @@
   color: var(--workspace-state-on-surface);
 }
 .workspace-state-surface[data-state-active="true"]:is(
-  [data-state-surface="card"],
-  [data-state-surface="header"]
-) {
+    [data-state-surface="card"],
+    [data-state-surface="header"]
+  ) {
   --muted-foreground: var(--workspace-selected-muted);
 }
 .workspace-state-surface[data-state-active="true"][data-state-surface="card"] {

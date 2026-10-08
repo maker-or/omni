@@ -1217,20 +1217,38 @@ export function commitWorkspace(worktreePath: string, message: string): string {
   return git(worktreePath, ["rev-parse", "--short", "HEAD"]);
 }
 
-/** Push the current branch; sets upstream on first push. */
+/** Publish the current branch under its own name using Git's push remote precedence. */
 export async function pushWorkspace(worktreePath: string): Promise<void> {
   assertInsideRepo(worktreePath);
-  const upstream = await tryGitAsync(worktreePath, [
-    "rev-parse",
-    "--abbrev-ref",
-    "--symbolic-full-name",
-    "@{u}",
+  const branch = await tryGitAsync(worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (!branch) throw new Error("Check out a branch before pushing this workspace.");
+  const [branchPushRemote, defaultPushRemote, upstream] = await Promise.all([
+    tryGitAsync(worktreePath, ["config", "--get", `branch.${branch}.pushRemote`]),
+    tryGitAsync(worktreePath, ["config", "--get", "remote.pushDefault"]),
+    gitAsync(worktreePath, [
+      "for-each-ref",
+      "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+      `refs/heads/${branch}`,
+    ]),
   ]);
-  const branch = await gitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const [upstreamRemote, upstreamRef] = upstream.split("\0");
+  // Honor triangular workflows (fetch upstream, push fork), but never publish to the base
+  // branch or let push.default / remote push refspecs choose another branch.
+  const remote =
+    branchPushRemote ||
+    defaultPushRemote ||
+    (upstreamRemote && upstreamRemote !== "." ? upstreamRemote : "origin");
+  const branchRef = `refs/heads/${branch}`;
+  // Keep a same-name fetch upstream on another remote. Only establish tracking
+  // on first publication or repair the inherited base-branch upstream.
+  const setUpstream = !upstreamRemote || upstreamRemote === "." || upstreamRef !== branchRef;
   // Generous timeout: first pushes and slow networks take a while, but a
   // credential prompt must never hang the UI forever (stdin is ignored).
-  if (upstream) await gitAsync(worktreePath, ["push"], 120_000);
-  else await gitAsync(worktreePath, ["push", "-u", "origin", branch], 120_000);
+  await gitAsync(
+    worktreePath,
+    ["push", ...(setUpstream ? ["-u"] : []), remote, `${branchRef}:${branchRef}`],
+    120_000,
+  );
 }
 
 /** Create a GitHub PR for the workspace branch via `gh`. Returns the PR URL. */

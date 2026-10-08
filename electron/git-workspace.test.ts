@@ -13,6 +13,7 @@ import {
   mergeWorkspaceBranch,
   parseGitHubRepo,
   parseNumstat,
+  pushWorkspace,
   PR_REFRESH_INTERVAL_MS,
   refreshBaseBranch,
   resetBaseFetchesForTests,
@@ -280,6 +281,116 @@ function teammatePushes(other: string, file: string): void {
   git(other, ["commit", "-m", `teammate adds ${file}`]);
   git(other, ["push", "--quiet", "origin", "main"]);
 }
+
+describe("pushWorkspace", () => {
+  function commitFeature(work: string, file = "feature.txt") {
+    writeFileSync(join(work, file), "feature work");
+    git(work, ["add", file]);
+    git(work, ["commit", "-m", "feature work"]);
+    return git(work, ["rev-parse", "HEAD"]);
+  }
+
+  test("publishes a new branch, sets its upstream, and supports later pushes", async () => {
+    const { work } = setUpTeamRepo();
+    const base = git(work, ["rev-parse", "origin/main"]);
+    commitFeature(work);
+    await pushWorkspace(work);
+    expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("origin/side");
+    const next = commitFeature(work, "next.txt");
+    await pushWorkspace(work);
+    expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(next);
+    expect(git(join(dir, "origin.git"), ["rev-parse", "main"])).toBe(base);
+  });
+
+  test.each(["simple", "upstream", "matching"])(
+    "repairs an inherited base upstream with push.default=%s without changing main",
+    async (mode) => {
+      const { work } = setUpTeamRepo();
+      const base = git(work, ["rev-parse", "origin/main"]);
+      git(work, ["branch", "--set-upstream-to=origin/main", "side"]);
+      git(work, ["config", "push.default", mode]);
+      git(work, ["config", "remote.origin.push", "refs/heads/side:refs/heads/main"]);
+      const head = commitFeature(work);
+      await pushWorkspace(work);
+      expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("origin/side");
+      expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(head);
+      expect(git(join(dir, "origin.git"), ["rev-parse", "main"])).toBe(base);
+      expect(git(work, ["config", "push.default"])).toBe(mode);
+    },
+  );
+
+  test("keeps the configured remote when repairing an upstream", async () => {
+    const { work } = setUpTeamRepo();
+    git(work, ["remote", "rename", "origin", "fork"]);
+    git(work, ["branch", "--set-upstream-to=fork/main", "side"]);
+    const head = commitFeature(work);
+    await pushWorkspace(work);
+    expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("fork/side");
+    expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(head);
+  });
+
+  test.each(["branch", "default", "both"])(
+    "honors the %s push remote setting and preserves a separate fetch upstream",
+    async (setting) => {
+      const { work } = setUpTeamRepo();
+      await pushWorkspace(work);
+      const upstreamHead = git(join(dir, "origin.git"), ["rev-parse", "side"]);
+      for (const remote of ["fork", "default-fork"]) {
+        const path = join(dir, `${remote}.git`);
+        git(dir, ["init", "--bare", path]);
+        git(work, ["remote", "add", remote, path]);
+      }
+      if (setting !== "default") git(work, ["config", "branch.side.pushRemote", "fork"]);
+      if (setting !== "branch")
+        git(work, ["config", "remote.pushDefault", setting === "both" ? "default-fork" : "fork"]);
+      const head = commitFeature(work);
+      await pushWorkspace(work);
+      expect(git(join(dir, "fork.git"), ["rev-parse", "side"])).toBe(head);
+      expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(upstreamHead);
+      expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("origin/side");
+      expect(git(join(dir, "default-fork.git"), ["for-each-ref", "--format=%(refname)"])).toBe("");
+    },
+  );
+
+  test("uses the default push remote for first publication and establishes tracking", async () => {
+    const { work } = setUpTeamRepo();
+    const fork = join(dir, "fork.git");
+    git(dir, ["init", "--bare", fork]);
+    git(work, ["remote", "add", "fork", fork]);
+    git(work, ["config", "remote.pushDefault", "fork"]);
+    const head = commitFeature(work);
+    await pushWorkspace(work);
+    expect(git(fork, ["rev-parse", "side"])).toBe(head);
+    expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("fork/side");
+    expect(git(join(dir, "origin.git"), ["for-each-ref", "--format=%(refname)"])).toBe(
+      "refs/heads/main",
+    );
+  });
+
+  test("rejects diverging remote history without overwriting it", async () => {
+    const { work, other } = setUpTeamRepo();
+    commitFeature(work);
+    await pushWorkspace(work);
+    git(other, ["fetch", "origin", "side"]);
+    git(other, ["checkout", "-b", "side", "origin/side"]);
+    const remoteHead = commitFeature(other, "teammate.txt");
+    git(other, ["push", "origin", "side"]);
+    const localHead = commitFeature(work, "local.txt");
+    await expect(pushWorkspace(work)).rejects.toThrow();
+    expect(git(join(dir, "origin.git"), ["rev-parse", "side"])).toBe(remoteHead);
+    expect(git(work, ["rev-parse", "HEAD"])).toBe(localHead);
+    expect(git(work, ["rev-parse", "--abbrev-ref", "@{u}"])).toBe("origin/side");
+  });
+
+  test("rejects a detached HEAD before publishing anything", async () => {
+    const { work } = setUpTeamRepo();
+    git(work, ["checkout", "--detach"]);
+    await expect(pushWorkspace(work)).rejects.toThrow("Check out a branch");
+    expect(git(join(dir, "origin.git"), ["for-each-ref", "--format=%(refname)"])).toBe(
+      "refs/heads/main",
+    );
+  });
+});
 
 describe("base branch fetch", () => {
   afterEach(() => {

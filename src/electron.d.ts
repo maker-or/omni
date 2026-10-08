@@ -1,4 +1,5 @@
 import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
+import type { GitHubApi } from "../contracts/github.ts";
 import type {
   RemoteDevicesState,
   RemotePairingOffer,
@@ -87,6 +88,7 @@ declare global {
         openExternal: (url: string) => Promise<void>;
         openHttps: (url: string) => Promise<void>;
       };
+      github: GitHubApi;
       window: {
         reportVisibility: (visible: boolean) => void;
       };

@@ -52,14 +52,14 @@ Use `<Elevated offset={N}>` for any floating container. Do not hardcode `bg-surf
 The states are `neutral`, `action`, `ready`, `merged`, and `stale`. Their roles
 live in `src/index.css`; components consume them through `src/lib/workspace-tone.ts`.
 
-| Role                  | Token source                                                          | Light/dark behavior                                 |
-| --------------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
-| Surface / on-surface  | `--surface-1` / `--foreground`                                        | Existing theme surface/text pair                    |
-| Accent                | `--workspace-tone-{state}`                                            | Readable state ink in light; original accent in dark |
-| Glow / glow base      | `--workspace-glow-{state}` / `--workspace-glow-background-{state}`   | Lighter edge glow over a saturated base in light; dark falls back to its original accent/substrate |
-| Header base / wash    | `--workspace-header-background` / `--workspace-header-wash-{state}` | Flat state base with no gradient in light; original dark wash |
-| Action / on-action    | `--workspace-fill-{state}` / `--workspace-ink-{state}`                | Coordinated fill/text pair for each theme            |
-| Badge surface / glyph | `--workspace-badge-surface-{state}` / `--workspace-badge-ink-{state}` | Coordinated badge/text pair for each theme           |
+| Role                  | Token source                                                          | Light/dark behavior                                                                                |
+| --------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Surface / on-surface  | `--surface-1` / `--foreground`                                        | Existing theme surface/text pair                                                                   |
+| Accent                | `--workspace-tone-{state}`                                            | Readable state ink in light; original accent in dark                                               |
+| Glow / glow base      | `--workspace-glow-{state}` / `--workspace-glow-background-{state}`    | Lighter edge glow over a saturated base in light; dark falls back to its original accent/substrate |
+| Header base / wash    | `--workspace-header-background` / `--workspace-header-wash-{state}`   | Flat state base with no gradient in light; original dark wash                                      |
+| Action / on-action    | `--workspace-fill-{state}` / `--workspace-ink-{state}`                | Coordinated fill/text pair for each theme                                                          |
+| Badge surface / glyph | `--workspace-badge-surface-{state}` / `--workspace-badge-ink-{state}` | Coordinated badge/text pair for each theme                                                         |
 
 The light palette uses graphite (`neutral`), amber (`action`), jade (`ready`),
 iris (`merged`), and sky blue (`stale`). Selected cards have a saturated center

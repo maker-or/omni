@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 interface AddProjectFormProps {
   onBack: () => void;
   onCreated: (project: Project) => void;
+  onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
 }
@@ -16,6 +17,7 @@ interface AddProjectFormProps {
 export function AddProjectForm({
   onBack,
   onCreated,
+  onBusyChange,
   disabled = false,
   disabledReason,
 }: AddProjectFormProps) {
@@ -72,6 +74,7 @@ export function AddProjectForm({
     if (!window.omni?.projects?.create) return;
 
     setIsSubmitting(true);
+    onBusyChange?.(true);
     try {
       const project = await window.omni.projects.create({
         name: trimmedName,
@@ -84,8 +87,9 @@ export function AddProjectForm({
       setError(err instanceof Error ? err.message : "Could not create project. Try again.");
     } finally {
       setIsSubmitting(false);
+      onBusyChange?.(false);
     }
-  }, [disabled, disabledReason, icon, name, onCreated, path]);
+  }, [disabled, disabledReason, icon, name, onBusyChange, onCreated, path]);
 
   const canSubmit = !disabled && name.trim().length > 0 && icon != null && path.length > 0;
 

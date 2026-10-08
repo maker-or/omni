@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
+import type { GitHubApi } from "../contracts/github.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import type {
   ProjectRepoState,
@@ -92,6 +93,11 @@ const api = {
     /** Any https link the user's own PR data points at (checks, deploys, comments). */
     openHttps: (url: string): Promise<void> => ipcRenderer.invoke("shell:openHttps", url),
   },
+  github: {
+    getStatus: () => ipcRenderer.invoke("github:getStatus"),
+    listRepositories: (page = 1) => ipcRenderer.invoke("github:listRepositories", page),
+    cloneRepository: (fullName: string) => ipcRenderer.invoke("github:cloneRepository", fullName),
+  } satisfies GitHubApi,
   window: {
     /** Report document.visibilityState so main can gate hidden-window traffic. */
     reportVisibility: (visible: boolean): void => {
