@@ -3,12 +3,12 @@ import {
   ArrowsClockwiseIcon,
   CheckCircleIcon,
   CircleNotch,
-  GearSix,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { AgentAccountsSettings } from "@/components/agent-accounts-settings";
 import { RemoteAccessSettings } from "@/components/remote-access-settings";
 import { SleeplessControl } from "@/components/sleepless-control";
+import { WorkspaceStateGallery } from "@/components/workspace-state-gallery";
 import { ThemePicker } from "@/components/theme-picker";
 import { WorkspaceModePicker } from "@/components/workspace-mode-picker";
 import { createProviderLogoIcon } from "@/components/provider-logos";
@@ -24,7 +24,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -47,10 +46,11 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-type SectionId = "appearance" | "agents" | "accounts" | "keyboard" | "power" | "remote";
+type SectionId = "design" | "appearance" | "agents" | "accounts" | "keyboard" | "power" | "remote";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
+  { id: "design", label: "Design system" },
   { id: "agents", label: "Agents" },
   { id: "accounts", label: "Account" },
   { id: "keyboard", label: "Keyboard" },
@@ -327,6 +327,10 @@ function AgentsSettingsSection() {
 }
 
 const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
+  design: {
+    title: "Workspace design system",
+    blurb: "Git-state colors, surfaces, and controls in light and dark mode.",
+  },
   appearance: {
     title: "Appearance",
     blurb: "Control how Pipper Code looks and the layout it opens with.",
@@ -504,7 +508,9 @@ export function SettingsApp() {
 
           <SidebarInset className="bg-surface-1">
             <ScrollArea className="h-full min-h-0 flex-1" scrollFade cueSize="tight">
-              <main className="mx-auto w-full max-w-[640px] min-w-0 flex-1 px-7 py-8 pb-12">
+              <main
+                className={`mx-auto w-full min-w-0 flex-1 px-7 py-8 pb-12 ${section === "design" ? "max-w-[1200px]" : "max-w-[640px]"}`}
+              >
                 <div className="mb-5">
                   <h1 className="text-[26px] font-semibold tracking-[-0.035em] text-foreground">
                     {meta.title}
@@ -514,6 +520,7 @@ export function SettingsApp() {
                   ) : null}
                 </div>
 
+                {section === "design" && <WorkspaceStateGallery />}
                 {section === "appearance" && <AppearanceView />}
                 {section === "agents" && <AgentsSettingsSection />}
                 {section === "accounts" && <AccountsView />}

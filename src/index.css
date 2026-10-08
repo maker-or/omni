@@ -19,7 +19,8 @@
  *   Roles         — semantic colors for text, borders, focus, states
  *   Radius        — corner rounding scale
  * ========================================================================== */
-:root {
+:root,
+[data-workspace-theme="light"] {
   color-scheme: light;
 
   --background: var(--surface-1);
@@ -60,6 +61,77 @@
   --surface-7: #ffffff;
   --surface-8: #ffffff;
 
+  /* --- Workspace state roles ------------------------------------------ */
+  /* Original accents remain the dark-mode baseline. */
+  --workspace-color-neutral: #a1a1aa;
+  --workspace-color-action: #ffaa4f;
+  --workspace-color-ready: #088139;
+  --workspace-color-merged: #8b5cf6;
+  --workspace-color-stale: #5ca8ff;
+  /* Light states: saturated centers, lighter edge light, and solid controls
+   * that stay distinct against the pale canvas. */
+  --workspace-tone-neutral: #536176;
+  --workspace-tone-action: #b85b08;
+  --workspace-tone-ready: #147858;
+  --workspace-tone-merged: #6b3cba;
+  --workspace-tone-stale: #2262ae;
+
+  --workspace-glow-neutral: #d6deea;
+  --workspace-glow-action: #ffe3c3;
+  --workspace-glow-ready: #c1f6df;
+  --workspace-glow-merged: #e8d7ff;
+  --workspace-glow-stale: #cfe6ff;
+  --workspace-glow-background-neutral: #94a2b8;
+  --workspace-glow-background-action: #d36f01;
+  --workspace-glow-background-ready: #30977a;
+  --workspace-glow-background-merged: #8f72c4;
+  --workspace-glow-background-stale: #4c8ccb;
+  --workspace-selected-muted: #18181b;
+  --workspace-caret-color: #18181b;
+
+  /* Headers use the same flat state base as cards, with only an inset glow. */
+  --workspace-header-background: initial;
+  --workspace-header-wash-neutral: none;
+  --workspace-header-wash-action: none;
+  --workspace-header-wash-ready: none;
+  --workspace-header-wash-merged: none;
+  --workspace-header-wash-stale: none;
+
+  --workspace-fill-neutral: #41516b;
+  --workspace-fill-action: #9d4908;
+  --workspace-fill-ready: #12664e;
+  --workspace-fill-merged: #6540a3;
+  --workspace-fill-stale: #245a96;
+  --workspace-ink-neutral: #f1f5ff;
+  --workspace-ink-action: #fff1db;
+  --workspace-ink-ready: #d9ffeb;
+  --workspace-ink-merged: #f3e8ff;
+  --workspace-ink-stale: #e5f2ff;
+
+  --workspace-badge-surface-neutral: #52627c;
+  --workspace-badge-ink-neutral: var(--workspace-ink-neutral);
+  --workspace-badge-surface-action: #a85718;
+  --workspace-badge-ink-action: var(--workspace-ink-action);
+  --workspace-badge-surface-ready: #26765d;
+  --workspace-badge-ink-ready: var(--workspace-ink-ready);
+  --workspace-badge-surface-merged: #7554b1;
+  --workspace-badge-ink-merged: var(--workspace-ink-merged);
+  --workspace-badge-surface-stale: #376ea8;
+  --workspace-badge-ink-stale: var(--workspace-ink-stale);
+
+  /* Quiet controls and PR tags stay in the same color family. */
+  --workspace-control-tint-neutral: var(--workspace-badge-surface-neutral);
+  --workspace-control-tint-action: var(--workspace-badge-surface-action);
+  --workspace-control-tint-ready: var(--workspace-badge-surface-ready);
+  --workspace-control-tint-merged: var(--workspace-badge-surface-merged);
+  --workspace-control-tint-stale: var(--workspace-badge-surface-stale);
+  --workspace-control-ink-neutral: var(--workspace-badge-ink-neutral);
+  --workspace-control-ink-action: var(--workspace-badge-ink-action);
+  --workspace-control-ink-ready: var(--workspace-badge-ink-ready);
+  --workspace-control-ink-merged: var(--workspace-badge-ink-merged);
+  --workspace-control-ink-stale: var(--workspace-badge-ink-stale);
+  --workspace-pr-arrow-opacity: 12%;
+
   /* --- Shadow primitives ------------------------------------------------ */
   --shadow-color: rgb(0 0 0 / 0.06);
 
@@ -95,7 +167,8 @@
 /* =============================================================================
  * Dark mode token overrides
  * ========================================================================== */
-.dark {
+.dark,
+[data-workspace-theme="dark"] {
   color-scheme: dark;
 
   /* --- Role tokens ------------------------------------------------------ */
@@ -124,6 +197,70 @@
   --surface-6: #3a3a3a;
   --surface-7: #414141;
   --surface-8: #484848;
+
+  /* Keep the original action/text pairing in dark mode. */
+  --workspace-fill-neutral: #f4f4f5;
+  --workspace-fill-action: #ffaa4f;
+  --workspace-fill-ready: #6ee7b7;
+  --workspace-fill-merged: #ddd6fe;
+  --workspace-fill-stale: #5ca8ff;
+  --workspace-ink-neutral: #18181b;
+  --workspace-ink-action: #4a2c05;
+  --workspace-ink-ready: #052e16;
+  --workspace-ink-merged: #2e1065;
+  --workspace-ink-stale: #08243f;
+
+  /* State accents, washes, glows and badges retain their dark-mode pairing. */
+  /* Clear the independent light palette so all dark rendering stays original. */
+  --workspace-glow-neutral: initial;
+  --workspace-glow-action: initial;
+  --workspace-glow-ready: initial;
+  --workspace-glow-merged: initial;
+  --workspace-glow-stale: initial;
+  --workspace-glow-background-neutral: initial;
+  --workspace-glow-background-action: initial;
+  --workspace-glow-background-ready: initial;
+  --workspace-glow-background-merged: initial;
+  --workspace-glow-background-stale: initial;
+  --workspace-header-background: initial;
+  --workspace-selected-muted: var(--muted-foreground);
+  --workspace-caret-color: initial;
+  --workspace-wash-neutral: initial;
+  --workspace-wash-action: initial;
+  --workspace-wash-ready: initial;
+  --workspace-wash-merged: initial;
+  --workspace-wash-stale: initial;
+  --workspace-header-wash-neutral: initial;
+  --workspace-header-wash-action: initial;
+  --workspace-header-wash-ready: initial;
+  --workspace-header-wash-merged: initial;
+  --workspace-header-wash-stale: initial;
+  --workspace-control-tint-neutral: initial;
+  --workspace-control-tint-action: initial;
+  --workspace-control-tint-ready: initial;
+  --workspace-control-tint-merged: initial;
+  --workspace-control-tint-stale: initial;
+  --workspace-control-ink-neutral: initial;
+  --workspace-control-ink-action: initial;
+  --workspace-control-ink-ready: initial;
+  --workspace-control-ink-merged: initial;
+  --workspace-control-ink-stale: initial;
+  --workspace-pr-arrow-opacity: 30%;
+  --workspace-tone-neutral: var(--workspace-color-neutral);
+  --workspace-badge-surface-neutral: color-mix(in srgb, var(--workspace-color-neutral) 68%, black);
+  --workspace-badge-ink-neutral: color-mix(in srgb, var(--workspace-color-neutral) 62%, white);
+  --workspace-tone-action: var(--workspace-color-action);
+  --workspace-badge-surface-action: color-mix(in srgb, var(--workspace-color-action) 68%, black);
+  --workspace-badge-ink-action: color-mix(in srgb, var(--workspace-color-action) 62%, white);
+  --workspace-tone-ready: var(--workspace-color-ready);
+  --workspace-badge-surface-ready: color-mix(in srgb, var(--workspace-color-ready) 68%, black);
+  --workspace-badge-ink-ready: color-mix(in srgb, var(--workspace-color-ready) 62%, white);
+  --workspace-tone-merged: var(--workspace-color-merged);
+  --workspace-badge-surface-merged: color-mix(in srgb, var(--workspace-color-merged) 68%, black);
+  --workspace-badge-ink-merged: color-mix(in srgb, var(--workspace-color-merged) 62%, white);
+  --workspace-tone-stale: var(--workspace-color-stale);
+  --workspace-badge-surface-stale: color-mix(in srgb, var(--workspace-color-stale) 68%, black);
+  --workspace-badge-ink-stale: color-mix(in srgb, var(--workspace-color-stale) 62%, white);
 
   /* --- Shadow primitives (inset highlights + ring tints + drop) --------- */
   --dm-hi-base: rgb(255 255 255 / 0.01);
@@ -487,4 +624,88 @@
     transition-duration: 0s !important;
     transition-delay: 0s !important;
   }
+}
+
+/* Advanced-shell state primitives: palette roles, independent of component layout. */
+.workspace-state-surface {
+  color: var(--workspace-state-on-surface);
+}
+.workspace-state-surface[data-state-active="true"]:is(
+  [data-state-surface="card"],
+  [data-state-surface="header"]
+) {
+  --muted-foreground: var(--workspace-selected-muted);
+}
+.workspace-state-surface[data-state-active="true"][data-state-surface="card"] {
+  background-color: var(--workspace-state-glow-background);
+}
+.workspace-state-surface[data-state-active="true"][data-state-surface="header"] {
+  background-color: var(--workspace-state-header-background);
+}
+.workspace-state-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.workspace-state-surface[data-state-active="true"]::before {
+  box-shadow: var(--workspace-state-glow);
+}
+.workspace-state-surface[data-state-surface="header"]::before {
+  mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+}
+.workspace-state-action {
+  --workspace-control-fill: var(--workspace-state-action);
+  color: var(--workspace-state-on-action);
+  transition: filter 80ms;
+}
+.workspace-state-action > [aria-hidden="true"] {
+  background-color: var(--workspace-control-fill);
+}
+.workspace-state-action[data-state-action="secondary"] {
+  --workspace-control-fill: var(--workspace-state-secondary-fill);
+  color: var(--workspace-state-control-ink);
+}
+.workspace-state-action[data-state-action="tag"] {
+  --workspace-control-fill: var(--workspace-state-tag-fill);
+  color: var(--workspace-state-control-ink);
+  border: 2px solid var(--workspace-state-tag-fill);
+}
+.workspace-state-action[data-state-action="segment"] {
+  --workspace-control-fill: transparent;
+}
+.workspace-state-action:not(:disabled):hover,
+.workspace-state-action-group:hover {
+  filter: brightness(1.05);
+}
+.workspace-state-action[data-state-action="segment"]:hover {
+  filter: none;
+}
+.workspace-state-action:focus-visible {
+  outline: 2px solid var(--workspace-state-accent);
+  outline-offset: 2px;
+}
+.workspace-state-action-group {
+  background-color: var(--workspace-state-action);
+  color: var(--workspace-state-on-action);
+  transition: filter 80ms;
+}
+.workspace-state-badge {
+  background-color: var(--workspace-state-badge);
+  color: var(--workspace-state-on-badge);
+}
+
+.workspace-state-surface[data-state-surface="notice"] {
+  color: var(--workspace-state-accent);
+  background-color: color-mix(
+    in srgb,
+    var(--workspace-state-accent) 10%,
+    var(--workspace-state-surface)
+  );
+}
+.workspace-state-action-group:focus-within {
+  outline: 2px solid var(--workspace-state-accent);
+  outline-offset: 2px;
 }

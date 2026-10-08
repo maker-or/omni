@@ -1,5 +1,7 @@
 "use client";
 
+import { WorkspaceStateBadge } from "@/components/workspace-state";
+
 import { memo } from "react";
 import { StopIcon } from "@phosphor-icons/react";
 import { motion, useReducedMotion } from "framer-motion";
@@ -153,12 +155,13 @@ const ConversationTurnIdentity = memo(function ConversationTurnIdentity({
     // light glyph — the inverse polarity of the flat action buttons.
     const { bg, ink } = toneIdentity(workspaceTone ?? "ready");
     return (
-      <span
+      <WorkspaceStateBadge
+        tone={workspaceTone ?? "ready"}
         className={cn("block shrink-0", identityEmphasisClass[emphasis], className)}
         data-pipper-id="user-turn-identity"
       >
         <UserIdentityMark fill={bg} ink={ink} />
-      </span>
+      </WorkspaceStateBadge>
     );
   }
 

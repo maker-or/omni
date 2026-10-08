@@ -141,7 +141,8 @@ function actionLabel(kind: string): string {
  * - stale:   no PR and nothing of the user's own to save or share, but the
  *            base branch has moved on — catching up is the next step
  */
-import { type HeaderTone, HEADER_TONE_FILL, toneInsetShadow, toneWash } from "@/lib/workspace-tone";
+import type { HeaderTone } from "@/lib/workspace-tone";
+import { WorkspaceStateAction, WorkspaceStateSurface } from "@/components/workspace-state";
 
 // Re-exported so existing consumers keep importing the tone vocabulary from
 // this component; the source of truth is `@/lib/workspace-tone`.
@@ -218,26 +219,26 @@ function splitPath(path: string): { dir: string; name: string } {
 }
 
 /** `#123 ↗` pill linking to the open (or just-merged) PR. */
-function prPill(status: WorkspaceGitStatus) {
+function prPill(status: WorkspaceGitStatus, tone: HeaderTone) {
   const number = status.openPrNumber ?? status.mergedPrNumber;
   const url = status.openPrUrl ?? status.mergedPrUrl;
   if (!number || !url) return null;
-  const suffix = status.openPrNumber ? (status.isDraftPr ? " · draft" : "") : " · merged";
   return (
-    <button
-      type="button"
+    <WorkspaceStateAction
+      tone={tone}
+      appearance="tag"
       onClick={() => void window.omni.shell.openExternal(url)}
       title="Open pull request on GitHub"
-      className="flex h-7 shrink-0 items-center overflow-hidden rounded-full border-2 border-white/30 bg-white/30 text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+      className="overflow-hidden rounded-full gap-0 px-0"
     >
-      <span className="px-2.5">
-        #{number}
-        {suffix}
-      </span>
-      <span className="flex h-full items-center bg-white/30 px-1.5">
+      <span className="px-2.5">#{number}</span>
+      <span
+        className="flex h-full items-center px-1.5"
+        style={{ backgroundColor: "var(--workspace-state-tag-arrow-fill)" }}
+      >
         <ArrowUpRight size={13} />
       </span>
-    </button>
+    </WorkspaceStateAction>
   );
 }
 
@@ -959,8 +960,8 @@ export function WorkspaceControlPanel({
     }
     if (tone === "ready") {
       return (
-        <button
-          type="button"
+        <WorkspaceStateAction
+          tone="ready"
           disabled={busy || status.prDataState !== "fresh"}
           title={
             status.prDataState === "fresh"
@@ -968,18 +969,16 @@ export function WorkspaceControlPanel({
               : "Refresh GitHub before merging"
           }
           onClick={runMergePr}
-          className="flex h-7 shrink-0 items-center rounded-full px-3.5 text-[12px] font-semibold text-emerald-950 transition-[filter] hover:brightness-105 disabled:opacity-50"
-          style={{ backgroundColor: HEADER_TONE_FILL.ready }}
         >
           {action === "mergePr" ? "Merging…" : "Merge"}
-        </button>
+        </WorkspaceStateAction>
       );
     }
     // Draft with nothing left to push: the next step is flipping the flag.
     if (status.isDraftPr && dirtyCount === 0 && unpushed === 0) {
       return (
-        <button
-          type="button"
+        <WorkspaceStateAction
+          tone="action"
           disabled={busy || status.prDataState !== "fresh"}
           title={
             status.prDataState === "fresh"
@@ -987,10 +986,9 @@ export function WorkspaceControlPanel({
               : "Refresh GitHub before changing the pull request"
           }
           onClick={runMarkReady}
-          className="flex h-7 shrink-0 items-center rounded-full bg-black/40 px-3.5 text-[12px] font-semibold text-amber-100 transition-colors hover:bg-black/60 disabled:opacity-50"
         >
           {action === "ready" ? "Marking…" : "Ready for review"}
-        </button>
+        </WorkspaceStateAction>
       );
     }
     // PR open but blocked: keep the commit/push control in reach; the Check
@@ -1022,17 +1020,17 @@ export function WorkspaceControlPanel({
   /** Merged state: the work landed — continue on a new branch, or delete. */
   const renderMergedActions = () => (
     <div className="flex shrink-0 items-center gap-1">
-      <button
-        type="button"
+      <WorkspaceStateAction
+        tone="merged"
+        appearance="secondary"
         disabled={busy}
         title="Start a new branch off the latest base in this same workspace"
         onClick={runContinue}
-        className="flex h-7 items-center rounded-full bg-white/15 px-3 text-[12px] font-semibold text-white transition-colors hover:bg-white/25 disabled:opacity-50"
       >
         {action === "continue" ? "Starting…" : "Continue"}
-      </button>
-      <button
-        type="button"
+      </WorkspaceStateAction>
+      <WorkspaceStateAction
+        tone="merged"
         disabled={busy || !onDelete}
         title={
           onDelete
@@ -1040,11 +1038,9 @@ export function WorkspaceControlPanel({
             : "The project root cannot be deleted"
         }
         onClick={runDelete}
-        className="flex h-7 items-center rounded-full px-3 text-[12px] font-semibold text-violet-950 transition-[filter] hover:brightness-105 disabled:opacity-50"
-        style={{ backgroundColor: HEADER_TONE_FILL.merged }}
       >
         {action === "delete" ? "Deleting…" : "Delete"}
-      </button>
+      </WorkspaceStateAction>
     </div>
   );
 
@@ -1133,32 +1129,14 @@ export function WorkspaceControlPanel({
           </div>
         ) : (
           <>
-            {/* State header: PR pill + state action, Check/Changes tabs.
-                Sticky with an opaque surface-1 base so it stays put while the
-                tab content scrolls beneath it. The git state reads as an
-                inset glow (same tone as the sidebar's active workspace card)
-                rather than a gradient fill, so the header keeps the parent
-                background; the controls sit on top of the glow unaffected.
-                The glow lives on a layer behind the content and is masked
-                away toward the bottom edge, so the header flows into the
-                body instead of casting a band across it. The header's own
-                background is a smooth tone wash over surface-1 (not flat
-                black) that eases out at the same bottom edge. */}
-            <div
-              className="sticky top-0 z-20 shrink-0 rounded-tr-[16px] bg-surface-1 px-4 pb-8 pt-4"
-              style={{ backgroundImage: toneWash(tone) }}
+            {/* Shared state surface: the header and selected card use the same roles. */}
+            <WorkspaceStateSurface
+              tone={tone}
+              variant="header"
+              className="sticky top-0 z-20 shrink-0 rounded-none rounded-tr-[16px] px-4 pb-8 pt-4"
             >
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 -z-10 rounded-tr-[16px]"
-                style={{
-                  boxShadow: toneInsetShadow(tone),
-                  maskImage: "linear-gradient(to bottom, #000 60%, transparent 100%)",
-                  WebkitMaskImage: "linear-gradient(to bottom, #000 60%, transparent 100%)",
-                }}
-              />
               <div className="flex flex-wrap items-center gap-2">
-                {prPill(status)}
+                {prPill(status, tone)}
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
                   {tone === "merged" ? renderMergedActions() : renderStateAction(status)}
                 </div>
@@ -1175,8 +1153,8 @@ export function WorkspaceControlPanel({
                     className={cn(
                       "capitalize transition-colors",
                       tab === value
-                        ? "font-semibold text-white"
-                        : "text-white/35 hover:text-white/60",
+                        ? "font-semibold text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {value === "check" ? "Check" : "Changes"}
@@ -1199,10 +1177,10 @@ export function WorkspaceControlPanel({
                       onClick={() => setChangesMenuOpen((open) => !open)}
                       className={cn(
                         "grid size-7 place-items-center rounded-md outline-none transition-colors",
-                        "focus-visible:ring-2 focus-visible:ring-white/70",
+                        "focus-visible:ring-2 focus-visible:ring-ring",
                         changesMenuOpen
-                          ? "bg-white/20 text-white"
-                          : "text-white/55 hover:bg-white/10 hover:text-white",
+                          ? "bg-active text-foreground"
+                          : "text-muted-foreground hover:bg-hover hover:text-foreground",
                       )}
                     >
                       <DotsThreeVertical size={16} weight="bold" />
@@ -1246,34 +1224,40 @@ export function WorkspaceControlPanel({
                   </div>
                 ) : null}
               </div>
-            </div>
+            </WorkspaceStateSurface>
 
             <div className="flex flex-col gap-3 px-4 pt-3">
               {hasTeamChanges(status) ? (
-                <div
-                  className="flex items-center gap-2 rounded-md bg-sky-500/10 px-2.5 py-2"
+                <WorkspaceStateSurface
+                  tone="stale"
+                  variant="notice"
+                  active={false}
+                  className="flex items-center gap-2 rounded-md px-2.5 py-2"
                   role="status"
                   data-pipper-id="workspace-behind-base"
                 >
-                  <p className="min-w-0 flex-1 text-[11px] leading-4 text-sky-400">
+                  <p className="min-w-0 flex-1 text-[11px] leading-4">
                     The team has {status.behindBase} new{" "}
                     {status.behindBase === 1 ? "change" : "changes"} on {baseBranchLabel(status)}{" "}
                     that this workspace doesn’t have yet.
                   </p>
-                  <button
-                    type="button"
+                  <WorkspaceStateAction
+                    tone="stale"
                     disabled={busy}
                     onClick={delegateGetLatest}
                     title="Ask the agent to bring this workspace up to date with the base branch"
-                    className="flex h-6 shrink-0 items-center rounded-full bg-sky-400/90 px-2.5 text-[11px] font-semibold text-sky-950 transition-colors hover:bg-sky-300 disabled:opacity-50"
+                    className="h-6 px-2.5 text-[11px]"
                   >
                     {agentTask === "getLatest" ? "Getting…" : "Get latest"}
-                  </button>
-                </div>
+                  </WorkspaceStateAction>
+                </WorkspaceStateSurface>
               ) : null}
               {status.prDataState === "stale" ? (
-                <p
-                  className="rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-4 text-amber-500"
+                <WorkspaceStateSurface
+                  tone="action"
+                  variant="notice"
+                  active={false}
+                  className="rounded-md px-2.5 py-2 text-[11px] leading-4"
                   role="status"
                 >
                   Couldn’t refresh GitHub — showing cached data
@@ -1281,16 +1265,19 @@ export function WorkspaceControlPanel({
                     ? ` from ${new Date(status.prUpdatedAt).toLocaleString()}`
                     : ""}
                   .
-                </p>
+                </WorkspaceStateSurface>
               ) : status.prDataState === "unavailable" &&
                 status.remoteHost === "github.com" &&
                 status.ghAvailable ? (
-                <p
-                  className="rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-4 text-amber-500"
+                <WorkspaceStateSurface
+                  tone="action"
+                  variant="notice"
+                  active={false}
+                  className="rounded-md px-2.5 py-2 text-[11px] leading-4"
                   role="status"
                 >
                   GitHub data is unavailable. Local git state is still current.
-                </p>
+                </WorkspaceStateSurface>
               ) : null}
               {error ? (
                 <p className="text-[11px] leading-4 text-destructive" role="alert">

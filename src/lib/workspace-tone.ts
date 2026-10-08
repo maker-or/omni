@@ -17,27 +17,55 @@
  * - stale:   no PR and nothing of the user's own to save or share, but the
  *            base branch has moved on — catching up is the next step
  */
-export type HeaderTone = "neutral" | "action" | "ready" | "merged" | "stale";
+export const WORKSPACE_STATES = ["neutral", "action", "ready", "merged", "stale"] as const;
+export type HeaderTone = (typeof WORKSPACE_STATES)[number];
+
+/** The palette's state names and meaning, shared with the visual reference. */
+export const WORKSPACE_STATE_META: Record<
+  HeaderTone,
+  { label: string; description: string; action: string }
+> = {
+  neutral: { label: "In progress", description: "No pull request yet", action: "Commit" },
+  action: {
+    label: "Needs attention",
+    description: "Draft, unpushed changes, or pending checks",
+    action: "Commit & push",
+  },
+  ready: {
+    label: "Ready to merge",
+    description: "Clean workspace and no blocking checks",
+    action: "Merge",
+  },
+  merged: { label: "Merged", description: "The pull request has landed", action: "Delete" },
+  stale: {
+    label: "Needs updating",
+    description: "The base branch has moved ahead",
+    action: "Get latest",
+  },
+};
 
 /** Shared tone gradients: the panel header and the sidebar's active workspace
  *  card both paint from this map so the two stay in lockstep. */
 export const HEADER_TONE_GRADIENT: Record<HeaderTone, string> = {
-  neutral: "from-zinc-300/50 via-zinc-600/20 to-zinc-600/0",
-  action: "from-[#FFAA4F] via-[#6F5121] to-[#6F5121]/0",
-  ready: "from-[#088139] via-[#114526] to-[#114526]/0",
-  merged: "from-violet-500/80 via-violet-900/25 to-violet-900/0",
-  stale: "from-[#5CA8FF] via-[#1F3F66] to-[#1F3F66]/0",
+  neutral:
+    "from-[var(--workspace-tone-neutral)]/50 via-[var(--workspace-tone-neutral)]/20 to-transparent",
+  action:
+    "from-[var(--workspace-tone-action)]/80 via-[var(--workspace-tone-action)]/20 to-transparent",
+  ready:
+    "from-[var(--workspace-tone-ready)]/80 via-[var(--workspace-tone-ready)]/20 to-transparent",
+  merged:
+    "from-[var(--workspace-tone-merged)]/80 via-[var(--workspace-tone-merged)]/20 to-transparent",
+  stale:
+    "from-[var(--workspace-tone-stale)]/80 via-[var(--workspace-tone-stale)]/20 to-transparent",
 };
 
-/** Solid tone colours, used where the state has to read as a colour rather
- *  than a fill (the sidebar active workspace card's inset shadow). Based on
- *  each gradient's `from` colour. */
+/** Theme-aware state colours live alongside the surface tokens in index.css. */
 export const HEADER_TONE_COLOR: Record<HeaderTone, string> = {
-  neutral: "#a1a1aa",
-  action: "#FFAA4F",
-  ready: "#088139",
-  merged: "#8b5cf6",
-  stale: "#5CA8FF",
+  neutral: "var(--workspace-tone-neutral)",
+  action: "var(--workspace-tone-action)",
+  ready: "var(--workspace-tone-ready)",
+  merged: "var(--workspace-tone-merged)",
+  stale: "var(--workspace-tone-stale)",
 };
 
 /**
@@ -52,8 +80,11 @@ export const HEADER_TONE_COLOR: Record<HeaderTone, string> = {
  * bleed from all four edges.
  */
 export function toneInsetShadow(tone: HeaderTone): string {
-  const color = HEADER_TONE_COLOR[tone];
-  return [`inset 0 0 22px 2px ${color}8c`, `inset 0 0 48px 8px ${color}4d`].join(", ");
+  const color = `var(--workspace-glow-${tone}, ${HEADER_TONE_COLOR[tone]})`;
+  return [
+    `inset 0 0 22px 2px color-mix(in srgb, ${color} 55%, transparent)`,
+    `inset 0 0 48px 8px color-mix(in srgb, ${color} 30%, transparent)`,
+  ].join(", ");
 }
 
 /**
@@ -64,35 +95,36 @@ export function toneInsetShadow(tone: HeaderTone): string {
  * than a flat black block, while still flowing into the body below.
  */
 export function toneWash(tone: HeaderTone): string {
-  const color = HEADER_TONE_COLOR[tone];
-  return `linear-gradient(to bottom, ${color}47 0%, ${color}1f 45%, ${color}00 100%)`;
+  const color = `var(--workspace-wash-${tone}, ${HEADER_TONE_COLOR[tone]})`;
+  return `var(--workspace-header-wash-${tone}, linear-gradient(to bottom, color-mix(in srgb, ${color} 28%, transparent) 0%, color-mix(in srgb, ${color} 12%, transparent) 45%, transparent 100%))`;
 }
 
 /**
- * Flat fill for solid action buttons. A single saturated shade per state,
- * light enough to carry dark label text.
+ * Flat fill for solid action buttons, paired with HEADER_TONE_INK.
+ * Each theme supplies its own coordinated fill and label colours.
  */
 export const HEADER_TONE_FILL: Record<HeaderTone, string> = {
-  neutral: "#f4f4f5",
-  action: "#FFAA4F",
-  ready: "#6ee7b7",
-  merged: "#ddd6fe",
-  stale: "#5CA8FF",
+  neutral: "var(--workspace-fill-neutral)",
+  action: "var(--workspace-fill-action)",
+  ready: "var(--workspace-fill-ready)",
+  merged: "var(--workspace-fill-merged)",
+  stale: "var(--workspace-fill-stale)",
 };
 
-/**
- * Dark-disc / light-ink pair for an identity badge — the opposite polarity of
- * the flat action buttons (which are light fill + dark ink). The tone is
- * deepened for the disc and lightened for the glyph, so a filled badge reads
- * as a bright mark on a dark field.
- */
+/** Ink paired with the state action fill in either theme. */
+export const HEADER_TONE_INK: Record<HeaderTone, string> = {
+  neutral: "var(--workspace-ink-neutral)",
+  action: "var(--workspace-ink-action)",
+  ready: "var(--workspace-ink-ready)",
+  merged: "var(--workspace-ink-merged)",
+  stale: "var(--workspace-ink-stale)",
+};
+
+/** Theme-aware badge surface/text pair, coordinated with each state's palette. */
 export function toneIdentity(tone: HeaderTone): { bg: string; ink: string; ring: string } {
-  const color = HEADER_TONE_COLOR[tone];
   return {
-    bg: `color-mix(in srgb, ${color} 68%, black)`,
-    // Mostly the tone, only a touch of white — a lighter shade of the same
-    // hue, not a white glyph.
-    ink: `color-mix(in srgb, ${color} 62%, white)`,
-    ring: `color-mix(in srgb, ${color} 85%, transparent)`,
+    bg: `var(--workspace-badge-surface-${tone})`,
+    ink: `var(--workspace-badge-ink-${tone})`,
+    ring: `color-mix(in srgb, ${HEADER_TONE_COLOR[tone]} 85%, transparent)`,
   };
 }

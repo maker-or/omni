@@ -18,16 +18,13 @@ import { DiffIngestor } from "@/components/diff-ingestor";
 import { GlobalTabBar } from "@/components/global-tab-bar";
 import { TerminalSession } from "@/components/terminal-session";
 import { ThreadCompletionDock } from "@/components/thread-completion-dock";
-import {
-  WorkspaceControlPanel,
-  toneInsetShadow,
-  type HeaderTone,
-} from "@/components/workspace-control-panel";
+import { WorkspaceControlPanel, type HeaderTone } from "@/components/workspace-control-panel";
 import { Toaster } from "@/components/ui/toaster";
 import { Sidebar, SidebarFooter, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { Elevated } from "@/lib/elevated";
+import { WorkspaceStateSurface } from "@/components/workspace-state";
 import { useProjectStore } from "@/store/project-store";
 import { useThreadStore } from "@/store/thread-store";
 import { getAllTerminalSessions, useTerminalStore } from "@/store/terminal-store";
@@ -211,7 +208,7 @@ function ProjectTabs({
             onClick={() => onSelect(project)}
             className={cn(
               "relative shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[15px] leading-none outline-none transition-colors duration-80",
-              "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+              "focus-visible:ring-1 focus-visible:ring-ring",
               active
                 ? "font-medium text-foreground"
                 : "text-muted-foreground/60 hover:text-foreground",
@@ -302,7 +299,13 @@ function WorkspaceCard({
   }, [menuOpen]);
 
   return (
-    <div ref={menuRef} className="group/card relative mb-2 break-inside-avoid">
+    <WorkspaceStateSurface
+      tone={tone}
+      active={selected}
+      offset={selected ? 0 : 2}
+      ref={menuRef}
+      className="group/card relative mb-2 break-inside-avoid rounded-2xl"
+    >
       <button
         type="button"
         data-active={selected ? "true" : undefined}
@@ -317,15 +320,14 @@ function WorkspaceCard({
         }}
         style={{
           minHeight: cardHeight(worktree.path, selected),
-          boxShadow: selected ? toneInsetShadow(tone) : undefined,
         }}
         className={cn(
           "relative flex w-full flex-col overflow-hidden rounded-2xl p-3 text-left outline-none",
           "transition-[background-color,color,box-shadow] duration-80",
-          "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+          "focus-visible:ring-1 focus-visible:ring-ring",
           selected
-            ? "bg-surface-1 text-foreground"
-            : "bg-[#262626] text-neutral-400 hover:bg-[#303030] hover:text-neutral-100",
+            ? "bg-transparent text-foreground"
+            : "bg-transparent text-muted-foreground hover:bg-hover hover:text-foreground",
         )}
       >
         <span className="line-clamp-3 pr-5 text-[13px] font-medium leading-snug">
@@ -348,7 +350,7 @@ function WorkspaceCard({
           "absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md outline-none",
           "text-current opacity-0 transition-opacity duration-80",
           "group-hover/card:opacity-100 focus-visible:opacity-100 data-[open=true]:opacity-100",
-          selected ? "hover:bg-white/20" : "hover:bg-white/10",
+          "text-muted-foreground hover:bg-hover hover:text-foreground",
         )}
       >
         <DotsThree size={16} weight="bold" />
@@ -371,7 +373,7 @@ function WorkspaceCard({
           </button>
         </Elevated>
       )}
-    </div>
+    </WorkspaceStateSurface>
   );
 }
 
@@ -810,11 +812,11 @@ export function AdvancedShell() {
                   )}
                 </div>
               </div>
-              <SidebarFooter className="border-t border-white/5 bg-[#1a1a1a] p-2">
+              <SidebarFooter className="border-t border-border p-2">
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    className="flex h-8 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-400 outline-none transition-colors duration-80 hover:bg-white/10 hover:text-neutral-100"
+                    className="flex h-8 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground outline-none transition-colors duration-80 hover:bg-hover hover:text-foreground"
                     onClick={() => void window.omni.launch.show("add")}
                   >
                     <FolderPlus size={16} />

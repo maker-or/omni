@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CaretDown } from "@phosphor-icons/react";
-import { cn } from "@/lib/utils";
-import { type HeaderTone, HEADER_TONE_FILL } from "@/lib/workspace-tone";
+import { Elevated } from "@/lib/elevated";
+import { WorkspaceStateAction, WorkspaceStateActionGroup } from "@/components/workspace-state";
+import { type HeaderTone } from "@/lib/workspace-tone";
 
 export interface SplitMenuItem {
   label: string;
@@ -10,19 +11,6 @@ export interface SplitMenuItem {
   disabled?: boolean;
   title?: string;
 }
-
-/**
- * Label ink per state. The flat fill comes from `HEADER_TONE_FILL` (applied
- * inline); only the text colour is class-driven. Hover brightens the fill
- * rather than swapping a colour.
- */
-const TONE_TEXT: Record<HeaderTone, string> = {
-  neutral: "text-zinc-900",
-  action: "text-[#4a2c05]",
-  ready: "text-emerald-950",
-  merged: "text-violet-950",
-  stale: "text-[#08243f]",
-};
 
 /**
  * Primary action + caret menu, the one control shape shared by every git
@@ -69,35 +57,37 @@ export function SplitButton({
       {/* Fill + depth live on the wrapper so the inset shadow casts from the
           pill's outer edges only — applying it per segment drew a dark seam
           where the two segments meet. Segments stay transparent on top. */}
-      <div
-        className="flex h-7 overflow-hidden rounded-full transition-[filter] hover:brightness-105"
-        style={{ backgroundColor: HEADER_TONE_FILL[tone] }}
-      >
-        <button
-          type="button"
+      <WorkspaceStateActionGroup tone={tone}>
+        <WorkspaceStateAction
+          tone={tone}
+          appearance="segment"
           disabled={disabled}
           title={title}
           onClick={() => {
             setOpen(false);
             onPrimary();
           }}
-          className={cn("pl-3 pr-1 text-[12px] font-semibold disabled:opacity-50", TONE_TEXT[tone])}
+          className="pl-3 pr-1 text-[12px] font-semibold disabled:opacity-50"
         >
           {label}
-        </button>
-        <button
-          type="button"
+        </WorkspaceStateAction>
+        <WorkspaceStateAction
+          tone={tone}
+          appearance="segment"
           aria-label="More options"
           aria-expanded={open}
           disabled={menuDisabled}
           onClick={() => setOpen((value) => !value)}
-          className={cn("flex items-center pl-1 pr-2 disabled:opacity-50", TONE_TEXT[tone])}
+          className="flex items-center pl-1 pr-2 disabled:opacity-50"
         >
-          <CaretDown size={13} />
-        </button>
-      </div>
+          <CaretDown size={13} style={{ color: "var(--workspace-state-caret)" }} />
+        </WorkspaceStateAction>
+      </WorkspaceStateActionGroup>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-border bg-surface-1 p-1 shadow-surface-5">
+        <Elevated
+          offset={2}
+          className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-border p-1"
+        >
           {items.map((item) => (
             <button
               key={item.label}
@@ -113,7 +103,7 @@ export function SplitButton({
               {item.icon} {item.label}
             </button>
           ))}
-        </div>
+        </Elevated>
       )}
     </div>
   );

@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useMemo, lazy, Suspense } from "react";
 import { Group, Panel, Separator, useGroupRef } from "react-resizable-panels";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { ProjectIcon } from "@/components/ui/icon-picker";
 import { useProjectStore } from "@/store/project-store";
 import { useWorktreeStore } from "@/store/worktree-store";
@@ -23,11 +22,9 @@ import {
   Bell,
   FolderPlus,
   GitBranch,
-  GitDiffIcon,
   Plus,
   PlusMinusIcon,
 } from "@phosphor-icons/react";
-import { SleeplessControl } from "@/components/sleepless-control";
 import { ProjectThreadsDropdown } from "@/components/project-threads-dropdown";
 
 const DiffView = lazy(() =>
@@ -60,6 +57,9 @@ const EMPTY_WORKTREES: Worktree[] = [];
 export default function App() {
   const uiMode = useUiModeStore((state) => state.mode);
   const { activeProject, loadActiveProject, isLoading, error: projectError } = useProjectStore();
+  const snapshotThreadId = useAgentStore((state) => state.snapshot?.threadId ?? null);
+  const snapshotCwd = useAgentStore((state) => state.snapshot?.cwd ?? null);
+  const snapshotProjectId = useAgentStore((state) => state.snapshot?.projectId ?? null);
 
   // ── Workspace view routing ────────────────────────────────────────────
   // The header tab strip (GlobalTabBar) flips these; we route the workspace
@@ -241,7 +241,8 @@ export default function App() {
 
   const closeBranchDropdown = () => setIsBranchDropdownOpen(false);
 
-  // Prefer draft-bound project for chrome when drafting; otherwise ambient.
+  // Basic chrome follows the displayed thread while persisted project and
+  // workspace mirrors catch up. Drafts keep their own explicit context.
   const chromeProject = useMemo(() => {
     if (isDraftMode) {
       if (!draft?.projectId) return null;
@@ -250,8 +251,23 @@ export default function App() {
         (activeProject?.id === draft.projectId ? activeProject : null)
       );
     }
+    if (uiMode === "basic" && snapshotThreadId && snapshotProjectId) {
+      return (
+        (activeProject?.id === snapshotProjectId ? activeProject : null) ??
+        projectsList.find((project) => project.id === snapshotProjectId) ??
+        null
+      );
+    }
     return activeProject;
-  }, [isDraftMode, draft?.projectId, projectsList, activeProject]);
+  }, [
+    isDraftMode,
+    draft?.projectId,
+    projectsList,
+    activeProject,
+    uiMode,
+    snapshotThreadId,
+    snapshotProjectId,
+  ]);
 
   const currentProject = chromeProject ?? activeProject;
 
@@ -371,16 +387,25 @@ export default function App() {
   const storedWorktreePath = currentProject
     ? selectedWorktreePathByProject[currentProject.id]
     : undefined;
-  // Anchor to git's canonical entries: the stored selection, else the project
-  // root (`isProjectRoot`). Defaulting to `currentProject.path` would miss when
-  // the project path has a symlinked ancestor (git reports realpaths).
+  const followsThread = uiMode === "basic" && !draft && snapshotThreadId != null;
+  const targetWorktreePath =
+    draft && draft.projectId === currentProject?.id
+      ? (draft.worktreePath ?? currentProject?.path)
+      : followsThread && snapshotProjectId === currentProject?.id && snapshotCwd
+        ? snapshotCwd
+        : storedWorktreePath;
+  // Preserve an explicit target even if it is missing from the cached list;
+  // falling back to the root would label another workspace as the active one.
+  // Git's root entry still handles a symlinked configured project path.
   const selectedWorktree =
-    visibleWorktrees.find((worktree) => worktree.path === storedWorktreePath) ??
-    visibleWorktrees.find((worktree) => worktree.isProjectRoot) ??
-    visibleWorktrees[0] ??
-    null;
+    (targetWorktreePath
+      ? visibleWorktrees.find((worktree) => worktree.path === targetWorktreePath) ??
+        (targetWorktreePath === currentProject?.path
+          ? visibleWorktrees.find((worktree) => worktree.isProjectRoot)
+          : null)
+      : visibleWorktrees.find((worktree) => worktree.isProjectRoot) ?? visibleWorktrees[0]) ?? null;
   const selectedWorktreePath =
-    selectedWorktree?.path ?? storedWorktreePath ?? currentProject?.path ?? null;
+    selectedWorktree?.path ?? targetWorktreePath ?? currentProject?.path ?? null;
   // Derive a real name from the path we already know, so the label is meaningful
   // even before the worktree list loads (or if it fails): the project root reads
   // as "main"; a linked worktree reads as its folder name. Never literal "Workspace".
@@ -390,7 +415,11 @@ export default function App() {
     return selectedWorktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? "main";
   })();
   const workspaceNameLabel = selectedWorktree?.workspaceName ?? derivedWorkspaceName;
-  const branchLabel = selectedWorktree?.branch ?? (isLoadingWorktrees ? "Loading…" : "main");
+  const branchLabel = selectedWorktree
+    ? (selectedWorktree.branch ?? "Detached HEAD")
+    : isLoadingWorktrees
+      ? "Loading…"
+      : "Unavailable";
 
   // File tree follows chrome project (draft chip or ambient). Unbound draft → off.
   const showFileTreePanel = isFileTreeOpen && chromeProject !== null;
@@ -440,10 +469,6 @@ export default function App() {
   // activation). The renderer mirrors it: re-read whenever the active
   // session changes, then keep terminals bucketed to (project, workspace).
   const hasHydratedSelections = useWorktreeStore((state) => state.hasHydratedSelections);
-  const snapshotThreadId = useAgentStore((state) => state.snapshot?.threadId ?? null);
-  const snapshotCwd = useAgentStore((state) => state.snapshot?.cwd ?? null);
-  const snapshotProjectId = useAgentStore((state) => state.snapshot?.projectId ?? null);
-
   useEffect(() => {
     void useWorktreeStore.getState().syncSelections();
   }, [snapshotThreadId, snapshotCwd]);
@@ -526,9 +551,11 @@ export default function App() {
     });
   }, [loadActiveProject]);
 
+  const worktreeRefreshThreadId = followsThread ? snapshotThreadId : null;
+  const worktreeRefreshCwd = followsThread ? snapshotCwd : null;
   useEffect(() => {
     if (currentProject) void loadWorktrees(currentProject.id);
-  }, [currentProject?.id, loadWorktrees]);
+  }, [currentProject?.id, worktreeRefreshThreadId, worktreeRefreshCwd, loadWorktrees]);
 
   useEffect(() => {
     if (!window.omni?.projects?.onActiveChanged) return;
