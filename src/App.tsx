@@ -18,13 +18,7 @@ import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { useLauncherUpdateStore } from "@/store/launcher-update-store";
 import { reportStartupMilestone } from "@/lib/startup-timing";
-import {
-  Bell,
-  FolderPlus,
-  GitBranch,
-  Plus,
-  PlusMinusIcon,
-} from "@phosphor-icons/react";
+import { Bell, FolderPlus, GitBranch, Plus, PlusMinusIcon } from "@phosphor-icons/react";
 import { ProjectThreadsDropdown } from "@/components/project-threads-dropdown";
 
 const DiffView = lazy(() =>
@@ -399,11 +393,12 @@ export default function App() {
   // Git's root entry still handles a symlinked configured project path.
   const selectedWorktree =
     (targetWorktreePath
-      ? visibleWorktrees.find((worktree) => worktree.path === targetWorktreePath) ??
+      ? (visibleWorktrees.find((worktree) => worktree.path === targetWorktreePath) ??
         (targetWorktreePath === currentProject?.path
           ? visibleWorktrees.find((worktree) => worktree.isProjectRoot)
-          : null)
-      : visibleWorktrees.find((worktree) => worktree.isProjectRoot) ?? visibleWorktrees[0]) ?? null;
+          : null))
+      : (visibleWorktrees.find((worktree) => worktree.isProjectRoot) ?? visibleWorktrees[0])) ??
+    null;
   const selectedWorktreePath =
     selectedWorktree?.path ?? targetWorktreePath ?? currentProject?.path ?? null;
   // Derive a real name from the path we already know, so the label is meaningful

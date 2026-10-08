@@ -105,7 +105,11 @@ export function LaunchApp() {
 
   const handleProjectCreated = useCallback(
     (project: Project) => {
-      setProjects((current) => [...current, project].sort((a, b) => a.name.localeCompare(b.name)));
+      setProjects((current) =>
+        [...current.filter((item) => item.id !== project.id), project].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      );
       void handleOpen(project.id);
     },
     [handleOpen],
