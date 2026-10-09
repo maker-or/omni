@@ -37,3 +37,14 @@ required code and assets into `out/renderer`. Reserve `dependencies` for package
 that the main process or preload loads at runtime, since electron-builder copies
 production dependencies into the application. Install development dependencies
 before building; a production-only install is for runtime packaging, not builds.
+
+Minified functions make shipped error stacks unreadable, so production builds emit
+hidden source maps (`.map` files with no `sourceMappingURL` reference). These maps
+are never packaged — `electron-builder.yml` excludes `out/**/*.map` — and are
+uploaded to PostHog error tracking instead, where `captureAnalyticsException`
+reports resolve against them. Release workflows run `bun run sourcemaps:upload`
+after the build and before packaging; it injects release context into each chunk
+and uploads the maps to the `pipper-code-alpha` release. Set the `POSTHOG_CLI_API_KEY`
+(personal API key with error-tracking write) and `POSTHOG_CLI_PROJECT_ID` secrets
+to enable uploads, plus `POSTHOG_CLI_HOST` for EU Cloud or self-hosted projects.
+Without those secrets the step logs a warning and ships minified stacks.

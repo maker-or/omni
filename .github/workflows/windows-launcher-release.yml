@@ -80,6 +80,20 @@ jobs:
           VITE_POSTHOG_HOST: ${{ secrets.PIPPER_POSTHOG_HOST }}
         run: bun run build
 
+      # Inject release context into the hidden source maps and upload them to
+      # PostHog so minified production stacks resolve to real code. Requires a
+      # personal API key (error tracking write) and project id; the step is a
+      # no-op warning when they are absent. Runs before packaging so the shipped
+      # chunks carry the injected chunk ids; .map files are never packaged.
+      - name: Upload source maps
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ secrets.POSTHOG_CLI_PROJECT_ID }}
+          # Optional: override for EU Cloud or self-hosted (defaults to US Cloud).
+          POSTHOG_CLI_HOST: ${{ secrets.POSTHOG_CLI_HOST }}
+          VITE_POSTHOG_HOST: ${{ secrets.PIPPER_POSTHOG_HOST }}
+        run: bun run sourcemaps:upload
+
       # Packaging only. `package:win` pins `--publish never`, because electron-builder
       # otherwise auto-publishes on a tagged CI build and would cut its own
       # `v${version}` release — a stray one, next to the `win/v*` tag the step
