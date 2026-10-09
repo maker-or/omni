@@ -30,3 +30,10 @@ changes to the application itself or produce the final distributable DMG.
 Pipper is a normal Electron desktop client with a stable launcher and a bundled renderer. The packaged application loads its UI from `out/renderer`; it does not start a guest Vite server or require a mutable active workspace.
 
 The renderer talks to the Electron main process through the preload bridge. Main-process responsibilities include SQLite-backed projects and threads, ACP agent sessions, terminals, worktrees, MCP configuration, authentication, and launcher binary updates. User projects remain separate Git repositories and are used as agent working directories.
+
+Desktop production builds minify the main process, preload, and renderer. Keep
+renderer-only libraries and build tools in `devDependencies`: Vite bundles their
+required code and assets into `out/renderer`. Reserve `dependencies` for packages
+that the main process or preload loads at runtime, since electron-builder copies
+production dependencies into the application. Install development dependencies
+before building; a production-only install is for runtime packaging, not builds.

@@ -24,6 +24,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: "out/main",
+      minify: true,
       rollupOptions: {
         input: { index: resolve(__dirname, "electron/main.ts") },
         external: ["electron", "better-sqlite3", "node-pty", "qrcode-terminal"],
@@ -34,6 +35,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: "out/preload",
+      minify: true,
       rollupOptions: {
         input: { index: resolve(__dirname, "electron/preload.ts") },
         external: ["electron"],
@@ -68,6 +70,7 @@ export default defineConfig({
     ],
     build: {
       outDir: "out/renderer",
+      minify: true,
       rollupOptions: {
         input: {
           main: resolve(__dirname, "index.html"),
