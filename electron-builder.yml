@@ -5,6 +5,8 @@ directories:
 afterPack: scripts/after-pack.js
 files:
   - out/**/*
+  # Source maps are uploaded to PostHog for symbolication; never ship them.
+  - "!out/**/*.map"
   - package.json
 asar: true
 asarUnpack:

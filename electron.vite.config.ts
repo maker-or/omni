@@ -24,6 +24,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: "out/main",
+      minify: true,
+      // Hidden maps keep shipped stacks resolvable without exposing source.
+      // scripts/upload-sourcemaps.mjs injects and uploads them to PostHog;
+      // electron-builder excludes *.map from the packaged app.
+      sourcemap: "hidden",
       rollupOptions: {
         input: { index: resolve(__dirname, "electron/main.ts") },
         external: ["electron", "better-sqlite3", "node-pty", "qrcode-terminal"],
@@ -34,6 +39,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: "out/preload",
+      minify: true,
+      sourcemap: "hidden",
       rollupOptions: {
         input: { index: resolve(__dirname, "electron/preload.ts") },
         external: ["electron"],
@@ -68,6 +75,8 @@ export default defineConfig({
     ],
     build: {
       outDir: "out/renderer",
+      minify: true,
+      sourcemap: "hidden",
       rollupOptions: {
         input: {
           main: resolve(__dirname, "index.html"),
