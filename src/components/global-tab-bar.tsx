@@ -24,10 +24,12 @@ import { useWorktreeStore } from "@/store/worktree-store";
 import { makeWorkspaceKey, useTerminalStore } from "@/store/terminal-store";
 import { useWorkspaceViewStore } from "@/store/workspace-view-store";
 import { useUiModeStore } from "@/store/ui-mode-store";
+import { useTabGestureStore } from "@/store/tab-gesture-store";
 import { useThreadCompletionStore } from "@/store/thread-completion-store";
 import { confirmDiscardDraft, selectThread } from "@/lib/thread-actions";
 import { beginRendererInteraction } from "@/lib/monitor-runtime-observer";
 import { visibleWorkspaceThreadTabs } from "@/lib/thread-tab-state";
+import { listenForPageSwipes } from "@/lib/page-swipe";
 import { resolveTerminalWorkspace } from "@/lib/terminal-workspace";
 import { useAnchoredPopoverPosition } from "@/lib/anchored-popover";
 import {
@@ -43,6 +45,7 @@ import {
   isNewTabShortcutEvent,
   isNewTerminalShortcutEvent,
   tabIndexFromShortcutEvent,
+  tabValueAfterSwipe,
   tabValueAtShortcutIndex,
   tabValuesInBarOrder,
 } from "@/lib/tab-shortcuts";
@@ -563,6 +566,23 @@ export function GlobalTabBar() {
       });
   };
   handleTabChangeRef.current = handleTabChange;
+
+  const swipeNavigationRef = useRef({ orderedTabValues, selectedTabValue });
+  swipeNavigationRef.current = { orderedTabValues, selectedTabValue };
+
+  useEffect(() => {
+    return listenForPageSwipes({
+      readFluidSwipeEnabled: () =>
+        window.omni.tabs.isFluidPageSwipeEnabled?.() ?? Promise.resolve(false),
+      subscribeToNativeSwipe: (callback) => window.omni.tabs.onSwipe?.(callback),
+      isEnabled: () => useTabGestureStore.getState().swipeEnabled,
+      navigate: (direction) => {
+        const { orderedTabValues, selectedTabValue } = swipeNavigationRef.current;
+        const value = tabValueAfterSwipe(orderedTabValues, selectedTabValue, direction);
+        if (value) handleTabChangeRef.current(value);
+      },
+    });
+  }, []);
 
   const handleCloseActiveTab = () => {
     const currentMode = useWorkspaceViewStore.getState().mode;

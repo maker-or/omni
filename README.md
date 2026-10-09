@@ -27,6 +27,12 @@ changes to the application itself or produce the final distributable DMG.
 
 ## Architecture
 
+Configure tab swipe navigation in Settings → Keyboard & trackpad. On macOS, Pipper
+uses your existing “Swipe between pages” gesture: swipe left for the next visible
+thread or terminal tab, or right for the previous tab. Navigation stops at the ends
+of the tab bar and leaves horizontally scrollable content alone. Changes to the
+system gesture preference take effect when you return to the app.
+
 Pipper is a normal Electron desktop client with a stable launcher and a bundled renderer. The packaged application loads its UI from `out/renderer`; it does not start a guest Vite server or require a mutable active workspace.
 
 The renderer talks to the Electron main process through the preload bridge. Main-process responsibilities include SQLite-backed projects and threads, ACP agent sessions, terminals, worktrees, MCP configuration, authentication, and launcher binary updates. User projects remain separate Git repositories and are used as agent working directories.

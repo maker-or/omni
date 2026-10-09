@@ -4,6 +4,7 @@ import {
   isNewTabShortcutEvent,
   isNewTerminalShortcutEvent,
   tabIndexFromShortcutEvent,
+  tabValueAfterSwipe,
   tabValueAtShortcutIndex,
   tabValuesInBarOrder,
 } from "./tab-shortcuts";
@@ -106,5 +107,25 @@ describe("global tab number shortcuts", () => {
         keyEvent({ key: "T", code: "KeyT", metaKey: true, shiftKey: true, ...override }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("native tab swipes", () => {
+  const tabs = tabValuesInBarOrder(["thread-a", "thread-b"], ["term-1"], "terminal:");
+
+  test("moves between threads and terminals in visible order", () => {
+    expect(tabValueAfterSwipe(tabs, "thread-a", "left")).toBe("thread-b");
+    expect(tabValueAfterSwipe(tabs, "thread-b", "left")).toBe("terminal:term-1");
+    expect(tabValueAfterSwipe(tabs, "terminal:term-1", "right")).toBe("thread-b");
+    expect(tabValueAfterSwipe(tabs, "thread-b", "right")).toBe("thread-a");
+  });
+
+  test("stops at the edges and leaves drafts or hidden selections alone", () => {
+    expect(tabValueAfterSwipe(tabs, "thread-a", "right")).toBeNull();
+    expect(tabValueAfterSwipe(tabs, "terminal:term-1", "left")).toBeNull();
+    expect(tabValueAfterSwipe(tabs, "__draft__", "left")).toBeNull();
+    expect(tabValueAfterSwipe(tabs, "hidden-thread", "right")).toBeNull();
+    expect(tabValueAfterSwipe([], "thread-a", "left")).toBeNull();
+    expect(tabValueAfterSwipe(["only"], "only", "left")).toBeNull();
   });
 });

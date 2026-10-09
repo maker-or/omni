@@ -230,6 +230,7 @@ declare global {
         delete: (id: string) => Promise<void>;
       };
       tabs: {
+        isFluidPageSwipeEnabled: () => Promise<boolean>;
         listOpen: () => Promise<OpenTabsState>;
         open: (threadId: string) => Promise<OpenTabsState>;
         close: (threadId: string) => Promise<OpenTabsState>;
@@ -237,6 +238,7 @@ declare global {
         getActive: () => Promise<string | null>;
         onChanged: (callback: (state: OpenTabsState) => void) => () => void;
         onSelectByIndex: (callback: (index: number) => void) => () => void;
+        onSwipe: (callback: (direction: "left" | "right") => void) => () => void;
         onNewTab: (callback: () => void) => () => void;
         onNewTerminal: (callback: () => void) => () => void;
         onCloseActive: (callback: () => void) => () => void;

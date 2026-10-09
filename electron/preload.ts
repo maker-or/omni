@@ -322,6 +322,8 @@ const api = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke("threads:delete", id),
   },
   tabs: {
+    isFluidPageSwipeEnabled: (): Promise<boolean> =>
+      ipcRenderer.invoke("tabs:isFluidPageSwipeEnabled"),
     listOpen: (): Promise<OpenTabsState> => ipcRenderer.invoke("tabs:listOpen"),
     open: (threadId: string): Promise<OpenTabsState> => ipcRenderer.invoke("tabs:open", threadId),
     close: (threadId: string): Promise<OpenTabsState> => ipcRenderer.invoke("tabs:close", threadId),
@@ -342,6 +344,15 @@ const api = {
       ipcRenderer.on("tabs:selectByIndex", listener);
       return () => {
         ipcRenderer.removeListener("tabs:selectByIndex", listener);
+      };
+    },
+    onSwipe: (callback: (direction: "left" | "right") => void) => {
+      const listener = (_event: unknown, direction: unknown) => {
+        if (direction === "left" || direction === "right") callback(direction);
+      };
+      ipcRenderer.on("tabs:swipe", listener);
+      return () => {
+        ipcRenderer.removeListener("tabs:swipe", listener);
       };
     },
     onNewTab: (callback: () => void) => {

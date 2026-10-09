@@ -15,6 +15,7 @@ import { createProviderLogoIcon } from "@/components/provider-logos";
 import { Elevated } from "@/lib/elevated";
 import type { IconComponent } from "@/lib/icon-context";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
+import { useTabGestureStore } from "@/store/tab-gesture-store";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,7 +54,7 @@ const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "design", label: "Design system" },
   { id: "agents", label: "Agents" },
   { id: "accounts", label: "Account" },
-  { id: "keyboard", label: "Keyboard" },
+  { id: "keyboard", label: "Keyboard & trackpad" },
   { id: "power", label: "Power" },
   { id: "remote", label: "Remote" },
 ];
@@ -344,8 +345,8 @@ const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
     blurb: "",
   },
   keyboard: {
-    title: "Keyboard",
-    blurb: "Shortcuts for moving fast around Pipper.",
+    title: "Keyboard & trackpad",
+    blurb: "Configure tab gestures and find shortcuts for moving around Pipper.",
   },
   power: {
     title: "Power",
@@ -383,48 +384,72 @@ function AccountsView() {
 
 function KeyboardView() {
   const mod = modifierSymbol();
+  const swipeEnabled = useTabGestureStore((state) => state.swipeEnabled);
+  const setSwipeEnabled = useTabGestureStore((state) => state.setSwipeEnabled);
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
   return (
-    <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70 px-1 py-1">
-      <Table>
-        <TableBody>
-          <TableRow index={0}>
-            <TableCell>
-              <span className="font-medium text-foreground">Switch tabs</span>
-              <span className="mt-0.5 block text-[11px] leading-4">
-                From the left of the tab bar, {mod}1 opens the first tab through {mod}9.
-              </span>
-            </TableCell>
-            <TableCell className="w-[1%] text-right whitespace-nowrap">
-              <Kbd>
-                {mod}1–{mod}9
-              </Kbd>
-            </TableCell>
-          </TableRow>
-          <TableRow index={1}>
-            <TableCell>
-              <span className="font-medium text-foreground">New tab</span>
-              <span className="mt-0.5 block text-[11px] leading-4">
-                Opens a new thread. The composer stays a draft until you send the first message.
-              </span>
-            </TableCell>
-            <TableCell className="w-[1%] text-right whitespace-nowrap">
-              <Kbd>{mod}T</Kbd>
-            </TableCell>
-          </TableRow>
-          <TableRow index={2}>
-            <TableCell>
-              <span className="font-medium text-foreground">New terminal</span>
-              <span className="mt-0.5 block text-[11px] leading-4">
-                Opens a terminal in the current workspace.
-              </span>
-            </TableCell>
-            <TableCell className="w-[1%] text-right whitespace-nowrap">
-              <Kbd>{mod === "⌘" ? "⌘⇧T" : "Ctrl+Shift+T"}</Kbd>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    </Elevated>
+    <div className="flex flex-col gap-4">
+      <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
+        <SettingRow
+          title="Swipe between tabs"
+          description={
+            isMac
+              ? "Uses your macOS ‘Swipe between pages’ gesture. Swipe left for the next tab or right for the previous tab."
+              : "Trackpad tab navigation is available on macOS."
+          }
+        >
+          <Switch
+            label="Swipe between tabs"
+            checked={swipeEnabled}
+            onToggle={() => setSwipeEnabled(!swipeEnabled)}
+            disabled={!isMac}
+            className="gap-0 px-0 py-0 [&>span:last-of-type]:sr-only"
+            data-pipper-id="settings-tab-swipe-switch"
+          />
+        </SettingRow>
+      </Elevated>
+      <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70 px-1 py-1">
+        <Table>
+          <TableBody>
+            <TableRow index={0}>
+              <TableCell>
+                <span className="font-medium text-foreground">Switch tabs</span>
+                <span className="mt-0.5 block text-[11px] leading-4">
+                  From the left of the tab bar, {mod}1 opens the first tab through {mod}9.
+                </span>
+              </TableCell>
+              <TableCell className="w-[1%] text-right whitespace-nowrap">
+                <Kbd>
+                  {mod}1–{mod}9
+                </Kbd>
+              </TableCell>
+            </TableRow>
+            <TableRow index={1}>
+              <TableCell>
+                <span className="font-medium text-foreground">New tab</span>
+                <span className="mt-0.5 block text-[11px] leading-4">
+                  Opens a new thread. The composer stays a draft until you send the first message.
+                </span>
+              </TableCell>
+              <TableCell className="w-[1%] text-right whitespace-nowrap">
+                <Kbd>{mod}T</Kbd>
+              </TableCell>
+            </TableRow>
+            <TableRow index={2}>
+              <TableCell>
+                <span className="font-medium text-foreground">New terminal</span>
+                <span className="mt-0.5 block text-[11px] leading-4">
+                  Opens a terminal in the current workspace.
+                </span>
+              </TableCell>
+              <TableCell className="w-[1%] text-right whitespace-nowrap">
+                <Kbd>{mod === "⌘" ? "⌘⇧T" : "Ctrl+Shift+T"}</Kbd>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </Elevated>
+    </div>
   );
 }
 
