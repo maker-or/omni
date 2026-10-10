@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
 import { spawn, execFile } from "node:child_process";
+import { isFluidPageSwipeEnabled } from "./page-swipe-preference";
 import { promisify } from "node:util";
 import * as pty from "node-pty";
 import {
@@ -1278,6 +1279,13 @@ async function createMainWindow(): Promise<void> {
     scheduleDeferredStartupWork();
   });
 
+  // macOS delivers discrete page swipes separately from fluid scroll gestures.
+  mainWindow.on("swipe", (_event, direction) => {
+    if (direction === "left" || direction === "right") {
+      sendMainWindowTabEvent("tabs:swipe", direction);
+    }
+  });
+
   mainWindow.webContents.once("dom-ready", () => {
     logStartupMilestone("main-renderer:dom-ready");
   });
@@ -1565,7 +1573,12 @@ function notifyAnalyticsIdentity(): void {
 }
 
 function sendMainWindowTabEvent(
-  channel: "tabs:selectByIndex" | "tabs:newTab" | "tabs:newTerminal" | "tabs:closeActive",
+  channel:
+    | "tabs:selectByIndex"
+    | "tabs:newTab"
+    | "tabs:newTerminal"
+    | "tabs:closeActive"
+    | "tabs:swipe",
   ...args: unknown[]
 ) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -2545,6 +2558,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("tabs:listOpen", () => readOpenTabsState());
+  ipcMain.handle("tabs:isFluidPageSwipeEnabled", () => isFluidPageSwipeEnabled());
 
   ipcMain.handle("tabs:open", async (_event, threadId: string) => {
     const next = await openThreadTab(threadId);

@@ -31,6 +31,17 @@ export function tabValueAtShortcutIndex(
   return tabValues[index] ?? null;
 }
 
+/** Native page swipes move through visible tabs and stop at either edge. */
+export function tabValueAfterSwipe(
+  tabValues: readonly string[],
+  selectedTabValue: string,
+  direction: "left" | "right",
+): string | null {
+  const index = tabValues.indexOf(selectedTabValue);
+  if (index < 0) return null;
+  return tabValues[index + (direction === "left" ? 1 : -1)] ?? null;
+}
+
 /**
  * Returns the 0-based tab index for a number-row shortcut, or null if the
  * event is not a tab-switch binding.
