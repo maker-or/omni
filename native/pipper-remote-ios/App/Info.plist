@@ -38,6 +38,12 @@
     <string>UIInterfaceOrientationLandscapeLeft</string>
     <string>UIInterfaceOrientationLandscapeRight</string>
   </array>
+  <!-- Pipper account (Clerk, signed in with GitHub) for the GitHub Siri
+       intents. Set CLERK_PUBLISHABLE_KEY in the target's build settings. -->
+  <key>ClerkPublishableKey</key>
+  <string>$(CLERK_PUBLISHABLE_KEY)</string>
+  <key>PipperAPIBaseURL</key>
+  <string>$(PIPPER_API_BASE_URL)</string>
   <key>NSCameraUsageDescription</key>
   <string>Scan the pairing QR code shown by Pipper on your Mac.</string>
   <!-- Cloudflare-tunnel laptops are HTTPS. A laptop on the Tailscale

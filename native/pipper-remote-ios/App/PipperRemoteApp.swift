@@ -4,9 +4,12 @@ import SwiftUI
 @main
 struct PipperRemoteApp: App {
   @State private var session = RemoteSession.shared
+  @State private var account = PipperAccount.shared
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
+    // Configures Clerk before any intent or view asks for the session.
+    _ = PipperAccount.shared
     // Register phrases + entity names with Siri as early as possible so a
     // "Start a Pipper thread in X" works before the UI is ever opened.
     PipperRemoteShortcuts.updateAppShortcutParameters()
@@ -16,9 +19,17 @@ struct PipperRemoteApp: App {
     WindowGroup {
       RootView()
         .environment(session)
-        .task { await session.refreshCatalogIfStale() }
+        .environment(account)
+        .task {
+          await session.refreshCatalogIfStale()
+          await account.refreshRepos()
+        }
         .onChange(of: scenePhase) { _, phase in
-          if phase == .active { Task { await session.refreshCatalogIfStale() } }
+          guard phase == .active else { return }
+          Task {
+            await session.refreshCatalogIfStale()
+            await account.refreshRepos()
+          }
         }
     }
   }
@@ -26,9 +37,12 @@ struct PipperRemoteApp: App {
 
 struct RootView: View {
   @Environment(RemoteSession.self) private var session
+  @Environment(PipperAccount.self) private var account
 
   var body: some View {
-    if session.isPaired {
+    if !account.isSignedIn {
+      SignInView()
+    } else if session.isPaired {
       MainTabView()
     } else {
       PairingView()
@@ -106,10 +120,12 @@ struct MainTabView: View {
 #Preview("Root — unpaired") {
   RootView()
     .environment(RemoteSession.preview())
+    .environment(PipperAccount.shared)
 }
 
 #Preview("Root — paired") {
   RootView()
     .environment(RemoteSession.preview(catalog: PreviewData.catalog, paired: true))
+    .environment(PipperAccount.shared)
 }
 #endif

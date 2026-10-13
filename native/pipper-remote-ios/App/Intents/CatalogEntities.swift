@@ -83,3 +83,83 @@ struct AgentQuery: EntityStringQuery {
     await IntentCatalog.current().availableAgents.map(AgentEntity.init)
   }
 }
+
+/// A thread on the Mac. Unlike projects and agents, threads aren't cached:
+/// they change on every run, so each query asks the Mac for its latest list.
+struct ThreadEntity: AppEntity {
+  static var typeDisplayRepresentation: TypeDisplayRepresentation = "Thread"
+  static var defaultQuery = ThreadQuery()
+
+  var id: String
+  var title: String
+  var projectName: String?
+  var running: Bool
+
+  var displayRepresentation: DisplayRepresentation {
+    let state = running ? "Running" : "Idle"
+    return DisplayRepresentation(
+      title: "\(title)",
+      subtitle: "\(projectName.map { "\($0) · \(state)" } ?? state)",
+      image: .init(systemName: running ? "bubble.left.and.text.bubble.right.fill" : "bubble.left.and.text.bubble.right"))
+  }
+
+  init(_ thread: RemoteThreadSummary, catalog: RemoteCatalog) {
+    id = thread.id
+    title = thread.displayTitle
+    projectName = catalog.project(id: thread.projectId)?.name
+    running = thread.running
+  }
+
+  /// Stand-in for a saved thread the Mac can't list right now, so a saved
+  /// Shortcut still reaches `perform()` and reports the real error.
+  init(unlisted id: String) {
+    self.id = id
+    title = "Pipper thread"
+    projectName = nil
+    running = false
+  }
+}
+
+enum IntentThreads {
+  /// The Mac's threads, most recently used first.
+  static func list() async throws -> [RemoteThreadSummary] {
+    guard let client = await MainActor.run(body: { RemoteSession.shared.client }) else {
+      throw StartThreadError.notPaired
+    }
+    do {
+      return RemoteThreadSummary.recentFirst(try await client.listThreads())
+    } catch {
+      throw StartThreadError.remote(error.localizedDescription)
+    }
+  }
+
+  /// The named thread, else the one most recently used on the Mac.
+  static func resolve(_ entity: ThreadEntity?) async throws -> ThreadEntity {
+    if let entity { return entity }
+    let threads = try await list()
+    guard let latest = threads.first else { throw StartThreadError.noThreads }
+    return ThreadEntity(latest, catalog: await IntentCatalog.current())
+  }
+}
+
+struct ThreadQuery: EntityStringQuery {
+  func entities(for identifiers: [String]) async throws -> [ThreadEntity] {
+    let threads = (try? await IntentThreads.list()) ?? []
+    let catalog = await IntentCatalog.current()
+    return identifiers.map { id in
+      threads.first { $0.id == id }.map { ThreadEntity($0, catalog: catalog) } ?? ThreadEntity(unlisted: id)
+    }
+  }
+
+  func entities(matching string: String) async throws -> [ThreadEntity] {
+    let catalog = await IntentCatalog.current()
+    return RemoteThreadSummary.matching(
+      string, in: try await IntentThreads.list(), projectName: { catalog.project(id: $0)?.name }
+    ).map { ThreadEntity($0, catalog: catalog) }
+  }
+
+  func suggestedEntities() async throws -> [ThreadEntity] {
+    let catalog = await IntentCatalog.current()
+    return try await IntentThreads.list().prefix(20).map { ThreadEntity($0, catalog: catalog) }
+  }
+}

@@ -241,7 +241,7 @@ final class RemoteSession {
 
   // MARK: Siri → app handoff
 
-  /// Thread most recently created by Siri; the app lands on it next open.
+  /// Thread most recently started or continued by Siri; the app lands on it next open.
   var lastSiriThreadId: String? {
     didSet { UserDefaults.standard.set(lastSiriThreadId, forKey: Keys.lastSiriThreadId) }
   }

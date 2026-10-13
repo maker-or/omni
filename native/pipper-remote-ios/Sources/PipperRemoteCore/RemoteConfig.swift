@@ -7,12 +7,6 @@ public struct LaptopOwner: Codable, Equatable, Sendable {
   public var email: String?
   public var name: String?
 
-  public init(sub: String, email: String?, name: String?) {
-    self.sub = sub
-    self.email = email
-    self.name = name
-  }
-
   public var label: String { email ?? name ?? "a Pipper account" }
 }
 

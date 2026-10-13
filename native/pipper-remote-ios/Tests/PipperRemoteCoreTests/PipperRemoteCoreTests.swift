@@ -472,3 +472,174 @@ struct SubmissionStoreTests {
     #expect(try restored.requestId(for: scope) != first)
   }
 }
+
+@Suite("Thread intents")
+struct ThreadIntentTests {
+  private func thread(_ id: String, _ title: String?, project: String = "p1", at: Double) -> RemoteThreadSummary {
+    RemoteThreadSummary(id: id, projectId: project, worktreePath: nil, title: title, running: false, lastUsedAt: at)
+  }
+
+  private func report(
+    running: Bool = false, messages: [RemoteMessage] = [], files: [String] = [],
+    permissions: [RemotePermission]? = nil, request: RemoteRequestStatus? = nil
+  ) -> RemoteReport {
+    RemoteReport(
+      threadId: "t1", running: running, summary: "Fix login", finalText: nil, messages: messages,
+      projectName: "FolkLore", filesTouched: files, worktreePath: nil, isolated: true, isolationNote: nil,
+      permissions: permissions, request: request, model: nil)
+  }
+
+  @Test func threadsSortRecentFirstAndMatchTitleThenProject() {
+    let threads = [
+      thread("old", "Fix login bug", at: 1),
+      thread("new", "Add dark mode", at: 3),
+      thread("mid", nil, project: "p2", at: 2),
+    ]
+    #expect(RemoteThreadSummary.recentFirst(threads).map(\.id) == ["new", "mid", "old"])
+    let names = ["p1": "FolkLore", "p2": "Login Service"]
+    // Title match beats a project-name match, which still appears after it.
+    #expect(RemoteThreadSummary.matching("login", in: threads, projectName: { names[$0] }).map(\.id) == ["old", "mid"])
+    #expect(RemoteThreadSummary.matching("", in: threads, projectName: { names[$0] }).map(\.id) == ["new", "mid", "old"])
+    #expect(threads[2].displayTitle == "Untitled thread")
+  }
+
+  @Test func statusPrefersPendingDecisionThenFailureThenProgress() {
+    let decision = RemotePermission(id: "d1", title: "Delete **old** file?", detail: nil, options: [])
+    #expect(
+      report(running: true, permissions: [decision]).spokenStatus()
+        == "It's waiting for you: Delete old file? Open Pipper to answer.")
+
+    let failed = RemoteRequestStatus(id: "r1", threadId: "t1", state: "failed", error: "No worktree", updatedAt: 0)
+    #expect(report(request: failed).spokenStatus() == "The last request failed. No worktree.")
+
+    #expect(report(running: true).spokenStatus() == "It's still working.")
+    let working = report(running: true, messages: [RemoteMessage(role: .agent, text: "Reading `App.tsx`")])
+    #expect(working.spokenStatus() == "It's still working. Latest: Reading App.tsx.")
+
+    let done = report(
+      messages: [
+        RemoteMessage(role: .agent, text: "Earlier reply"),
+        RemoteMessage(role: .user, text: "Now add tests"),
+        RemoteMessage(role: .agent, text: "## Done\n\nAdded tests.\n\n```swift\nfunc x() {}\n```\n| a | b |"),
+      ], files: ["a.swift", "b.swift"])
+    #expect(done.spokenStatus() == "It's finished. Changed 2 files. Done. Added tests.")
+  }
+
+  @Test func spokenTextStripsMarkdownAndTruncatesAtSentenceOrWord() {
+    #expect(SpokenText.plain("- See [the docs](https://x.dev) for **more**", limit: 200) == "See the docs for more.")
+    let long = "First sentence is here. Second sentence runs on and on and on"
+    #expect(SpokenText.plain(long, limit: 40) == "First sentence is here.")
+    #expect(SpokenText.truncate("one two three four five", limit: 12) == "one two…")
+  }
+}
+
+// Own stub so these tests can't race the Remote client suite's shared handler.
+final class CloudStubURLProtocol: URLProtocol {
+  nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, Data))?
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    var request = request
+    if request.httpBody == nil, let stream = request.httpBodyStream {
+      stream.open()
+      var data = Data()
+      var buffer = [UInt8](repeating: 0, count: 4096)
+      while stream.hasBytesAvailable {
+        let n = stream.read(&buffer, maxLength: buffer.count)
+        if n <= 0 { break }
+        data.append(buffer, count: n)
+      }
+      stream.close()
+      request.httpBody = data
+    }
+    let (status, body) = CloudStubURLProtocol.handler?(request) ?? (500, Data())
+    let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+@Suite("Pipper cloud (GitHub)", .serialized)
+struct PipperCloudTests {
+  private func client(token: String? = "clerk-jwt", _ handler: @escaping (URLRequest) -> (Int, Data))
+    -> PipperCloudClient
+  {
+    CloudStubURLProtocol.handler = handler
+    let c = URLSessionConfiguration.ephemeral
+    c.protocolClasses = [CloudStubURLProtocol.self]
+    return PipperCloudClient(
+      baseURL: URL(string: "https://www.pipper.dev")!, session: URLSession(configuration: c),
+      tokenProvider: { token })
+  }
+
+  @Test func reposSendTheClerkTokenAndDecode() async throws {
+    var seen: URLRequest?
+    let repos = try await client { req in
+      seen = req
+      return (200, json(["repos": [["id": 1, "owner": "maker-or", "name": "omni", "fullName": "maker-or/omni", "isPrivate": true]]]))
+    }.repos()
+    #expect(repos.map(\.fullName) == ["maker-or/omni"])
+    #expect(seen?.url?.absoluteString == "https://www.pipper.dev/api/github/repos.json")
+    #expect(seen?.value(forHTTPHeaderField: "Authorization") == "Bearer clerk-jwt")
+  }
+
+  @Test func createIssueSendsOnlyTheIssueFields() async throws {
+    var sent: [String: Any] = [:]
+    let issue = try await client { req in
+      sent = (try? JSONSerialization.jsonObject(with: req.httpBody ?? Data())) as? [String: Any] ?? [:]
+      return (201, json(["issue": ["number": 7, "title": "Crash", "repository": "a/b", "url": "https://github.com/a/b/issues/7"]]))
+    }.createIssue(owner: "a", repo: "b", title: "Crash", body: nil)
+    #expect(issue.number == 7)
+    #expect(sent["owner"] as? String == "a")
+    #expect(sent["title"] as? String == "Crash")
+    #expect(sent["body"] == nil)
+  }
+
+  @Test func pullRequestsDecodeStatus() async throws {
+    let prs = try await client { _ in
+      (200, json(["pullRequests": [[
+        "number": 41, "title": "Add intents", "author": "harshith", "description": "", "status": "draft",
+        "repository": "maker-or/omni", "url": "https://github.com/maker-or/omni/pull/41",
+      ]]]))
+    }.pullRequests()
+    #expect(prs.first?.status == .draft)
+  }
+
+  @Test func signedOutNeverHitsTheNetworkAndServerErrorsReadAsMessages() async {
+    var called = false
+    await #expect(throws: PipperCloudError.signedOut) {
+      try await client(token: nil) { _ in called = true; return (200, Data()) }.repos()
+    }
+    #expect(!called)
+    await #expect(throws: PipperCloudError.server(status: 409, message: "Sign in to Pipper with GitHub to use GitHub actions.")) {
+      try await client { _ in (409, json(["error": "Sign in to Pipper with GitHub to use GitHub actions."])) }.repos()
+    }
+    await #expect(throws: PipperCloudError.signedOut) {
+      try await client { _ in (401, json(["error": "Sign in to Pipper again."])) }.pullRequests()
+    }
+  }
+
+  @Test func repoMatchingByNameOrFullName() {
+    let repos = [
+      GitHubRepo(id: 1, owner: "maker-or", name: "omni", fullName: "maker-or/omni", isPrivate: false),
+      GitHubRepo(id: 2, owner: "harshith", name: "omni", fullName: "harshith/omni", isPrivate: false),
+      GitHubRepo(id: 3, owner: "maker-or", name: "omni-docs", fullName: "maker-or/omni-docs", isPrivate: false),
+    ]
+    #expect(GitHubRepo.matching("Omni", in: repos).map(\.id) == [1, 2, 3])
+    #expect(GitHubRepo.matching("maker-or/omni", in: repos).map(\.id) == [1, 3])
+    #expect(GitHubRepo.matching("docs", in: repos).map(\.id) == [3])
+  }
+
+  @Test func repoStoreRoundTrip() throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("repos-\(UUID().uuidString).json")
+    let store = GitHubRepoStore(fileURL: file)
+    defer { store.clear() }
+    #expect(store.load() == nil)
+    let repos = [GitHubRepo(id: 1, owner: "a", name: "b", fullName: "a/b", isPrivate: true)]
+    try store.save(repos)
+    #expect(store.load() == repos)
+  }
+}

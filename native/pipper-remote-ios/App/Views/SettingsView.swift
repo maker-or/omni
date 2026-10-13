@@ -3,6 +3,8 @@ import SwiftUI
 
 struct SettingsView: View {
   @Environment(RemoteSession.self) private var session
+  @Environment(PipperAccount.self) private var account
+  @State private var refreshingRepos = false
   @Environment(\.dismiss) private var dismiss
   @State private var refreshing = false
   @State private var unpairing = false
@@ -76,6 +78,32 @@ struct SettingsView: View {
           Text("Try: “Start a Pipper thread in \(session.catalog.projects.first?.name ?? "FolkLore") with \(session.catalog.preferredAgent?.displayName ?? "Codex")”")
             .font(.footnote)
             .foregroundStyle(.secondary)
+        }
+        Section {
+          LabeledContent("Signed in as", value: account.displayName ?? "—")
+          Button {
+            Task {
+              refreshingRepos = true
+              await account.refreshRepos()
+              refreshingRepos = false
+            }
+          } label: {
+            HStack {
+              Text("Refresh repositories")
+              Spacer()
+              if refreshingRepos { ProgressView() } else { Text("\(account.repos.count)").foregroundStyle(.secondary) }
+            }
+          }
+          if let err = account.reposError {
+            Text(err).font(.footnote).foregroundStyle(.red)
+          }
+          Button("Sign out", role: .destructive) {
+            Task { await account.signOut() }
+          }
+        } header: {
+          Text("Pipper account")
+        } footer: {
+          Text("Siri files issues and reads your pull requests through your GitHub sign-in. Repository names are cached so Siri recognizes them.")
         }
         Section {
           Button(role: .destructive) {
@@ -192,6 +220,7 @@ struct ConnectionCheckView: View {
 #Preview("Settings") {
   SettingsView()
     .environment(RemoteSession.preview(catalog: PreviewData.catalog))
+    .environment(PipperAccount.shared)
 }
 
 #Preview("Connection check") {

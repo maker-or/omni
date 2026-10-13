@@ -5,10 +5,6 @@ import Foundation
 public struct CatalogStore: Sendable {
   public let fileURL: URL
 
-  public init(fileURL: URL) {
-    self.fileURL = fileURL
-  }
-
   /// `<Application Support>/PipperRemote/siri-catalog.json` in the app's own
   /// container. Intents run in-process, so no App Group is needed.
   public static func standard() -> CatalogStore {

@@ -24,6 +24,53 @@ struct PipperRemoteShortcuts: AppShortcutsProvider {
       shortTitle: "Start thread",
       systemImageName: "bubble.left.and.text.bubble.right"
     )
+    // Thread titles are long agent-written summaries that don't work as
+    // spoken parameters, so these phrases target the most recent thread;
+    // pick another in Shortcuts or when Siri asks.
+    AppShortcut(
+      intent: GetThreadStatusIntent(),
+      phrases: [
+        "How's my \(.applicationName) thread",
+        "What's \(.applicationName) doing",
+        "Check my \(.applicationName) thread",
+        "Get the status of my \(.applicationName) thread",
+      ],
+      shortTitle: "Thread status",
+      systemImageName: "text.bubble"
+    )
+    AppShortcut(
+      intent: SendFollowUpIntent(),
+      phrases: [
+        "Follow up in \(.applicationName)",
+        "Send a follow-up in \(.applicationName)",
+        "Reply to my \(.applicationName) thread",
+      ],
+      shortTitle: "Send follow-up",
+      systemImageName: "arrowshape.turn.up.right"
+    )
+    // GitHub actions run on pipper.dev; repo names come from the cached list
+    // refreshed by PipperAccount.
+    AppShortcut(
+      intent: FileGitHubIssueIntent(),
+      phrases: [
+        "File a GitHub issue with \(.applicationName)",
+        "File an issue in \(.applicationName)",
+        "File an issue in \(\.$repository) with \(.applicationName)",
+        "Create a \(.applicationName) issue in \(\.$repository)",
+      ],
+      shortTitle: "File issue",
+      systemImageName: "exclamationmark.bubble"
+    )
+    AppShortcut(
+      intent: SummarizeMyPullRequestsIntent(),
+      phrases: [
+        "Summarize my pull requests in \(.applicationName)",
+        "Summarize my open PRs in \(.applicationName)",
+        "What are my open pull requests in \(.applicationName)",
+      ],
+      shortTitle: "My pull requests",
+      systemImageName: "arrow.triangle.pull"
+    )
     AppShortcut(
       intent: CheckMacIntent(),
       phrases: [
