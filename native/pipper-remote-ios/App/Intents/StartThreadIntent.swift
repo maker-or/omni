@@ -5,6 +5,7 @@ enum StartThreadError: Error, CustomLocalizedStringResourceConvertible {
   case notPaired
   case noAgent
   case agentUnavailable(String)
+  case noThreads
   case remote(String)
 
   var localizedStringResource: LocalizedStringResource {
@@ -15,6 +16,8 @@ enum StartThreadError: Error, CustomLocalizedStringResourceConvertible {
       return "No agent is installed on your Mac. Pick one in Pipper on the Mac first."
     case .agentUnavailable(let name):
       return "\(name) isn't available on your Mac right now. Pick another agent."
+    case .noThreads:
+      return "There are no Pipper threads on your Mac yet. Start one first."
     case .remote(let message):
       return "\(message)"
     }

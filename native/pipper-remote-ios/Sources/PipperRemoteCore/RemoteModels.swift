@@ -7,49 +7,23 @@ public struct RemoteCatalogProject: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var name: String
   public var path: String
-
-  public init(id: String, name: String, path: String) {
-    self.id = id
-    self.name = name
-    self.path = path
-  }
 }
 
 public struct RemoteCatalogAgent: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var displayName: String
   public var available: Bool
-
-  public init(id: String, displayName: String, available: Bool) {
-    self.id = id
-    self.displayName = displayName
-    self.available = available
-  }
 }
 
 /// Same document the macOS extension reads from `siri-catalog.json`; served
 /// to the phone by `GET /api/remote/catalog` and cached on disk so Siri can
 /// resolve projects/agents without a network hop.
 public struct RemoteCatalog: Codable, Equatable, Sendable {
-  public var version: Int
+  public var version: Int = 1
   public var updatedAt: String
   public var defaultAgentId: String
   public var projects: [RemoteCatalogProject]
   public var agents: [RemoteCatalogAgent]
-
-  public init(
-    version: Int = 1,
-    updatedAt: String,
-    defaultAgentId: String,
-    projects: [RemoteCatalogProject],
-    agents: [RemoteCatalogAgent]
-  ) {
-    self.version = version
-    self.updatedAt = updatedAt
-    self.defaultAgentId = defaultAgentId
-    self.projects = projects
-    self.agents = agents
-  }
 
   public static let empty = RemoteCatalog(updatedAt: "", defaultAgentId: "", projects: [], agents: [])
 
@@ -102,22 +76,12 @@ public struct RemoteCatalog: Codable, Equatable, Sendable {
 public struct RemoteAgentModel: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var name: String
-
-  public init(id: String, name: String) {
-    self.id = id
-    self.name = name
-  }
 }
 
 /// A thread's current model and what it can switch to.
 public struct RemoteThreadModel: Codable, Equatable, Sendable {
   public var current: String?
   public var options: [RemoteAgentModel]
-
-  public init(current: String?, options: [RemoteAgentModel]) {
-    self.current = current
-    self.options = options
-  }
 
   public var currentName: String? {
     current.map { id in options.first { $0.id == id }?.name ?? id }
@@ -131,17 +95,34 @@ public struct RemoteThreadSummary: Codable, Hashable, Sendable, Identifiable {
   public var title: String?
   public var running: Bool
   public var lastUsedAt: Double
+}
 
-  public init(
-    id: String, projectId: String, worktreePath: String?, title: String?, running: Bool,
-    lastUsedAt: Double
-  ) {
-    self.id = id
-    self.projectId = projectId
-    self.worktreePath = worktreePath
-    self.title = title
-    self.running = running
-    self.lastUsedAt = lastUsedAt
+extension RemoteThreadSummary {
+  /// Name Siri and Shortcuts show for the thread.
+  public var displayTitle: String {
+    let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? "Untitled thread" : trimmed
+  }
+
+  /// Most recently used first, the order intents suggest threads in.
+  public static func recentFirst(_ threads: [RemoteThreadSummary]) -> [RemoteThreadSummary] {
+    threads.sorted { $0.lastUsedAt > $1.lastUsedAt }
+  }
+
+  /// Case-insensitive title or project-name match for typed/spoken queries.
+  /// Exact title wins, then prefix, then substring; ties keep recent-first.
+  public static func matching(
+    _ query: String, in threads: [RemoteThreadSummary], projectName: (String) -> String?
+  ) -> [RemoteThreadSummary] {
+    let recent = recentFirst(threads)
+    let byTitle = RemoteCatalog.rank(recent, query: query, key: \.displayTitle)
+    let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !q.isEmpty else { return byTitle }
+    let titled = Set(byTitle.map(\.id))
+    let byProject = recent.filter {
+      !titled.contains($0.id) && (projectName($0.projectId)?.lowercased().contains(q) ?? false)
+    }
+    return byTitle + byProject
   }
 }
 
@@ -152,11 +133,6 @@ public struct RemoteMessage: Codable, Hashable, Sendable {
   }
   public var role: Role
   public var text: String
-
-  public init(role: Role, text: String) {
-    self.role = role
-    self.text = text
-  }
 }
 
 public struct RemoteReport: Codable, Equatable, Sendable {
@@ -174,6 +150,80 @@ public struct RemoteReport: Codable, Equatable, Sendable {
   public var request: RemoteRequestStatus?
   /// Nil on older Macs, for threads not loaded on the Mac, or agents with no model choice.
   public var model: RemoteThreadModel?
+}
+
+extension RemoteReport {
+  /// The agent's most recent reply, falling back to the joined transcript tail.
+  public var latestAgentText: String? {
+    let latest = messages.last(where: { $0.role == .agent })?.text ?? finalText
+    let trimmed = latest?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  /// One or two short sentences Siri can read aloud: whether the thread is
+  /// blocked on the user, still working, failed, or done, plus a snippet of
+  /// the agent's latest reply with Markdown removed.
+  public func spokenStatus(maxSnippet: Int = 240) -> String {
+    if let decision = permissions?.first {
+      return "It's waiting for you: \(SpokenText.plain(decision.title, limit: maxSnippet)) Open Pipper to answer."
+    }
+    let snippet = latestAgentText.map { SpokenText.plain($0, limit: maxSnippet) } ?? ""
+    // Current work wins over an older request's failure: a turn started on
+    // the Mac sets `running` without replacing the saved remote request.
+    if running {
+      return snippet.isEmpty ? "It's still working." : "It's still working. Latest: \(snippet)"
+    }
+    if let request, request.state == "failed" || request.state == "interrupted" {
+      let why = request.error.map { " \(SpokenText.plain($0, limit: maxSnippet))" } ?? ""
+      return request.state == "failed"
+        ? "The last request failed.\(why)"
+        : "The last request was interrupted.\(why) Check the thread before resending."
+    }
+    let files =
+      filesTouched.isEmpty
+      ? "" : " Changed \(filesTouched.count) file\(filesTouched.count == 1 ? "" : "s")."
+    return snippet.isEmpty ? "It's finished.\(files)" : "It's finished.\(files) \(snippet)"
+  }
+}
+
+/// Turns agent Markdown into short plain text for Siri to speak.
+public enum SpokenText {
+  public static func plain(_ markdown: String, limit: Int) -> String {
+    var lines: [String] = []
+    var inFence = false
+    for raw in markdown.components(separatedBy: .newlines) {
+      let line = raw.trimmingCharacters(in: .whitespaces)
+      if line.hasPrefix("```") || line.hasPrefix("~~~") {
+        inFence.toggle()
+        continue
+      }
+      // Code and tables don't read aloud; drop them rather than spell them out.
+      if inFence || line.hasPrefix("|") || line.isEmpty { continue }
+      var text = line
+      for marker in ["#", ">", "- ", "* ", "+ "] where text.hasPrefix(marker) {
+        text = String(text.drop(while: { marker.contains($0) })).trimmingCharacters(in: .whitespaces)
+      }
+      text = text.replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+      text = text.replacingOccurrences(of: #"\*\*|__|`|~~"#, with: "", options: .regularExpression)
+      if !text.isEmpty { lines.append(text) }
+    }
+    let joined = lines.map { line in
+      line.last.map { ".!?:;".contains($0) } == true ? line : line + "."
+    }.joined(separator: " ")
+    return truncate(joined, limit: limit)
+  }
+
+  /// Cut at the last sentence end within `limit`, else the last word, adding "…".
+  static func truncate(_ text: String, limit: Int) -> String {
+    guard text.count > limit, limit > 0 else { return text }
+    let head = String(text.prefix(limit))
+    if let end = head.lastIndex(where: { ".!?".contains($0) }), head.distance(from: head.startIndex, to: end) >= limit / 2 {
+      return String(head[...end])
+    }
+    let words = head.split(separator: " ").dropLast()
+    let cut = words.isEmpty ? head : words.joined(separator: " ")
+    return cut + "…"
+  }
 }
 
 public struct RemotePermission: Codable, Equatable, Sendable, Identifiable {
@@ -221,12 +271,6 @@ public struct RemoteLaptopIdentity: Codable, Equatable, Sendable {
   public var host: String?
   /// pipper.dev's signed owner statement (named tunnels only).
   public var attestation: String?
-
-  public init(name: String, host: String?, attestation: String?) {
-    self.name = name
-    self.host = host
-    self.attestation = attestation
-  }
 }
 
 /// This phone as the laptop lists it under Settings → Remote.

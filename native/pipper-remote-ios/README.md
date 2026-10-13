@@ -31,11 +31,14 @@ learns new project names.
 - `Sources/PipperRemoteCore/` — Foundation-only: wire models, `RemoteConfig`
   (the paired laptop + this phone's token), `PairingLink` (parses the
   laptop's pairing QR/link), `LaptopAttestation` (checks pipper.dev's signed
-  owner statement), `CatalogStore`, `RemoteClient`. `swift test` runs here on
-  the Mac.
+  owner statement), `CatalogStore`, `RemoteClient`, and the pipper.dev
+  GitHub client (`PipperCloudClient`, `GitHubModels`). `swift test` runs here
+  on the Mac.
 - `App/` — SwiftUI app, `RemoteSession` (pairing in Keychain + defaults,
-  catalog), and `Intents/` (`StartThreadIntent`, `CheckMacIntent`, entities,
-  `PipperRemoteShortcuts` phrases).
+  catalog), `PipperAccount` (Clerk sign-in, cached GitHub repos), and
+  `Intents/` (`StartThreadIntent`, `CheckMacIntent`, `GetThreadStatusIntent`,
+  `SendFollowUpIntent`, `FileGitHubIssueIntent`,
+  `SummarizeMyPullRequestsIntent`, entities, `PipperRemoteShortcuts` phrases).
 - `PipperRemote.xcodeproj` — single app target compiling both directories.
 
 ## Build & install
@@ -90,11 +93,63 @@ App Shortcuts allow one entity parameter per phrase, so:
 - `Start a thread in Pipper` / `Start a Pipper thread` / `New Pipper thread`
 - `Start a Pipper thread in <project>` / `New Pipper thread in <project>`
 - `Start a Pipper thread with <agent>` / `Ask <agent> in Pipper`
+- `How's my Pipper thread` / `What's Pipper doing` / `Check my Pipper thread`
+- `Follow up in Pipper` / `Send a follow-up in Pipper` / `Reply to my Pipper thread`
 - `Is my Mac reachable in Pipper` / `Check my Mac with Pipper`
 
 Siri always asks for the task (it is a required `String`). When no agent is
 named, `perform()` uses the Mac's default agent from the catalog, falling back
 to the first available one.
+
+Thread status and follow-up take an optional `ThreadEntity`. Thread titles
+are agent-written summaries that don't work as spoken parameters, so the
+phrases default to the thread most recently used on the Mac; Shortcuts can
+pick another. Threads aren't cached like the catalog: each query lists them
+from the Mac. Status reads a pending decision, a failed or interrupted
+request, or a Markdown-free snippet of the agent's latest reply, and returns
+it as the intent's value. A follow-up to a defaulted thread asks for
+confirmation first, and uses the same `requestId` retry store as thread
+creation.
+
+## GitHub actions (Siri)
+
+Two GitHub intents run against pipper.dev, never the Mac, so they work with
+the Mac asleep:
+
+- `FileGitHubIssueIntent`: repository, title, optional details. Siri always
+  confirms before filing and returns the issue URL.
+- `SummarizeMyPullRequestsIntent`: your open PRs (`author:@me`, at most 10)
+  as `PullRequestEntity` values: number, title, author, description,
+  repository, and Open/Draft. It returns no dialog on purpose, so Siri writes
+  the summary.
+
+Phrases: `File a GitHub issue with Pipper`, `File an issue in <repo> with
+Pipper`, `Summarize my pull requests in Pipper`.
+
+Everyone signs in to Pipper with GitHub first (`SignInView`, Clerk iOS SDK
+pinned to 1.5.6). pipper.dev reads the user's GitHub token from that Clerk
+connection (`marketing/src/pages/api/github/*`); the phone only ever holds
+its Clerk session. Repository names are cached in
+`Application Support/PipperRemote/github-repos.json`, refreshed on launch,
+foreground, and from Settings, and fed to Siri via
+`updateAppShortcutParameters()`. A name missing from the cache triggers a
+refresh.
+
+Setup, once per Clerk instance (the same instance pipper.dev uses):
+
+1. Clerk Dashboard → Native applications: enable the Native API and add this
+   app (App ID prefix + `com.maker-or.omni.remote`). Allowlist the redirect
+   `com.maker-or.omni.remote://callback`.
+2. SSO connections → GitHub: use custom credentials (a GitHub OAuth app) and
+   add `repo` in **Scopes** so pipper.dev can read private repos and file
+   issues.
+3. Set the target's `CLERK_PUBLISHABLE_KEY` build setting to the instance's
+   publishable key. `PIPPER_API_BASE_URL` defaults to `https://www.pipper.dev`;
+   point it at a local `astro dev` server to test unreleased routes.
+
+Organizations with OAuth app access restrictions (on by default for new orgs)
+block private repos and issue creation until an owner approves the app; the
+intent reports that.
 
 ## Pairing and threat model
 

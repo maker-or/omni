@@ -18,6 +18,13 @@
 		B20100000000000000000008 /* CatalogEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000008 /* CatalogEntities.swift */; };
 		B20100000000000000000009 /* StartThreadIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000009 /* StartThreadIntent.swift */; };
 		B2010000000000000000000A /* PipperRemoteShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000A /* PipperRemoteShortcuts.swift */; };
+		B20100000000000000000010 /* ThreadIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000010 /* ThreadIntents.swift */; };
+		B20100000000000000000012 /* GitHubIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000012 /* GitHubIntents.swift */; };
+		B20100000000000000000013 /* PipperAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000013 /* PipperAccount.swift */; };
+		B20100000000000000000014 /* GitHubModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000014 /* GitHubModels.swift */; };
+		B20100000000000000000015 /* PipperCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000015 /* PipperCloudClient.swift */; };
+		B20100000000000000000016 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20200000000000000000016 /* SignInView.swift */; };
+		B20A00000000000000000006 /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = B20A00000000000000000005 /* ClerkKit */; };
 		B2010000000000000000000B /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000B /* PairingView.swift */; };
 		B2010000000000000000000C /* QRScannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000C /* QRScannerSheet.swift */; };
 		B2010000000000000000000D /* ThreadListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2020000000000000000000D /* ThreadListView.swift */; };
@@ -36,6 +43,12 @@
 		B20200000000000000000008 /* CatalogEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CatalogEntities.swift; path = App/Intents/CatalogEntities.swift; sourceTree = "<group>"; };
 		B20200000000000000000009 /* StartThreadIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StartThreadIntent.swift; path = App/Intents/StartThreadIntent.swift; sourceTree = "<group>"; };
 		B2020000000000000000000A /* PipperRemoteShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipperRemoteShortcuts.swift; path = App/Intents/PipperRemoteShortcuts.swift; sourceTree = "<group>"; };
+		B20200000000000000000010 /* ThreadIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThreadIntents.swift; path = App/Intents/ThreadIntents.swift; sourceTree = "<group>"; };
+		B20200000000000000000012 /* GitHubIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GitHubIntents.swift; path = App/Intents/GitHubIntents.swift; sourceTree = "<group>"; };
+		B20200000000000000000013 /* PipperAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipperAccount.swift; path = App/PipperAccount.swift; sourceTree = "<group>"; };
+		B20200000000000000000014 /* GitHubModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GitHubModels.swift; path = Sources/PipperRemoteCore/GitHubModels.swift; sourceTree = "<group>"; };
+		B20200000000000000000015 /* PipperCloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipperCloudClient.swift; path = Sources/PipperRemoteCore/PipperCloudClient.swift; sourceTree = "<group>"; };
+		B20200000000000000000016 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SignInView.swift; path = App/Views/SignInView.swift; sourceTree = "<group>"; };
 		B2020000000000000000000B /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PairingView.swift; path = App/Views/PairingView.swift; sourceTree = "<group>"; };
 		B2020000000000000000000C /* QRScannerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QRScannerSheet.swift; path = App/Views/QRScannerSheet.swift; sourceTree = "<group>"; };
 		B2020000000000000000000D /* ThreadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ThreadListView.swift; path = App/Views/ThreadListView.swift; sourceTree = "<group>"; };
@@ -51,6 +64,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B20A00000000000000000003 /* Textual in Frameworks */,
+				B20A00000000000000000006 /* ClerkKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -64,6 +78,8 @@
 				B20200000000000000000002 /* RemoteConfig.swift */,
 				B20200000000000000000003 /* CatalogStore.swift */,
 				B20200000000000000000004 /* RemoteClient.swift */,
+				B20200000000000000000014 /* GitHubModels.swift */,
+				B20200000000000000000015 /* PipperCloudClient.swift */,
 			);
 			name = Core;
 			sourceTree = "<group>";
@@ -74,6 +90,7 @@
 				B20200000000000000000005 /* PipperRemoteApp.swift */,
 				B20200000000000000000006 /* Keychain.swift */,
 				B20200000000000000000007 /* RemoteSession.swift */,
+				B20200000000000000000013 /* PipperAccount.swift */,
 				B20200000000000000000100 /* Info.plist */,
 			);
 			name = App;
@@ -85,6 +102,8 @@
 				B20200000000000000000008 /* CatalogEntities.swift */,
 				B20200000000000000000009 /* StartThreadIntent.swift */,
 				B2020000000000000000000A /* PipperRemoteShortcuts.swift */,
+				B20200000000000000000010 /* ThreadIntents.swift */,
+				B20200000000000000000012 /* GitHubIntents.swift */,
 			);
 			name = Intents;
 			sourceTree = "<group>";
@@ -97,6 +116,7 @@
 				B2020000000000000000000D /* ThreadListView.swift */,
 				B2020000000000000000000E /* ThreadDetailView.swift */,
 				B2020000000000000000000F /* SettingsView.swift */,
+				B20200000000000000000016 /* SignInView.swift */,
 			);
 			name = Views;
 			sourceTree = "<group>";
@@ -139,6 +159,7 @@
 			name = PipperRemote;
 			packageProductDependencies = (
 				B20A00000000000000000002 /* Textual */,
+				B20A00000000000000000005 /* ClerkKit */,
 			);
 			productName = PipperRemote;
 			productReference = B20200000000000000000101 /* PipperRemote.app */;
@@ -169,6 +190,7 @@
 			mainGroup = B20400000000000000000010;
 			packageReferences = (
 				B20A00000000000000000001 /* XCRemoteSwiftPackageReference "textual" */,
+				B20A00000000000000000004 /* XCRemoteSwiftPackageReference "clerk-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B20400000000000000000011 /* Products */;
@@ -229,6 +251,12 @@
 				B20100000000000000000008 /* CatalogEntities.swift in Sources */,
 				B20100000000000000000009 /* StartThreadIntent.swift in Sources */,
 				B2010000000000000000000A /* PipperRemoteShortcuts.swift in Sources */,
+				B20100000000000000000010 /* ThreadIntents.swift in Sources */,
+				B20100000000000000000012 /* GitHubIntents.swift in Sources */,
+				B20100000000000000000013 /* PipperAccount.swift in Sources */,
+				B20100000000000000000014 /* GitHubModels.swift in Sources */,
+				B20100000000000000000015 /* PipperCloudClient.swift in Sources */,
+				B20100000000000000000016 /* SignInView.swift in Sources */,
 				B2010000000000000000000B /* PairingView.swift in Sources */,
 				B2010000000000000000000C /* QRScannerSheet.swift in Sources */,
 				B2010000000000000000000D /* ThreadListView.swift in Sources */,
@@ -299,6 +327,7 @@
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
 				"LD_ENTITLEMENTS_SECTION[sdk=iphonesimulator*]" = "$(SRCROOT)/App/Simulator.entitlements";
 				CODE_SIGN_STYLE = Automatic;
+				CLERK_PUBLISHABLE_KEY = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YSB9XBNUFD;
 				ENABLE_PREVIEWS = YES;
@@ -310,6 +339,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.0.23;
+				PIPPER_API_BASE_URL = "https://www.pipper.dev";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.maker-or.omni.remote";
 				PRODUCT_NAME = PipperRemote;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -324,6 +354,7 @@
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
 				"LD_ENTITLEMENTS_SECTION[sdk=iphonesimulator*]" = "$(SRCROOT)/App/Simulator.entitlements";
 				CODE_SIGN_STYLE = Automatic;
+				CLERK_PUBLISHABLE_KEY = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YSB9XBNUFD;
 				ENABLE_PREVIEWS = YES;
@@ -335,6 +366,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.0.23;
+				PIPPER_API_BASE_URL = "https://www.pipper.dev";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.maker-or.omni.remote";
 				PRODUCT_NAME = PipperRemote;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -365,6 +397,14 @@
 		};
 /* End XCConfigurationList section */
 /* Begin XCRemoteSwiftPackageReference section */
+		B20A00000000000000000004 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = exactVersion;
+				version = 1.5.6;
+			};
+		};
 		B20A00000000000000000001 /* XCRemoteSwiftPackageReference "textual" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/textual";
@@ -376,6 +416,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B20A00000000000000000005 /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B20A00000000000000000004 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
+		};
 		B20A00000000000000000002 /* Textual */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B20A00000000000000000001 /* XCRemoteSwiftPackageReference "textual" */;
