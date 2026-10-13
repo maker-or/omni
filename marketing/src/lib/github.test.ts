@@ -5,8 +5,15 @@ vi.mock("@clerk/astro/server", () => ({
   clerkClient: () => ({ users: { getUserOauthAccessToken } }),
 }));
 
-const { createIssue, githubError, listMyPullRequests, parseIssueInput, toPullRequest, toRepo } =
-  await import("./github.ts");
+const {
+  createIssue,
+  githubError,
+  listMyPullRequests,
+  listRepos,
+  parseIssueInput,
+  toPullRequest,
+  toRepo,
+} = await import("./github.ts");
 const { POST: postIssue } = await import("../pages/api/github/issues.json.ts");
 const { GET: getPulls } = await import("../pages/api/github/pulls.json.ts");
 
@@ -95,6 +102,35 @@ describe("GitHub shaping", () => {
     });
     expect(calls[0]!.url).toBe("https://api.github.com/repos/a/b/issues");
     expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ title: "Crash" });
+  });
+
+  test("repos are fetched page by page until a short page", async () => {
+    const page = (n: number, start: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: start + i,
+        name: `r${start + i}`,
+        full_name: `o/r${start + i}`,
+        owner: { login: "o" },
+      }));
+    const calls: string[] = [];
+    const impl = (async (url: string) => {
+      calls.push(url);
+      const n = Number(new URL(url).searchParams.get("page"));
+      return new Response(JSON.stringify(n === 1 ? page(100, 0) : page(1, 100)));
+    }) as typeof fetch;
+    const repos = await listRepos("tok", impl);
+    expect(repos).toHaveLength(101);
+    expect(repos.at(-1)?.fullName).toBe("o/r100");
+    expect(calls).toHaveLength(2);
+  });
+
+  test("rate limits aren't reported as permission problems", () => {
+    expect(githubError(429).status).toBe(503);
+    expect(githubError(403, new Headers({ "x-ratelimit-remaining": "0" })).message).toContain(
+      "rate limiting",
+    );
+    expect(githubError(403, new Headers({ "retry-after": "60" })).status).toBe(503);
+    expect(githubError(403, new Headers({ "x-ratelimit-remaining": "42" })).status).toBe(403);
   });
 
   test("GitHub failures become messages the phone can speak", () => {

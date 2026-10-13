@@ -100,6 +100,9 @@ struct SettingsView: View {
           Button("Sign out", role: .destructive) {
             Task { await account.signOut() }
           }
+          if let err = account.signOutError {
+            Text(err).font(.footnote).foregroundStyle(.red)
+          }
         } header: {
           Text("Pipper account")
         } footer: {

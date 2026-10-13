@@ -503,7 +503,7 @@ struct ThreadIntentTests {
     #expect(threads[2].displayTitle == "Untitled thread")
   }
 
-  @Test func statusPrefersPendingDecisionThenFailureThenProgress() {
+  @Test func statusPrefersPendingDecisionThenProgressThenFailure() {
     let decision = RemotePermission(id: "d1", title: "Delete **old** file?", detail: nil, options: [])
     #expect(
       report(running: true, permissions: [decision]).spokenStatus()
@@ -511,6 +511,8 @@ struct ThreadIntentTests {
 
     let failed = RemoteRequestStatus(id: "r1", threadId: "t1", state: "failed", error: "No worktree", updatedAt: 0)
     #expect(report(request: failed).spokenStatus() == "The last request failed. No worktree.")
+    // A newer turn started on the Mac outranks the old remote failure.
+    #expect(report(running: true, request: failed).spokenStatus() == "It's still working.")
 
     #expect(report(running: true).spokenStatus() == "It's still working.")
     let working = report(running: true, messages: [RemoteMessage(role: .agent, text: "Reading `App.tsx`")])

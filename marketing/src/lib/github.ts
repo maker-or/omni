@@ -11,6 +11,9 @@ export const MAX_PULL_REQUESTS = 10;
 const MAX_DESCRIPTION_CHARS = 500;
 const MAX_TITLE_CHARS = 256;
 const MAX_BODY_CHARS = 65_536;
+const REPOS_PER_PAGE = 100;
+/** Bounds the repo walk (1,000 repos) so a huge account can't stall the request. */
+const MAX_REPO_PAGES = 10;
 const NAME_RE = /^[A-Za-z0-9_.-]{1,100}$/;
 
 export interface GitHubRepo {
@@ -75,11 +78,23 @@ async function github(
     signal: AbortSignal.timeout(15_000),
   });
   if (res.ok) return res.json();
-  throw githubError(res.status);
+  throw githubError(res.status, res.headers);
 }
 
 /** Map GitHub's status to a message the phone can speak. */
-export function githubError(status: number): GitHubError {
+export function githubError(status: number, headers?: Headers): GitHubError {
+  // Rate limits arrive as 429, or as 403 with an exhausted quota or a
+  // Retry-After (secondary limits) — not a permissions problem.
+  const rateLimited =
+    status === 429 ||
+    (status === 403 &&
+      (headers?.get("x-ratelimit-remaining") === "0" || headers?.has("retry-after") === true));
+  if (rateLimited) {
+    return new GitHubError(
+      503,
+      "GitHub is rate limiting Pipper right now. Try again in a few minutes.",
+    );
+  }
   switch (status) {
     case 401:
       return new GitHubError(
@@ -104,13 +119,20 @@ export function githubError(status: number): GitHubError {
 
 /** Repositories the user can file issues in, most recently pushed first. */
 export async function listRepos(token: string, fetchImpl?: Fetch): Promise<GitHubRepo[]> {
-  const data = await github(
-    token,
-    "/user/repos?sort=pushed&per_page=100&affiliation=owner,collaborator,organization_member",
-    {},
-    fetchImpl,
-  );
-  return Array.isArray(data) ? data.flatMap(toRepo) : [];
+  const repos: GitHubRepo[] = [];
+  for (let page = 1; page <= MAX_REPO_PAGES; page++) {
+    const data = await github(
+      token,
+      `/user/repos?sort=pushed&per_page=${REPOS_PER_PAGE}&page=${page}&affiliation=owner,collaborator,organization_member`,
+      {},
+      fetchImpl,
+    );
+    if (!Array.isArray(data)) break;
+    repos.push(...data.flatMap(toRepo));
+    // A short page is the last one; count raw items, not the filtered ones.
+    if (data.length < REPOS_PER_PAGE) break;
+  }
+  return repos;
 }
 
 export function toRepo(raw: unknown): GitHubRepo[] {

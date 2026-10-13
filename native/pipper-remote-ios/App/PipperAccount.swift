@@ -14,6 +14,7 @@ final class PipperAccount {
   private(set) var repos: [GitHubRepo]
   private(set) var reposError: String?
   private(set) var signInError: String?
+  private(set) var signOutError: String?
   private(set) var signingIn = false
 
   let isConfigured: Bool
@@ -62,7 +63,14 @@ final class PipperAccount {
   }
 
   func signOut() async {
-    try? await Clerk.shared.auth.signOut()
+    do {
+      try await Clerk.shared.auth.signOut()
+    } catch {
+      // Still signed in: keep the cache that belongs to this account.
+      signOutError = error.localizedDescription
+      return
+    }
+    signOutError = nil
     repoStore.clear()
     repos = []
     reposError = nil
@@ -72,9 +80,12 @@ final class PipperAccount {
   /// Pull the repo list from pipper.dev, cache it, and tell Siri the names changed.
   @discardableResult
   func refreshRepos() async -> [GitHubRepo]? {
-    guard isSignedIn else { return nil }
+    guard isSignedIn, let userId = Clerk.shared.user?.id else { return nil }
     do {
       let fresh = try await cloud.repos()
+      // Signed out or switched accounts while waiting: never cache the
+      // previous account's (possibly private) repo names.
+      guard Clerk.shared.user?.id == userId else { return nil }
       try? repoStore.save(fresh)
       repos = fresh
       reposError = nil

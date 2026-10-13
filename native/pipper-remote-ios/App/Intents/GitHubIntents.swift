@@ -61,12 +61,16 @@ struct RepositoryQuery: EntityStringQuery {
   @MainActor
   private func repos(refreshIf needed: @Sendable ([GitHubRepo]) -> Bool) async -> [GitHubRepo] {
     let account = PipperAccount.shared
+    // The cache outlives an expired session; only the signed-in user sees it.
+    guard account.isSignedIn else { return [] }
     if needed(account.repos), let fresh = await account.refreshRepos() { return fresh }
     return account.repos
   }
 
   func entities(for identifiers: [String]) async throws -> [RepositoryEntity] {
-    let cached = await MainActor.run { PipperAccount.shared.repos }
+    let cached = await MainActor.run {
+      PipperAccount.shared.isSignedIn ? PipperAccount.shared.repos : []
+    }
     return identifiers.compactMap { id in
       cached.first { $0.fullName == id }.map(RepositoryEntity.init) ?? RepositoryEntity(fullName: id)
     }

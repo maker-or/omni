@@ -161,21 +161,23 @@ extension RemoteReport {
   }
 
   /// One or two short sentences Siri can read aloud: whether the thread is
-  /// blocked on the user, failed, still working, or done, plus a snippet of
+  /// blocked on the user, still working, failed, or done, plus a snippet of
   /// the agent's latest reply with Markdown removed.
   public func spokenStatus(maxSnippet: Int = 240) -> String {
     if let decision = permissions?.first {
       return "It's waiting for you: \(SpokenText.plain(decision.title, limit: maxSnippet)) Open Pipper to answer."
+    }
+    let snippet = latestAgentText.map { SpokenText.plain($0, limit: maxSnippet) } ?? ""
+    // Current work wins over an older request's failure: a turn started on
+    // the Mac sets `running` without replacing the saved remote request.
+    if running {
+      return snippet.isEmpty ? "It's still working." : "It's still working. Latest: \(snippet)"
     }
     if let request, request.state == "failed" || request.state == "interrupted" {
       let why = request.error.map { " \(SpokenText.plain($0, limit: maxSnippet))" } ?? ""
       return request.state == "failed"
         ? "The last request failed.\(why)"
         : "The last request was interrupted.\(why) Check the thread before resending."
-    }
-    let snippet = latestAgentText.map { SpokenText.plain($0, limit: maxSnippet) } ?? ""
-    if running {
-      return snippet.isEmpty ? "It's still working." : "It's still working. Latest: \(snippet)"
     }
     let files =
       filesTouched.isEmpty
