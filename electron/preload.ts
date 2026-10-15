@@ -206,8 +206,15 @@ const api = {
     create: (input: CreateProjectInput): Promise<Project> =>
       ipcRenderer.invoke("projects:create", input),
     getActive: (): Promise<Project | null> => ipcRenderer.invoke("projects:getActive"),
-    listFiles: (projectId?: string, worktreePath?: string | null): Promise<string[]> =>
-      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null),
+    listFiles: (
+      projectId?: string,
+      worktreePath?: string | null,
+      requestId?: string | null,
+    ): Promise<string[]> =>
+      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null, requestId ?? null),
+    cancelListFiles: (requestId: string): void => {
+      ipcRenderer.send("projects:cancelListFiles", requestId);
+    },
     getFileTree: (): Promise<ProjectFileTreeSnapshot> => ipcRenderer.invoke("projects:getFileTree"),
     setActive: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("projects:setActive", projectId),

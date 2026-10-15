@@ -57,6 +57,7 @@ import {
 } from "./git-workspace";
 import type { ProjectFileGitStatus, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session";
+import { ProjectFileLister } from "./project-file-list.ts";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import {
   isAllowedClerkAuthUrl,
@@ -222,55 +223,7 @@ function resolveWindowsShell(): string {
   return "powershell.exe";
 }
 
-const FILE_MENTION_IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".next",
-  ".turbo",
-  ".cache",
-]);
-
-async function listProjectFiles(projectPath: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      {
-        cwd: projectPath,
-        maxBuffer: 1024 * 1024 * 4,
-      },
-    );
-    const paths = Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
-    // An empty Git result can still mean this is an uninitialized repository
-    // or a folder whose files are not visible to Git. Use the filesystem
-    // fallback in that case instead of returning an empty mention catalog.
-    if (paths.length > 0) return paths;
-    throw new Error("Git returned no project files");
-  } catch {
-    const results: string[] = [];
-    const walk = (dir: string, prefix = "") => {
-      if (results.length >= 5000) return;
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.name.startsWith(".") && entry.name !== ".env") continue;
-        if (FILE_MENTION_IGNORED_DIRS.has(entry.name)) continue;
-        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-        const absolute = join(dir, entry.name);
-        if (entry.isDirectory()) walk(absolute, relative);
-        else if (entry.isFile()) results.push(relative);
-      }
-    };
-    try {
-      walk(projectPath);
-    } catch {
-      return [];
-    }
-    return results.sort();
-  }
-}
+const projectFileLister = new ProjectFileLister();
 
 function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStatus"] {
   const entries: ProjectFileTreeSnapshot["gitStatus"] = [];
@@ -305,7 +258,7 @@ function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStat
 
 async function listProjectFileTree(projectPath: string): Promise<ProjectFileTreeSnapshot> {
   const [paths, gitStatus] = await Promise.all([
-    listProjectFiles(projectPath),
+    projectFileLister.list(projectPath),
     // Resolved binary + sanitized env: a bare "git" silently fails (empty
     // status decorations) when a GUI launch strips PATH.
     execFileAsync(gitBinary(), ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
@@ -1967,23 +1920,32 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "projects:listFiles",
-    async (_event, projectId?: string, worktreePath?: string | null) => {
+    async (event, projectId?: string, worktreePath?: string | null, requestId?: string | null) => {
+      // Request ids are scoped per renderer so one window cannot cancel
+      // another window's scan.
+      const scopedRequestId = requestId ? `${event.sender.id}:${requestId}` : null;
+      const list = (path: string) => projectFileLister.listForRequest(path, scopedRequestId);
       if (projectId) {
         const project = getProject(projectId);
         const cwd = worktreePath && fs.existsSync(worktreePath) ? worktreePath : project?.path;
-        return cwd && fs.existsSync(cwd) ? listProjectFiles(cwd) : [];
+        return cwd && fs.existsSync(cwd) ? list(cwd) : [];
       }
-      if (worktreePath && fs.existsSync(worktreePath)) return listProjectFiles(worktreePath);
+      if (worktreePath && fs.existsSync(worktreePath)) return list(worktreePath);
       // Follow the active worktree's cwd, not the project root, so file paths
       // reflect the selected workspace. Falls back to the project root.
       const cwd = await requireAgentManager().getActiveCwd();
-      if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
+      if (cwd && fs.existsSync(cwd)) return list(cwd);
       const id = getActiveProjectId();
       const project = id ? getProject(id) : null;
       if (!project || !fs.existsSync(project.path)) return [];
-      return listProjectFiles(project.path);
+      return list(project.path);
     },
   );
+
+  ipcMain.on("projects:cancelListFiles", (event, requestId: unknown) => {
+    if (typeof requestId !== "string" || !requestId) return;
+    projectFileLister.cancel(`${event.sender.id}:${requestId}`);
+  });
 
   ipcMain.handle("projects:getFileTree", async () => {
     // Keep the flyout aligned with the currently selected worktree.

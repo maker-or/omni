@@ -140,7 +140,13 @@ declare global {
         list: () => Promise<Project[]>;
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
-        listFiles: (projectId?: string, worktreePath?: string | null) => Promise<string[]>;
+        /** `requestId` lets the caller abandon the scan via `cancelListFiles`. */
+        listFiles: (
+          projectId?: string,
+          worktreePath?: string | null,
+          requestId?: string | null,
+        ) => Promise<string[]>;
+        cancelListFiles?: (requestId: string) => void;
         getFileTree: () => Promise<ProjectFileTreeSnapshot>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
