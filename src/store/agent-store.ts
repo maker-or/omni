@@ -14,7 +14,12 @@ import type {
   SessionConfigOption,
   SubagentRunSnapshot,
 } from "../../contracts/acp.ts";
-import { projectChatMessages, projectToolResultMessages } from "../lib/acp-entries";
+import {
+  createChatProjector,
+  projectToolResultMessages,
+  type AcpToolResultMessage,
+  type ChatProjection,
+} from "../lib/acp-entries";
 import type { OpenTabsState, Thread, ThreadPage } from "../../contracts/threads.ts";
 import {
   applySessionUpdate,
@@ -346,40 +351,70 @@ export interface AgentPanelSnapshot {
  * Reused wholesale when entries/toolCalls/isStreaming are referentially
  * unchanged (e.g. usage/plan/config updates), so the panel's message array
  * identity — and therefore memoized rows — survive unrelated bridge events.
+ * While only the streaming tail changes, `messages` and `messageEntryRefs`
+ * keep their identity too: the chat projector is incremental and tool results
+ * are only re-derived when `toolCalls` changes.
  */
 let lastPanelProjection: {
   entries: AcpSessionState["entries"];
   toolCalls: AcpSessionState["toolCalls"];
   isStreaming: boolean;
+  chat: ChatProjection;
+  toolResults: AcpToolResultMessage[];
   streamingChat: AcpChatMessage | null;
   messages: AgentPanelSnapshot["messages"];
   messageEntryRefs: AgentPanelSnapshot["messageEntryRefs"];
 } | null = null;
 
-function projectPanelMessages(state: AcpSessionState): NonNullable<typeof lastPanelProjection> {
-  if (
-    lastPanelProjection &&
-    lastPanelProjection.entries === state.entries &&
-    lastPanelProjection.toolCalls === state.toolCalls &&
-    lastPanelProjection.isStreaming === state.isStreaming
-  ) {
-    return lastPanelProjection;
+const projectChat = createChatProjector();
+
+function sameItems<T>(left: readonly T[], right: readonly T[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return false;
   }
-  const chat = projectChatMessages(state.entries, state.toolCalls, state.isStreaming);
-  const streamingChat = chat.find((m) => m.streaming && m.role === "assistant") ?? null;
-  // Keep streaming assistant only in streamingMessage (legacy panel grouping path).
-  const settledChat = chat.filter((m) => !(m.streaming && m.role === "assistant"));
-  const toolResultMessages = projectToolResultMessages(state.toolCalls);
-  const messages = [...settledChat, ...toolResultMessages] as AgentPanelSnapshot["messages"];
-  // Aligned with `messages` indices; non-user slots are null.
-  const messageEntryRefs = messages.map((m) =>
-    m.role === "user" ? { entryId: m.id, parentId: null } : null,
-  );
+  return true;
+}
+
+function projectPanelMessages(state: AcpSessionState): NonNullable<typeof lastPanelProjection> {
+  const previous = lastPanelProjection;
+  if (
+    previous &&
+    previous.entries === state.entries &&
+    previous.toolCalls === state.toolCalls &&
+    previous.isStreaming === state.isStreaming
+  ) {
+    return previous;
+  }
+  const chat = projectChat(state.entries, state.toolCalls, state.isStreaming);
+  let toolResults = previous?.toolResults ?? [];
+  if (!previous || previous.toolCalls !== state.toolCalls) {
+    const next = projectToolResultMessages(state.toolCalls);
+    if (!sameItems(next, toolResults)) toolResults = next;
+  }
+  let messages = previous?.messages;
+  let messageEntryRefs = previous?.messageEntryRefs;
+  if (
+    !previous ||
+    !messages ||
+    !messageEntryRefs ||
+    previous.chat.settled !== chat.settled ||
+    previous.toolResults !== toolResults
+  ) {
+    // Keep the streaming assistant only in streamingMessage (legacy panel grouping path).
+    messages = [...chat.settled, ...toolResults] as AgentPanelSnapshot["messages"];
+    // Aligned with `messages` indices; non-user slots are null.
+    messageEntryRefs = messages.map((m) =>
+      m.role === "user" ? { entryId: m.id, parentId: null } : null,
+    );
+  }
   lastPanelProjection = {
     entries: state.entries,
     toolCalls: state.toolCalls,
     isStreaming: state.isStreaming,
-    streamingChat,
+    chat,
+    toolResults,
+    streamingChat: chat.streaming,
     messages,
     messageEntryRefs,
   };
@@ -553,7 +588,7 @@ function applyBridgeEvent(
       // streaming flags arrive via "running-threads" instead.
       const nextState = preserveOptimisticState(state.state, payload.state);
       if (nextState.threadId) {
-        syncToolPayloadIds(nextState.threadId, Object.keys(nextState.toolCalls));
+        syncToolPayloadIds(nextState.threadId, nextState.toolCalls);
       }
       return {
         state: nextState,
@@ -587,7 +622,11 @@ function applyBridgeEvent(
       }
       rememberToolPayloadFromUpdate(payload.threadId, payload.update);
       const nextSlice = applySessionUpdate(state.slice, payload.update);
-      syncToolPayloadIds(payload.threadId, Object.keys(nextSlice.toolCalls));
+      // Tool ids only disappear when the tool-call map is replaced (trimming);
+      // text chunks keep the same map and skip the walk.
+      if (nextSlice.toolCalls !== state.slice.toolCalls) {
+        syncToolPayloadIds(payload.threadId, nextSlice.toolCalls);
+      }
       const base = state.state ?? emptyState();
       return {
         slice: nextSlice,

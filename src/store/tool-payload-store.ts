@@ -45,12 +45,15 @@ export function rememberHydratedToolCalls(
   }
 }
 
-export function syncToolPayloadIds(threadId: string, ids: Iterable<string>): void {
+/** Drop payloads whose tool call is no longer in the thread's tool-call map. */
+export function syncToolPayloadIds(
+  threadId: string,
+  toolCalls: Record<string, AcpToolCallState>,
+): void {
   const payloads = payloadsByThread.get(threadId);
   if (!payloads) return;
-  const keep = new Set(ids);
   for (const id of payloads.keys()) {
-    if (!keep.has(id)) payloads.delete(id);
+    if (!(id in toolCalls)) payloads.delete(id);
   }
 }
 

@@ -10,6 +10,7 @@ import {
   MAX_SESSION_ENTRIES,
   MAX_SESSION_TOOL_CALLS,
   resetEntryIdCounter,
+  trimSessionSlice,
 } from "./acp-session-reducer";
 import { projectChatMessages } from "./acp-entries";
 
@@ -471,5 +472,27 @@ describe("acp-session-reducer", () => {
     }
 
     expect(mutable).toEqual(immutable);
+  });
+
+  test("trimming still applies after an in-place replay grows a map once counted within budget", () => {
+    const slice = createEmptySessionSlice();
+    applySessionUpdateInPlace(slice, {
+      sessionUpdate: "tool_call",
+      toolCallId: "first",
+      title: "First",
+      status: "completed",
+    });
+    // Counted and remembered as within budget.
+    expect(trimSessionSlice(slice)).toBe(slice);
+    for (let i = 0; i < MAX_SESSION_TOOL_CALLS + 5; i++) {
+      applySessionUpdateInPlace(slice, {
+        sessionUpdate: "tool_call",
+        toolCallId: `tool-${i}`,
+        title: "Tool",
+        status: "completed",
+      });
+    }
+    const trimmed = trimSessionSlice(slice);
+    expect(Object.keys(trimmed.toolCalls)).toHaveLength(MAX_SESSION_TOOL_CALLS);
   });
 });

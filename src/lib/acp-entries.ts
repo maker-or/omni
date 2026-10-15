@@ -135,81 +135,406 @@ function projectAssistantRun(
   return msg;
 }
 
-// Outer-walk cache: `entries` is append-only within a session (the reducer
-// only ever concatenates onto it or replaces its tail entry in place — see
-// appendTextEntry/ensureToolCallEntry in acp-session-reducer.ts), so once a
-// message (a user_text entry, or an assistant run) is superseded by a later
-// one, the entries backing it are referentially frozen forever. We remember
-// the entries array from the last call, the index where its final message
-// started, and the already-projected messages for everything before that
-// final message. A later call can reuse that settled prefix outright and
-// only re-walk from the boundary onward, turning the per-call cost from
-// O(total entries) into O(size of the still-open run) regardless of total
-// session history. If the array isn't a recognizable extension of the
-// cached one (e.g. a session-state reset swapped in a new slice), we fall
-// back to a full rescan from index 0.
-let lastEntries: AcpEntry[] | undefined;
-let lastBoundary = 0;
-let lastPrefixMessages: AcpChatMessage[] = [];
+function projectUserMessage(entry: Extract<AcpEntry, { type: "user_text" }>): AcpChatMessage {
+  let msg = userMessageCache.get(entry);
+  if (!msg) {
+    msg = {
+      id: entry.id,
+      role: "user",
+      text: entry.text,
+      thought: "",
+      content: [
+        ...(entry.text ? [{ type: "text" as const, text: entry.text }] : []),
+        ...(entry.images ?? []).map((image) => ({ type: "image" as const, ...image })),
+      ],
+      toolCallIds: [],
+      streaming: false,
+    };
+    userMessageCache.set(entry, msg);
+  }
+  return msg;
+}
 
 /**
  * Project the timeline into chat messages: each `user_text` entry is a user
  * message; each maximal run of assistant entries (text/thought/tool) between
  * user messages is one assistant message with parts in timeline order. Only
  * the final run can be streaming.
+ *
+ * This is the stateless reference walk (O(entries) per call). The panel uses
+ * {@link createChatProjector}, which produces the same messages incrementally.
  */
 export function projectChatMessages(
   entries: AcpEntry[],
   toolCalls: ToolCallMap,
   isStreaming: boolean,
 ): AcpChatMessage[] {
-  let i = 0;
   const messages: AcpChatMessage[] = [];
-  if (
-    lastEntries &&
-    entries.length >= lastBoundary &&
-    (lastBoundary === 0 || entries[lastBoundary - 1] === lastEntries[lastBoundary - 1])
-  ) {
-    // Everything before the previous final message is unchanged; reuse it
-    // and only re-derive from where that final message started.
-    i = lastBoundary;
-    messages.push(...lastPrefixMessages);
-  }
-  let lastMessageStart = i;
+  let i = 0;
   while (i < entries.length) {
-    lastMessageStart = i;
     const entry = entries[i]!;
     if (entry.type === "user_text") {
-      let msg = userMessageCache.get(entry);
-      if (!msg) {
-        msg = {
-          id: entry.id,
-          role: "user",
-          text: entry.text,
-          thought: "",
-          content: [
-            ...(entry.text ? [{ type: "text" as const, text: entry.text }] : []),
-            ...(entry.images ?? []).map((image) => ({ type: "image" as const, ...image })),
-          ],
-          toolCallIds: [],
-          streaming: false,
-        };
-        userMessageCache.set(entry, msg);
-      }
-      messages.push(msg);
+      messages.push(projectUserMessage(entry));
       i += 1;
       continue;
     }
     const start = i;
     while (i < entries.length && entries[i]!.type !== "user_text") i += 1;
-    const run = entries.slice(start, i);
     const streaming = isStreaming && i >= entries.length;
-    messages.push(projectAssistantRun(run, toolCalls, streaming));
+    messages.push(projectAssistantRun(entries.slice(start, i), toolCalls, streaming));
   }
-  lastEntries = entries;
-  lastBoundary = lastMessageStart;
-  lastPrefixMessages = messages.slice(0, -1);
   return messages;
+}
+
+/** Ids whose tool state object differs between two tool-call maps. */
+function changedToolIds(previous: ToolCallMap, next: ToolCallMap): string[] {
+  const changed: string[] = [];
+  for (const id in next) {
+    if (previous[id] !== next[id]) changed.push(id);
+  }
+  for (const id in previous) {
+    if (!(id in next)) changed.push(id);
+  }
+  return changed;
+}
+
+function pushToMap(map: Map<string, number[]>, key: string, value: number): void {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
+
+/**
+ * The still-open final assistant run. Every entry of the run except the tail
+ * is "folded" into immutable part/segment arrays; the tail is re-read on each
+ * projection because the reducer replaces it as text streams.
+ */
+interface OpenRun {
+  start: number;
+  /** Entries [start, start + folded) are folded into the fields below. */
+  folded: number;
+  content: AcpMessagePart[];
+  /** Joined visible text of the folded entries ("" when none). */
+  text: string;
+  hasText: boolean;
+  thought: string;
+  hasThought: boolean;
+  toolCallIds: string[];
+  /** toolCallId -> indices into `content` / `entries` for folded tool parts. */
+  toolParts: Map<string, Array<{ part: number; entry: number }>>;
+}
+
+function openRun(start: number): OpenRun {
+  return {
+    start,
+    folded: 0,
+    content: [],
+    text: "",
+    hasText: false,
+    thought: "",
+    hasThought: false,
+    toolCallIds: [],
+    toolParts: new Map(),
+  };
+}
+
+function joinSegment(joined: string, has: boolean, segment: string): string {
+  return has ? `${joined}\n\n${segment}` : segment;
+}
+
+/** Fold entries [run.start + run.folded, end) into the run's immutable prefix. */
+function foldRun(run: OpenRun, entries: AcpEntry[], end: number, toolCalls: ToolCallMap): void {
+  let index = run.start + run.folded;
+  if (index >= end) return;
+  const content = run.content.slice();
+  let toolCallIds = run.toolCallIds;
+  for (; index < end; index++) {
+    const entry = entries[index]!;
+    if (entry.type === "agent_text") {
+      if (!entry.text) continue;
+      content.push({ type: "text", text: entry.text });
+      run.text = joinSegment(run.text, run.hasText, entry.text);
+      run.hasText = true;
+    } else if (entry.type === "agent_thought") {
+      if (!entry.text) continue;
+      content.push({ type: "thinking", thinking: entry.text });
+      run.thought = joinSegment(run.thought, run.hasThought, entry.text);
+      run.hasThought = true;
+    } else if (entry.type === "tool_call") {
+      const list = run.toolParts.get(entry.toolCallId) ?? [];
+      list.push({ part: content.length, entry: index });
+      run.toolParts.set(entry.toolCallId, list);
+      content.push(toolCallPart(entry, toolCalls[entry.toolCallId]));
+      if (toolCallIds === run.toolCallIds) toolCallIds = toolCallIds.slice();
+      toolCallIds.push(entry.toolCallId);
+    }
+  }
+  run.content = content;
+  run.toolCallIds = toolCallIds;
+  run.folded = end - run.start;
+}
+
+/** Build the open run's message from its folded prefix plus the live tail entry. */
+function projectOpenRun(
+  run: OpenRun,
+  entries: AcpEntry[],
+  toolCalls: ToolCallMap,
+  streaming: boolean,
+): AcpChatMessage {
+  const tail = entries[entries.length - 1]!;
+  let content = run.content;
+  let text = run.text;
+  let thought = run.thought;
+  let toolCallIds = run.toolCallIds;
+  if (tail.type === "agent_text") {
+    if (tail.text) {
+      content = [...content, { type: "text", text: tail.text }];
+      text = joinSegment(text, run.hasText, tail.text);
+    }
+  } else if (tail.type === "agent_thought") {
+    if (tail.text) {
+      content = [...content, { type: "thinking", thinking: tail.text }];
+      thought = joinSegment(thought, run.hasThought, tail.text);
+    }
+  } else if (tail.type === "tool_call") {
+    content = [...content, toolCallPart(tail, toolCalls[tail.toolCallId])];
+    toolCallIds = [...toolCallIds, tail.toolCallId];
+  }
+  return {
+    id: entries[run.start]!.id,
+    role: "assistant",
+    text,
+    thought,
+    // Never hand out the run's own arrays: folding replaces them, but a
+    // consumer must not be able to observe a later fold through this message.
+    content: content === run.content ? content.slice() : content,
+    toolCallIds: toolCallIds === run.toolCallIds ? toolCallIds.slice() : toolCallIds,
+    streaming,
+  };
+}
+
+export interface ChatProjection {
+  /**
+   * Every message except a streaming assistant tail, in timeline order. Keeps
+   * its identity while only the streaming tail (or nothing) changes.
+   */
+  settled: AcpChatMessage[];
+  /** The final assistant message while the turn streams, else null. */
+  streaming: AcpChatMessage | null;
+}
+
+interface ProjectorState {
+  entries: AcpEntry[];
+  toolCalls: ToolCallMap;
+  isStreaming: boolean;
+  /** Closed messages: everything before the final (open) message. */
+  closed: AcpChatMessage[];
+  /** Entry range of each closed assistant message (null for user messages). */
+  closedRanges: Array<{ start: number; end: number } | null>;
+  /** toolCallId -> indices into `closed` of assistant messages containing it. */
+  closedToolOwners: Map<string, number[]>;
+  /** Final message: a user entry index, or an open assistant run. */
+  open: { kind: "user"; start: number } | { kind: "run"; run: OpenRun } | null;
+  final: AcpChatMessage | null;
+  /** Tail entry and its tool state the final message was built from. */
+  finalTail: AcpEntry | undefined;
+  finalTailTool: AcpToolCallState | undefined;
+  result: ChatProjection;
+}
+
+/**
+ * Whether `entries` is the previous timeline extended by the reducer: the
+ * reducer only appends or replaces the tail entry with one of the same type.
+ * Anything else (session-state replacement, front trimming) re-projects.
+ */
+function extendsTimeline(previous: AcpEntry[], entries: AcpEntry[]): boolean {
+  const length = previous.length;
+  if (entries.length < length) return false;
+  if (length === 0) return true;
+  if (entries[0] !== previous[0]) return false;
+  if (length >= 2 && entries[length - 2] !== previous[length - 2]) return false;
+  return entries[length - 1]!.type === previous[length - 1]!.type;
+}
+
+/**
+ * Incremental equivalent of {@link projectChatMessages}. Per streamed text
+ * chunk the work is proportional to the open run's folded part count (one
+ * array copy) rather than to the whole history: closed messages are kept,
+ * new entries are folded once, and tool-state changes are routed only to the
+ * messages that contain the changed tool.
+ */
+export function createChatProjector(): (
+  entries: AcpEntry[],
+  toolCalls: ToolCallMap,
+  isStreaming: boolean,
+) => ChatProjection {
+  let state: ProjectorState | null = null;
+
+  function closeOpen(
+    s: ProjectorState,
+    entries: AcpEntry[],
+    end: number,
+    toolCalls: ToolCallMap,
+  ): void {
+    const open = s.open;
+    if (!open) return;
+    const index = s.closed.length;
+    if (open.kind === "user") {
+      s.closed.push(
+        projectUserMessage(entries[open.start] as Extract<AcpEntry, { type: "user_text" }>),
+      );
+      s.closedRanges.push(null);
+    } else {
+      const start = open.run.start;
+      s.closed.push(projectAssistantRun(entries.slice(start, end), toolCalls, false));
+      s.closedRanges.push({ start, end });
+      for (let i = start; i < end; i++) {
+        const entry = entries[i]!;
+        if (entry.type === "tool_call") pushToMap(s.closedToolOwners, entry.toolCallId, index);
+      }
+    }
+    s.open = null;
+  }
+
+  return (entries, toolCalls, isStreaming) => {
+    const previous = state;
+    if (
+      previous &&
+      previous.entries === entries &&
+      previous.toolCalls === toolCalls &&
+      previous.isStreaming === isStreaming
+    ) {
+      return previous.result;
+    }
+
+    let s: ProjectorState;
+    let scanFrom: number;
+    let closed: AcpChatMessage[];
+    if (previous && extendsTimeline(previous.entries, entries)) {
+      s = previous;
+      scanFrom = previous.entries.length;
+      closed = previous.closed;
+    } else {
+      s = {
+        entries,
+        toolCalls,
+        isStreaming,
+        closed: [],
+        closedRanges: [],
+        closedToolOwners: new Map(),
+        open: null,
+        final: null,
+        finalTail: undefined,
+        finalTailTool: undefined,
+        result: { settled: [], streaming: null },
+      };
+      scanFrom = 0;
+      closed = s.closed;
+    }
+    // Closed messages are published by identity; copy on first write.
+    let closedCopied = s !== previous;
+    const writableClosed = () => {
+      if (!closedCopied) {
+        s.closed = s.closed.slice();
+        closedCopied = true;
+      }
+      return s.closed;
+    };
+
+    // Route tool-state changes to the closed messages and folded parts that
+    // contain them. Text chunks leave `toolCalls` untouched and skip this.
+    let foldedToolChanged = false;
+    if (s === previous && previous.toolCalls !== toolCalls) {
+      for (const id of changedToolIds(previous.toolCalls, toolCalls)) {
+        for (const index of s.closedToolOwners.get(id) ?? []) {
+          const range = s.closedRanges[index]!;
+          writableClosed()[index] = projectAssistantRun(
+            entries.slice(range.start, range.end),
+            toolCalls,
+            false,
+          );
+        }
+        if (s.open?.kind === "run") {
+          const run = s.open.run;
+          const parts = run.toolParts.get(id);
+          if (parts) {
+            run.content = run.content.slice();
+            for (const { part, entry } of parts) {
+              run.content[part] = toolCallPart(
+                entries[entry] as Extract<AcpEntry, { type: "tool_call" }>,
+                toolCalls[id],
+              );
+            }
+            foldedToolChanged = true;
+          }
+        }
+      }
+    }
+
+    // Walk only entries appended since the last projection.
+    for (let i = scanFrom; i < entries.length; i++) {
+      const entry = entries[i]!;
+      if (entry.type === "user_text") {
+        if (s.open) {
+          writableClosed();
+          closeOpen(s, entries, i, toolCalls);
+        }
+        s.open = { kind: "user", start: i };
+      } else if (s.open?.kind !== "run") {
+        if (s.open) {
+          writableClosed();
+          closeOpen(s, entries, i, toolCalls);
+        }
+        s.open = { kind: "run", run: openRun(i) };
+      }
+    }
+
+    // Rebuild the final message only when something it depends on changed.
+    const tail = entries[entries.length - 1];
+    let final = s.final;
+    const open = s.open;
+    if (!open) {
+      final = null;
+    } else if (open.kind === "user") {
+      final = projectUserMessage(entries[open.start] as Extract<AcpEntry, { type: "user_text" }>);
+    } else {
+      const run = open.run;
+      const foldedBefore = run.folded;
+      foldRun(run, entries, entries.length - 1, toolCalls);
+      const tailTool = tail?.type === "tool_call" ? toolCalls[tail.toolCallId] : undefined;
+      if (
+        !final ||
+        s !== previous ||
+        foldedToolChanged ||
+        run.folded !== foldedBefore ||
+        tail !== s.finalTail ||
+        tailTool !== s.finalTailTool ||
+        isStreaming !== previous?.isStreaming
+      ) {
+        final = projectOpenRun(run, entries, toolCalls, isStreaming);
+      }
+      s.finalTailTool = tailTool;
+    }
+    s.finalTail = tail;
+
+    const streamingFinal = final && final.role === "assistant" && final.streaming ? final : null;
+    const settledFinal = final && !streamingFinal ? final : null;
+    const previousSettledFinal = s.result.streaming ? null : s.final;
+    let settled = s.result.settled;
+    if (s !== previous || s.closed !== closed || settledFinal !== previousSettledFinal) {
+      settled = settledFinal ? [...s.closed, settledFinal] : s.closed;
+    }
+    s.final = final;
+    s.entries = entries;
+    s.toolCalls = toolCalls;
+    s.isStreaming = isStreaming;
+    s.result =
+      settled === s.result.settled && streamingFinal === s.result.streaming
+        ? s.result
+        : { settled, streaming: streamingFinal };
+    state = s;
+    return s.result;
+  };
 }
 
 const toolResultCache = new WeakMap<AcpToolCallState, AcpToolResultMessage>();
