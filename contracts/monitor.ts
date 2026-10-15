@@ -169,6 +169,8 @@ export interface MonitorPipelineTelemetry {
   droppedWrites: number;
   writeFailures: number;
   workerFailures: number;
+  /** "fallback" means persistence runs on the main thread because the worker failed. */
+  workerMode: "worker" | "fallback";
   lastWriteLatencyMs: number;
   maxWriteLatencyMs: number;
   lastFlushMs: number;

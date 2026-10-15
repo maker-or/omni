@@ -792,11 +792,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             description: payload.message,
           });
         }
-        set((s) => {
-          const patch = applyBridgeEvent(s, payload) as Partial<AgentState>;
-          ignored = Object.keys(patch).length === 0;
-          return withSnapshot(patch) as Partial<AgentState>;
-        });
+        // Zustand notifies every subscriber on any set(), even an empty patch;
+        // events that change nothing here (terminal output, background
+        // threads) must not wake the panel.
+        const patch = applyBridgeEvent(get(), payload) as Partial<AgentState>;
+        ignored = Object.keys(patch).length === 0;
+        if (!ignored) set(withSnapshot(patch) as Partial<AgentState>);
         recordRendererEvent({
           eventType: payload.type,
           bytes: payloadBytes,

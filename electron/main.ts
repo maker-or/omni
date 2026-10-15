@@ -40,6 +40,9 @@ import {
   switchWorktreeBranch,
 } from "./worktree-manager";
 import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
+import { getWorktreeAutoInstall, setWorktreeAutoInstall } from "./worktree-preferences.ts";
+import { WorktreeInstallQueue } from "./worktree-install-queue.ts";
+import { compactDatabase, type DatabaseCompactionResult } from "./database-compaction.ts";
 import {
   commitWorkspace,
   configureGithubPrSnapshotCache,
@@ -337,7 +340,7 @@ if (!gotSingleInstanceLock) {
   app.quit();
 }
 
-if (!app.isDefaultProtocolClient("pipper")) {
+if (!benchmarkEnabled && !app.isDefaultProtocolClient("pipper")) {
   app.setAsDefaultProtocolClient("pipper");
 }
 
@@ -870,6 +873,8 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
 }
 
 const WORKTREE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+const worktreeInstallQueue = new WorktreeInstallQueue();
+let databaseCompaction: Promise<DatabaseCompactionResult> | null = null;
 
 type WorktreeInstallOutcome = Pick<WorktreeSetupProgress, "status" | "manager" | "message">;
 
@@ -886,6 +891,17 @@ async function installWorktreeDependencies(
   worktreePath: string,
   workspaceName: string,
 ): Promise<WorktreeInstallOutcome> {
+  return worktreeInstallQueue.enqueue(worktreePath, (signal) =>
+    performWorktreeDependencyInstall(projectId, worktreePath, workspaceName, signal),
+  );
+}
+
+async function performWorktreeDependencyInstall(
+  projectId: string,
+  worktreePath: string,
+  workspaceName: string,
+  signal: AbortSignal,
+): Promise<WorktreeInstallOutcome> {
   const report = (progress: WorktreeInstallOutcome): WorktreeInstallOutcome => {
     broadcastToWindows("worktrees:setupProgress", {
       projectId,
@@ -896,8 +912,19 @@ async function installWorktreeDependencies(
     return progress;
   };
 
+  // The workspace may have been deleted while this job waited in the queue.
+  if (signal.aborted || !fs.existsSync(worktreePath)) {
+    return report({ status: "skipped", message: "Workspace was removed before install." });
+  }
   const install = resolveInstallCommand(worktreePath);
   if (!install) return report({ status: "skipped" });
+  if (!getWorktreeAutoInstall()) {
+    return report({
+      status: "skipped",
+      manager: install.manager,
+      message: `Run ${install.manager} install in this workspace when you need its dependencies.`,
+    });
+  }
 
   report({ status: "installing", manager: install.manager });
   try {
@@ -918,6 +945,13 @@ async function installWorktreeDependencies(
         child.kill();
         rejectPromise(new Error(`${install.manager} install timed out after 10 minutes.`));
       }, WORKTREE_INSTALL_TIMEOUT_MS);
+      const onAbort = () => {
+        clearTimeout(timeout);
+        child.kill();
+        rejectPromise(signal.reason);
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      child.on("exit", () => signal.removeEventListener("abort", onAbort));
       child.on("error", (err) => {
         clearTimeout(timeout);
         rejectPromise(
@@ -935,6 +969,13 @@ async function installWorktreeDependencies(
     });
     return report({ status: "installed", manager: install.manager });
   } catch (err) {
+    if (signal.aborted) {
+      return report({
+        status: "skipped",
+        manager: install.manager,
+        message: "Install stopped because the workspace was removed.",
+      });
+    }
     console.error(`[Worktree] Dependency install failed for ${worktreePath}:`, err);
     return report({
       status: "failed",
@@ -1956,6 +1997,18 @@ function registerIpc(): void {
     // alongside the linked worktrees.
     return listWorktrees(project.path);
   });
+  ipcMain.handle("worktrees:getAutoInstall", () => getWorktreeAutoInstall());
+  ipcMain.handle("worktrees:setAutoInstall", (_event, enabled: boolean) =>
+    setWorktreeAutoInstall(enabled),
+  );
+  ipcMain.handle("storage:compactDatabase", () => {
+    databaseCompaction ??= compactDatabase(join(app.getPath("userData"), "omni.sqlite")).finally(
+      () => {
+        databaseCompaction = null;
+      },
+    );
+    return databaseCompaction;
+  });
 
   ipcMain.handle("worktrees:switch", async (_event, input: { projectId: string; path: string }) => {
     const { thread } = await activateProjectWorktree(input.projectId, input.path);
@@ -2218,6 +2271,9 @@ function registerIpc(): void {
     const deletedThreadIds = new Set(threads.map((thread) => thread.id));
     const cleanupErrors: unknown[] = [];
 
+    // Stop a queued or running dependency install so it cannot keep writing
+    // into (or later recreate files in) the workspace being removed.
+    await worktreeInstallQueue.cancel(target.path);
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = removeWorktree(project.path, target.path, project.id);

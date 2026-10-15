@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   CaretDown,
@@ -16,7 +16,6 @@ import { orderWorktreesForDisplay } from "../../contracts/worktrees.ts";
 import { AgentView } from "@/components/agent-view";
 import { DiffIngestor } from "@/components/diff-ingestor";
 import { GlobalTabBar } from "@/components/global-tab-bar";
-import { TerminalSession } from "@/components/terminal-session";
 import { ThreadCompletionDock } from "@/components/thread-completion-dock";
 import { WorkspaceControlPanel, type HeaderTone } from "@/components/workspace-control-panel";
 import { Toaster } from "@/components/ui/toaster";
@@ -35,6 +34,12 @@ import { normalizeWorkspacePath } from "../../contracts/workspace-scope.ts";
 import { ProviderLogo } from "@/components/provider-logos";
 import { useRunningAgentsByWorkspace } from "@/lib/running-agents";
 import { WorkspaceToneProvider } from "@/lib/workspace-tone-context";
+
+// Loaded on first terminal so xterm/WASM stay out of the startup chunk; App.tsx
+// lazy-loads the same module, and a static import here defeated that split.
+const TerminalSession = lazy(() =>
+  import("@/components/terminal-session").then((m) => ({ default: m.TerminalSession })),
+);
 
 /** Workspaces shown for a project before the "Load more" affordance appears. */
 const WORKSPACE_PAGE_SIZE = 6;
@@ -861,11 +866,13 @@ export function AdvancedShell() {
                             active ? "visible" : "invisible pointer-events-none",
                           )}
                         >
-                          <TerminalSession
-                            sessionId={session.id}
-                            cwd={session.cwd}
-                            isActive={active}
-                          />
+                          <Suspense fallback={null}>
+                            <TerminalSession
+                              sessionId={session.id}
+                              cwd={session.cwd}
+                              isActive={active}
+                            />
+                          </Suspense>
                         </div>
                       );
                     })}

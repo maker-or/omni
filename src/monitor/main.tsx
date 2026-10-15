@@ -476,7 +476,12 @@ function MonitorApp() {
                 </div>
                 <div>
                   <div className="text-muted-foreground">Worker failures</div>
-                  <div className="font-semibold">{live?.pipelineTelemetry.workerFailures ?? 0}</div>
+                  <div className="font-semibold">
+                    {live?.pipelineTelemetry.workerFailures ?? 0}
+                    {live?.pipelineTelemetry.workerMode === "fallback"
+                      ? " (main-thread fallback)"
+                      : ""}
+                  </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Write latency</div>

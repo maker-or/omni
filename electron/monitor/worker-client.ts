@@ -26,6 +26,17 @@ import {
 
 const MAX_QUEUED_WRITES = 256;
 
+/**
+ * The built main bundle emits the worker as `monitor-worker.js` beside
+ * `index.js` (see electron.vite.config.ts); source runs (tests) load the
+ * TypeScript entry directly.
+ */
+export function monitorWorkerUrl(moduleUrl: string = import.meta.url): URL {
+  return moduleUrl.endsWith(".ts")
+    ? new URL("./worker.ts", moduleUrl)
+    : new URL("./monitor-worker.js", moduleUrl);
+}
+
 export type WorkerCommand =
   | { type: "init"; dbPath: string }
   | {
@@ -232,7 +243,7 @@ export class MonitorWorkerClient {
 
   constructor(dbPath: string) {
     try {
-      this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+      this.worker = new Worker(monitorWorkerUrl());
       this.worker.unref();
       this.worker.on("message", (response: WorkerResponse) => this.handleResponse(response));
       this.worker.on("error", (error) => this.handleWorkerCrash(error));
@@ -308,6 +319,7 @@ export class MonitorWorkerClient {
       droppedWrites: this.droppedWrites,
       writeFailures: this.writeFailures,
       workerFailures: this.workerFailures,
+      workerMode: this.useFallback ? ("fallback" as const) : ("worker" as const),
       lastWriteLatencyMs: this.lastWriteLatencyMs,
       maxWriteLatencyMs: this.maxWriteLatencyMs,
       lastFlushMs: this.lastFlushMs,

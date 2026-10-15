@@ -434,6 +434,8 @@ export function startMonitorFreezeObserver(
   const cleanups: Array<() => void> = [];
   const observerId = context.observerId;
   let lastFrame = now();
+  let visibilityEpoch = 0;
+  let stopped = false;
   let episode:
     | {
         id: string;
@@ -482,6 +484,10 @@ export function startMonitorFreezeObserver(
   };
 
   const signal = (source: MonitorFreezeSource, blockedMs: number, longTaskMs?: number) => {
+    // Background timers and RAF are intentionally throttled by Chromium.
+    // Their gaps are not evidence of a blocked renderer. Long Task entries
+    // remain useful even in a background window because they measure work.
+    if (stopped || (document.hidden && source !== "longtask")) return;
     if (blockedMs < 200) return;
     recordRendererFrameGap(blockedMs);
     const current = now();
@@ -506,6 +512,16 @@ export function startMonitorFreezeObserver(
     if (finishTimer !== undefined) window.clearTimeout(finishTimer);
     finishTimer = window.setTimeout(finish, FREEZE_EPISODE_QUIET_MS);
   };
+
+  const resetVisibility = () => {
+    visibilityEpoch++;
+    lastFrame = now();
+    if (finishTimer !== undefined) window.clearTimeout(finishTimer);
+    if (episode) finish();
+    finishTimer = undefined;
+  };
+  document.addEventListener("visibilitychange", resetVisibility);
+  cleanups.push(() => document.removeEventListener("visibilitychange", resetVisibility));
 
   if ("PerformanceObserver" in window) {
     try {
@@ -532,8 +548,11 @@ export function startMonitorFreezeObserver(
   cleanups.push(() => cancelAnimationFrame(rafId));
 
   const interval = window.setInterval(() => {
+    if (document.hidden) return;
     const started = now();
+    const startedEpoch = visibilityEpoch;
     window.setTimeout(() => {
+      if (stopped || startedEpoch !== visibilityEpoch || document.hidden) return;
       const drift = now() - started - 100;
       if (drift > 200) signal("timer_drift", drift);
     }, 100);
@@ -541,6 +560,7 @@ export function startMonitorFreezeObserver(
   cleanups.push(() => window.clearInterval(interval));
 
   return () => {
+    stopped = true;
     for (const cleanup of cleanups) cleanup();
     if (finishTimer !== undefined) window.clearTimeout(finishTimer);
   };

@@ -30,7 +30,11 @@ export default defineConfig({
       // electron-builder excludes *.map from the packaged app.
       sourcemap: "hidden",
       rollupOptions: {
-        input: { index: resolve(__dirname, "electron/main.ts") },
+        input: {
+          index: resolve(__dirname, "electron/main.ts"),
+          // Emitted beside index.js; electron/monitor/worker-client.ts loads it.
+          "monitor-worker": resolve(__dirname, "electron/monitor/worker.ts"),
+        },
         external: ["electron", "better-sqlite3", "node-pty", "qrcode-terminal"],
       },
     },

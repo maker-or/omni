@@ -48,6 +48,27 @@ function writeState(rootPath: string, patch: Partial<LauncherUpdateState>): void
 }
 
 describe("launcher update manager recovery", () => {
+  test("removes obsolete managed installers while retaining the pending installer and unrelated files", async () => {
+    root = mkdtempSync(join(tmpdir(), "pipper-launcher-"));
+    const downloads = join(root, "downloads");
+    mkdirSync(downloads);
+    const pending = join(downloads, "pipper-0.2.0-arm64.dmg");
+    const old = join(downloads, "pipper-0.1.1-arm64.dmg");
+    const unrelated = join(downloads, "notes.dmg");
+    writeFileSync(pending, "pending");
+    writeFileSync(old, Buffer.alloc(1024 * 1024, 1));
+    writeFileSync(unrelated, "keep");
+    writeState(root, {
+      phase: "downloaded",
+      manifest: MANIFEST,
+      downloaded_path: pending,
+      downloaded_sha256: MANIFEST.sha256,
+    });
+    await createManager(root).recover();
+    expect(existsSync(pending)).toBe(true);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(unrelated)).toBe(true);
+  });
   test("recovery from a crashed download deletes the partial and clears its stale path", async () => {
     root = mkdtempSync(join(tmpdir(), "pipper-launcher-"));
     const downloads = join(root, "downloads");

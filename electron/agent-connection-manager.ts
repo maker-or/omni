@@ -254,12 +254,19 @@ export class AgentConnectionManager {
     string,
     { promise: Promise<void>; resolve: () => void }
   >();
-  private readonly snapshotStore = new ThreadSnapshotStore();
+  private readonly snapshotStore = new ThreadSnapshotStore({
+    isPinned: (threadId) => this.sessions.has(threadId),
+  });
   private readonly snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly snapshotWriteChains = new Map<string, Promise<void>>();
+  /** Tail of each thread's write chain: at most one active write plus one pending. */
+  private readonly snapshotWriteChains = new Map<string, Promise<boolean>>();
+  /** Queued writes that have not started; they capture the runtime when they run. */
+  private readonly pendingSnapshotWrites = new Map<string, Promise<boolean>>();
   private readonly backgroundToolCallTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private snapshotPreloadTask: ReturnType<typeof setImmediate> | null = null;
-  private snapshotWritesDisabled = false;
+  /** Consecutive failed snapshot writes; debounced writes back off while non-zero. */
+  private snapshotWriteFailures = 0;
+  private snapshotWritesBlockedUntil = 0;
   /** Per-session filesystem containment for agent reads/writes/terminals. */
   private readonly workspaceGuard = new WorkspaceGuard();
   private readonly permissions = new PermissionCoordinator({
@@ -550,6 +557,9 @@ export class AgentConnectionManager {
       ? requestedIds.filter((id) => Boolean(runtime.slice.toolCalls[id]))
       : Object.keys(runtime.slice.toolCalls);
     const payloads = this.payloadsFor(runtime);
+    // Persisted bodies are request-scoped. Keeping every expanded trace in
+    // runtime.toolPayloads defeated snapshot eviction until the next write.
+    let selectedPayloads: ReadonlyMap<string, ToolCallPayload> = payloads;
     const missingIds = ids.filter(
       (id) => runtime.slice.toolCalls[id]?.hasPayload && !payloads.has(id),
     );
@@ -560,9 +570,9 @@ export class AgentConnectionManager {
           missingIds,
         );
         if (this.sessions.get(threadId) === runtime) {
-          for (const [id, payload] of restored) {
-            if (!payloads.has(id)) payloads.set(id, payload);
-          }
+          // Live updates can arrive while the sidecar is being read; prefer
+          // their newer bodies over the persisted generation.
+          selectedPayloads = new Map([...restored, ...payloads]);
         }
       } catch (error) {
         console.warn(`[thread-snapshot] selective payload restore failed for ${threadId}:`, error);
@@ -573,7 +583,7 @@ export class AgentConnectionManager {
     const selected = Object.fromEntries(
       ids.map((id) => [id, runtime.slice.toolCalls[id]]).filter(([, toolCall]) => toolCall),
     ) as Record<string, AcpToolCallState>;
-    return hydrateToolCalls(selected, payloads);
+    return hydrateToolCalls(selected, selectedPayloads);
   }
 
   private payloadsFor(runtime: ThreadSessionRuntime): Map<string, ToolCallPayload> {
@@ -648,83 +658,107 @@ export class AgentConnectionManager {
   }
 
   private scheduleSnapshot(runtime: ThreadSessionRuntime): void {
-    if (
-      !this.snapshotStore.enabled ||
-      this.snapshotWritesDisabled ||
-      runtime.snapshotDirty === false
-    ) {
-      return;
-    }
+    if (!this.snapshotStore.enabled || runtime.snapshotDirty === false) return;
     const existing = this.snapshotTimers.get(runtime.threadId);
     if (existing) clearTimeout(existing);
+    // While storage is failing, debounced writes wait out the backoff instead
+    // of hammering a full or broken disk. Explicit flushes still try once.
+    const delay = Math.max(2_000, this.snapshotWritesBlockedUntil - Date.now());
     const timer = setTimeout(() => {
       this.snapshotTimers.delete(runtime.threadId);
       void this.queueSnapshotWrite(runtime);
-    }, 2_000);
+    }, delay);
     timer.unref?.();
     this.snapshotTimers.set(runtime.threadId, timer);
   }
 
-  private queueSnapshotWrite(runtime: ThreadSessionRuntime): Promise<void> {
-    if (
-      !this.snapshotStore.enabled ||
-      this.snapshotWritesDisabled ||
-      runtime.slice.isStreaming ||
-      runtime.promptInFlight ||
-      this.loadingSessionThreads.has(runtime.threadId) ||
-      runtime.agentReady === false
-    ) {
-      return Promise.resolve();
-    }
-    const input = {
-      threadId: runtime.threadId,
-      agentSessionId: runtime.agentSessionId,
-      agentId: runtime.agentId,
-      slice: runtime.slice,
-      payloads: new Map(this.payloadsFor(runtime)),
-    };
-    const payloadRevision = runtime.payloadRevision ?? 0;
-    const previous = this.snapshotWriteChains.get(runtime.threadId) ?? Promise.resolve();
-    const write = previous
-      .catch(() => undefined)
-      .then(() =>
-        this.snapshotStore.write({
-          ...input,
-          // Resolve the base generation only after the prior per-thread write
-          // settles; that write may have atomically replaced and unlinked it.
-          baseSnapshot: runtime.snapshotPayloadSource,
-        }),
-      )
-      .then((snapshot) => {
-        if (!snapshot || this.sessions.get(runtime.threadId) !== runtime) return;
-        runtime.snapshotPayloadSource = snapshot;
-        if ((runtime.payloadRevision ?? 0) === payloadRevision) {
-          // The immutable sidecar is now the backing store. Keep the main
-          // process lean; individual trace/diff payloads reload on demand.
-          this.payloadsFor(runtime).clear();
-          runtime.snapshotDirty = false;
+  private snapshotWritable(runtime: ThreadSessionRuntime): boolean {
+    return (
+      this.snapshotStore.enabled &&
+      !runtime.slice.isStreaming &&
+      !runtime.promptInFlight &&
+      !this.loadingSessionThreads.has(runtime.threadId) &&
+      runtime.agentReady !== false
+    );
+  }
+
+  /**
+   * Queue a display-snapshot write. Resolves false only when the write it
+   * covers failed. Requests made while a write is already pending share it:
+   * the pending write captures the runtime when it starts, so it persists the
+   * latest revision and retains one input per thread instead of one per call.
+   */
+  private queueSnapshotWrite(runtime: ThreadSessionRuntime): Promise<boolean> {
+    if (!this.snapshotWritable(runtime)) return Promise.resolve(true);
+    const threadId = runtime.threadId;
+    const pending = this.pendingSnapshotWrites.get(threadId);
+    if (pending) return pending;
+    const previous = this.snapshotWriteChains.get(threadId) ?? Promise.resolve(true);
+    const write: Promise<boolean> = previous
+      .catch(() => false)
+      .then(() => {
+        if (this.pendingSnapshotWrites.get(threadId) === write) {
+          this.pendingSnapshotWrites.delete(threadId);
         }
-      })
-      .catch((error) => {
-        if (!this.snapshotWritesDisabled) {
-          console.warn("[thread-snapshot] disabling writes for this app session:", error);
-        }
-        this.snapshotWritesDisabled = true;
+        return this.writeSnapshotNow(runtime);
       })
       .finally(() => {
-        if (this.snapshotWriteChains.get(runtime.threadId) === write) {
-          this.snapshotWriteChains.delete(runtime.threadId);
+        if (this.snapshotWriteChains.get(threadId) === write) {
+          this.snapshotWriteChains.delete(threadId);
         }
       });
-    this.snapshotWriteChains.set(runtime.threadId, write);
+    this.pendingSnapshotWrites.set(threadId, write);
+    this.snapshotWriteChains.set(threadId, write);
     return write;
   }
 
-  private async flushRuntimeSnapshot(runtime: ThreadSessionRuntime): Promise<void> {
+  private async writeSnapshotNow(runtime: ThreadSessionRuntime): Promise<boolean> {
+    // A turn may have started while this write waited behind the previous one.
+    if (!this.snapshotWritable(runtime)) return true;
+    const slice = runtime.slice;
+    const payloadRevision = runtime.payloadRevision ?? 0;
+    try {
+      const snapshot = await this.snapshotStore.write({
+        threadId: runtime.threadId,
+        agentSessionId: runtime.agentSessionId,
+        agentId: runtime.agentId,
+        slice,
+        payloads: new Map(this.payloadsFor(runtime)),
+        // Resolve the base generation only after the prior per-thread write
+        // settles; that write may have atomically replaced and unlinked it.
+        baseSnapshot: runtime.snapshotPayloadSource,
+      });
+      this.snapshotWriteFailures = 0;
+      this.snapshotWritesBlockedUntil = 0;
+      if (!snapshot || this.sessions.get(runtime.threadId) !== runtime) return true;
+      runtime.snapshotPayloadSource = snapshot;
+      if ((runtime.payloadRevision ?? 0) === payloadRevision) {
+        // The immutable sidecar is now the backing store. Keep the main
+        // process lean; individual trace/diff payloads reload on demand.
+        this.payloadsFor(runtime).clear();
+        if (runtime.slice === slice) runtime.snapshotDirty = false;
+      }
+      return true;
+    } catch (error) {
+      // Back off globally (one disk serves every thread) but never disable
+      // writes for the rest of the session: the next success resets it. Live
+      // payloads stay in memory because they were not persisted.
+      this.snapshotWriteFailures++;
+      const backoffMs = Math.min(5 * 60_000, 2_000 * 2 ** (this.snapshotWriteFailures - 1));
+      this.snapshotWritesBlockedUntil = Date.now() + backoffMs;
+      if (this.snapshotWriteFailures === 1) {
+        console.warn("[thread-snapshot] write failed; retrying with backoff:", error);
+      }
+      if (this.sessions.get(runtime.threadId) === runtime) this.scheduleSnapshot(runtime);
+      return false;
+    }
+  }
+
+  private flushRuntimeSnapshot(runtime: ThreadSessionRuntime): Promise<boolean> {
     const timer = this.snapshotTimers.get(runtime.threadId);
     if (timer) clearTimeout(timer);
     this.snapshotTimers.delete(runtime.threadId);
-    await this.queueSnapshotWrite(runtime);
+    return this.queueSnapshotWrite(runtime);
   }
 
   /** Force a settled snapshot to disk (used by benchmark setup and shutdown). */
@@ -733,8 +767,7 @@ export class AgentConnectionManager {
     if (!runtime || runtime.agentReady === false || this.loadingSessionThreads.has(threadId)) {
       return false;
     }
-    await this.flushRuntimeSnapshot(runtime);
-    return !this.snapshotWritesDisabled;
+    return this.flushRuntimeSnapshot(runtime);
   }
 
   private async flushAllSnapshots(): Promise<void> {

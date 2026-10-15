@@ -47,7 +47,15 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-type SectionId = "design" | "appearance" | "agents" | "accounts" | "keyboard" | "power" | "remote";
+type SectionId =
+  | "design"
+  | "appearance"
+  | "agents"
+  | "accounts"
+  | "keyboard"
+  | "power"
+  | "remote"
+  | "storage";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
@@ -56,6 +64,7 @@ const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "accounts", label: "Account" },
   { id: "keyboard", label: "Keyboard & trackpad" },
   { id: "power", label: "Power" },
+  { id: "storage", label: "Storage" },
   { id: "remote", label: "Remote" },
 ];
 
@@ -328,6 +337,7 @@ function AgentsSettingsSection() {
 }
 
 const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
+  storage: { title: "Storage", blurb: "Control dependency installs in new workspaces." },
   design: {
     title: "Workspace design system",
     blurb: "Git-state colors, surfaces, and controls in light and dark mode.",
@@ -471,6 +481,100 @@ function PowerView() {
   );
 }
 
+function StorageView() {
+  const [autoInstall, setAutoInstall] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [compacting, setCompacting] = useState(false);
+  const [compactionMessage, setCompactionMessage] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    window.omni.worktrees
+      .getAutoInstall()
+      .then((value) => {
+        if (!disposed) setAutoInstall(value);
+      })
+      .catch(() => {
+        if (!disposed) setError("Could not load storage settings.");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  const toggle = async () => {
+    if (autoInstall === null || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      setAutoInstall(await window.omni.worktrees.setAutoInstall(!autoInstall));
+    } catch {
+      setError("Could not save storage settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const compact = async () => {
+    if (compacting) return;
+    setCompacting(true);
+    setError(null);
+    setCompactionMessage(null);
+    try {
+      const result = await window.omni.storage.compactDatabase();
+      const mib = (result.reclaimedBytes / (1024 * 1024)).toFixed(1);
+      setCompactionMessage(
+        result.checkpointBusy
+          ? "Database compacted. Some disk space can be reclaimed after current database reads finish."
+          : `${mib} MiB reclaimed. Your projects, conversations and diagnostics are kept.`,
+      );
+    } catch {
+      setError("Could not compact the database. Finish current tasks and try again.");
+    } finally {
+      setCompacting(false);
+    }
+  };
+  return (
+    <>
+      <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
+        <SettingRow
+          title="Install dependencies automatically"
+          description="Each new workspace gets its own dependencies. Turn this off to save disk space, then run your package manager’s install command in a workspace when needed. Existing workspaces are kept."
+        >
+          <Switch
+            label="Install dependencies automatically"
+            checked={autoInstall ?? false}
+            disabled={autoInstall === null || saving}
+            onToggle={() => void toggle()}
+            className="gap-0 px-0 py-0 [&>span:last-of-type]:sr-only"
+            data-pipper-id="settings-worktree-auto-install"
+          />
+        </SettingRow>
+        <SettingRow
+          title="Reclaim unused database space"
+          description="Return space freed by old records to disk. This keeps your conversations and workspaces and may take a moment."
+        >
+          <Button
+            disabled={compacting}
+            onClick={() => void compact()}
+            data-pipper-id="settings-compact-database"
+          >
+            {compacting ? "Compacting…" : "Reclaim space"}
+          </Button>
+        </SettingRow>
+      </Elevated>
+      {compactionMessage && (
+        <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+          {compactionMessage}
+        </p>
+      )}
+      {error && (
+        <p className="mt-2 text-[11px] text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
 function RemoteView() {
   return (
     <>
@@ -551,6 +655,7 @@ export function SettingsApp() {
                 {section === "accounts" && <AccountsView />}
                 {section === "keyboard" && <KeyboardView />}
                 {section === "power" && <PowerView />}
+                {section === "storage" && <StorageView />}
                 {section === "remote" && <RemoteView />}
               </main>
             </ScrollArea>

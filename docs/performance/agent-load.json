@@ -1,0 +1,607 @@
+{
+  "capturedAt": "2026-10-15T06:11:02.955Z",
+  "buildSha256": "d88b73bb9baf744c1c20d815a7a53d68b0cb5721d89584c0335f4ec18c81fc5a",
+  "agents": 8,
+  "worktrees": 8,
+  "turnsPerAgent": 4,
+  "agentType": "real mock ACP processes; these measurements do not represent Codex/Claude CLI memory",
+  "stages": [
+    {
+      "name": "startup",
+      "elapsedMs": 901.6588750000001,
+      "processes": [
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 220971008,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 87539712,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46645248,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 167821312,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 36864000,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 559841280,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    },
+    {
+      "name": "agents-ready",
+      "processes": [
+        {
+          "pid": 1013,
+          "parentPid": 98615,
+          "rssBytes": 50348032,
+          "executable": "node"
+        },
+        {
+          "pid": 1288,
+          "parentPid": 98615,
+          "rssBytes": 50413568,
+          "executable": "node"
+        },
+        {
+          "pid": 1357,
+          "parentPid": 98615,
+          "rssBytes": 50364416,
+          "executable": "node"
+        },
+        {
+          "pid": 1412,
+          "parentPid": 98615,
+          "rssBytes": 50380800,
+          "executable": "node"
+        },
+        {
+          "pid": 1919,
+          "parentPid": 98615,
+          "rssBytes": 50446336,
+          "executable": "node"
+        },
+        {
+          "pid": 2847,
+          "parentPid": 98615,
+          "rssBytes": 50298880,
+          "executable": "node"
+        },
+        {
+          "pid": 3046,
+          "parentPid": 98615,
+          "rssBytes": 50380800,
+          "executable": "node"
+        },
+        {
+          "pid": 3071,
+          "parentPid": 98615,
+          "rssBytes": 3751936,
+          "executable": "(git)"
+        },
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 234405888,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 96452608,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46956544,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 186613760,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 50626560,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 971440128,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    },
+    {
+      "name": "turn-1-settled",
+      "processes": [
+        {
+          "pid": 1013,
+          "parentPid": 98615,
+          "rssBytes": 61194240,
+          "executable": "node"
+        },
+        {
+          "pid": 1288,
+          "parentPid": 98615,
+          "rssBytes": 61276160,
+          "executable": "node"
+        },
+        {
+          "pid": 1357,
+          "parentPid": 98615,
+          "rssBytes": 61194240,
+          "executable": "node"
+        },
+        {
+          "pid": 1412,
+          "parentPid": 98615,
+          "rssBytes": 61407232,
+          "executable": "node"
+        },
+        {
+          "pid": 1919,
+          "parentPid": 98615,
+          "rssBytes": 61210624,
+          "executable": "node"
+        },
+        {
+          "pid": 2847,
+          "parentPid": 98615,
+          "rssBytes": 61390848,
+          "executable": "node"
+        },
+        {
+          "pid": 3046,
+          "parentPid": 98615,
+          "rssBytes": 60948480,
+          "executable": "node"
+        },
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 252428288,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 102531072,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46956544,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 200507392,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 61276160,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 1092321280,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    },
+    {
+      "name": "turn-2-settled",
+      "processes": [
+        {
+          "pid": 1013,
+          "parentPid": 98615,
+          "rssBytes": 61243392,
+          "executable": "node"
+        },
+        {
+          "pid": 1288,
+          "parentPid": 98615,
+          "rssBytes": 61374464,
+          "executable": "node"
+        },
+        {
+          "pid": 1357,
+          "parentPid": 98615,
+          "rssBytes": 61259776,
+          "executable": "node"
+        },
+        {
+          "pid": 1412,
+          "parentPid": 98615,
+          "rssBytes": 63602688,
+          "executable": "node"
+        },
+        {
+          "pid": 1919,
+          "parentPid": 98615,
+          "rssBytes": 63471616,
+          "executable": "node"
+        },
+        {
+          "pid": 2847,
+          "parentPid": 98615,
+          "rssBytes": 63537152,
+          "executable": "node"
+        },
+        {
+          "pid": 3046,
+          "parentPid": 98615,
+          "rssBytes": 63127552,
+          "executable": "node"
+        },
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 269991936,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 121880576,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46956544,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 282656768,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 61358080,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 1220460544,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    },
+    {
+      "name": "turn-3-settled",
+      "processes": [
+        {
+          "pid": 1013,
+          "parentPid": 98615,
+          "rssBytes": 61276160,
+          "executable": "node"
+        },
+        {
+          "pid": 1288,
+          "parentPid": 98615,
+          "rssBytes": 61390848,
+          "executable": "node"
+        },
+        {
+          "pid": 1357,
+          "parentPid": 98615,
+          "rssBytes": 61374464,
+          "executable": "node"
+        },
+        {
+          "pid": 1412,
+          "parentPid": 98615,
+          "rssBytes": 62701568,
+          "executable": "node"
+        },
+        {
+          "pid": 1919,
+          "parentPid": 98615,
+          "rssBytes": 62455808,
+          "executable": "node"
+        },
+        {
+          "pid": 2847,
+          "parentPid": 98615,
+          "rssBytes": 62717952,
+          "executable": "node"
+        },
+        {
+          "pid": 3046,
+          "parentPid": 98615,
+          "rssBytes": 62078976,
+          "executable": "node"
+        },
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 274612224,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 122257408,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46956544,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 287227904,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 61358080,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 1226407936,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    },
+    {
+      "name": "turn-4-settled",
+      "processes": [
+        {
+          "pid": 1013,
+          "parentPid": 98615,
+          "rssBytes": 63651840,
+          "executable": "node"
+        },
+        {
+          "pid": 1288,
+          "parentPid": 98615,
+          "rssBytes": 63537152,
+          "executable": "node"
+        },
+        {
+          "pid": 1357,
+          "parentPid": 98615,
+          "rssBytes": 63504384,
+          "executable": "node"
+        },
+        {
+          "pid": 1412,
+          "parentPid": 98615,
+          "rssBytes": 62504960,
+          "executable": "node"
+        },
+        {
+          "pid": 1919,
+          "parentPid": 98615,
+          "rssBytes": 62193664,
+          "executable": "node"
+        },
+        {
+          "pid": 2847,
+          "parentPid": 98615,
+          "rssBytes": 62472192,
+          "executable": "node"
+        },
+        {
+          "pid": 3046,
+          "parentPid": 98615,
+          "rssBytes": 61931520,
+          "executable": "node"
+        },
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 278118400,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 126025728,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46956544,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 306642944,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 63488000,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 1261027328,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    },
+    {
+      "name": "persisted-payloads-expanded",
+      "processes": [
+        {
+          "pid": 1013,
+          "parentPid": 98615,
+          "rssBytes": 63651840,
+          "executable": "node"
+        },
+        {
+          "pid": 1288,
+          "parentPid": 98615,
+          "rssBytes": 63537152,
+          "executable": "node"
+        },
+        {
+          "pid": 1357,
+          "parentPid": 98615,
+          "rssBytes": 63504384,
+          "executable": "node"
+        },
+        {
+          "pid": 1412,
+          "parentPid": 98615,
+          "rssBytes": 62504960,
+          "executable": "node"
+        },
+        {
+          "pid": 1919,
+          "parentPid": 98615,
+          "rssBytes": 62193664,
+          "executable": "node"
+        },
+        {
+          "pid": 2847,
+          "parentPid": 98615,
+          "rssBytes": 62472192,
+          "executable": "node"
+        },
+        {
+          "pid": 3046,
+          "parentPid": 98615,
+          "rssBytes": 61931520,
+          "executable": "node"
+        },
+        {
+          "pid": 98615,
+          "parentPid": 98476,
+          "rssBytes": 316866560,
+          "executable": "Electron"
+        },
+        {
+          "pid": 99455,
+          "parentPid": 98615,
+          "rssBytes": 119455744,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99456,
+          "parentPid": 98615,
+          "rssBytes": 46956544,
+          "executable": "Electron Helper"
+        },
+        {
+          "pid": 99602,
+          "parentPid": 98615,
+          "rssBytes": 325107712,
+          "executable": "Electron Helper (Renderer)"
+        },
+        {
+          "pid": 99647,
+          "parentPid": 98615,
+          "rssBytes": 63488000,
+          "executable": "node"
+        }
+      ],
+      "summedRssBytes": 1311670272,
+      "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+    }
+  ],
+  "settingsVerified": true,
+  "automaticInstallSkipped": true,
+  "hydrated": [
+    {
+      "threadId": "1e1afe12-6985-416f-9a6b-c3b53594b23d",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "8be7af70-88b8-4749-8d3d-9e678673c907",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "36ed3005-6cb0-4a33-92c0-b108012dad56",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "96987438-4e2a-49d7-951e-33bc9ea2c5a5",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "5318a33a-53a8-4eeb-84fd-fdbf148aaf22",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "30d2b3df-c381-41da-8e1e-322fefbd1ca9",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "281112e3-bb07-4e70-8b90-7916969cd43e",
+      "tools": 4,
+      "payloads": 4
+    },
+    {
+      "threadId": "b240d395-e6dc-4e66-a92b-5062130e2920",
+      "tools": 4,
+      "payloads": 4
+    }
+  ],
+  "disk": [
+    {
+      "path": "/var/folders/qm/9_x9x3196_xd3ct5dk8s8ysw0000gn/T/pipper-agent-load-KiT58t/userdata",
+      "categories": {
+        "other": {
+          "files": 53,
+          "logicalBytes": 15005954,
+          "allocatedBytes": 14327808
+        }
+      },
+      "logicalBytes": 15005954,
+      "allocatedBytes": 14327808,
+      "symlinks": 3,
+      "errors": 0
+    },
+    {
+      "path": "/var/folders/qm/9_x9x3196_xd3ct5dk8s8ysw0000gn/T/pipper-agent-load-KiT58t/worktrees",
+      "categories": {
+        "other": {
+          "files": 8,
+          "logicalBytes": 216,
+          "allocatedBytes": 32768
+        },
+        "git": {
+          "files": 8,
+          "logicalBytes": 1028,
+          "allocatedBytes": 32768
+        }
+      },
+      "logicalBytes": 1244,
+      "allocatedBytes": 65536,
+      "symlinks": 0,
+      "errors": 0
+    }
+  ]
+}

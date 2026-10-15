@@ -492,6 +492,12 @@ export default function App() {
           title: "Dependency install failed",
           description: `${progress.workspaceName}: ${progress.message ?? "Install did not complete."}`,
         });
+      } else if (progress.status === "skipped" && progress.message) {
+        toast({
+          icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
+          title: "Workspace created",
+          description: `${progress.workspaceName}: ${progress.message}`,
+        });
       }
       // "skipped" (no package.json) is intentionally silent.
     });

@@ -1,0 +1,302 @@
+{
+  "capturedAt": "2026-10-15T05:48:10.689Z",
+  "platform": "darwin",
+  "directories": [
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/a72cb0de-448b-4efa-928b-51193dc077df/phone-what-is-this-project-abo-mtq0whcn",
+      "categories": {
+        "other": {
+          "files": 19,
+          "logicalBytes": 60168,
+          "allocatedBytes": 114688
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 98,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 60266,
+      "allocatedBytes": 118784,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/a72cb0de-448b-4efa-928b-51193dc077df/phone-explain-mtq24nde",
+      "categories": {
+        "other": {
+          "files": 19,
+          "logicalBytes": 60168,
+          "allocatedBytes": 114688
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 81,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 60249,
+      "allocatedBytes": 118784,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/9caf2a36-f1b5-4722-b985-3e705dfed661/mythos",
+      "categories": {
+        "other": {
+          "files": 9,
+          "logicalBytes": 19115,
+          "allocatedBytes": 49152
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 65,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 19180,
+      "allocatedBytes": 53248,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/31f2978b-2166-46c8-bf9a-0a114ecf6431/phone-ad113d3009800c2b",
+      "categories": {
+        "other": {
+          "files": 629,
+          "logicalBytes": 28212011,
+          "allocatedBytes": 29749248
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 93,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 28212104,
+      "allocatedBytes": 29753344,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/31f2978b-2166-46c8-bf9a-0a114ecf6431/phone-d4616c6281e53a7b",
+      "categories": {
+        "other": {
+          "files": 629,
+          "logicalBytes": 28212011,
+          "allocatedBytes": 29749248
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 93,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 28212104,
+      "allocatedBytes": 29753344,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/f8b1ac7e-5f4d-42e0-84fe-5a4afb385bed/know",
+      "categories": {
+        "other": {
+          "files": 12,
+          "logicalBytes": 30691,
+          "allocatedBytes": 69632
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 63,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 30754,
+      "allocatedBytes": 73728,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/61b2bed8-c5ae-443f-94cb-5d76b9c63bec/phone-9053c97c",
+      "categories": {
+        "other": {
+          "files": 19,
+          "logicalBytes": 60168,
+          "allocatedBytes": 114688
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 73,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 60241,
+      "allocatedBytes": 118784,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/61b2bed8-c5ae-443f-94cb-5d76b9c63bec/phone-d661281a",
+      "categories": {
+        "other": {
+          "files": 19,
+          "logicalBytes": 60168,
+          "allocatedBytes": 114688
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 73,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 60241,
+      "allocatedBytes": 118784,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/61b2bed8-c5ae-443f-94cb-5d76b9c63bec/phone-3b52a555",
+      "categories": {
+        "other": {
+          "files": 21,
+          "logicalBytes": 72223,
+          "allocatedBytes": 131072
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 73,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 72296,
+      "allocatedBytes": 135168,
+      "symlinks": 1,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/61b2bed8-c5ae-443f-94cb-5d76b9c63bec/phone-read-the-code-base-no-code-chang",
+      "categories": {
+        "other": {
+          "files": 19,
+          "logicalBytes": 60168,
+          "allocatedBytes": 114688
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 97,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 60265,
+      "allocatedBytes": 118784,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/61b2bed8-c5ae-443f-94cb-5d76b9c63bec/phone-9eb6edbddadc6232",
+      "categories": {
+        "other": {
+          "files": 19,
+          "logicalBytes": 60168,
+          "allocatedBytes": 114688
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 81,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 60249,
+      "allocatedBytes": 118784,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/ac746c8c-5b7c-4167-90bc-601ca03b4988/performance",
+      "categories": {
+        "other": {
+          "files": 709,
+          "logicalBytes": 63290836,
+          "allocatedBytes": 64974848
+        },
+        "dependencies": {
+          "files": 110224,
+          "logicalBytes": 1092726062,
+          "allocatedBytes": 1423790080
+        },
+        "builds": {
+          "files": 5,
+          "logicalBytes": 2806963,
+          "allocatedBytes": 2822144
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 71,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 1158823932,
+      "allocatedBytes": 1491591168,
+      "symlinks": 72,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/.pipper/worktrees/bae0366a-9087-4e4c-966d-bd4ef5ce1295/phone-what-mtq1egny",
+      "categories": {
+        "other": {
+          "files": 60,
+          "logicalBytes": 17063312,
+          "allocatedBytes": 17211392
+        },
+        "dependencies": {
+          "files": 609,
+          "logicalBytes": 2242273,
+          "allocatedBytes": 3989504
+        },
+        "git": {
+          "files": 1,
+          "logicalBytes": 93,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 19305678,
+      "allocatedBytes": 21204992,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/Library/Application Support/Pipper",
+      "categories": {
+        "other": {
+          "files": 1,
+          "logicalBytes": 2118,
+          "allocatedBytes": 4096
+        }
+      },
+      "logicalBytes": 2118,
+      "allocatedBytes": 4096,
+      "symlinks": 0,
+      "errors": 0
+    },
+    {
+      "path": "/Users/harshithpasupuleti/Library/pipper",
+      "categories": {
+        "other": {
+          "files": 35,
+          "logicalBytes": 118489,
+          "allocatedBytes": 245760
+        }
+      },
+      "logicalBytes": 118489,
+      "allocatedBytes": 245760,
+      "symlinks": 0,
+      "errors": 0
+    }
+  ],
+  "processes": null,
+  "limitations": [
+    "Metadata scan is not atomic; files can change during collection.",
+    "Allocated bytes deduplicate hard links within each directory, not APFS/reflink shared extents.",
+    "Categories use directory names; other includes source files and uncategorized data."
+  ]
+}

@@ -1,0 +1,548 @@
+{
+  "capturedAt": "2026-10-15T07:07:45.005Z",
+  "scope": "Read-only snapshot of the running installed Pipper process tree during OpenCode exploration. Existing provider sessions and other work may be present. No before/after or causal attribution to these three tasks. Process names only, no command arguments.",
+  "processes": [
+    {
+      "pid": 25690,
+      "parentPid": 68791,
+      "rssBytes": 46088192,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 26057,
+      "parentPid": 69048,
+      "rssBytes": 6012928,
+      "executable": "paper"
+    },
+    {
+      "pid": 46645,
+      "parentPid": 68459,
+      "rssBytes": 6029312,
+      "executable": "paper"
+    },
+    {
+      "pid": 67029,
+      "parentPid": 69048,
+      "rssBytes": 48676864,
+      "executable": "node"
+    },
+    {
+      "pid": 67057,
+      "parentPid": 67029,
+      "rssBytes": 1654784,
+      "executable": "ps"
+    },
+    {
+      "pid": 68322,
+      "parentPid": 1,
+      "rssBytes": 143769600,
+      "executable": "Pipper Code (Alpha)"
+    },
+    {
+      "pid": 68325,
+      "parentPid": 68322,
+      "rssBytes": 48922624,
+      "executable": "Pipper Code (Alpha) Helper"
+    },
+    {
+      "pid": 68326,
+      "parentPid": 68322,
+      "rssBytes": 25378816,
+      "executable": "Pipper Code (Alpha) Helper"
+    },
+    {
+      "pid": 68369,
+      "parentPid": 68322,
+      "rssBytes": 171196416,
+      "executable": "Pipper Code (Alpha) Helper (Renderer)"
+    },
+    {
+      "pid": 68448,
+      "parentPid": 68322,
+      "rssBytes": 8634368,
+      "executable": "codex-acp"
+    },
+    {
+      "pid": 68459,
+      "parentPid": 68322,
+      "rssBytes": 768933888,
+      "executable": "opencode"
+    },
+    {
+      "pid": 68480,
+      "parentPid": 68322,
+      "rssBytes": 22708224,
+      "executable": "grok"
+    },
+    {
+      "pid": 68491,
+      "parentPid": 68322,
+      "rssBytes": 7176192,
+      "executable": "agent"
+    },
+    {
+      "pid": 68502,
+      "parentPid": 68322,
+      "rssBytes": 14827520,
+      "executable": "node"
+    },
+    {
+      "pid": 68513,
+      "parentPid": 68322,
+      "rssBytes": 48840704,
+      "executable": "devin"
+    },
+    {
+      "pid": 68530,
+      "parentPid": 68322,
+      "rssBytes": 8634368,
+      "executable": "codex-acp"
+    },
+    {
+      "pid": 68791,
+      "parentPid": 68322,
+      "rssBytes": 17317888,
+      "executable": "agy_acp_server.par"
+    },
+    {
+      "pid": 68944,
+      "parentPid": 68530,
+      "rssBytes": 10518528,
+      "executable": "node"
+    },
+    {
+      "pid": 68953,
+      "parentPid": 68944,
+      "rssBytes": 6045696,
+      "executable": "node"
+    },
+    {
+      "pid": 68954,
+      "parentPid": 68953,
+      "rssBytes": 72564736,
+      "executable": "codex"
+    },
+    {
+      "pid": 69035,
+      "parentPid": 68448,
+      "rssBytes": 30736384,
+      "executable": "node"
+    },
+    {
+      "pid": 69046,
+      "parentPid": 69035,
+      "rssBytes": 6832128,
+      "executable": "node"
+    },
+    {
+      "pid": 69048,
+      "parentPid": 69046,
+      "rssBytes": 162840576,
+      "executable": "codex"
+    },
+    {
+      "pid": 69239,
+      "parentPid": 68322,
+      "rssBytes": 32522240,
+      "executable": "cloudflared"
+    },
+    {
+      "pid": 69363,
+      "parentPid": 68459,
+      "rssBytes": 5783552,
+      "executable": "paper"
+    },
+    {
+      "pid": 69497,
+      "parentPid": 68513,
+      "rssBytes": 5783552,
+      "executable": "paper"
+    },
+    {
+      "pid": 71989,
+      "parentPid": 68791,
+      "rssBytes": 46956544,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 72293,
+      "parentPid": 68791,
+      "rssBytes": 45219840,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 72559,
+      "parentPid": 68791,
+      "rssBytes": 45056000,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 73571,
+      "parentPid": 69048,
+      "rssBytes": 5799936,
+      "executable": "paper"
+    },
+    {
+      "pid": 73639,
+      "parentPid": 69048,
+      "rssBytes": 6062080,
+      "executable": "paper"
+    },
+    {
+      "pid": 74550,
+      "parentPid": 69048,
+      "rssBytes": 5767168,
+      "executable": "paper"
+    },
+    {
+      "pid": 75886,
+      "parentPid": 69048,
+      "rssBytes": 28262400,
+      "executable": "codex-code-mode-host"
+    },
+    {
+      "pid": 16376,
+      "parentPid": 40628,
+      "rssBytes": 4046848,
+      "executable": "node"
+    },
+    {
+      "pid": 16377,
+      "parentPid": 16376,
+      "rssBytes": 28246016,
+      "executable": "copilot"
+    },
+    {
+      "pid": 27071,
+      "parentPid": 43364,
+      "rssBytes": 49496064,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 29536,
+      "parentPid": 43364,
+      "rssBytes": 44990464,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 33032,
+      "parentPid": 43364,
+      "rssBytes": 45514752,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 35583,
+      "parentPid": 43364,
+      "rssBytes": 45580288,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 37847,
+      "parentPid": 43364,
+      "rssBytes": 45858816,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 38436,
+      "parentPid": 68322,
+      "rssBytes": 1327104,
+      "executable": "zsh"
+    },
+    {
+      "pid": 38774,
+      "parentPid": 38436,
+      "rssBytes": 1245184,
+      "executable": "bun"
+    },
+    {
+      "pid": 38775,
+      "parentPid": 38774,
+      "rssBytes": 819200,
+      "executable": "bash"
+    },
+    {
+      "pid": 38777,
+      "parentPid": 38775,
+      "rssBytes": 138510336,
+      "executable": "node"
+    },
+    {
+      "pid": 38922,
+      "parentPid": 38777,
+      "rssBytes": 11010048,
+      "executable": "esbuild"
+    },
+    {
+      "pid": 38923,
+      "parentPid": 38777,
+      "rssBytes": 165527552,
+      "executable": "Electron"
+    },
+    {
+      "pid": 39219,
+      "parentPid": 38923,
+      "rssBytes": 35373056,
+      "executable": "Electron Helper"
+    },
+    {
+      "pid": 39220,
+      "parentPid": 38923,
+      "rssBytes": 28278784,
+      "executable": "Electron Helper"
+    },
+    {
+      "pid": 39449,
+      "parentPid": 38923,
+      "rssBytes": 52707328,
+      "executable": "Electron Helper (Renderer)"
+    },
+    {
+      "pid": 39927,
+      "parentPid": 43364,
+      "rssBytes": 45105152,
+      "executable": "localharness_external"
+    },
+    {
+      "pid": 40441,
+      "parentPid": 38923,
+      "rssBytes": 7143424,
+      "executable": "agent"
+    },
+    {
+      "pid": 40476,
+      "parentPid": 38923,
+      "rssBytes": 15056896,
+      "executable": "node"
+    },
+    {
+      "pid": 40628,
+      "parentPid": 38923,
+      "rssBytes": 7995392,
+      "executable": "copilot --acp --stdio"
+    },
+    {
+      "pid": 40699,
+      "parentPid": 38923,
+      "rssBytes": 4046848,
+      "executable": "node"
+    },
+    {
+      "pid": 40759,
+      "parentPid": 38923,
+      "rssBytes": 13221888,
+      "executable": "node"
+    },
+    {
+      "pid": 40793,
+      "parentPid": 38923,
+      "rssBytes": 152633344,
+      "executable": "opencode"
+    },
+    {
+      "pid": 40826,
+      "parentPid": 40699,
+      "rssBytes": 22511616,
+      "executable": "grok"
+    },
+    {
+      "pid": 40861,
+      "parentPid": 38923,
+      "rssBytes": 26034176,
+      "executable": "devin"
+    },
+    {
+      "pid": 40896,
+      "parentPid": 38923,
+      "rssBytes": 4063232,
+      "executable": "node"
+    },
+    {
+      "pid": 40930,
+      "parentPid": 38923,
+      "rssBytes": 13516800,
+      "executable": "node"
+    },
+    {
+      "pid": 40935,
+      "parentPid": 40759,
+      "rssBytes": 4046848,
+      "executable": "node"
+    },
+    {
+      "pid": 40938,
+      "parentPid": 40935,
+      "rssBytes": 31293440,
+      "executable": "codex"
+    },
+    {
+      "pid": 40940,
+      "parentPid": 40930,
+      "rssBytes": 4046848,
+      "executable": "node"
+    },
+    {
+      "pid": 40946,
+      "parentPid": 40940,
+      "rssBytes": 31948800,
+      "executable": "codex"
+    },
+    {
+      "pid": 41044,
+      "parentPid": 40861,
+      "rssBytes": 5799936,
+      "executable": "paper"
+    },
+    {
+      "pid": 41564,
+      "parentPid": 40896,
+      "rssBytes": 24444928,
+      "executable": "node"
+    },
+    {
+      "pid": 43160,
+      "parentPid": 38923,
+      "rssBytes": 29491200,
+      "executable": "cloudflared"
+    },
+    {
+      "pid": 43364,
+      "parentPid": 38923,
+      "rssBytes": 17383424,
+      "executable": "agy_acp_server.par"
+    },
+    {
+      "pid": 46198,
+      "parentPid": 40793,
+      "rssBytes": 5799936,
+      "executable": "paper"
+    },
+    {
+      "pid": 60476,
+      "parentPid": 40793,
+      "rssBytes": 5799936,
+      "executable": "paper"
+    },
+    {
+      "pid": 71301,
+      "parentPid": 40476,
+      "rssBytes": 101695488,
+      "executable": "claude"
+    },
+    {
+      "pid": 71982,
+      "parentPid": 40476,
+      "rssBytes": 100040704,
+      "executable": "claude"
+    },
+    {
+      "pid": 72644,
+      "parentPid": 40476,
+      "rssBytes": 106463232,
+      "executable": "claude"
+    },
+    {
+      "pid": 74406,
+      "parentPid": 40476,
+      "rssBytes": 103890944,
+      "executable": "claude"
+    },
+    {
+      "pid": 75181,
+      "parentPid": 72644,
+      "rssBytes": 6127616,
+      "executable": "paper"
+    },
+    {
+      "pid": 75183,
+      "parentPid": 71301,
+      "rssBytes": 6144000,
+      "executable": "paper"
+    },
+    {
+      "pid": 75184,
+      "parentPid": 71982,
+      "rssBytes": 6160384,
+      "executable": "paper"
+    },
+    {
+      "pid": 75397,
+      "parentPid": 74406,
+      "rssBytes": 6127616,
+      "executable": "paper"
+    },
+    {
+      "pid": 78657,
+      "parentPid": 38923,
+      "rssBytes": 4063232,
+      "executable": "node"
+    },
+    {
+      "pid": 79949,
+      "parentPid": 78657,
+      "rssBytes": 10289152,
+      "executable": "node"
+    },
+    {
+      "pid": 82774,
+      "parentPid": 40946,
+      "rssBytes": 41484288,
+      "executable": "node"
+    },
+    {
+      "pid": 82775,
+      "parentPid": 40946,
+      "rssBytes": 41484288,
+      "executable": "node"
+    },
+    {
+      "pid": 82830,
+      "parentPid": 40946,
+      "rssBytes": 41484288,
+      "executable": "node"
+    },
+    {
+      "pid": 82920,
+      "parentPid": 40946,
+      "rssBytes": 41484288,
+      "executable": "node"
+    },
+    {
+      "pid": 83171,
+      "parentPid": 40946,
+      "rssBytes": 41484288,
+      "executable": "node"
+    },
+    {
+      "pid": 85365,
+      "parentPid": 40938,
+      "rssBytes": 6160384,
+      "executable": "paper"
+    },
+    {
+      "pid": 85470,
+      "parentPid": 40938,
+      "rssBytes": 6127616,
+      "executable": "paper"
+    },
+    {
+      "pid": 85472,
+      "parentPid": 40938,
+      "rssBytes": 6160384,
+      "executable": "paper"
+    },
+    {
+      "pid": 85475,
+      "parentPid": 40938,
+      "rssBytes": 6144000,
+      "executable": "paper"
+    },
+    {
+      "pid": 85563,
+      "parentPid": 40938,
+      "rssBytes": 6160384,
+      "executable": "paper"
+    }
+  ],
+  "summedRssBytes": 3770646528,
+  "note": "RSS includes shared pages per process; the sum is not unique physical RAM."
+}

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Thread } from "../contracts/threads.ts";
@@ -61,6 +61,73 @@ afterEach(() => {
 });
 
 describe("ThreadSnapshotStore", () => {
+  test("counts transcript rows in the disk budget and preserves resident payload sources", async () => {
+    const pinned = new Set([thread.id]);
+    const store = new ThreadSnapshotStore({
+      rootPath: root,
+      database,
+      maxPayloadBytes: 2000,
+      isPinned: (id) => pinned.has(id),
+    });
+    const slice = createEmptySessionSlice({
+      entries: [{ type: "agent_text", id: "text", messageId: null, text: "世界".repeat(200) }],
+    });
+    const first = await store.write({
+      threadId: thread.id,
+      agentSessionId: thread.agent_session_id,
+      agentId: thread.agent_id,
+      slice,
+      payloads: new Map(),
+    });
+    for (const id of ["thread-2", "thread-3"]) {
+      database
+        .prepare("INSERT INTO threads VALUES (?, ?, ?, ?)")
+        .run(id, thread.project_id, thread.agent_id, id);
+      await store.write({
+        threadId: id,
+        agentSessionId: id,
+        agentId: thread.agent_id,
+        slice,
+        payloads: new Map(),
+      });
+    }
+    expect(existsSync(first!.payloadPath)).toBe(true);
+    expect(
+      database.prepare("SELECT thread_id FROM thread_snapshots ORDER BY thread_id").all(),
+    ).toEqual([{ thread_id: "thread-1" }, { thread_id: "thread-3" }]);
+    pinned.clear();
+    await store.write({
+      threadId: "thread-3",
+      agentSessionId: "thread-3",
+      agentId: thread.agent_id,
+      slice,
+      payloads: new Map(),
+    });
+    expect(existsSync(first!.payloadPath)).toBe(false);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM threads").get()).toEqual({ count: 3 });
+  });
+
+  test("reclaims old orphan generations while preserving recent, referenced and unrelated files", async () => {
+    const old = join(root, "orphan-123-abcdef.jsonl.gz");
+    const partial = join(root, "orphan-123-abcdee.jsonl.gz.tmp");
+    const recent = join(root, "recent-124-abcdef.jsonl.gz");
+    const unrelated = join(root, "notes.jsonl.gz");
+    for (const path of [old, partial, recent, unrelated]) writeFileSync(path, "fixture");
+    const yesterday = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    for (const path of [old, partial, unrelated]) utimesSync(path, yesterday, yesterday);
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+    await store.write({
+      threadId: thread.id,
+      agentSessionId: thread.agent_session_id,
+      agentId: thread.agent_id,
+      slice: createEmptySessionSlice(),
+      payloads: new Map(),
+    });
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(partial)).toBe(false);
+    expect(existsSync(recent)).toBe(true);
+    expect(existsSync(unrelated)).toBe(true);
+  });
   test("round-trips a settled lean slice and streamed payload sidecar", async () => {
     const store = new ThreadSnapshotStore({ rootPath: root, database });
     const slice = createEmptySessionSlice({

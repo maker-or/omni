@@ -1,0 +1,53 @@
+{
+  "transport": "OpenCode CLI run using its actual Task tool and explore subagents",
+  "exitCode": 0,
+  "firstEventTimestamp": 1792048577763,
+  "lastEventTimestamp": 1792048948218,
+  "completedExploreTasks": [
+    {
+      "description": "Explore storage/navigation/workspace",
+      "subagentType": "explore",
+      "metadata": {
+        "parentSessionId": "ses_ec194d6e2ffeJFcwMdljQkyNXB",
+        "sessionId": "ses_ec1944e33ffe8cdLoLXyMRL6d0",
+        "model": {
+          "modelID": "deepseek-v4.1-flash",
+          "providerID": "opencode-go"
+        },
+        "truncated": false
+      },
+      "taskWrapper": "<task id=\"ses_ec1944e33ffe8cdLoLXyMRL6d0\" state=\"completed\">"
+    },
+    {
+      "description": "Explore connections/activation",
+      "subagentType": "explore",
+      "metadata": {
+        "parentSessionId": "ses_ec194d6e2ffeJFcwMdljQkyNXB",
+        "sessionId": "ses_ec1944f48ffetNp45EBAMwacli",
+        "model": {
+          "modelID": "deepseek-v4.1-flash",
+          "providerID": "opencode-go"
+        },
+        "truncated": false
+      },
+      "taskWrapper": "<task id=\"ses_ec1944f48ffetNp45EBAMwacli\" state=\"completed\">"
+    },
+    {
+      "description": "Explore renderer/monitor/terminals",
+      "subagentType": "explore",
+      "metadata": {
+        "parentSessionId": "ses_ec194d6e2ffeJFcwMdljQkyNXB",
+        "sessionId": "ses_ec1944da8ffeQ55fBzEyKSTd22",
+        "model": {
+          "modelID": "deepseek-v4.1-flash",
+          "providerID": "opencode-go"
+        },
+        "truncated": false
+      },
+      "taskWrapper": "<task id=\"ses_ec1944da8ffeQ55fBzEyKSTd22\" state=\"completed\">"
+    }
+  ],
+  "completedTaskCount": 3,
+  "finalStopReason": "stop",
+  "note": "Run transcript contains source reads and is kept locally in .tmp-check/opencode/bounded-review.jsonl. Per-task outputs and this final synthesis are preserved here; primary source verification is separate."
+}

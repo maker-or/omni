@@ -50,6 +50,37 @@ function seedSession(manager: AgentConnectionManager, threadId: string, sessionI
 }
 
 describe("activation snapshot", () => {
+  test("persisted trace expansion returns bodies without retaining them in the runtime", async () => {
+    const { manager } = makeManager();
+    seedSession(manager, "t1", "s1");
+    const internal = manager as any;
+    const runtime = internal.sessions.get("t1");
+    runtime.slice.toolCalls.a = { toolCallId: "a", title: "Read", hasPayload: true };
+    runtime.snapshotPayloadSource = { payloadPath: "fixture" };
+    internal.snapshotStore = {
+      loadPayloads: vi.fn(async () => new Map([["a", { rawOutput: "persisted body" }]])),
+    };
+    expect((await manager.getToolCalls("t1", ["a"])).a.rawOutput).toBe("persisted body");
+    expect(runtime.toolPayloads.size).toBe(0);
+    expect((await manager.getToolCalls("t1", ["a"])).a.rawOutput).toBe("persisted body");
+    expect(runtime.toolPayloads.size).toBe(0);
+  });
+
+  test("live tool updates arriving during disk hydration take precedence", async () => {
+    const { manager } = makeManager();
+    seedSession(manager, "t1", "s1");
+    const internal = manager as any;
+    const runtime = internal.sessions.get("t1");
+    runtime.slice.toolCalls.a = { toolCallId: "a", title: "Read", hasPayload: true };
+    runtime.snapshotPayloadSource = { payloadPath: "fixture" };
+    internal.snapshotStore = {
+      loadPayloads: vi.fn(async () => {
+        runtime.toolPayloads.set("a", { rawOutput: "new live body" });
+        return new Map([["a", { rawOutput: "old disk body" }]]);
+      }),
+    };
+    expect((await manager.getToolCalls("t1", ["a"])).a.rawOutput).toBe("new live body");
+  });
   test("pushState emits session-state only, not a second tool-call copy", () => {
     const { manager, events } = makeManager();
     seedSession(manager, "t1", "s1");

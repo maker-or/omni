@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, rename, stat, unlink, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -65,6 +65,8 @@ interface ThreadSnapshotStoreOptions {
   maxMemoryBytes?: number;
   maxMemoryEntries?: number;
   enabled?: boolean;
+  /** Resident runtimes can still depend on the immutable payload sidecar. */
+  isPinned?: (threadId: string) => boolean;
 }
 
 interface MemorySnapshotEntry {
@@ -116,6 +118,8 @@ export class ThreadSnapshotStore {
   /** Insertion order is access order: oldest entry is the LRU victim. */
   private readonly memorySnapshots = new Map<string, MemorySnapshotEntry>();
   private memorySnapshotBytes = 0;
+  private readonly isPinned: (threadId: string) => boolean;
+  private cleanup: Promise<void> | null = null;
 
   constructor(options: ThreadSnapshotStoreOptions = {}) {
     this.enabled = options.enabled ?? process.env.PIPPER_THREAD_SNAPSHOTS !== "0";
@@ -124,6 +128,7 @@ export class ThreadSnapshotStore {
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_THREAD_SNAPSHOT_CACHE_BYTES;
     this.maxMemoryBytes = options.maxMemoryBytes ?? DEFAULT_THREAD_SNAPSHOT_MEMORY_BYTES;
     this.maxMemoryEntries = options.maxMemoryEntries ?? DEFAULT_THREAD_SNAPSHOT_MEMORY_ENTRIES;
+    this.isPinned = options.isPinned ?? (() => false);
   }
 
   private db(): DatabaseSync {
@@ -219,6 +224,11 @@ export class ThreadSnapshotStore {
 
   async write(input: ThreadSnapshotWriteInput): Promise<LoadedThreadSnapshot | null> {
     if (!this.enabled || input.slice.isStreaming) return null;
+    // Run once, before this store can create any unreferenced generations.
+    this.cleanup ??= this.cleanupOrphans().catch((error) => {
+      console.warn("[thread-snapshot] orphan cleanup failed:", error);
+    });
+    await this.cleanup;
     const snapshotSlice = settledSlice(input.slice);
     await mkdir(this.rootPath, { recursive: true });
     const now = Date.now();
@@ -387,27 +397,55 @@ export class ThreadSnapshotStore {
   }
 
   private async enforceLimit(protectedThreadId: string): Promise<void> {
-    let total = (
-      this.db()
-        .prepare("SELECT COALESCE(SUM(payload_bytes), 0) AS total FROM thread_snapshots")
-        .get() as {
-        total: number;
-      }
-    ).total;
-    if (total <= this.maxPayloadBytes) return;
     const rows = this.db()
       .prepare(
-        "SELECT thread_id, payload_path, payload_bytes FROM thread_snapshots WHERE thread_id != ? ORDER BY updated_at ASC",
+        `SELECT thread_id, payload_path,
+                payload_bytes + length(CAST(slice_json AS BLOB)) AS total_bytes
+         FROM thread_snapshots ORDER BY updated_at ASC`,
       )
-      .all(protectedThreadId) as Array<
-      Pick<ThreadSnapshotRow, "thread_id" | "payload_path" | "payload_bytes">
+      .all() as Array<
+      Pick<ThreadSnapshotRow, "thread_id" | "payload_path"> & { total_bytes: number }
     >;
+    let total = rows.reduce((sum, row) => sum + row.total_bytes, 0);
     for (const row of rows) {
       if (total <= this.maxPayloadBytes) break;
+      // This is a display-cache budget, not permission to discard a resident
+      // runtime's backing payload. The newest snapshot is also always kept.
+      if (row.thread_id === protectedThreadId || this.isPinned(row.thread_id)) continue;
       this.db().prepare("DELETE FROM thread_snapshots WHERE thread_id = ?").run(row.thread_id);
       this.removeMemorySnapshot(row.thread_id);
       await ignoreMissing(row.payload_path);
-      total -= row.payload_bytes;
+      total -= row.total_bytes;
+    }
+  }
+
+  private async cleanupOrphans(): Promise<void> {
+    const referenced = new Set(
+      (
+        this.db().prepare("SELECT payload_path FROM thread_snapshots").all() as Array<{
+          payload_path: string;
+        }>
+      ).map((row) => row.payload_path),
+    );
+    let entries;
+    try {
+      entries = await readdir(this.rootPath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const entry of entries) {
+      // Only Pipper generation files. Keep recent files so another reader or
+      // an interrupted write has a grace period; never follow symlinks.
+      if (!entry.isFile() || !/-\d+-[0-9a-f]+\.jsonl\.gz(?:\.tmp)?$/.test(entry.name)) continue;
+      const path = join(this.rootPath, entry.name);
+      if (referenced.has(path)) continue;
+      try {
+        if ((await stat(path)).mtimeMs < cutoff) await ignoreMissing(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
   }
 

@@ -1,0 +1,18 @@
+{
+  "capturedAt": "2026-10-15T09:04:11.004Z",
+  "scope": "Actual public flushThreadSnapshot methods on AgentConnectionManager.prototype with minimum initialized queue state and controlled storage adapters. No real disk failure, retention-byte, production frequency, or app-latency measurement. Tests isolate queue/catch behavior from constructor/process startup.",
+  "failure": {
+    "injectedFailures": 1,
+    "actualWriteAttempts": 2,
+    "firstFlushResult": false,
+    "otherThreadFlushResult": true,
+    "consecutiveFailuresAfterRecovery": 0
+  },
+  "queuedRevisions": {
+    "concurrentRequests": 6,
+    "trackedTailMapEntries": 1,
+    "pendingInputs": 1,
+    "writtenRevisions": ["revision-0", "revision-5"],
+    "coalescedToLatest": true
+  }
+}

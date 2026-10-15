@@ -5,6 +5,9 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
+    "audit:resources": "node scripts/audit-resources.mjs",
+    "bench:resources": "node scripts/benchmark-resource-retention.mjs",
+    "bench:agents": "node scripts/benchmark-agent-load.mjs",
     "dev": "node scripts/prepare-pty.mjs && bunx --bun electron-vite dev",
     "postinstall": "install-electron && node scripts/prepare-pty.mjs",
     "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'});require('fs').chmodSync('.githooks/pre-commit',0o755)}catch{}\"",

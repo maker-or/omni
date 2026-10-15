@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DatabaseCompactionResult } from "../contracts/storage.ts";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
@@ -74,6 +75,10 @@ export interface CreateProjectInput {
 export type ThinkingLevel = "low" | "medium" | "high";
 
 const api = {
+  storage: {
+    compactDatabase: (): Promise<DatabaseCompactionResult> =>
+      ipcRenderer.invoke("storage:compactDatabase"),
+  },
   launch: {
     complete: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("launch:complete", projectId),
@@ -222,6 +227,9 @@ const api = {
     },
   },
   worktrees: {
+    getAutoInstall: (): Promise<boolean> => ipcRenderer.invoke("worktrees:getAutoInstall"),
+    setAutoInstall: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke("worktrees:setAutoInstall", enabled),
     list: (projectId: string): Promise<Worktree[]> =>
       ipcRenderer.invoke("worktrees:list", projectId),
     create: (input: { projectId: string; name: string }): Promise<Worktree> =>

@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-10-15T06:07:36.406Z",
+  "source": "/Users/harshithpasupuleti/Library/Application Support/pipper-dev/omni.sqlite",
+  "mode": "disposable SQLite backup; live source read-only",
+  "beforeBytes": 316440576,
+  "afterBytes": 75137024,
+  "reclaimedBytes": 241303552,
+  "checkpointBusy": false,
+  "elapsedMs": 669.68175,
+  "compactionMs": 436.21108300000014,
+  "rowsPreserved": true,
+  "contentPreserved": true,
+  "integrityCheck": "ok"
+}

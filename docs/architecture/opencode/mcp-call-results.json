@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-10-15T07:17:47.452637+00:00",
+  "source": "Exact error text returned by the actual MCP tool calls in this investigation; this record is assembled from those tool responses, not a server-side execution log.",
+  "agent_id": "opencode-acp",
+  "calls": [
+    {
+      "scope": "connections-and-activation",
+      "isError": true,
+      "returnedText": "tool call error: tool call failed for `pipper-subagents/spawn_subagent`\n\nCaused by:\n    timed out awaiting tools/call after 300s"
+    },
+    {
+      "scope": "storage-and-workspaces",
+      "isError": true,
+      "returnedText": "tool call error: tool call failed for `pipper-subagents/spawn_subagent`\n\nCaused by:\n    timed out awaiting tools/call after 300s"
+    },
+    {
+      "scope": "renderer-terminals-and-monitoring",
+      "isError": true,
+      "returnedText": "tool call error: tool call failed for `pipper-subagents/spawn_subagent`\n\nCaused by:\n    timed out awaiting tools/call after 300s"
+    },
+    {
+      "scope": "bounded-storage-retry",
+      "isError": true,
+      "returnedText": "tool call error: tool call failed for `pipper-subagents/spawn_subagent`\n\nCaused by:\n    timed out awaiting tools/call after 300s"
+    }
+  ],
+  "limitations": "Client timeouts do not establish whether the backend task stopped, finished, or continued. Partial source-review files are separately preserved and validated."
+}

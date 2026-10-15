@@ -1,4 +1,5 @@
 import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
+import type { DatabaseCompactionResult } from "../../contracts/storage.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type {
   RemoteDevicesState,
@@ -76,6 +77,7 @@ export interface CreateProjectInput {
 declare global {
   interface Window {
     omni: {
+      storage: { compactDatabase: () => Promise<DatabaseCompactionResult> };
       launch: {
         complete: (projectId: string) => Promise<void>;
         show: (stage?: "list" | "add" | "onboarding") => Promise<void>;
@@ -145,6 +147,8 @@ declare global {
         onListChanged: (callback: (project: Project) => void) => () => void;
       };
       worktrees: {
+        getAutoInstall: () => Promise<boolean>;
+        setAutoInstall: (enabled: boolean) => Promise<boolean>;
         list: (projectId: string) => Promise<Worktree[]>;
         create: (input: { projectId: string; name: string }) => Promise<Worktree>;
         delete: (input: { projectId: string; path: string }) => Promise<Worktree>;

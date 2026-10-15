@@ -1,5 +1,5 @@
 import { app } from "electron";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const FILE_NAME = "launch-state.json";
@@ -45,38 +45,69 @@ function statePath(): string {
   return join(app.getPath("userData"), FILE_NAME);
 }
 
-export async function readLaunchState(): Promise<LaunchState> {
+/** Last state this process wrote, per file; identical writes are skipped. */
+const lastWritten = new Map<string, string>();
+
+async function readStateFile(file: string): Promise<Partial<LaunchState> | null> {
   try {
-    const raw = await readFile(statePath(), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<LaunchState>;
-    return {
-      completed: parsed.completed === true,
-      completedAt: typeof parsed.completedAt === "string" ? parsed.completedAt : null,
-      projectId: typeof parsed.projectId === "string" ? parsed.projectId : null,
-      threadId: typeof parsed.threadId === "string" ? parsed.threadId : null,
-      openThreadIds: Array.isArray(parsed.openThreadIds)
-        ? parsed.openThreadIds.filter((id): id is string => typeof id === "string")
-        : [],
-      activeThreadId:
-        typeof parsed.activeThreadId === "string"
-          ? parsed.activeThreadId
-          : typeof parsed.threadId === "string"
-            ? parsed.threadId
-            : null,
-      threadSwitchHistory: Array.isArray(parsed.threadSwitchHistory)
-        ? parsed.threadSwitchHistory.filter((id): id is string => typeof id === "string")
-        : [],
-      selectedWorktreePathByProject: parseWorkspaceSelections(parsed.selectedWorktreePathByProject),
-    };
-  } catch {
-    return { ...DEFAULT_STATE, selectedWorktreePathByProject: {} };
+    const parsed = JSON.parse(await readFile(file, "utf-8")) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Partial<LaunchState>)
+      : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`[launch-state] unreadable ${file}:`, error);
+    }
+    return null;
   }
 }
 
-export async function writeLaunchState(state: LaunchState): Promise<void> {
+export async function readLaunchState(): Promise<LaunchState> {
   const file = statePath();
+  // A missing file is a first launch. A corrupt one falls back to the
+  // last-known-good copy instead of silently resetting navigation.
+  const parsed = (await readStateFile(file)) ?? (await readStateFile(`${file}.bak`));
+  if (!parsed) return { ...DEFAULT_STATE, selectedWorktreePathByProject: {} };
+  return normalizeLaunchState(parsed);
+}
+
+function normalizeLaunchState(parsed: Partial<LaunchState>): LaunchState {
+  return {
+    completed: parsed.completed === true,
+    completedAt: typeof parsed.completedAt === "string" ? parsed.completedAt : null,
+    projectId: typeof parsed.projectId === "string" ? parsed.projectId : null,
+    threadId: typeof parsed.threadId === "string" ? parsed.threadId : null,
+    openThreadIds: Array.isArray(parsed.openThreadIds)
+      ? parsed.openThreadIds.filter((id): id is string => typeof id === "string")
+      : [],
+    activeThreadId:
+      typeof parsed.activeThreadId === "string"
+        ? parsed.activeThreadId
+        : typeof parsed.threadId === "string"
+          ? parsed.threadId
+          : null,
+    threadSwitchHistory: Array.isArray(parsed.threadSwitchHistory)
+      ? parsed.threadSwitchHistory.filter((id): id is string => typeof id === "string")
+      : [],
+    selectedWorktreePathByProject: parseWorkspaceSelections(parsed.selectedWorktreePathByProject),
+  };
+}
+
+export async function writeLaunchState(state: LaunchState): Promise<void> {
+  const serialized = JSON.stringify(state, null, 2);
+  const file = statePath();
+  const previous = lastWritten.get(file);
+  if (serialized === previous) return;
   await mkdir(join(file, ".."), { recursive: true });
-  await writeFile(file, JSON.stringify(state, null, 2), "utf-8");
+  // Write a sibling and rename it over the original so a crash mid-write
+  // leaves either the previous or the new state, never a truncated file.
+  const temp = `${file}.${process.pid}.tmp`;
+  await writeFile(temp, serialized, "utf-8");
+  // Once per process, keep the state this launch started from as the
+  // last-known-good fallback for readLaunchState.
+  if (previous === undefined) await copyFile(file, `${file}.bak`).catch(() => {});
+  await rename(temp, file);
+  lastWritten.set(file, serialized);
 }
 
 // Serializes every launch-state read-modify-write through a single in-process

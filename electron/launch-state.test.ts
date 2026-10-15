@@ -79,3 +79,28 @@ describe("workspace selections in launch state", () => {
     expect(parseWorkspaceSelections({ p1: 42, p2: "", p3: "/ok" })).toEqual({ p3: "/ok" });
   });
 });
+
+describe("launch-state durability", () => {
+  test("a corrupt state file falls back to the last-known-good copy", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");
+    const file = join(root!, "launch-state.json");
+    await writeFile(file, JSON.stringify({ projectId: "known-good" }), "utf-8");
+    // The first write of a process keeps the starting state as the backup.
+    await updateLaunchSelection({ threadId: "thread-1" });
+    expect(JSON.parse(await readFile(`${file}.bak`, "utf-8")).projectId).toBe("known-good");
+
+    await writeFile(file, '{"projectId": "trunc', "utf-8");
+    const state = await readLaunchState();
+    expect(state.projectId).toBe("known-good");
+  });
+
+  test("writes replace the file atomically and leave no temporary files", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");
+    await updateLaunchSelection({ projectId: "p1", threadId: "t1" });
+    await updateLaunchSelection({ threadId: "t2" });
+    expect((await readdir(root!)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    expect((await readLaunchState()).activeThreadId).toBe("t2");
+  });
+});
