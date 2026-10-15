@@ -15,7 +15,9 @@ import {
   hydrateStoredToolCalls,
   resetToolPayloadStore,
 } from "../src/store/tool-payload-store.ts";
-import { toPanelSnapshot } from "../src/store/agent-store.ts";
+import { toPanelSnapshot, useAgentStore } from "../src/store/agent-store.ts";
+import type { AcpBridgeEvent } from "../contracts/acp.ts";
+import type { SessionUpdate } from "@agentclientprotocol/sdk";
 const enabled = process.env.PIPPER_ARCHITECTURE_BENCH === "1";
 const root = enabled ? mkdtempSync(join(tmpdir(), "pipper-architecture-costs-")) : null;
 const report: Record<string, unknown> = {
@@ -121,6 +123,182 @@ test.skipIf(!enabled)(
   120000,
 );
 
+const STREAM_TRIALS = 5;
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)]!;
+}
+
+/**
+ * A representative agent turn: text chunks interleaved with a tool call
+ * (pending -> in_progress -> completed with a body) every `toolEvery`
+ * chunks, plus occasional thought chunks.
+ */
+function mixedStream(chunks: number, prefix: string, toolEvery = 50): SessionUpdate[] {
+  const updates: SessionUpdate[] = [];
+  for (let i = 0; i < chunks; i++) {
+    if (i % toolEvery === toolEvery - 1) {
+      const toolCallId = `${prefix}-tool-${i}`;
+      updates.push(
+        {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title: "Read file",
+          kind: "read",
+          status: "pending",
+        },
+        { sessionUpdate: "tool_call_update", toolCallId, status: "in_progress" },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: `body ${i}` } }],
+        },
+      );
+    } else if (i % 97 === 0) {
+      updates.push({
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "hmm " },
+      });
+    } else {
+      updates.push({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "chunk " },
+      });
+    }
+  }
+  return updates;
+}
+
+/** One user prompt followed by a single long assistant run of interleaved text and tools. */
+function longRunHistory(runEntries: number) {
+  const entries: AcpEntry[] = [{ type: "user_text", id: "user-0", messageId: null, text: "Go" }];
+  const toolCalls: Record<string, AcpToolCallState> = {};
+  for (let i = 0; i < runEntries; i++) {
+    if (i % 2 === 0) {
+      entries.push({ type: "agent_text", id: `agent-${i}`, messageId: null, text: "Working" });
+    } else {
+      const id = `history-tool-${i}`;
+      entries.push({ type: "tool_call", id: `entry-tool-${i}`, toolCallId: id });
+      toolCalls[id] = { toolCallId: id, title: id, status: "completed", outputPreview: "ok" };
+    }
+  }
+  return { entries, toolCalls };
+}
+
+function sessionFixture(entries: AcpEntry[], toolCalls: Record<string, AcpToolCallState>) {
+  return {
+    ...createEmptySessionSlice({ entries: [...entries], toolCalls: { ...toolCalls } }),
+    projectId: "fixture",
+    threadId: "fixture",
+    agentId: "bench",
+    agentSessionId: "fixture",
+    cwd: "/tmp",
+    isCompacting: false,
+    editorText: "",
+    authRequiredMessage: null,
+    switchingAgent: false,
+    isStreaming: true,
+  } satisfies AcpSessionState;
+}
+
+function measureMixedRun() {
+  const result = [];
+  for (const runEntries of [0, 500, 1500]) {
+    const history = longRunHistory(runEntries);
+    const updates = mixedStream(1000, `run-${runEntries}`);
+    for (let i = 0, s = sessionFixture(history.entries, history.toolCalls); i < 100; i++) {
+      s = { ...s, ...applySessionUpdate(s, updates[i]!) };
+      toPanelSnapshot(s);
+    }
+    const trials = [];
+    for (let run = 0; run < STREAM_TRIALS; run++) {
+      let state = sessionFixture(history.entries, history.toolCalls);
+      const begin = performance.now();
+      let view;
+      for (const update of updates) {
+        state = { ...state, ...applySessionUpdate(state, update) };
+        view = toPanelSnapshot(state);
+      }
+      trials.push(performance.now() - begin);
+      expect(view?.streamingMessage).not.toBeNull();
+    }
+    result.push({
+      runEntries,
+      events: updates.length,
+      trialsMs: trials,
+      medianMs: median(trials),
+    });
+  }
+  return {
+    scope:
+      "Reducer plus panel projection for one long assistant run (interleaved text and tools) receiving a mixed stream of text, thought and tool events.",
+    result,
+  };
+}
+
+/** Full renderer store path: bridge handler, reducer, payload store and projection. */
+function measureStoreBridge() {
+  const result = [];
+  for (const runEntries of [0, 1500]) {
+    const history = longRunHistory(runEntries);
+    const updates = mixedStream(1000, `store-${runEntries}`);
+    const trials = [];
+    for (let run = 0; run < STREAM_TRIALS + 1; run++) {
+      let handler: (event: AcpBridgeEvent) => void = () => {};
+      const initial = sessionFixture(history.entries, history.toolCalls);
+      (globalThis as { window?: unknown }).window = {
+        omni: {
+          agent: {
+            onEvent: (next: (event: AcpBridgeEvent) => void) => {
+              handler = next;
+              return () => {};
+            },
+            getState: async () => initial,
+          },
+        },
+      };
+      // connect() resolves getState asynchronously; drive the synchronous
+      // parts by seeding state directly, exactly as connect() would.
+      void useAgentStore.getState().connect();
+      useAgentStore.setState({
+        state: initial,
+        slice: createEmptySessionSlice({
+          entries: initial.entries,
+          toolCalls: initial.toolCalls,
+          isStreaming: true,
+        }),
+        snapshot: toPanelSnapshot(initial),
+      });
+      let notifications = 0;
+      const unsubscribe = useAgentStore.subscribe(() => {
+        notifications += 1;
+      });
+      const begin = performance.now();
+      for (const update of updates) {
+        handler({ type: "session-update", sessionId: "fixture", threadId: "fixture", update });
+      }
+      const ms = performance.now() - begin;
+      unsubscribe();
+      expect(useAgentStore.getState().snapshot?.streamingMessage).not.toBeNull();
+      if (run > 0) trials.push({ ms, notifications });
+    }
+    result.push({
+      runEntries,
+      events: updates.length,
+      trials,
+      medianMs: median(trials.map((trial) => trial.ms)),
+    });
+  }
+  delete (globalThis as { window?: unknown }).window;
+  return {
+    scope:
+      "useAgentStore bridge handler for session-update events (reducer, tool payload store, projection, zustand set). Excludes React commits and paint.",
+    result,
+  };
+}
+
 test.skipIf(!enabled)("measure streaming history scaling and lean input size", () => {
   const update = {
     sessionUpdate: "agent_message_chunk" as const,
@@ -167,7 +345,7 @@ test.skipIf(!enabled)("measure streaming history scaling and lean input size", (
         toPanelSnapshot(s);
       }
       const trials = [];
-      for (let run = 0; run < 3; run++) {
+      for (let run = 0; run < STREAM_TRIALS; run++) {
         let state = fixture();
         let begin = performance.now();
         for (let i = 0; i < 1000; i++) state = { ...state, ...applySessionUpdate(state, update) };
@@ -187,6 +365,8 @@ test.skipIf(!enabled)("measure streaming history scaling and lean input size", (
       result.push({ entriesCount, toolsCount, chunks: 1000, trials });
     }
   }
+  report.streamingMixedRun = measureMixedRun();
+  report.streamingStoreBridge = measureStoreBridge();
   const input = "x".repeat(1024 * 1024);
   const base = { toolCallId: "size", title: "Size", status: "completed" as const };
   const rawInputBytes = Buffer.byteLength(
