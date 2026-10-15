@@ -43,7 +43,7 @@ try {
   await chmod(path, 0o600);
   const before = new DatabaseSync(path, { readOnly: true });
   const counts = before
-    .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
     .all()
     .map(({ name }) => {
       if (!/^[A-Za-z0-9_]+$/.test(name)) throw new Error("Unexpected table identifier");

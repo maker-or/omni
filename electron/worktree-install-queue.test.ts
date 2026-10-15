@@ -60,3 +60,28 @@ test("cancel drops a queued install and stops the running one", async () => {
   expect(started).toEqual(["a", "b"]);
   await expect(queue.enqueue("/b", async () => "fresh")).resolves.toBe("fresh");
 });
+
+test("a path recreated after cancel gets a fresh install", async () => {
+  const queue = new WorktreeInstallQueue();
+  let release!: () => void;
+  const blocker = queue.enqueue("/busy", async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return "busy";
+  });
+  const cancelled = queue.enqueue("/workspace", async (signal) =>
+    signal.aborted ? "skipped" : "installed",
+  );
+  await queue.cancel("/workspace");
+  const recreated = queue.enqueue("/workspace", async (signal) =>
+    signal.aborted ? "skipped" : "installed",
+  );
+
+  expect(recreated).not.toBe(cancelled);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  release();
+  expect(await blocker).toBe("busy");
+  expect(await cancelled).toBe("skipped");
+  expect(await recreated).toBe("installed");
+});

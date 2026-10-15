@@ -43,8 +43,12 @@ export class WorktreeInstallQueue {
    * without waiting for unrelated installs ahead of it.
    */
   async cancel(path: string): Promise<void> {
-    const job = this.jobs.get(resolve(path));
+    const key = resolve(path);
+    const job = this.jobs.get(key);
     if (!job) return;
+    // A workspace recreated at the same path must get a fresh install, not
+    // share this aborted job.
+    this.jobs.delete(key);
     job.controller.abort(new Error("workspace removed"));
     if (job.started) await job.promise.catch(() => undefined);
   }

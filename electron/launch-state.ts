@@ -1,5 +1,5 @@
 import { app } from "electron";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const FILE_NAME = "launch-state.json";
@@ -102,12 +102,38 @@ export async function writeLaunchState(state: LaunchState): Promise<void> {
   // Write a sibling and rename it over the original so a crash mid-write
   // leaves either the previous or the new state, never a truncated file.
   const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, serialized, "utf-8");
-  // Once per process, keep the state this launch started from as the
-  // last-known-good fallback for readLaunchState.
-  if (previous === undefined) await copyFile(file, `${file}.bak`).catch(() => {});
-  await rename(temp, file);
+  try {
+    await writeFile(temp, serialized, "utf-8");
+    // Once per process, keep the state this launch started from as the
+    // last-known-good fallback for readLaunchState. A corrupt primary is not
+    // copied, so it can never replace the good backup it was recovered from.
+    if (previous === undefined && (await readStateFile(file)) !== null) {
+      await copyFile(file, `${file}.bak`).catch(() => {});
+    }
+    await renameWithRetry(temp, file);
+  } catch (error) {
+    await unlink(temp).catch(() => {});
+    throw error;
+  }
   lastWritten.set(file, serialized);
+}
+
+/**
+ * Windows can refuse a replacing rename while another process (antivirus,
+ * indexer) briefly holds the destination open. Retry instead of unlinking it,
+ * which would give up the atomic replacement.
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 4 || (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
 }
 
 // Serializes every launch-state read-modify-write through a single in-process

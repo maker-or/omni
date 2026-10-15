@@ -683,13 +683,15 @@ export class AgentConnectionManager {
   }
 
   /**
-   * Queue a display-snapshot write. Resolves false only when the write it
-   * covers failed. Requests made while a write is already pending share it:
+   * Queue a display-snapshot write. Resolves true only when the runtime's
+   * state is on disk: written by this request, or already clean. A failed,
+   * skipped (turn in progress) or store-disabled write resolves false.
+   * Requests made while a write is already pending share it:
    * the pending write captures the runtime when it starts, so it persists the
    * latest revision and retains one input per thread instead of one per call.
    */
   private queueSnapshotWrite(runtime: ThreadSessionRuntime): Promise<boolean> {
-    if (!this.snapshotWritable(runtime)) return Promise.resolve(true);
+    if (!this.snapshotWritable(runtime)) return Promise.resolve(runtime.snapshotDirty === false);
     const threadId = runtime.threadId;
     const pending = this.pendingSnapshotWrites.get(threadId);
     if (pending) return pending;
@@ -713,8 +715,9 @@ export class AgentConnectionManager {
   }
 
   private async writeSnapshotNow(runtime: ThreadSessionRuntime): Promise<boolean> {
-    // A turn may have started while this write waited behind the previous one.
-    if (!this.snapshotWritable(runtime)) return true;
+    // A turn may have started while this write waited behind the previous one;
+    // settling that turn schedules the next write.
+    if (!this.snapshotWritable(runtime)) return runtime.snapshotDirty === false;
     const slice = runtime.slice;
     const payloadRevision = runtime.payloadRevision ?? 0;
     try {
@@ -730,7 +733,8 @@ export class AgentConnectionManager {
       });
       this.snapshotWriteFailures = 0;
       this.snapshotWritesBlockedUntil = 0;
-      if (!snapshot || this.sessions.get(runtime.threadId) !== runtime) return true;
+      if (!snapshot) return false;
+      if (this.sessions.get(runtime.threadId) !== runtime) return true;
       runtime.snapshotPayloadSource = snapshot;
       if ((runtime.payloadRevision ?? 0) === payloadRevision) {
         // The immutable sidecar is now the backing store. Keep the main

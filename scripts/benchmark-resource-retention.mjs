@@ -8,7 +8,7 @@ import {
   symlinkSync,
   rmSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { parseArgs } from "node:util";
 
@@ -111,6 +111,7 @@ try {
       snapshotAllocatedBytes: median(measurements.map((item) => item.snapshotDisk.allocatedBytes)),
     };
   }
+  mkdirSync(dirname(resolve(values.output)), { recursive: true });
   writeFileSync(resolve(values.output), JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results.medians, null, 2));
 } finally {

@@ -527,6 +527,12 @@ export function AdvancedShell() {
   const workspaceMode = useWorkspaceViewStore((state) => state.mode);
   const activeTerminalId = useWorkspaceViewStore((state) => state.activeTerminalId);
   const showTerminalView = workspaceMode === "terminal" && activeTerminalId != null;
+  // Terminals mount on first view and then stay mounted (hidden) to keep their
+  // PTY and scrollback; never-viewed sessions don't load the terminal chunk.
+  const [viewedTerminalIds, setViewedTerminalIds] = useState<ReadonlySet<string>>(() => new Set());
+  if (showTerminalView && activeTerminalId && !viewedTerminalIds.has(activeTerminalId)) {
+    setViewedTerminalIds(new Set(viewedTerminalIds).add(activeTerminalId));
+  }
 
   const openProject = async (project: Project) => {
     if (project.id !== activeProject?.id) await window.omni.projects.setActive(project.id);
@@ -858,6 +864,7 @@ export function AdvancedShell() {
                     <AgentView />
                     {terminalSessions.map((session) => {
                       const active = showTerminalView && activeTerminalId === session.id;
+                      if (!active && !viewedTerminalIds.has(session.id)) return null;
                       return (
                         <div
                           key={session.id}

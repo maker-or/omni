@@ -95,6 +95,19 @@ describe("launch-state durability", () => {
     expect(state.projectId).toBe("known-good");
   });
 
+  test("recovering from a corrupt primary keeps the good backup", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const file = join(root!, "launch-state.json");
+    await writeFile(`${file}.bak`, JSON.stringify({ projectId: "known-good" }), "utf-8");
+    await writeFile(file, '{"projectId": "trunc', "utf-8");
+    vi.resetModules();
+    const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");
+    expect((await readLaunchState()).projectId).toBe("known-good");
+
+    await updateLaunchSelection({ threadId: "thread-1" });
+    expect(JSON.parse(await readFile(`${file}.bak`, "utf-8")).projectId).toBe("known-good");
+  });
+
   test("writes replace the file atomically and leave no temporary files", async () => {
     const { readdir } = await import("node:fs/promises");
     const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");

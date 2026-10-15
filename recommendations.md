@@ -13,7 +13,7 @@ This document consolidates both investigation passes and the three completed Ope
 - **Source-confirmed:** the implementation has the described behavior, but its end-to-end impact has not been measured.
 - **Unverified risk:** a plausible failure or cost that needs a targeted reproduction before treating it as an established incident or leak.
 
-Evidence comes from the [architecture report](docs/architecture/README.md), [workflow and component measurements](docs/architecture/MEASUREMENTS.md), [reviewed OpenCode follow-up](docs/architecture/opencode/README.md), and [resource investigation](docs/performance/README.md). The [file map](docs/architecture/FILE-MAP.md) indexes 733 files at the architecture inventory point. That is an automated dependency/IO inventory, not a claim that every file was manually reviewed or profiled. Marketing, mobile and native paths were not independently performance-profiled.
+Evidence came from an architecture report, workflow and component measurements, a reviewed OpenCode follow-up and a resource investigation. Those reports are no longer kept in the repository; the commands under [Reproduction and acceptance checks](#reproduction-and-acceptance-checks) regenerate them under `docs/`. The file map indexed 733 files at the architecture inventory point. That is an automated dependency/IO inventory, not a claim that every file was manually reviewed or profiled. Marketing, mobile and native paths were not independently performance-profiled.
 
 Raw OpenCode outputs include assertions corrected during primary verification. The reviewed follow-up and explicit reproductions take precedence over those raw assertions.
 
@@ -48,7 +48,7 @@ A resident switch reuses the provider/session but still does metadata lookup, cw
 | Worktree creation                          |                  145.99 ms median, 145.54–162.46 ms range | Small Git fixture without dependency installation or network.                             |
 | Resident switch behind delayed preparation |                                     426.14 ms median wait | Injected 400 ms initialize delay; demonstrates queue coupling.                            |
 
-These numbers are observations from the [saved measurements](docs/architecture/MEASUREMENTS.md), not production percentiles. Inclusive method spans overlap and must not be added as independent phase costs. Ordinary thread creation does not inherently create a worktree or install dependencies.
+These numbers are observations from the saved measurements, not production percentiles. Inclusive method spans overlap and must not be added as independent phase costs. Ordinary thread creation does not inherently create a worktree or install dependencies.
 
 ## Provider processes, activation and subagents
 
@@ -72,7 +72,7 @@ Prepare runtimes independently, with per-thread mutation exclusion and per-provi
 
 **P1 · Reproduced.** In [SubagentManager](electron/subagents/subagent-manager.ts), queue admission, connection acquisition and `session/new` precede the prompt timeout. Slot acquisition also precedes the cleanup `try/finally`. Cancellation during establishment has no session ID to cancel.
 
-The [real MCP-loopback reproduction](docs/architecture/opencode/establishment-deadline-verification.json), with a scripted provider and fake clock, configured 30 seconds and advanced 60 seconds: one run remained running, one queued and zero callers settled. Cancelling the parent and then releasing `session/new` still sent one prompt before the calls settled as cancelled. This was not a real-provider hang or 60 seconds of wall-clock waiting.
+The real MCP-loopback reproduction, with a scripted provider and fake clock, configured 30 seconds and advanced 60 seconds: one run remained running, one queued and zero callers settled. Cancelling the parent and then releasing `session/new` still sent one prompt before the calls settled as cancelled. This was not a real-provider hang or 60 seconds of wall-clock waiting.
 
 Carry an operation deadline/signal through every phase. Check it after every asynchronous boundary and immediately before dispatch. Release scheduling permits when establishment cannot finish; close or adopt late sessions and release their MCP resources. Do not kill a shared provider merely to cancel one session.
 
@@ -80,7 +80,7 @@ Carry an operation deadline/signal through every phase. Check it after every asy
 
 ### R04 — Make nested delegation compatible with bounded concurrency
 
-**P1 · Reproduced.** A parent awaiting a nested subagent retains its execution slot. Saturating the slots with such parents queues children behind the work awaiting them. The [controlled one-slot, depth-two case](docs/architecture/opencode/nested-scheduling-verification.json) stalled until the parent's fake-clock deadline; its queued child then started after the parent was cancelled. Defaults allow three concurrent runs and depth two, but default-cap saturation was not separately measured.
+**P1 · Reproduced.** A parent awaiting a nested subagent retains its execution slot. Saturating the slots with such parents queues children behind the work awaiting them. The controlled one-slot, depth-two case stalled until the parent's fake-clock deadline; its queued child then started after the parent was cancelled. Defaults allow three concurrent runs and depth two, but default-cap saturation was not separately measured.
 
 Model parent/child ownership explicitly. Separate executing work from a parent waiting on delegated work, for example by yielding its permit under a bounded descendant policy. Recursively cancel queued descendants. Preserve fairness, depth limits and an actual ceiling on execution resources; increasing the cap or exempting every child merely moves the failure.
 
@@ -88,7 +88,7 @@ Model parent/child ownership explicitly. Separate executing work from a parent w
 
 ### R05 — Define the long-running MCP job contract
 
-**P1 · Observed interface mismatch.** Three original MCP exploration calls and one retry each returned `timed out awaiting tools/call after 300s`. Pipper's default prompt deadline is 600 seconds, excludes establishment/queue wait, and [the MCP server](electron/subagents/mcp-http-server.ts) waits for completion before responding. These errors do not prove backend cancellation or identify the nested scheduler as their cause. Three direct OpenCode CLI exploration Tasks subsequently completed; [provenance](docs/architecture/opencode/cli-exploration-run.json) is preserved.
+**P1 · Observed interface mismatch.** Three original MCP exploration calls and one retry each returned `timed out awaiting tools/call after 300s`. Pipper's default prompt deadline is 600 seconds, excludes establishment/queue wait, and [the MCP server](electron/subagents/mcp-http-server.ts) waits for completion before responding. These errors do not prove backend cancellation or identify the nested scheduler as their cause. Three direct OpenCode CLI exploration Tasks subsequently completed; provenance is preserved.
 
 Choose a bounded whole-operation contract compatible with actual clients, or introduce durable start/status/progress/cancel jobs with IDs. Define caller disconnect, expiry, retries, idempotency and result retention. Make the UI distinguish queued, establishing, executing, cancelled and abandoned work.
 
@@ -114,7 +114,7 @@ Document creation/removal for each resource and give pending operations both cou
 
 ### R08 — Recover from snapshot failures without disabling every thread forever
 
-**P1 · Reproduced.** [Snapshot write orchestration](electron/agent-connection-manager.ts) sets a global disable flag after one write failure. The [fault injection](docs/architecture/opencode/snapshot-queue-verification.json) made one write fail; a different thread's next flush returned false without a second storage attempt. No recovery exists until process restart. Successful persistence also clears live tool-body maps, so disabled writes can extend RAM retention.
+**P1 · Reproduced.** [Snapshot write orchestration](electron/agent-connection-manager.ts) sets a global disable flag after one write failure. The fault injection made one write fail; a different thread's next flush returned false without a second storage attempt. No recovery exists until process restart. Successful persistence also clears live tool-body maps, so disabled writes can extend RAM retention.
 
 These are display snapshots; this does not establish loss of canonical provider conversation history. Replace the global permanent switch with scoped failures, error classification, bounded backoff and a visible degraded mode. Define safe live-body retention when persistence is unavailable. Keep protection against repeatedly writing to a full/broken disk.
 
@@ -122,7 +122,7 @@ These are display snapshots; this does not establish loss of canonical provider 
 
 ### R09 — Coalesce pending snapshot inputs with explicit flush semantics
 
-**P2 · Reproduced.** The two-second debounce coalesces before enqueue. Each enqueued write captures its own slice and payload map in a promise chain. [Six concurrent flush revisions](docs/architecture/opencode/snapshot-queue-verification.json) caused six writes despite a tail-map size of one. Pending retained bytes and production backlog frequency were not measured.
+**P2 · Reproduced.** The two-second debounce coalesces before enqueue. Each enqueued write captures its own slice and payload map in a promise chain. Six concurrent flush revisions caused six writes despite a tail-map size of one. Pending retained bytes and production backlog frequency were not measured.
 
 Use one active write plus a replaceable latest pending input per thread where display-cache semantics permit. State which revision each flush promise guarantees. Select the base generation after the previous write and retain shutdown/close guarantees. An older write must not clear newer live payloads.
 
@@ -174,7 +174,7 @@ Report categories separately: live pinned data, evictable cache, database pages/
 
 Coordinate maintenance and application writes; schedule compaction during an explicit idle/maintenance state and move database waits behind asynchronous ownership. Account for busy checkpoints and temporary free space. Preserve current in-flight deduplication and transaction guarantees.
 
-**Verify:** concurrent prompts, snapshots, navigation and monitoring remain responsive during maintenance; low-space/busy/abort cases return useful results. Check integrity, logical row hashes, peak storage and both WAL/database sizes. [Full evidence](docs/architecture/opencode/PRIMARY-VERIFICATION.md).
+**Verify:** concurrent prompts, snapshots, navigation and monitoring remain responsive during maintenance; low-space/busy/abort cases return useful results. Check integrity, logical row hashes, peak storage and both WAL/database sizes. Full evidence.
 
 ### R16 — Isolate high-volume diagnostics from application storage
 
@@ -254,7 +254,7 @@ Load on demand, coalesce by workspace revision, reuse an invalidated index, and 
 
 ### R25 — Avoid empty agent-store patches and narrow subscriptions
 
-**P2 · Reproduced notifications.** [agent-store.ts](src/store/agent-store.ts) unconditionally calls `set` even when an event produces an empty patch. Delivering 100 terminal-output events caused 100 agent-store notifications while active session and panel projection identities remained unchanged. Terminal output was also correctly routed to its own store. [Raw probe](docs/architecture/opencode/ignored-event-verification.json).
+**P2 · Reproduced notifications.** [agent-store.ts](src/store/agent-store.ts) unconditionally calls `set` even when an event produces an empty patch. Delivering 100 terminal-output events caused 100 agent-store notifications while active session and panel projection identities remained unchanged. Terminal output was also correctly routed to its own store. Raw probe.
 
 Skip empty patches after required event routing/accounting, and replace broad panel subscriptions with the actual selected state. Review the panel's compiler opt-out carefully because virtualizer compatibility matters.
 
@@ -296,7 +296,7 @@ Measure 0/10/20 terminal workloads, including shell processes, cores, WASM, hist
 
 ### R30 — Build and package the monitor worker explicitly
 
-**P1 · Reproduced in the actual built app.** [worker-client.ts](electron/monitor/worker-client.ts) resolves `./worker.ts`, but that file is absent from the emitted main directory. The built app reports worker failure callbacks and continues through main-thread fallback. [Artifact/runtime evidence](docs/architecture/opencode/monitor-worker-verification.json) corrects the earlier assumption that monitoring was running in a worker. Two error/exit callbacks can describe one failed worker, not two crashes.
+**P1 · Reproduced in the actual built app.** [worker-client.ts](electron/monitor/worker-client.ts) resolves `./worker.ts`, but that file is absent from the emitted main directory. The built app reports worker failure callbacks and continues through main-thread fallback. Artifact/runtime evidence corrects the earlier assumption that monitoring was running in a worker. Two error/exit callbacks can describe one failed worker, not two crashes.
 
 Emit a JavaScript worker entry, resolve it correctly in development/build/package modes, and expose healthy-worker versus fallback mode. Define fallback behavior deliberately. `app.getAppMetrics()` already runs on main even with a healthy worker; fallback `ps` calls are asynchronous, so they should not be described as synchronous subprocess execution.
 
@@ -352,7 +352,7 @@ Extract modules that own complete invariants: provider leases, prepare/activate,
 
 ## Earlier improvements already implemented
 
-These findings should not be counted again as untouched problems. Remaining limitations are linked to the recommendations above. Full methodology and raw before/after data are in the [resource report](docs/performance/README.md).
+These findings should not be counted again as untouched problems. Remaining limitations are linked to the recommendations above. Full methodology and raw before/after data are in the resource report.
 
 | Improvement                                                    | Verified result                                                                                                                                               | Remaining concern                                                                                                                  |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -423,7 +423,7 @@ bun run audit:resources \
   --directory /absolute/path/to/app-data
 ```
 
-Prior investigation validation passed Doctor (100/100), lint (nine existing warnings), production/native build, formatting, and the ordinary test suite (855 passed; 12 opt-in cases skipped). The four scheduling diagnostics passed when explicitly enabled. See [the exact validation record](docs/architecture/opencode/VALIDATION.md). That does not establish a clean standalone TypeScript check, packaged-worker success, Windows behavior or production performance. Re-run the repository-required checks and relevant workload when implementing each recommendation.
+Prior investigation validation passed Doctor (100/100), lint (nine existing warnings), production/native build, formatting, and the ordinary test suite (855 passed; 12 opt-in cases skipped). The four scheduling diagnostics passed when explicitly enabled. See the exact validation record. That does not establish a clean standalone TypeScript check, packaged-worker success, Windows behavior or production performance. Re-run the repository-required checks and relevant workload when implementing each recommendation.
 
 ## Architectural guardrails for the proposed changes
 

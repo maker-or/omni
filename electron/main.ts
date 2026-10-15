@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
-import { spawn, execFile } from "node:child_process";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { isFluidPageSwipeEnabled } from "./page-swipe-preference";
 import { promisify } from "node:util";
 import * as pty from "node-pty";
@@ -873,6 +873,30 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
 }
 
 const WORKTREE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+/** After asking an installer to stop, force-kill it, then stop waiting. */
+const WORKTREE_INSTALL_KILL_GRACE_MS = 5_000;
+
+/**
+ * Signal an installer and every process it started. Package managers spawn
+ * their own children, and on Windows the direct child is the shell, so
+ * killing only `child` can leave the real installer writing files.
+ */
+function signalProcessTree(child: ChildProcess, force: boolean): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" }).on(
+      "error",
+      () => child.kill(),
+    );
+    return;
+  }
+  try {
+    // The installer runs as its own process group leader (detached spawn).
+    process.kill(-child.pid, force ? "SIGKILL" : "SIGTERM");
+  } catch {
+    child.kill(force ? "SIGKILL" : "SIGTERM");
+  }
+}
 const worktreeInstallQueue = new WorktreeInstallQueue();
 let databaseCompaction: Promise<DatabaseCompactionResult> | null = null;
 
@@ -933,6 +957,8 @@ async function performWorktreeDependencyInstall(
         cwd: worktreePath,
         env: process.env,
         shell: process.platform === "win32",
+        // Own process group on POSIX so cancellation can stop the whole tree.
+        detached: process.platform !== "win32",
         stdio: ["ignore", "pipe", "pipe"],
       });
       let outputTail = "";
@@ -941,26 +967,41 @@ async function performWorktreeDependencyInstall(
       };
       child.stdout?.on("data", collect);
       child.stderr?.on("data", collect);
-      const timeout = setTimeout(() => {
-        child.kill();
-        rejectPromise(new Error(`${install.manager} install timed out after 10 minutes.`));
-      }, WORKTREE_INSTALL_TIMEOUT_MS);
-      const onAbort = () => {
+      // Settle a stopped install only once its process has exited, so a
+      // cancelled install cannot keep writing into a workspace being removed.
+      let stopError: unknown = null;
+      let forceTimer: ReturnType<typeof setTimeout> | null = null;
+      const stop = (error: unknown) => {
+        if (stopError) return;
+        stopError = error;
         clearTimeout(timeout);
-        child.kill();
-        rejectPromise(signal.reason);
+        signalProcessTree(child, false);
+        forceTimer = setTimeout(() => {
+          signalProcessTree(child, true);
+          // A process that survives SIGKILL must not hang workspace deletion.
+          forceTimer = setTimeout(() => rejectPromise(stopError), WORKTREE_INSTALL_KILL_GRACE_MS);
+        }, WORKTREE_INSTALL_KILL_GRACE_MS);
       };
+      const timeout = setTimeout(
+        () => stop(new Error(`${install.manager} install timed out after 10 minutes.`)),
+        WORKTREE_INSTALL_TIMEOUT_MS,
+      );
+      const onAbort = () => stop(signal.reason);
       signal.addEventListener("abort", onAbort, { once: true });
-      child.on("exit", () => signal.removeEventListener("abort", onAbort));
       child.on("error", (err) => {
         clearTimeout(timeout);
+        if (forceTimer) clearTimeout(forceTimer);
+        signal.removeEventListener("abort", onAbort);
         rejectPromise(
           new Error(`Could not run ${install.manager}: ${err.message}. Is it installed?`),
         );
       });
       child.on("close", (code) => {
         clearTimeout(timeout);
-        if (code === 0) resolvePromise();
+        if (forceTimer) clearTimeout(forceTimer);
+        signal.removeEventListener("abort", onAbort);
+        if (stopError) rejectPromise(stopError);
+        else if (code === 0) resolvePromise();
         else {
           const tail = outputTail.trim().split("\n").slice(-8).join("\n");
           rejectPromise(new Error(`${install.manager} install exited with code ${code}.\n${tail}`));

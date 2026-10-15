@@ -10,7 +10,7 @@ import {
   existsSync,
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { parseArgs } from "node:util";
 import { processTree, measureDirectory } from "./audit-resources.mjs";
@@ -268,6 +268,7 @@ try {
       await measureDirectory(join(root, "worktrees")),
     ],
   };
+  mkdirSync(dirname(resolve(values.output)), { recursive: true });
   writeFileSync(resolve(values.output), JSON.stringify(report, null, 2));
   console.log(
     JSON.stringify(

@@ -1,5 +1,5 @@
-import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
-import type { DatabaseCompactionResult } from "../../contracts/storage.ts";
+import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
+import type { DatabaseCompactionResult } from "../contracts/storage.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type {
   RemoteDevicesState,

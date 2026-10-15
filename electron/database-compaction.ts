@@ -32,10 +32,24 @@ export function compactDatabase(path: string): Promise<DatabaseCompactionResult>
     `,
       { eval: true, workerData: path },
     );
-    worker.once("message", (result: DatabaseCompactionResult) => resolve(result));
-    worker.once("error", reject);
+    let settled = false;
+    worker.once("message", (result: DatabaseCompactionResult) => {
+      settled = true;
+      resolve(result);
+    });
+    worker.once("error", (error) => {
+      settled = true;
+      reject(error);
+    });
     worker.once("exit", (code) => {
-      if (code !== 0) reject(new Error(`Database compaction worker exited with code ${code}`));
+      if (settled) return;
+      reject(
+        new Error(
+          code === 0
+            ? "Database compaction worker exited without a result"
+            : `Database compaction worker exited with code ${code}`,
+        ),
+      );
     });
   });
 }

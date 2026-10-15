@@ -1,11 +1,16 @@
 // Opt-in diagnostic reproductions of current scheduling behavior, not production latency benchmarks.
 import { expect, test, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent-userdata" } }));
 import { SubagentManager } from "./subagents/subagent-manager.ts";
+/** Reports are regenerated on demand; the output directory is not tracked. */
+async function writeReport(path: string, contents: string) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, contents);
+}
 async function spawn(url: string, task: string) {
   const response = await fetch(url, {
     method: "POST",
@@ -111,7 +116,7 @@ test.skipIf(process.env.PIPPER_ARCHITECTURE_SCHEDULING !== "1")(
           runs: manager.getRunSnapshots().map((r) => ({ depth: r.depth, status: r.status })),
         },
       };
-      await writeFile(
+      await writeReport(
         "docs/architecture/opencode/nested-scheduling-verification.json",
         JSON.stringify(report, null, 2),
       );
@@ -159,7 +164,7 @@ test.skipIf(process.env.PIPPER_ARCHITECTURE_SCHEDULING !== "1")(
       const failing = snapshotManager(async () => {
         attempts++;
         if (attempts === 1) throw new Error("Injected single storage write failure");
-        return null;
+        return {};
       });
       failing.sessions.set("a", runtime("a"));
       failing.sessions.set("b", runtime("b"));
@@ -196,7 +201,7 @@ test.skipIf(process.env.PIPPER_ARCHITECTURE_SCHEDULING !== "1")(
       release();
       await Promise.all(requests);
       expect(revisions).toEqual(["revision-0", "revision-5"]);
-      await writeFile(
+      await writeReport(
         "docs/architecture/opencode/snapshot-queue-verification.json",
         JSON.stringify(
           {
@@ -291,7 +296,7 @@ test.skipIf(process.env.PIPPER_ARCHITECTURE_SCHEDULING !== "1")(
       expect(injectedBackgroundNotifications).toBe(0);
       expect(activeStateUnchanged).toBe(true);
       expect(projectionUnchanged).toBe(true);
-      await writeFile(
+      await writeReport(
         "docs/architecture/opencode/ignored-event-verification.json",
         JSON.stringify(
           {
@@ -412,7 +417,7 @@ test.skipIf(process.env.PIPPER_ARCHITECTURE_SCHEDULING !== "1")(
       finishNew();
       await vi.waitFor(() => expect(closeRequests).toBe(newRequests));
       expect(promptRequests).toBe(0);
-      await writeFile(
+      await writeReport(
         "docs/architecture/opencode/establishment-deadline-verification.json",
         JSON.stringify(
           {

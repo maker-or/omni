@@ -11,7 +11,7 @@ import {
   existsSync,
   readFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 const cwd = process.cwd();
 const root = mkdtempSync(join(tmpdir(), "pipper-monitor-worker-check-"));
@@ -84,10 +84,9 @@ try {
     resolvedWorkerExists: existsSync(join(cwd, "out/main/monitor-worker.js")),
     live,
   };
-  writeFileSync(
-    join(cwd, "docs/architecture/opencode/monitor-worker-verification.json"),
-    JSON.stringify(report, null, 2),
-  );
+  const reportPath = join(cwd, "docs/architecture/opencode/monitor-worker-verification.json");
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, JSON.stringify(report, null, 2));
   if (!live?.pipelineTelemetry || live.recentTicks.length === 0)
     throw new Error("Monitor did not produce observable health and samples");
   if (live.pipelineTelemetry.workerMode !== "worker" || live.pipelineTelemetry.workerFailures > 0)

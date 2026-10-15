@@ -1,6 +1,7 @@
 import { DatabaseSync, backup } from "node:sqlite";
-import { mkdtemp, rm, chmod, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, mkdir, rm, chmod, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { compactDatabase } from "../electron/database-compaction.ts";
 const source = process.argv[2];
@@ -80,10 +81,14 @@ try {
   };
   if (!lockObserved || integrity !== "ok")
     throw new Error("Did not reproduce expected safe lock contention");
-  await writeFile(
-    "docs/architecture/opencode/compaction-contention-verification.json",
-    JSON.stringify(report, null, 2),
+  const reportPath = fileURLToPath(
+    new URL(
+      "../docs/architecture/opencode/compaction-contention-verification.json",
+      import.meta.url,
+    ),
   );
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } finally {
   db?.close();

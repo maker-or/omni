@@ -6,6 +6,7 @@ import {
   readFileSync,
   writeFileSync,
   cpSync,
+  existsSync,
   symlinkSync,
   rmSync,
 } from "node:fs";
@@ -43,14 +44,20 @@ try {
   const archive = execFileSync("git", ["archive", "HEAD"], { maxBuffer: 100 * 1024 * 1024 });
   const extracted = spawnSync("tar", ["-xf", "-", "-C", mirror], { input: archive });
   if (extracted.status !== 0) throw new Error("Cannot extract source mirror");
-  const changed = execFileSync("git", ["diff", "--name-only", "-z"], { encoding: "utf8" }).split(
-    "\0",
-  );
+  // Against HEAD so staged edits are mirrored too, not just unstaged ones.
+  const changed = execFileSync("git", ["diff", "HEAD", "--name-only", "-z"], {
+    encoding: "utf8",
+  }).split("\0");
   const untracked = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
     encoding: "utf8",
   }).split("\0");
   for (const file of new Set([...changed, ...untracked])) {
     if (!file || /^(docs\/|\.tmp-check\/)/.test(file)) continue;
+    if (!existsSync(join(cwd, file))) {
+      // Deleted in the working tree: remove the HEAD copy from the mirror.
+      rmSync(join(mirror, file), { force: true });
+      continue;
+    }
     mkdirSync(dirname(join(mirror, file)), { recursive: true });
     cpSync(join(cwd, file), join(mirror, file));
   }
