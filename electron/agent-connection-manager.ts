@@ -17,7 +17,7 @@ import type {
   AcpToolCallState,
 } from "../contracts/acp.ts";
 import type { OpenTabsState, Thread } from "../contracts/threads.ts";
-import { readOpenTabsState, recordThreadSwitch } from "./open-tabs.ts";
+import { commitThreadNavigation, readOpenTabsState } from "./open-tabs.ts";
 import { getProject } from "./projects.ts";
 import { getAppSetting, setAppSetting, getSelectedAgentIds } from "./db.ts";
 import { setActiveProjectId } from "./session.ts";
@@ -31,11 +31,7 @@ import {
   getThreadSortOrder,
   deleteThread as removeThreadRow,
 } from "./threads.ts";
-import {
-  updateLaunchSelection,
-  updateWorkspaceSelection,
-  readLaunchState,
-} from "./launch-state.ts";
+import { commitNavigation, readLaunchState, updateLaunchSelection } from "./launch-state.ts";
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
 import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
@@ -2138,13 +2134,13 @@ export class AgentConnectionManager {
       // switchThreadCore's reconciliation never ran, so a snapshot-only launch
       // must still select the thread's workspace and give it an open tab.
       const workspaceCwd = await this.resolveThreadCwd(thread.worktree_path, project.path);
-      await Promise.all([
-        updateWorkspaceSelection(project.id, workspaceCwd),
-        recordThreadSwitch(thread.id),
-      ]);
+      await commitThreadNavigation({
+        projectId,
+        threadId: thread.id,
+        workspacePath: workspaceCwd,
+      });
     }
-
-    await updateLaunchSelection({ projectId, threadId: thread.id });
+    // Both paths committed project, thread and workspace in one write.
   }
 
   async switchThread(threadId: string): Promise<OpenTabsState> {
@@ -2528,16 +2524,15 @@ export class AgentConnectionManager {
     // canonical selection, and the renderer only mirrors it. This keeps
     // header, tab scoping, and terminals coherent for tab clicks, close
     // fallbacks, and orchestration switches alike.
-    const selectionsSettled = Promise.all([
-      updateWorkspaceSelection(project.id, cwd),
-      updateLaunchSelection({ projectId: project.id, threadId }),
-    ]);
-    // Return the state produced by the same queued mutation. Callers that need
-    // to broadcast the tab state can use this result without performing a
-    // second read-modify-write for the same switch.
-    const openTabsState = await recordThreadSwitch(threadId);
-    await selectionsSettled;
-    return openTabsState;
+    // Workspace, launch selection, open tab and MRU history land in one
+    // atomic launch-state write; callers broadcast the returned tab state
+    // without a second read-modify-write for the same switch.
+    const { tabs } = await commitThreadNavigation({
+      projectId: project.id,
+      threadId,
+      workspacePath: cwd,
+    });
+    return tabs;
   }
 
   async createThread(
@@ -2671,11 +2666,11 @@ export class AgentConnectionManager {
       // Same publish-before-persist ordering as switches: the new thread's view
       // renders immediately while the durable selections settle below.
       this.pushState(thread.id);
-      const selectionsSettled = Promise.all([
-        updateWorkspaceSelection(projectId, cwd),
-        updateLaunchSelection({ projectId, threadId: thread.id }),
-      ]);
-      await selectionsSettled;
+      await commitNavigation({
+        projectId,
+        threadId: thread.id,
+        workspace: { projectId, path: cwd },
+      });
     }
     if (opts?.background) {
       touchThread(thread.id);

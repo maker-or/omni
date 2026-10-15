@@ -117,3 +117,57 @@ describe("launch-state durability", () => {
     expect((await readLaunchState()).activeThreadId).toBe("t2");
   });
 });
+
+describe("navigation commits", () => {
+  test("one commit persists project, thread and workspace together with a new revision", async () => {
+    const { commitNavigation, getLaunchStateIoStats, readLaunchState } =
+      await import("./launch-state.ts");
+    const before = getLaunchStateIoStats();
+    const committed = await commitNavigation({
+      projectId: "p1",
+      threadId: "t1",
+      workspace: { projectId: "p1", path: "/worktrees/feature" },
+    });
+    expect(getLaunchStateIoStats().diskWrites - before.diskWrites).toBe(1);
+    expect(committed).toMatchObject({
+      projectId: "p1",
+      threadId: "t1",
+      activeThreadId: "t1",
+      selectedWorktreePathByProject: { p1: "/worktrees/feature" },
+      revision: 1,
+    });
+    expect(await readLaunchState()).toEqual(committed);
+  });
+
+  test("an identical commit is skipped and keeps its revision", async () => {
+    const { commitNavigation, getLaunchStateIoStats } = await import("./launch-state.ts");
+    const first = await commitNavigation({ projectId: "p1", threadId: "t1" });
+    const writes = getLaunchStateIoStats().diskWrites;
+    const second = await commitNavigation({ projectId: "p1", threadId: "t1" });
+    expect(getLaunchStateIoStats().diskWrites).toBe(writes);
+    expect(second.revision).toBe(first.revision);
+  });
+
+  test("reads after the first load are served from memory", async () => {
+    const { commitNavigation, getLaunchStateIoStats, readLaunchState } =
+      await import("./launch-state.ts");
+    await readLaunchState();
+    const reads = getLaunchStateIoStats().diskReads;
+    for (let index = 0; index < 5; index += 1) {
+      await commitNavigation({ threadId: `t${index}` });
+      await readLaunchState();
+    }
+    expect(getLaunchStateIoStats().diskReads).toBe(reads);
+  });
+
+  test("a state recovered from the backup is rewritten even when unchanged", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const file = join(root!, "launch-state.json");
+    await writeFile(`${file}.bak`, JSON.stringify({ projectId: "p1" }), "utf-8");
+    await writeFile(file, '{"projectId": "trunc', "utf-8");
+    vi.resetModules();
+    const { commitNavigation } = await import("./launch-state.ts");
+    await commitNavigation({ projectId: "p1" });
+    expect(JSON.parse(await readFile(file, "utf-8")).projectId).toBe("p1");
+  });
+});

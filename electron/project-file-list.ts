@@ -128,12 +128,11 @@ export class ProjectFileLister {
   private readonly jobs = new Map<string, SharedJob>();
   private readonly requests = new Map<string, AbortController>();
 
-  constructor(
-    private readonly lister: (
-      path: string,
-      signal: AbortSignal,
-    ) => Promise<string[]> = listProjectFiles,
-  ) {}
+  private readonly lister: (path: string, signal: AbortSignal) => Promise<string[]>;
+
+  constructor(lister: (path: string, signal: AbortSignal) => Promise<string[]> = listProjectFiles) {
+    this.lister = lister;
+  }
 
   /** Number of directory scans currently running (for tests and diagnostics). */
   get activeJobs(): number {
