@@ -840,7 +840,7 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
 
-  const target = listWorktrees(project.path).find((worktree) =>
+  const target = (await listWorktrees(project.path)).find((worktree) =>
     samePath(worktree.path, targetPath),
   );
   if (!target) throw new Error("Worktree is no longer available");
@@ -1976,7 +1976,7 @@ function registerIpc(): void {
       if (worktreePath && fs.existsSync(worktreePath)) return listProjectFiles(worktreePath);
       // Follow the active worktree's cwd, not the project root, so file paths
       // reflect the selected workspace. Falls back to the project root.
-      const cwd = requireAgentManager().getActiveCwd();
+      const cwd = await requireAgentManager().getActiveCwd();
       if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
       const id = getActiveProjectId();
       const project = id ? getProject(id) : null;
@@ -1987,7 +1987,7 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:getFileTree", async () => {
     // Keep the flyout aligned with the currently selected worktree.
-    const cwd = requireAgentManager().getActiveCwd();
+    const cwd = await requireAgentManager().getActiveCwd();
     if (cwd && fs.existsSync(cwd)) return listProjectFileTree(cwd);
     const id = getActiveProjectId();
     const project = id ? getProject(id) : null;
@@ -2073,13 +2073,13 @@ function registerIpc(): void {
       const project = getProject(input.projectId);
       if (!project) throw new Error(`Project not found: ${input.projectId}`);
 
-      const worktree = switchWorktreeBranch(project.path, input.path, input.branch);
+      const worktree = await switchWorktreeBranch(project.path, input.path, input.branch);
       try {
         const { thread } = await activateProjectWorktree(input.projectId, worktree.path);
         return { thread, worktree };
       } catch (err) {
         // Activation failed: restore the worktree state to match the mutated Git branch
-        const restoredWorktree = listWorktrees(project.path).find((w) =>
+        const restoredWorktree = (await listWorktrees(project.path)).find((w) =>
           samePath(w.path, input.path),
         );
         if (restoredWorktree) {
@@ -2090,10 +2090,10 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("worktrees:create", (_event, input: { projectId: string; name: string }) => {
+  ipcMain.handle("worktrees:create", async (_event, input: { projectId: string; name: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const worktree = createWorktree({
+    const worktree = await createWorktree({
       projectPath: project.path,
       projectId: project.id,
       name: input.name,
@@ -2109,17 +2109,20 @@ function registerIpc(): void {
     // Return the same annotated Git view used by the title bar, rather than
     // a locally invented display label for the newly-created checkout.
     return (
-      listWorktrees(project.path).find((item) => samePath(item.path, worktree.path)) ?? worktree
+      (await listWorktrees(project.path)).find((item) => samePath(item.path, worktree.path)) ??
+      worktree
     );
   });
 
   // First-party git for the advanced workspace UI. Every handler re-resolves
   // the worktree from the project's live worktree list so a stale renderer
   // path can never operate on an unrelated checkout.
-  function resolveWorkspaceTarget(projectId: string, path: string) {
+  async function resolveWorkspaceTarget(projectId: string, path: string) {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
-    const target = listWorktrees(project.path).find((worktree) => samePath(worktree.path, path));
+    const target = (await listWorktrees(project.path)).find((worktree) =>
+      samePath(worktree.path, path),
+    );
     if (!target) throw new Error("Workspace is no longer available");
     return target;
   }
@@ -2128,7 +2131,7 @@ function registerIpc(): void {
     "git:status",
     async (_event, input: { projectId: string; path: string; force?: boolean }) => {
       try {
-        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        const target = await resolveWorkspaceTarget(input.projectId, input.path);
         return await getWorkspaceGitStatus(target.path, { force: input.force === true });
       } catch (err) {
         logMain(
@@ -2141,13 +2144,13 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "git:commit",
-    (_event, input: { projectId: string; path: string; message: string }) => {
+    async (_event, input: { projectId: string; path: string; message: string }) => {
       logMain(
         `[Main] git:commit project=${input.projectId} path=${input.path} msgLen=${input.message?.length ?? 0}`,
       );
       try {
-        const target = resolveWorkspaceTarget(input.projectId, input.path);
-        const hash = commitWorkspace(target.path, input.message);
+        const target = await resolveWorkspaceTarget(input.projectId, input.path);
+        const hash = await commitWorkspace(target.path, input.message);
         logMain(`[Main] git:commit ok ${hash}`);
         captureAnalytics("workspace_committed", {
           windowType: "main",
@@ -2164,7 +2167,7 @@ function registerIpc(): void {
   ipcMain.handle("git:push", async (_event, input: { projectId: string; path: string }) => {
     logMain(`[Main] git:push project=${input.projectId} path=${input.path}`);
     try {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      const target = await resolveWorkspaceTarget(input.projectId, input.path);
       await pushWorkspace(target.path);
       logMain(`[Main] git:push ok`);
       captureAnalytics("workspace_pushed", {
@@ -2184,7 +2187,7 @@ function registerIpc(): void {
       _event,
       input: { projectId: string; path: string; title: string; body?: string; draft?: boolean },
     ) => {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      const target = await resolveWorkspaceTarget(input.projectId, input.path);
       const url = await createWorkspacePr(
         target.path,
         input.title,
@@ -2199,12 +2202,12 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("git:merge", (_event, input: { projectId: string; path: string }) => {
+  ipcMain.handle("git:merge", async (_event, input: { projectId: string; path: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const target = await resolveWorkspaceTarget(input.projectId, input.path);
     if (!target.branch) throw new Error("Workspace has no branch to merge.");
-    const base = mergeWorkspaceBranch(project.path, target.branch);
+    const base = await mergeWorkspaceBranch(project.path, target.branch);
     captureAnalytics("workspace_merged", {
       windowType: "main",
       properties: { project_id: input.projectId },
@@ -2214,7 +2217,7 @@ function registerIpc(): void {
 
   // Merge the open GitHub PR for the workspace branch (checks-gated in the UI).
   ipcMain.handle("git:mergePr", async (_event, input: { projectId: string; path: string }) => {
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const target = await resolveWorkspaceTarget(input.projectId, input.path);
     const status = await getWorkspaceGitStatus(target.path, { force: true });
     if (status.prDataState !== "fresh") {
       throw new Error("GitHub could not be refreshed. Reconnect before merging.");
@@ -2230,7 +2233,7 @@ function registerIpc(): void {
 
   // Draft PR → ready for review. Checks-agnostic: it only flips the GitHub flag.
   ipcMain.handle("git:markPrReady", async (_event, input: { projectId: string; path: string }) => {
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const target = await resolveWorkspaceTarget(input.projectId, input.path);
     const status = await getWorkspaceGitStatus(target.path, { force: true });
     if (status.prDataState !== "fresh") {
       throw new Error("GitHub could not be refreshed. Reconnect before updating the pull request.");
@@ -2244,7 +2247,7 @@ function registerIpc(): void {
   // Whether a project root can host a workspace worktree. Read by the
   // create-workspace dialog before it offers a name, so a project with no
   // repo (or no commits) gets its fix instead of a raw git error.
-  ipcMain.handle("git:projectRepoState", (_event, projectId: string) => {
+  ipcMain.handle("git:projectRepoState", async (_event, projectId: string) => {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
     return getProjectRepoState(project.path);
@@ -2252,10 +2255,10 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "git:init",
-    (_event, input: { projectId: string; name?: string | null; email?: string | null }) => {
+    async (_event, input: { projectId: string; name?: string | null; email?: string | null }) => {
       const project = getProject(input.projectId);
       if (!project) throw new Error(`Project not found: ${input.projectId}`);
-      const state = getProjectRepoState(project.path);
+      const state = await getProjectRepoState(project.path);
       // `ready` and `broken` are refused before the action runs: one is already
       // usable and the other must never have a repository created inside it
       // (see WorkspaceRepoState). Only `absent` and `unborn` have a fix here.
@@ -2265,7 +2268,7 @@ function registerIpc(): void {
           "This project's git state could not be read. The folder may have been moved or removed outside Pipper.",
         );
       }
-      initProjectRepo(project.path, { name: input.name, email: input.email });
+      await initProjectRepo(project.path, { name: input.name, email: input.email });
       captureAnalytics("project_git_initialized", {
         windowType: "main",
         properties: { project_id: project.id },
@@ -2281,24 +2284,27 @@ function registerIpc(): void {
   );
 
   // Continue after merge: new branch off the fresh base, same worktree.
-  ipcMain.handle("worktrees:continue", (_event, input: { projectId: string; path: string }) => {
-    const project = getProject(input.projectId);
-    if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
-    if (target.isProjectRoot) throw new Error("The project root cannot be continued.");
-    const worktree = continueWorktreeOnNewBranch(project.path, target.path);
-    logMain(`[Main] worktrees:continue path=${target.path} branch=${worktree.branch}`);
-    captureAnalytics("workspace_continued", {
-      windowType: "main",
-      properties: { project_id: input.projectId },
-    });
-    return worktree;
-  });
+  ipcMain.handle(
+    "worktrees:continue",
+    async (_event, input: { projectId: string; path: string }) => {
+      const project = getProject(input.projectId);
+      if (!project) throw new Error(`Project not found: ${input.projectId}`);
+      const target = await resolveWorkspaceTarget(input.projectId, input.path);
+      if (target.isProjectRoot) throw new Error("The project root cannot be continued.");
+      const worktree = await continueWorktreeOnNewBranch(project.path, target.path);
+      logMain(`[Main] worktrees:continue path=${target.path} branch=${worktree.branch}`);
+      captureAnalytics("workspace_continued", {
+        windowType: "main",
+        properties: { project_id: input.projectId },
+      });
+      return worktree;
+    },
+  );
 
   ipcMain.handle("worktrees:delete", async (_event, input: { projectId: string; path: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const target = listWorktrees(project.path).find(
+    const target = (await listWorktrees(project.path)).find(
       (worktree) => !worktree.isProjectRoot && samePath(worktree.path, input.path),
     );
     if (!target) throw new Error("Workspace is no longer available");
@@ -2317,7 +2323,7 @@ function registerIpc(): void {
     await worktreeInstallQueue.cancel(target.path);
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
-    const removed = removeWorktree(project.path, target.path, project.id);
+    const removed = await removeWorktree(project.path, target.path, project.id);
     // Terminals are owned by renderer workspace buckets. Notify it as soon
     // as Git removes the worktree, even if later chat cleanup fails.
     broadcastToWindows("worktrees:deleted", { projectId: project.id, path: target.path });
@@ -2356,7 +2362,9 @@ function registerIpc(): void {
       // live worktree list (the same value a root switch persists), not
       // `project.path`: for a project registered at a repository subdirectory
       // the two can differ, and the selection must name a real workspace.
-      const rootWorktree = listWorktrees(project.path).find((worktree) => worktree.isProjectRoot);
+      const rootWorktree = (await listWorktrees(project.path)).find(
+        (worktree) => worktree.isProjectRoot,
+      );
       await updateWorkspaceSelection(project.id, rootWorktree?.path ?? project.path);
     } catch (error) {
       console.error(

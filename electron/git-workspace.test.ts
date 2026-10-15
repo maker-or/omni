@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   BASE_FETCH_INTERVAL_MS,
   commitWorkspace,
@@ -73,7 +73,7 @@ describe("getWorkspaceGitStatus", () => {
     // worktree offered "Initialize git repo" inside an existing repository.
     const project = join(dir, "project");
     mkdirSync(project);
-    initProjectRepo(project, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(project, { name: "Test", email: "test@example.com" });
     writeFileSync(join(project, "a.txt"), "hi");
     git(project, ["add", "-A"]);
     git(project, ["commit", "-m", "init"]);
@@ -93,7 +93,7 @@ describe("getWorkspaceGitStatus", () => {
   });
 
   test("clean repo reports branch with zero counts", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "hi");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "init"]);
@@ -106,7 +106,7 @@ describe("getWorkspaceGitStatus", () => {
   });
 
   test("dirty files are counted and listed", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "hi");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "init"]);
@@ -123,7 +123,7 @@ describe("getWorkspaceGitStatus", () => {
   });
 
   test("branch without upstream counts commits beyond main as ahead", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -139,7 +139,7 @@ describe("getWorkspaceGitStatus", () => {
   });
 
   test("a request issued mid-flight still sees state from its own request time", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "hi");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "init"]);
@@ -154,7 +154,7 @@ describe("getWorkspaceGitStatus", () => {
   });
 
   test("in-sync branch still reports commits beyond base", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -174,7 +174,7 @@ describe("getWorkspaceGitStatus", () => {
   });
 
   test("counts commits on a local base branch the workspace lacks, with no fetch", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -193,62 +193,62 @@ describe("getWorkspaceGitStatus", () => {
 });
 
 describe("project repo state and initialization", () => {
-  test("a plain directory is absent; a missing one is broken", () => {
-    expect(getProjectRepoState(dir)).toBe("absent");
-    expect(getProjectRepoState(join(dir, "never-existed"))).toBe("broken");
+  test("a plain directory is absent; a missing one is broken", async () => {
+    expect(await getProjectRepoState(dir)).toBe("absent");
+    expect(await getProjectRepoState(join(dir, "never-existed"))).toBe("broken");
   });
 
-  test("a repository with no commits is unborn, not ready", () => {
+  test("a repository with no commits is unborn, not ready", async () => {
     git(dir, ["init", "-b", "main"]);
-    expect(getProjectRepoState(dir)).toBe("unborn");
+    expect(await getProjectRepoState(dir)).toBe("unborn");
   });
 
-  test("a repository with a commit is ready", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
-    expect(getProjectRepoState(dir)).toBe("ready");
+  test("a repository with a commit is ready", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(await getProjectRepoState(dir)).toBe("ready");
   });
 
-  test("repository metadata git cannot read is broken, not absent", () => {
+  test("repository metadata git cannot read is broken, not absent", async () => {
     // A `.git` entry pointing nowhere: git refuses to answer, but the
     // directory was set up as a repository — initializing one here would act
     // on the wrong tree.
     writeFileSync(join(dir, ".git"), "gitdir: /nonexistent\n");
-    expect(getProjectRepoState(dir)).toBe("broken");
+    expect(await getProjectRepoState(dir)).toBe("broken");
   });
 
-  test("initialization leaves a commit a worktree can branch from", () => {
+  test("initialization leaves a commit a worktree can branch from", async () => {
     // Regression: `git worktree add` needs a commit. A repository that is
     // only `git init`-ed has no HEAD, so every workspace create failed right
     // after the user was told the repository had been initialized.
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     expect(git(dir, ["rev-parse", "--verify", "HEAD"])).toBeTruthy();
     expect(git(dir, ["log", "--oneline", "-1"])).toContain("Initial commit");
   });
 
-  test("the initial commit includes the project's existing files", () => {
+  test("the initial commit includes the project's existing files", async () => {
     writeFileSync(join(dir, "a.txt"), "hello");
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     expect(git(dir, ["show", "--stat", "--oneline", "HEAD"])).toContain("a.txt");
     expect(git(dir, ["status", "--porcelain"])).toBe("");
   });
 
-  test("an empty project still gets the commit a worktree needs", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+  test("an empty project still gets the commit a worktree needs", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     expect(git(dir, ["status", "--porcelain"])).toBe("");
     expect(git(dir, ["rev-parse", "--verify", "HEAD"])).toBeTruthy();
   });
 
-  test("finishes an existing repository that has no commits", () => {
+  test("finishes an existing repository that has no commits", async () => {
     git(dir, ["init", "-b", "trunk"]);
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
-    expect(getProjectRepoState(dir)).toBe("ready");
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    expect(await getProjectRepoState(dir)).toBe("ready");
     // The repository's own branch is kept; only the missing commit is added.
     expect(git(dir, ["branch", "--show-current"])).toBe("trunk");
   });
 
-  test("refuses to re-initialize a repository that already has commits", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
-    expect(() => initProjectRepo(dir, { name: "Test", email: "test@example.com" })).toThrow(
+  test("refuses to re-initialize a repository that already has commits", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await expect(initProjectRepo(dir, { name: "Test", email: "test@example.com" })).rejects.toThrow(
       "already a git repository",
     );
   });
@@ -258,12 +258,12 @@ describe("project repo state and initialization", () => {
  * A bare origin plus two clones: `work` is the user's workspace, `other` is
  * a teammate who pushes to main behind their back.
  */
-function setUpTeamRepo(): { work: string; other: string } {
+async function setUpTeamRepo(): Promise<{ work: string; other: string }> {
   git(dir, ["init", "--bare", "--initial-branch=main", "origin.git"]);
   const origin = join(dir, "origin.git");
   const work = join(dir, "work");
   mkdirSync(work);
-  initProjectRepo(work, { name: "Test", email: "test@example.com" });
+  await initProjectRepo(work, { name: "Test", email: "test@example.com" });
   writeFileSync(join(work, "a.txt"), "base");
   git(work, ["add", "-A"]);
   git(work, ["commit", "-m", "base"]);
@@ -291,7 +291,7 @@ describe("pushWorkspace", () => {
   }
 
   test("publishes a new branch, sets its upstream, and supports later pushes", async () => {
-    const { work } = setUpTeamRepo();
+    const { work } = await setUpTeamRepo();
     const base = git(work, ["rev-parse", "origin/main"]);
     commitFeature(work);
     await pushWorkspace(work);
@@ -305,7 +305,7 @@ describe("pushWorkspace", () => {
   test.each(["simple", "upstream", "matching"])(
     "repairs an inherited base upstream with push.default=%s without changing main",
     async (mode) => {
-      const { work } = setUpTeamRepo();
+      const { work } = await setUpTeamRepo();
       const base = git(work, ["rev-parse", "origin/main"]);
       git(work, ["branch", "--set-upstream-to=origin/main", "side"]);
       git(work, ["config", "push.default", mode]);
@@ -320,7 +320,7 @@ describe("pushWorkspace", () => {
   );
 
   test("keeps the configured remote when repairing an upstream", async () => {
-    const { work } = setUpTeamRepo();
+    const { work } = await setUpTeamRepo();
     git(work, ["remote", "rename", "origin", "fork"]);
     git(work, ["branch", "--set-upstream-to=fork/main", "side"]);
     const head = commitFeature(work);
@@ -332,7 +332,7 @@ describe("pushWorkspace", () => {
   test.each(["branch", "default", "both"])(
     "honors the %s push remote setting and preserves a separate fetch upstream",
     async (setting) => {
-      const { work } = setUpTeamRepo();
+      const { work } = await setUpTeamRepo();
       await pushWorkspace(work);
       const upstreamHead = git(join(dir, "origin.git"), ["rev-parse", "side"]);
       for (const remote of ["fork", "default-fork"]) {
@@ -353,7 +353,7 @@ describe("pushWorkspace", () => {
   );
 
   test("uses the default push remote for first publication and establishes tracking", async () => {
-    const { work } = setUpTeamRepo();
+    const { work } = await setUpTeamRepo();
     const fork = join(dir, "fork.git");
     git(dir, ["init", "--bare", fork]);
     git(work, ["remote", "add", "fork", fork]);
@@ -368,7 +368,7 @@ describe("pushWorkspace", () => {
   });
 
   test("rejects diverging remote history without overwriting it", async () => {
-    const { work, other } = setUpTeamRepo();
+    const { work, other } = await setUpTeamRepo();
     commitFeature(work);
     await pushWorkspace(work);
     git(other, ["fetch", "origin", "side"]);
@@ -383,7 +383,7 @@ describe("pushWorkspace", () => {
   });
 
   test("rejects a detached HEAD before publishing anything", async () => {
-    const { work } = setUpTeamRepo();
+    const { work } = await setUpTeamRepo();
     git(work, ["checkout", "--detach"]);
     await expect(pushWorkspace(work)).rejects.toThrow("Check out a branch");
     expect(git(join(dir, "origin.git"), ["for-each-ref", "--format=%(refname)"])).toBe(
@@ -398,7 +398,7 @@ describe("base branch fetch", () => {
   });
 
   test("a teammate's push to main shows up as behindBase after a fetch", async () => {
-    const { work, other } = setUpTeamRepo();
+    const { work, other } = await setUpTeamRepo();
     teammatePushes(other, "b.txt");
     // Nothing has fetched yet: the remote-tracking ref is still at "base".
     const before = await getWorkspaceGitStatus(work);
@@ -412,7 +412,7 @@ describe("base branch fetch", () => {
   });
 
   test("status kicks off a fetch in the background and the next poll sees it", async () => {
-    const { work, other } = setUpTeamRepo();
+    const { work, other } = await setUpTeamRepo();
     teammatePushes(other, "b.txt");
     resetBaseFetchesForTests();
     const first = await getWorkspaceGitStatus(work);
@@ -425,7 +425,7 @@ describe("base branch fetch", () => {
   });
 
   test("fetches are throttled per workspace until forced", async () => {
-    const { work, other } = setUpTeamRepo();
+    const { work, other } = await setUpTeamRepo();
     const now = Date.now();
     await refreshBaseBranch(work, { base: "origin/main", upstream: null }, { force: true, now });
     teammatePushes(other, "b.txt");
@@ -441,7 +441,7 @@ describe("base branch fetch", () => {
   });
 
   test("an unreachable origin resolves without throwing and leaves fetchedAt null", async () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -512,20 +512,20 @@ describe("parseNumstat", () => {
 });
 
 describe("commitWorkspace", () => {
-  test("stages everything and commits", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+  test("stages everything and commits", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "hi");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "init"]);
     writeFileSync(join(dir, "b.txt"), "more");
-    const hash = commitWorkspace(dir, "second commit");
+    const hash = await commitWorkspace(dir, "second commit");
     expect(hash).toMatch(/^[0-9a-f]{7,}$/);
     expect(git(dir, ["log", "--oneline", "-1"])).toContain("second commit");
   });
 
-  test("empty message throws", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
-    expect(() => commitWorkspace(dir, "   ")).toThrow("Commit message is empty");
+  test("empty message throws", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await expect(commitWorkspace(dir, "   ")).rejects.toThrow("Commit message is empty");
   });
 });
 
@@ -690,7 +690,7 @@ describe("refreshPrSnapshot throttling", () => {
   test("a slow GitHub response never delays the status read", async () => {
     // The whole point of the background refresh: local git answers in ~70ms
     // while GitHub takes ~1s, so a status read must not await the network.
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "hi");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "init"]);
@@ -730,8 +730,8 @@ describe("refreshPrSnapshot throttling", () => {
 });
 
 describe("mergeWorkspaceBranch", () => {
-  test("conflict aborts instead of wedging the checkout in MERGING state", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+  test("conflict aborts instead of wedging the checkout in MERGING state", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -742,13 +742,13 @@ describe("mergeWorkspaceBranch", () => {
     writeFileSync(join(dir, "a.txt"), "main");
     git(dir, ["commit", "-am", "main change"]);
 
-    expect(() => mergeWorkspaceBranch(dir, "side")).toThrow();
+    await expect(mergeWorkspaceBranch(dir, "side")).rejects.toThrow();
     expect(existsSync(join(dir, ".git", "MERGE_HEAD"))).toBe(false);
     expect(git(dir, ["status", "--porcelain"])).toBe("");
   });
 
-  test("merges into the conventional base even when another feature branch is checked out", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+  test("merges into the conventional base even when another feature branch is checked out", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -760,14 +760,14 @@ describe("mergeWorkspaceBranch", () => {
     // never become the merge target.
     git(dir, ["checkout", "-b", "other-feature", "main"]);
 
-    expect(mergeWorkspaceBranch(dir, "side")).toBe("main");
+    expect(await mergeWorkspaceBranch(dir, "side")).toBe("main");
     expect(git(dir, ["branch", "--show-current"])).toBe("main");
     expect(git(dir, ["log", "--oneline", "-1", "other-feature"])).toContain("base");
     expect(git(dir, ["log", "--oneline", "-1", "main"])).toContain("side");
   });
 
-  test("refuses when no base branch can be determined", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" }, "trunk");
+  test("refuses when no base branch can be determined", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" }, "trunk");
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -777,12 +777,54 @@ describe("mergeWorkspaceBranch", () => {
     git(dir, ["commit", "-m", "side change"]);
     git(dir, ["checkout", "trunk"]);
 
-    expect(() => mergeWorkspaceBranch(dir, "side")).toThrow(/base branch/);
+    await expect(mergeWorkspaceBranch(dir, "side")).rejects.toThrow(/base branch/);
     expect(git(dir, ["log", "--oneline", "-1", "trunk"])).toContain("base");
   });
 
-  test("clean merge returns the base branch", () => {
-    initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+  test("waits for a commit in a linked worktree of the same repository", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
+    writeFileSync(join(dir, "a.txt"), "base");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "base"]);
+    const work = join(dir, "..", `${basename(dir)}-side`);
+    git(dir, ["worktree", "add", "-b", "side", work]);
+    try {
+      // Hooks are shared by every worktree of the repository: the slow
+      // pre-commit hook logs its span, the merge hook logs when it runs.
+      const log = join(dir, ".git", "hook-order.log");
+      const hooks = join(dir, ".git", "hooks");
+      mkdirSync(hooks, { recursive: true });
+      writeFileSync(
+        join(hooks, "pre-commit"),
+        `#!/bin/sh\necho commit-start >> "${log}"\nsleep 1\necho commit-end >> "${log}"\n`,
+        { mode: 0o755 },
+      );
+      writeFileSync(join(hooks, "post-merge"), `#!/bin/sh\necho merge >> "${log}"\n`, {
+        mode: 0o755,
+      });
+      writeFileSync(join(work, "b.txt"), "side");
+
+      const commit = commitWorkspace(work, "side change");
+      // Start the merge only once the commit holds the lock (its hook runs).
+      while (!existsSync(log)) await new Promise((resolve) => setTimeout(resolve, 20));
+      const merge = mergeWorkspaceBranch(dir, "side");
+      await commit;
+      expect(await merge).toBe("main");
+
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+        "commit-start",
+        "commit-end",
+        "merge",
+      ]);
+      // The merge saw the commit that finished first.
+      expect(git(dir, ["log", "--oneline", "main"])).toContain("side change");
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  test("clean merge returns the base branch", async () => {
+    await initProjectRepo(dir, { name: "Test", email: "test@example.com" });
     writeFileSync(join(dir, "a.txt"), "base");
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
@@ -792,7 +834,7 @@ describe("mergeWorkspaceBranch", () => {
     git(dir, ["commit", "-m", "side change"]);
     git(dir, ["checkout", "main"]);
 
-    expect(mergeWorkspaceBranch(dir, "side")).toBe("main");
+    expect(await mergeWorkspaceBranch(dir, "side")).toBe("main");
     expect(git(dir, ["log", "--oneline", "-1"])).toContain("side");
   });
 });

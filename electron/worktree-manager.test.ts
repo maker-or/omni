@@ -26,7 +26,9 @@ import {
   removeWorktree,
   resolveInstallCommand,
   samePath,
+  setWorktreeCommandTimeoutsForTests,
   switchWorktreeBranch,
+  WorktreeCommandError,
   worktreePathFor,
 } from "./worktree-manager.ts";
 
@@ -122,7 +124,7 @@ afterEach(() => {
 });
 
 describe("createWorktree", () => {
-  test("uses origin's renamed default and repairs a stale origin HEAD", () => {
+  test("uses origin's renamed default and repairs a stale origin HEAD", async () => {
     const remotePath = join(root, "renamed-origin.git");
     execFileSync("git", ["init", "--bare", "--initial-branch=main", remotePath], { env: GIT_ENV });
     git(projectPath, ["remote", "add", "origin", remotePath]);
@@ -138,14 +140,14 @@ describe("createWorktree", () => {
     git(projectPath, ["switch", "main"]);
     git(projectPath, ["update-ref", "-d", "refs/remotes/origin/trunk"]);
 
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Renamed" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Renamed" });
     expect(worktree.head).toBe(expected);
     expect(git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD"])).toBe(
       "refs/remotes/origin/trunk",
     );
   });
 
-  test("creates and continues offline using a verified cached remote base", () => {
+  test("creates and continues offline using a verified cached remote base", async () => {
     const expected = git(projectPath, ["rev-parse", "HEAD"]);
     git(projectPath, ["remote", "add", "origin", join(root, "offline.git")]);
     git(projectPath, ["update-ref", "refs/remotes/origin/main", expected]);
@@ -153,22 +155,26 @@ describe("createWorktree", () => {
     writeFileSync(join(projectPath, "README.md"), "local-only change");
     git(projectPath, ["commit", "-am", "local ahead"]);
 
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Offline" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Offline" });
     expect(worktree.head).toBe(expected);
-    const continued = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    const continued = await continueWorktreeOnNewBranch(projectPath, worktree.path);
     expect(continued.head).toBe(expected);
     expect(continued.branch).toBe("pipper/offline-2");
   });
 
-  test("falls back to a local commit when origin and its cached HEAD are unusable", () => {
+  test("falls back to a local commit when origin and its cached HEAD are unusable", async () => {
     git(projectPath, ["remote", "add", "origin", join(root, "missing.git")]);
     git(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/deleted"]);
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Local" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Local" });
     expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
   });
 
-  test("adds a worktree on an auto-generated branch off the default branch", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Feature X" });
+  test("adds a worktree on an auto-generated branch off the default branch", async () => {
+    const worktree = await createWorktree({
+      projectPath,
+      projectId: PROJECT_ID,
+      name: "Feature X",
+    });
 
     expect(worktree.branch).toBe("pipper/feature-x");
     expect(existsSync(worktree.path)).toBe(true);
@@ -183,7 +189,7 @@ describe("createWorktree", () => {
     expect(worktree.head).toBe(git(projectPath, ["rev-parse", "HEAD"]));
   });
 
-  test("fetches and uses the remote default branch instead of a stale local branch", () => {
+  test("fetches and uses the remote default branch instead of a stale local branch", async () => {
     const remotePath = join(root, "origin.git");
     const updaterPath = join(root, "remote-updater");
     execFileSync("git", ["init", "--bare", "--initial-branch=main", remotePath], {
@@ -199,40 +205,40 @@ describe("createWorktree", () => {
     git(updaterPath, ["push", "origin", "main"]);
     const remoteHead = git(updaterPath, ["rev-parse", "HEAD"]);
 
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Remote" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Remote" });
 
     expect(worktree.head).toBe(remoteHead);
     expect(readFileSync(join(worktree.path, "README.md"), "utf8")).toBe("updated on remote");
     expect(git(projectPath, ["rev-parse", "main"])).not.toBe(remoteHead);
     // Starting from origin/main must not make the feature publish to main.
     expect(() => git(worktree.path, ["rev-parse", "@{u}"])).toThrow();
-    const continued = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    const continued = await continueWorktreeOnNewBranch(projectPath, worktree.path);
     expect(continued.head).toBe(remoteHead);
     expect(() => git(continued.path, ["rev-parse", "@{u}"])).toThrow();
     expect(git(projectPath, ["rev-parse", "--abbrev-ref", "main@{u}"])).toBe("origin/main");
   });
 
-  test("does not inherit tracking from a local base with automatic tracking enabled", () => {
+  test("does not inherit tracking from a local base with automatic tracking enabled", async () => {
     git(projectPath, ["config", "branch.autoSetupMerge", "always"]);
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Tracking" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Tracking" });
     expect(() => git(worktree.path, ["rev-parse", "@{u}"])).toThrow();
-    const continued = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    const continued = await continueWorktreeOnNewBranch(projectPath, worktree.path);
     expect(() => git(continued.path, ["rev-parse", "@{u}"])).toThrow();
     expect(git(projectPath, ["config", "branch.autoSetupMerge"])).toBe("always");
   });
 
-  test("suffixes the branch name when the auto branch already exists", () => {
+  test("suffixes the branch name when the auto branch already exists", async () => {
     // A pre-existing branch (path is still free) forces the -2 suffix.
     git(projectPath, ["branch", "pipper/dup"]);
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "dup" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "dup" });
     expect(worktree.branch).toBe("pipper/dup-2");
   });
 
-  test("seeds gitignored .env files restricted to the owner", () => {
+  test("seeds gitignored .env files restricted to the owner", async () => {
     writeFileSync(join(projectPath, ".env"), "SECRET=1");
     writeFileSync(join(projectPath, ".env.local"), "LOCAL=1");
 
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "seeded" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "seeded" });
 
     const seeded = join(worktree.path, ".env");
     expect(existsSync(seeded)).toBe(true);
@@ -244,20 +250,20 @@ describe("createWorktree", () => {
     expectOwnerOnly(join(worktree.path, ".env.local"));
   });
 
-  test("does not follow a symlinked source during the seed", () => {
+  test("does not follow a symlinked source during the seed", async () => {
     const outside = join(root, "outside-secret");
     writeFileSync(outside, "STOLEN=1");
     symlinkSync(outside, join(projectPath, ".env"));
     // Sanity: the source really is a symlink.
     expect(lstatSync(join(projectPath, ".env")).isSymbolicLink()).toBe(true);
 
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "symlink" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "symlink" });
 
     // The symlinked secret must not be copied into the worktree.
     expect(existsSync(join(worktree.path, ".env"))).toBe(false);
   });
 
-  test("does not clobber a tracked file of the same name", () => {
+  test("does not clobber a tracked file of the same name", async () => {
     // Track a file matching a custom include glob.
     writeFileSync(join(projectPath, "config.tracked"), "TRACKED");
     git(projectPath, ["add", "-A"]);
@@ -266,7 +272,7 @@ describe("createWorktree", () => {
     // visible in the file itself rather than inferred from its mode.
     writeFileSync(join(projectPath, "config.tracked"), "SEEDED");
 
-    const worktree = createWorktree({
+    const worktree = await createWorktree({
       projectPath,
       projectId: PROJECT_ID,
       name: "clobber",
@@ -277,29 +283,33 @@ describe("createWorktree", () => {
     expect(readFileSync(join(worktree.path, "config.tracked"), "utf8")).toBe("TRACKED");
   });
 
-  test("rejects a non-git directory", () => {
+  test("rejects a non-git directory", async () => {
     const notRepo = join(root, "plain");
     writeFileSync(join(root, "plain-marker"), "x");
-    expect(() =>
+    await expect(
       createWorktree({ projectPath: notRepo, projectId: PROJECT_ID, name: "x" }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  test("a project freshly initialized by initProjectRepo can host a workspace", () => {
+  test("a project freshly initialized by initProjectRepo can host a workspace", async () => {
     // Regression: the init offered for a non-git project must leave a commit
     // behind, or this next step fails with "invalid reference: HEAD".
     const fresh = join(root, "fresh");
     mkdirSync(fresh, { recursive: true });
     writeFileSync(join(fresh, "app.txt"), "hello");
-    initProjectRepo(fresh, { name: "Test", email: "test@example.com" });
+    await initProjectRepo(fresh, { name: "Test", email: "test@example.com" });
 
-    const worktree = createWorktree({ projectPath: fresh, projectId: PROJECT_ID, name: "First" });
+    const worktree = await createWorktree({
+      projectPath: fresh,
+      projectId: PROJECT_ID,
+      name: "First",
+    });
 
     // The workspace starts from the project's files, not an empty checkout.
     expect(readFileSync(join(worktree.path, "app.txt"), "utf8")).toBe("hello");
   });
 
-  test("a project nested inside a repository maps to the same subdirectory of the new checkout", () => {
+  test("a project nested inside a repository maps to the same subdirectory of the new checkout", async () => {
     const nestedProject = join(projectPath, "packages", "app");
     mkdirSync(nestedProject, { recursive: true });
     writeFileSync(join(nestedProject, "package.json"), "{}");
@@ -308,7 +318,7 @@ describe("createWorktree", () => {
     git(projectPath, ["add", "-A"]);
     git(projectPath, ["commit", "-m", "add package"]);
 
-    const worktree = createWorktree({
+    const worktree = await createWorktree({
       projectPath: nestedProject,
       projectId: PROJECT_ID,
       name: "nested-project",
@@ -325,25 +335,25 @@ describe("createWorktree", () => {
 
     // Listing is consistent with creation: the root entry *is* the project
     // path and the linked entry is the mapped subdirectory.
-    const all = listWorktrees(nestedProject);
+    const all = await listWorktrees(nestedProject);
     expect(all.find((w) => w.isProjectRoot)?.path).toBe(realPath(nestedProject));
     expect(all.some((w) => w.path === worktree.path)).toBe(true);
-    expect(isLiveWorktree(worktree.path, nestedProject)).toBe(true);
+    expect(await isLiveWorktree(worktree.path, nestedProject)).toBe(true);
 
     // Removal resolves the checkout root from the mapped path.
-    removeWorktree(nestedProject, worktree.path, PROJECT_ID);
+    await removeWorktree(nestedProject, worktree.path, PROJECT_ID);
     expect(existsSync(worktreePathFor(PROJECT_ID, "nested-project"))).toBe(false);
-    expect(listChildWorktrees(nestedProject)).toEqual([]);
+    expect(await listChildWorktrees(nestedProject)).toEqual([]);
   });
 
-  test("a linked checkout missing the project subdirectory lists as its root, not a dead path", () => {
+  test("a linked checkout missing the project subdirectory lists as its root, not a dead path", async () => {
     const nestedProject = join(projectPath, "packages", "app");
     mkdirSync(nestedProject, { recursive: true });
     writeFileSync(join(nestedProject, "package.json"), "{}");
     git(projectPath, ["add", "-A"]);
     git(projectPath, ["commit", "-m", "add package"]);
 
-    createWorktree({
+    await createWorktree({
       projectPath: nestedProject,
       projectId: PROJECT_ID,
       name: "predates-subdir",
@@ -354,7 +364,7 @@ describe("createWorktree", () => {
     // subdirectory does not exist in this worktree.
     rmSync(join(checkoutRoot, "packages"), { recursive: true, force: true });
 
-    const entry = listWorktrees(nestedProject).find((w) => !w.isProjectRoot);
+    const entry = (await listWorktrees(nestedProject)).find((w) => !w.isProjectRoot);
     expect(entry).toBeDefined();
     // The listing must fall back to the checkout root — a non-existent nested
     // path would be accepted by resolveWorkspaceTarget and handed to git
@@ -365,10 +375,10 @@ describe("createWorktree", () => {
 });
 
 describe("listWorktrees / isLiveWorktree", () => {
-  test("lists the main tree plus created worktrees", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "listed" });
+  test("lists the main tree plus created worktrees", async () => {
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "listed" });
     const mainReal = realPath(projectPath);
-    const all = listWorktrees(projectPath);
+    const all = await listWorktrees(projectPath);
     expect(all.some((w) => w.path === mainReal)).toBe(true);
     expect(all.some((w) => w.path === worktree.path)).toBe(true);
     expect(all.find((w) => w.path === mainReal)).toMatchObject({
@@ -376,31 +386,31 @@ describe("listWorktrees / isLiveWorktree", () => {
       workspaceName: "main",
       branch: "main",
     });
-    expect(isLiveWorktree(worktree.path, projectPath)).toBe(true);
-    expect(isLiveWorktree(join(root, "does-not-exist"), projectPath)).toBe(false);
+    expect(await isLiveWorktree(worktree.path, projectPath)).toBe(true);
+    expect(await isLiveWorktree(join(root, "does-not-exist"), projectPath)).toBe(false);
   });
 
-  test("a worktree whose folder is gone never reaches the listing", () => {
+  test("a worktree whose folder is gone never reaches the listing", async () => {
     // Regression: git keeps listing a removed checkout as prunable, so it
     // showed up as an ordinary workspace whose panel then reported "not a git
     // repository" and offered to initialize one inside the existing repo.
     // `createWorktree` invalidates the listing cache, so the read below is a
     // fresh one and no TTL wait is needed.
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "ghost" });
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "ghost" });
     rmSync(worktree.path, { recursive: true, force: true });
-    const all = listWorktrees(projectPath);
+    const all = await listWorktrees(projectPath);
     expect(all.some((w) => w.path === worktree.path)).toBe(false);
     // The root survives: the UI must always resolve exactly one.
     expect(all.filter((w) => w.isProjectRoot)).toHaveLength(1);
   });
 
-  test("always resolves one annotated root, even when the path doesn't match an entry", () => {
+  test("always resolves one annotated root, even when the path doesn't match an entry", async () => {
     // Project added as a subdirectory of the repo: canonical(subdir) matches no
     // worktree path, so the root must fall back to git's first (main) entry —
     // otherwise the title bar can't resolve a current workspace name/branch.
     const subdir = join(projectPath, "packages", "app");
     mkdirSync(subdir, { recursive: true });
-    const all = listWorktrees(subdir);
+    const all = await listWorktrees(subdir);
     const roots = all.filter((w) => w.isProjectRoot);
     expect(roots).toHaveLength(1);
     expect(roots[0]?.workspaceName).toBe("main");
@@ -409,17 +419,21 @@ describe("listWorktrees / isLiveWorktree", () => {
     expect(all.every((w) => Boolean(w.workspaceName))).toBe(true);
   });
 
-  test("listChildWorktrees excludes the main working tree", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "child" });
-    const children = listChildWorktrees(projectPath);
+  test("listChildWorktrees excludes the main working tree", async () => {
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "child" });
+    const children = await listChildWorktrees(projectPath);
     const mainReal = realPath(projectPath);
     expect(children.some((w) => w.path === mainReal)).toBe(false);
     expect(children.some((w) => w.path === worktree.path)).toBe(true);
   });
 
-  test("lists local branches with their checked-out worktrees", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "branch-owner" });
-    const branches = listBranches(projectPath);
+  test("lists local branches with their checked-out worktrees", async () => {
+    const worktree = await createWorktree({
+      projectPath,
+      projectId: PROJECT_ID,
+      name: "branch-owner",
+    });
+    const branches = await listBranches(projectPath);
 
     expect(branches).toContainEqual({
       name: "main",
@@ -428,37 +442,41 @@ describe("listWorktrees / isLiveWorktree", () => {
     expect(branches).toContainEqual({ name: "pipper/branch-owner", worktreePath: worktree.path });
   });
 
-  test("switches an available branch inside the selected worktree", () => {
+  test("switches an available branch inside the selected worktree", async () => {
     git(projectPath, ["branch", "feature/header"]);
 
-    const switched = switchWorktreeBranch(projectPath, projectPath, "feature/header");
+    const switched = await switchWorktreeBranch(projectPath, projectPath, "feature/header");
 
     expect(switched.branch).toBe("feature/header");
     expect(switched.isProjectRoot).toBe(true);
     expect(git(projectPath, ["branch", "--show-current"])).toBe("feature/header");
   });
 
-  test("removes a linked worktree and its generated branch", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "remove-me" });
+  test("removes a linked worktree and its generated branch", async () => {
+    const worktree = await createWorktree({
+      projectPath,
+      projectId: PROJECT_ID,
+      name: "remove-me",
+    });
 
-    const removed = removeWorktree(projectPath, worktree.path, PROJECT_ID);
+    const removed = await removeWorktree(projectPath, worktree.path, PROJECT_ID);
 
     expect(removed.path).toBe(worktree.path);
     expect(existsSync(worktree.path)).toBe(false);
-    expect(listChildWorktrees(projectPath)).toEqual([]);
+    expect(await listChildWorktrees(projectPath)).toEqual([]);
     expect(git(projectPath, ["branch", "--list", "pipper/remove-me"])).toBe("");
   });
 
-  test("preserves a user-managed branch when removing its worktree", () => {
+  test("preserves a user-managed branch when removing its worktree", async () => {
     const branch = "feature/preserve-me";
-    const worktree = createWorktree({
+    const worktree = await createWorktree({
       projectPath,
       projectId: PROJECT_ID,
       name: "external-worktree",
       branch,
     });
 
-    removeWorktree(projectPath, worktree.path, PROJECT_ID);
+    await removeWorktree(projectPath, worktree.path, PROJECT_ID);
 
     expect(existsSync(worktree.path)).toBe(false);
     expect(git(projectPath, ["branch", "--list", branch])).toBe(branch);
@@ -466,7 +484,7 @@ describe("listWorktrees / isLiveWorktree", () => {
 });
 
 describe("parseWorktreePorcelain prunable", () => {
-  test("flags an entry git reports as prunable", () => {
+  test("flags an entry git reports as prunable", async () => {
     // Regression: the marker was dropped, so a worktree whose folder had been
     // removed was listed as an ordinary workspace and its panel offered to
     // initialize a git repository inside the existing one.
@@ -486,7 +504,7 @@ describe("parseWorktreePorcelain prunable", () => {
     expect(parsed.map((entry) => entry.missing)).toEqual([false, true]);
   });
 
-  test("a bare prunable line counts too", () => {
+  test("a bare prunable line counts too", async () => {
     const parsed = parseWorktreePorcelain(
       ["worktree /gone", "HEAD def", "detached", "prunable", ""].join("\n"),
     );
@@ -495,7 +513,7 @@ describe("parseWorktreePorcelain prunable", () => {
 });
 
 describe("parseWorktreePorcelain", () => {
-  test("parses paths, HEADs, branches, and detached entries", () => {
+  test("parses paths, HEADs, branches, and detached entries", async () => {
     const out = [
       "worktree /repo/main",
       "HEAD abc123",
@@ -525,11 +543,11 @@ describe("resolveInstallCommand", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("no package.json means nothing to install", () => {
+  test("no package.json means nothing to install", async () => {
     expect(resolveInstallCommand(dir)).toBeNull();
   });
 
-  test("lockfile decides the package manager", () => {
+  test("lockfile decides the package manager", async () => {
     writeFileSync(join(dir, "package.json"), "{}");
 
     writeFileSync(join(dir, "bun.lock"), "");
@@ -552,41 +570,219 @@ describe("resolveInstallCommand", () => {
     expect(resolveInstallCommand(dir)?.manager).toBe("npm");
   });
 
-  test("bun's lockfile outranks npm's when both exist", () => {
+  test("bun's lockfile outranks npm's when both exist", async () => {
     writeFileSync(join(dir, "package.json"), "{}");
     writeFileSync(join(dir, "package-lock.json"), "{}");
     writeFileSync(join(dir, "bun.lockb"), "");
     expect(resolveInstallCommand(dir)?.manager).toBe("bun");
   });
 
-  test("a bare package.json falls back to npm", () => {
+  test("a bare package.json falls back to npm", async () => {
     writeFileSync(join(dir, "package.json"), "{}");
     expect(resolveInstallCommand(dir)?.manager).toBe("npm");
   });
 });
 
 describe("continueWorktreeOnNewBranch", () => {
-  test("starts a fresh generated branch off main in the same directory", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Feature" });
+  test("starts a fresh generated branch off main in the same directory", async () => {
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Feature" });
     writeFileSync(join(worktree.path, "work.txt"), "done");
     git(worktree.path, ["add", "-A"]);
     git(worktree.path, ["commit", "-m", "feature work"]);
     // Simulate the merge landing on main.
     git(projectPath, ["merge", "--no-ff", worktree.branch!]);
 
-    const next = continueWorktreeOnNewBranch(projectPath, worktree.path);
+    const next = await continueWorktreeOnNewBranch(projectPath, worktree.path);
     expect(next.path).toBe(worktree.path);
     expect(next.branch).toBe("pipper/feature-2");
     expect(git(worktree.path, ["rev-parse", "HEAD"])).toBe(git(projectPath, ["rev-parse", "main"]));
     expect(existsSync(join(worktree.path, "work.txt"))).toBe(true);
   });
 
-  test("refuses a dirty worktree", () => {
-    const worktree = createWorktree({ projectPath, projectId: PROJECT_ID, name: "Dirty" });
+  test("refuses a dirty worktree", async () => {
+    const worktree = await createWorktree({ projectPath, projectId: PROJECT_ID, name: "Dirty" });
     writeFileSync(join(worktree.path, "wip.txt"), "wip");
-    expect(() => continueWorktreeOnNewBranch(projectPath, worktree.path)).toThrow(
+    await expect(continueWorktreeOnNewBranch(projectPath, worktree.path)).rejects.toThrow(
       /uncommitted changes/,
     );
     expect(git(worktree.path, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("pipper/dirty");
   });
+});
+
+describe("asynchronous Git and setup commands", () => {
+  let restoreTimeouts: (() => void) | null = null;
+
+  afterEach(() => {
+    restoreTimeouts?.();
+    restoreTimeouts = null;
+  });
+
+  function makeRepo(name: string): string {
+    const repo = join(root, name);
+    execFileSync("git", ["init", "-b", "main", repo], { env: GIT_ENV });
+    writeFileSync(join(repo, "README.md"), name);
+    git(repo, ["add", "-A"]);
+    git(repo, ["commit", "-m", "initial"]);
+    return repo;
+  }
+
+  /** Counts event-loop turns; a synchronous child process would starve it. */
+  function heartbeat(): () => number {
+    let ticks = 0;
+    const timer = setInterval(() => ticks++, 10);
+    return () => {
+      clearInterval(timer);
+      return ticks;
+    };
+  }
+
+  /** Settle a promise into a tagged record so completion order can be asserted. */
+  function track<T>(order: string[], label: string, promise: Promise<T>) {
+    return promise.then(
+      (value) => {
+        order.push(label);
+        return { value, error: null };
+      },
+      (error: unknown) => {
+        order.push(label);
+        return { value: null, error };
+      },
+    );
+  }
+
+  test.skipIf(process.platform === "win32")(
+    "a hung git mutation times out without blocking other repositories",
+    async () => {
+      restoreTimeouts = setWorktreeCommandTimeoutsForTests({ gitMs: 2_500 });
+      // A post-checkout hook that never returns hangs `git worktree add` after
+      // Git has already created the branch, registration and checkout.
+      const hook = join(projectPath, ".git", "hooks", "post-checkout");
+      const hookStarted = join(root, "hook-started");
+      writeFileSync(
+        hook,
+        `#!/bin/sh\ncase "$PWD" in *hang-me*) touch "${hookStarted}"; exec sleep 30;; esac\n`,
+        { mode: 0o755 },
+      );
+      const otherRepo = makeRepo("other-repo");
+      const order: string[] = [];
+      const stopHeartbeat = heartbeat();
+      const startedAt = Date.now();
+
+      const hungCreate = track(
+        order,
+        "hung",
+        createWorktree({ projectPath, projectId: PROJECT_ID, name: "hang-me" }),
+      );
+      const otherRepoCreate = track(
+        order,
+        "other-repo",
+        createWorktree({ projectPath: otherRepo, projectId: "proj-other", name: "independent" }),
+      );
+      // Once the hung create is inside `git worktree add` it holds this
+      // repository's lock; a second mutation of the same repository waits.
+      while (!existsSync(hookStarted)) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const sameRepoCreate = track(
+        order,
+        "same-repo",
+        createWorktree({ projectPath, projectId: PROJECT_ID, name: "queued" }),
+      );
+      const [hung, sameRepo, otherRepoResult] = await Promise.all([
+        hungCreate,
+        sameRepoCreate,
+        otherRepoCreate,
+      ]);
+      const ticks = stopHeartbeat();
+
+      expect(hung.error).toBeInstanceOf(WorktreeCommandError);
+      expect(hung.error).toMatchObject({ kind: "timeout", operation: "git worktree" });
+      expect(sameRepo.error).toBeNull();
+      expect(otherRepoResult.error).toBeNull();
+      expect(order).toEqual(["other-repo", "hung", "same-repo"]);
+      // The main thread kept running while Git hung.
+      expect(ticks).toBeGreaterThan(30);
+      expect(Date.now() - startedAt).toBeLessThan(15_000);
+
+      // Only what the timed-out create made is rolled back.
+      expect(existsSync(worktreePathFor(PROJECT_ID, "hang-me"))).toBe(false);
+      expect(git(projectPath, ["branch", "--list", "pipper/hang-me"])).toBe("");
+      // Git's own registration is gone too, not merely filtered from the listing.
+      expect(git(projectPath, ["worktree", "list", "--porcelain"])).not.toContain("hang-me");
+      const children = await listChildWorktrees(projectPath);
+      expect(children.map((w) => w.branch)).toEqual(["pipper/queued"]);
+      expect(existsSync(sameRepo.value!.path)).toBe(true);
+      expect(existsSync(otherRepoResult.value!.path)).toBe(true);
+    },
+    20_000,
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "a hung setup script times out, stops its process tree and rolls back only its workspace",
+    async () => {
+      const pidFile = join(root, "setup-child.pid");
+      const otherRepo = makeRepo("other-repo");
+      const order: string[] = [];
+      const stopHeartbeat = heartbeat();
+
+      const [hung, sibling, otherRepoCreate] = await Promise.all([
+        track(
+          order,
+          "hung",
+          createWorktree({
+            projectPath,
+            projectId: PROJECT_ID,
+            name: "slow-setup",
+            setupScript: `sleep 30 & echo $! > "${pidFile}"; wait`,
+            setupScriptTimeoutMs: 2_000,
+          }),
+        ),
+        // The script runs outside the repository lock: a sibling workspace of
+        // the same repository does not wait for it.
+        track(
+          order,
+          "sibling",
+          createWorktree({ projectPath, projectId: PROJECT_ID, name: "sibling" }),
+        ),
+        track(
+          order,
+          "other-repo",
+          createWorktree({ projectPath: otherRepo, projectId: "proj-other", name: "independent" }),
+        ),
+      ]);
+      const ticks = stopHeartbeat();
+
+      expect(hung.error).toBeInstanceOf(WorktreeCommandError);
+      expect(hung.error).toMatchObject({
+        kind: "timeout",
+        operation: "Workspace setup script",
+        timeoutMs: 2_000,
+      });
+      expect(sibling.error).toBeNull();
+      expect(otherRepoCreate.error).toBeNull();
+      expect(order.at(-1)).toBe("hung");
+      expect(ticks).toBeGreaterThan(20);
+
+      // The script's own child is stopped with it, not orphaned.
+      const pid = Number(readFileSync(pidFile, "utf8").trim());
+      const deadline = Date.now() + 5_000;
+      let alive = true;
+      while (alive && Date.now() < deadline) {
+        try {
+          process.kill(pid, 0);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        } catch {
+          alive = false;
+        }
+      }
+      expect(alive).toBe(false);
+
+      expect(existsSync(worktreePathFor(PROJECT_ID, "slow-setup"))).toBe(false);
+      expect(git(projectPath, ["branch", "--list", "pipper/slow-setup"])).toBe("");
+      expect((await listChildWorktrees(projectPath)).map((w) => w.branch)).toEqual([
+        "pipper/sibling",
+      ]);
+    },
+    20_000,
+  );
 });

@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -12,13 +12,26 @@ import type {
   WorkspacePrComment,
   WorkspacePrDeployment,
 } from "../contracts/git.ts";
-import { foreignGitEnv, gitBinary } from "./worktree-manager.ts";
+import {
+  foreignGitEnv,
+  gitBinary,
+  KILL_GRACE_MS,
+  runCommand,
+  withRepositoryLock,
+  WorktreeCommandError,
+} from "./worktree-manager.ts";
 
 /**
  * First-party git operations for the advanced workspace UI.
  * Electron-free except for node builtins (unit-testable like worktree-manager).
  * Every operation is scoped to a worktree path; callers must ensure the path
  * belongs to a known project.
+ *
+ * Git always runs asynchronously with a deadline (the same `runCommand` the
+ * worktree manager uses), so a stuck hook or credential helper can never
+ * freeze the Electron main process. Mutations (commit, merge, init) take the
+ * per-repository lock shared with worktree create/remove, so a merge can never
+ * race a worktree being added to the same repository.
  */
 
 const MAX_PANEL_FILES = 30;
@@ -26,47 +39,44 @@ const MAX_PANEL_FILES = 30;
 const MAX_LINE_COUNT_BYTES = 1_000_000;
 const GH_AVAILABLE_TTL_MS = 60_000;
 
+/** Default deadline for a git command; anything near it is stuck. */
+const GIT_TIMEOUT_MS = 60_000;
+/**
+ * Deadline for commands that run user hooks (commit, merge, checkout). A
+ * pre-commit hook may lint or test the whole repository; since git no longer
+ * blocks the main process, a slow hook only delays its own action.
+ */
+const GIT_HOOK_TIMEOUT_MS = 5 * 60_000;
+
 const execFileAsync = promisify(execFile);
 
-function git(cwd: string, args: string[], timeoutMs = 60_000): string {
-  const out = execFileSync(gitBinary(), args, {
+/**
+ * Run git against `cwd` without blocking the event loop. Rejects with a
+ * `WorktreeCommandError` whose `kind` says whether git exited non-zero, timed
+ * out (its whole process group is then stopped), could not start, or produced
+ * runaway output.
+ */
+async function git(
+  cwd: string,
+  args: string[],
+  timeoutMs = GIT_TIMEOUT_MS,
+  env: NodeJS.ProcessEnv = foreignGitEnv(),
+): Promise<string> {
+  const stdout = await runCommand(gitBinary(), args, {
     cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: foreignGitEnv(),
-    timeout: timeoutMs,
+    env,
+    timeoutMs,
+    operation: `git ${args[0] ?? ""}`.trim(),
+    stdout: "pipe",
   });
   // Trailing trim only: porcelain status records carry a significant leading
   // space (" M file" = unstaged modification) that String.trim() would eat.
-  return out.replace(/[\r\n]+$/, "");
-}
-
-function tryGit(cwd: string, args: string[]): string | null {
-  try {
-    return git(cwd, args);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Async twin of `git()` for the polled status query and network-bound
- * actions (push, PR) so they never block the main process event loop.
- */
-async function gitAsync(cwd: string, args: string[], timeoutMs = 60_000): Promise<string> {
-  const { stdout } = await execFileAsync(gitBinary(), args, {
-    cwd,
-    encoding: "utf8",
-    env: foreignGitEnv(),
-    timeout: timeoutMs,
-    maxBuffer: 16 * 1024 * 1024,
-  });
   return stdout.replace(/[\r\n]+$/, "");
 }
 
-async function tryGitAsync(cwd: string, args: string[]): Promise<string | null> {
+async function tryGit(cwd: string, args: string[]): Promise<string | null> {
   try {
-    return await gitAsync(cwd, args);
+    return await git(cwd, args);
   } catch {
     return null;
   }
@@ -147,7 +157,7 @@ export function isGhAvailable(): Promise<boolean> {
 }
 
 async function remoteOrigin(cwd: string): Promise<{ host: string | null; url: string | null }> {
-  const url = await tryGitAsync(cwd, ["remote", "get-url", "origin"]);
+  const url = await tryGit(cwd, ["remote", "get-url", "origin"]);
   if (!url) return { host: null, url: null };
   // git@github.com:owner/repo.git  |  https://github.com/owner/repo.git
   const scp = url.match(/@([^:]+):/);
@@ -281,8 +291,8 @@ async function collectLineStats(
     stats = parseNumstat(combined);
   } else {
     const [unstaged, staged] = await Promise.all([
-      tryGitAsync(cwd, ["diff", "--numstat", "-z"]),
-      tryGitAsync(cwd, ["diff", "--cached", "--numstat", "-z"]),
+      tryGit(cwd, ["diff", "--numstat", "-z"]),
+      tryGit(cwd, ["diff", "--cached", "--numstat", "-z"]),
     ]);
     stats = parseNumstat(unstaged ?? "");
     for (const [path, value] of parseNumstat(staged ?? "")) {
@@ -310,7 +320,7 @@ async function collectLineStats(
 }
 
 async function parseStatusFiles(cwd: string): Promise<StatusSummary> {
-  const out = await tryGitAsync(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const out = await tryGit(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   return summarizeStatusPorcelain(out ?? "");
 }
 
@@ -944,17 +954,13 @@ export function refreshBaseBranch(
   if (entry.inFlight) return entry.inFlight;
   if (!options.force && now - entry.startedAt < BASE_FETCH_INTERVAL_MS) return Promise.resolve();
   entry.startedAt = now;
-  entry.inFlight = execFileAsync(
-    gitBinary(),
+  entry.inFlight = git(
+    worktreePath,
     ["fetch", "--quiet", "--no-tags", "origin", ...branches],
-    {
-      cwd: worktreePath,
-      encoding: "utf8",
-      // No credential or host-key prompts can be answered from a background
-      // process; fail fast instead of wedging on a hidden prompt.
-      env: { ...foreignGitEnv(), GIT_TERMINAL_PROMPT: "0" },
-      timeout: BASE_FETCH_TIMEOUT_MS,
-    },
+    BASE_FETCH_TIMEOUT_MS,
+    // No credential or host-key prompts can be answered from a background
+    // process; fail fast instead of wedging on a hidden prompt.
+    { ...foreignGitEnv(), GIT_TERMINAL_PROMPT: "0" },
   )
     .then(() => {
       entry.fetchedAt = Date.now();
@@ -1096,19 +1102,19 @@ async function computeWorkspaceGitStatus(
     // The directory itself is gone: broken, not "no repo here". Offering to
     // initialize one would target a path that does not exist.
     if (!existsSync(worktreePath)) return degraded;
-    if ((await tryGitAsync(worktreePath, ["rev-parse", "--git-dir"])) === null) {
+    if ((await tryGit(worktreePath, ["rev-parse", "--git-dir"])) === null) {
       return { ...degraded, repoState: repoStateForFailedProbe(worktreePath) };
     }
     // Round 1: every read that depends only on the worktree.
     const [branchRaw, upstreamRaw, base, statusSummary, origin, combinedNumstat, repoRoot] =
       await Promise.all([
-        tryGitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]),
-        tryGitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
+        tryGit(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]),
+        tryGit(worktreePath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
         branchBaseAsync(worktreePath),
         parseStatusFiles(worktreePath),
         remoteOrigin(worktreePath),
-        tryGitAsync(worktreePath, ["diff", "HEAD", "--numstat", "-z"]),
-        tryGitAsync(worktreePath, ["rev-parse", "--show-toplevel"]),
+        tryGit(worktreePath, ["diff", "HEAD", "--numstat", "-z"]),
+        tryGit(worktreePath, ["rev-parse", "--show-toplevel"]),
       ]);
     const branch = !branchRaw || branchRaw === "HEAD" ? null : branchRaw;
     const upstream = upstreamRaw || null;
@@ -1120,11 +1126,11 @@ async function computeWorkspaceGitStatus(
     // Round 2: reads that depend on round 1, plus the gh network round-trip.
     const [baseCount, behindBaseCount, counts, lineStats, prLookup] = await Promise.all([
       // Commits beyond the base branch: what a PR would contain.
-      base ? tryGitAsync(worktreePath, ["rev-list", "--count", `${base}..HEAD`]) : null,
+      base ? tryGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]) : null,
       // Commits on the base this branch lacks: what "Get latest" would bring in.
-      base ? tryGitAsync(worktreePath, ["rev-list", "--count", `HEAD..${base}`]) : null,
+      base ? tryGit(worktreePath, ["rev-list", "--count", `HEAD..${base}`]) : null,
       upstream
-        ? tryGitAsync(worktreePath, ["rev-list", "--left-right", "--count", "HEAD...@{u}"])
+        ? tryGit(worktreePath, ["rev-list", "--left-right", "--count", "HEAD...@{u}"])
         : null,
       collectLineStats(worktreePath, files, combinedNumstat, repoRoot ?? worktreePath),
       origin.host === "github.com" && ghAvailable
@@ -1200,32 +1206,34 @@ async function computeWorkspaceGitStatus(
 }
 
 /** Stage everything and commit. Returns the short hash on success. */
-export function commitWorkspace(worktreePath: string, message: string): string {
+export async function commitWorkspace(worktreePath: string, message: string): Promise<string> {
   const trimmed = message.trim();
   if (!trimmed) throw new Error("Commit message is empty.");
-  assertInsideRepo(worktreePath);
-  // Fail fast with a readable error instead of git's "Author identity unknown"
-  // wall. Env-provided identity (CI, tests) counts — same rule git applies.
-  const ident = tryGit(worktreePath, ["var", "GIT_AUTHOR_IDENT"]);
-  if (!ident) {
-    throw new Error(
-      "Git identity is missing: set user.name and user.email (repo-local config or global) before committing.",
-    );
-  }
-  git(worktreePath, ["add", "-A"]);
-  git(worktreePath, ["commit", "-m", trimmed]);
-  return git(worktreePath, ["rev-parse", "--short", "HEAD"]);
+  await assertInsideRepo(worktreePath);
+  return withRepositoryLock(worktreePath, async () => {
+    // Fail fast with a readable error instead of git's "Author identity unknown"
+    // wall. Env-provided identity (CI, tests) counts — same rule git applies.
+    const ident = await tryGit(worktreePath, ["var", "GIT_AUTHOR_IDENT"]);
+    if (!ident) {
+      throw new Error(
+        "Git identity is missing: set user.name and user.email (repo-local config or global) before committing.",
+      );
+    }
+    await git(worktreePath, ["add", "-A"]);
+    await git(worktreePath, ["commit", "-m", trimmed], GIT_HOOK_TIMEOUT_MS);
+    return git(worktreePath, ["rev-parse", "--short", "HEAD"]);
+  });
 }
 
 /** Publish the current branch under its own name using Git's push remote precedence. */
 export async function pushWorkspace(worktreePath: string): Promise<void> {
-  assertInsideRepo(worktreePath);
-  const branch = await tryGitAsync(worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  await assertInsideRepo(worktreePath);
+  const branch = await tryGit(worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (!branch) throw new Error("Check out a branch before pushing this workspace.");
   const [branchPushRemote, defaultPushRemote, upstream] = await Promise.all([
-    tryGitAsync(worktreePath, ["config", "--get", `branch.${branch}.pushRemote`]),
-    tryGitAsync(worktreePath, ["config", "--get", "remote.pushDefault"]),
-    gitAsync(worktreePath, [
+    tryGit(worktreePath, ["config", "--get", `branch.${branch}.pushRemote`]),
+    tryGit(worktreePath, ["config", "--get", "remote.pushDefault"]),
+    git(worktreePath, [
       "for-each-ref",
       "--format=%(upstream:remotename)%00%(upstream:remoteref)",
       `refs/heads/${branch}`,
@@ -1244,7 +1252,7 @@ export async function pushWorkspace(worktreePath: string): Promise<void> {
   const setUpstream = !upstreamRemote || upstreamRemote === "." || upstreamRef !== branchRef;
   // Generous timeout: first pushes and slow networks take a while, but a
   // credential prompt must never hang the UI forever (stdin is ignored).
-  await gitAsync(
+  await git(
     worktreePath,
     ["push", ...(setUpstream ? ["-u"] : []), remote, `${branchRef}:${branchRef}`],
     120_000,
@@ -1258,17 +1266,15 @@ export async function createWorkspacePr(
   body?: string,
   draft = false,
 ): Promise<string> {
-  assertInsideRepo(worktreePath);
+  await assertInsideRepo(worktreePath);
   if (!(await isGhAvailable())) throw new Error("GitHub CLI (gh) is not installed.");
-  const branch = await gitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = await git(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
   // A PR with zero unique commits is rejected server-side with GraphQL noise —
   // catch it here with a message that says what to do instead.
   const base = await branchBaseAsync(worktreePath);
-  const unique = base
-    ? await tryGitAsync(worktreePath, ["rev-list", "--count", `${base}..HEAD`])
-    : null;
+  const unique = base ? await tryGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]) : null;
   if (unique !== null && Number(unique) === 0) {
-    const dirty = await tryGitAsync(worktreePath, ["status", "--porcelain"]);
+    const dirty = await tryGit(worktreePath, ["status", "--porcelain"]);
     throw new Error(
       dirty
         ? `Branch "${branch}" has no commits beyond ${base ?? "the base branch"} — commit your changes first, then create the PR.`
@@ -1288,10 +1294,8 @@ export async function createWorkspacePr(
 /** Base ref for branch comparisons: advertised remote default, else local main. */
 async function branchBaseAsync(worktreePath: string): Promise<string | null> {
   return (
-    (await tryGitAsync(worktreePath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])) ??
-    ((await tryGitAsync(worktreePath, ["rev-parse", "--verify", "--quiet", "main"]))
-      ? "main"
-      : null)
+    (await tryGit(worktreePath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])) ??
+    ((await tryGit(worktreePath, ["rev-parse", "--verify", "--quiet", "main"])) ? "main" : null)
   );
 }
 
@@ -1305,14 +1309,18 @@ const CONVENTIONAL_BASE_BRANCHES = ["main", "master"];
  * branch, and merging workspace work into that would be silent data
  * misplacement. Throws when nothing qualifies.
  */
-function resolveLocalBaseBranch(projectPath: string): string {
-  const remoteHead = tryGit(projectPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+async function resolveLocalBaseBranch(projectPath: string): Promise<string> {
+  const remoteHead = await tryGit(projectPath, [
+    "symbolic-ref",
+    "--short",
+    "refs/remotes/origin/HEAD",
+  ]);
   if (remoteHead) return remoteHead.replace(/^origin\//, "");
   for (const candidate of CONVENTIONAL_BASE_BRANCHES) {
-    if (
-      tryGit(projectPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${candidate}`]) !== null
-    )
+    const ref = `refs/heads/${candidate}`;
+    if ((await tryGit(projectPath, ["rev-parse", "--verify", "--quiet", ref])) !== null) {
       return candidate;
+    }
   }
   throw new Error(
     "Could not determine the base branch: no origin default branch and no local main/master.",
@@ -1326,7 +1334,7 @@ async function defaultPrBody(
   base: string | null,
 ): Promise<string> {
   const rangeArgs = base ? [`${base}..HEAD`] : ["-n", "10", "HEAD"];
-  const log = await tryGitAsync(worktreePath, ["log", "--pretty=format:- %s", ...rangeArgs]);
+  const log = await tryGit(worktreePath, ["log", "--pretty=format:- %s", ...rangeArgs]);
   if (log) return log.split("\n").slice(0, 20).join("\n");
   return branch;
 }
@@ -1336,7 +1344,7 @@ async function defaultPrBody(
  * The branch itself is kept — the worktree stays checked out on it.
  */
 export async function mergeWorkspacePr(worktreePath: string, prNumber: number): Promise<string> {
-  assertInsideRepo(worktreePath);
+  await assertInsideRepo(worktreePath);
   if (!(await isGhAvailable())) throw new Error("GitHub CLI (gh) is not installed.");
   await gh(worktreePath, ["pr", "merge", String(prNumber), "--merge"], 120_000);
   return `PR #${prNumber} merged.`;
@@ -1347,7 +1355,7 @@ export async function markWorkspacePrReady(
   worktreePath: string,
   prNumber: number,
 ): Promise<string> {
-  assertInsideRepo(worktreePath);
+  await assertInsideRepo(worktreePath);
   if (!(await isGhAvailable())) throw new Error("GitHub CLI (gh) is not installed.");
   await gh(worktreePath, ["pr", "ready", String(prNumber)], 60_000);
   return `PR #${prNumber} marked ready for review.`;
@@ -1356,30 +1364,46 @@ export async function markWorkspacePrReady(
 /**
  * Merge the workspace branch into the repo's base branch inside the project
  * root checkout. Refuses when either side is dirty so agent work is never
- * merged over uncommitted state.
+ * merged over uncommitted state. Runs under the repository lock so the dirty
+ * check, checkout and merge cannot interleave with a worktree create or remove
+ * (or another merge) in the same repository.
  */
-export function mergeWorkspaceBranch(projectPath: string, branch: string): string {
-  assertInsideRepo(projectPath);
+export async function mergeWorkspaceBranch(projectPath: string, branch: string): Promise<string> {
+  await assertInsideRepo(projectPath);
   if (!branch.trim()) throw new Error("No branch to merge.");
-  const dirty = tryGit(projectPath, ["status", "--porcelain"]);
-  if (dirty) throw new Error("Project checkout has uncommitted changes — commit or stash first.");
-  const base = resolveLocalBaseBranch(projectPath);
-  if (base === branch.trim()) throw new Error(`"${branch}" is already the base branch.`);
-  const current = tryGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  if (current !== base) git(projectPath, ["checkout", base]);
-  try {
-    git(projectPath, ["merge", "--no-ff", branch]);
-  } catch (err) {
-    // Never leave the project checkout wedged in MERGING state — a failed
-    // panel merge must read as an error, not a broken repo.
-    try {
-      git(projectPath, ["merge", "--abort"]);
-    } catch {
-      // Best effort: the original error below is what matters.
+  return withRepositoryLock(projectPath, async () => {
+    const dirty = await tryGit(projectPath, ["status", "--porcelain"]);
+    if (dirty) {
+      throw new Error("Project checkout has uncommitted changes — commit or stash first.");
     }
-    throw err;
+    const base = await resolveLocalBaseBranch(projectPath);
+    if (base === branch.trim()) throw new Error(`"${branch}" is already the base branch.`);
+    const current = await tryGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    if (current !== base) await git(projectPath, ["checkout", base], GIT_HOOK_TIMEOUT_MS);
+    try {
+      await git(projectPath, ["merge", "--no-ff", branch], GIT_HOOK_TIMEOUT_MS);
+    } catch (err) {
+      // Never leave the project checkout wedged in MERGING state — a failed
+      // panel merge must read as an error, not a broken repo.
+      await abortMerge(projectPath, err);
+      throw err;
+    }
+    return base;
+  });
+}
+
+/** Best-effort `git merge --abort` after `cause` made a merge fail. */
+async function abortMerge(projectPath: string, cause: unknown): Promise<void> {
+  // A timed-out merge is still being stopped in the background (SIGTERM, then
+  // SIGKILL after the grace period) and may hold `index.lock` until it exits.
+  if (cause instanceof WorktreeCommandError && cause.kind === "timeout") {
+    await new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS + 500));
   }
-  return base;
+  try {
+    await git(projectPath, ["merge", "--abort"]);
+  } catch {
+    // Nothing to abort, or the abort failed: the merge error is what matters.
+  }
 }
 
 /**
@@ -1387,14 +1411,14 @@ export function mergeWorkspaceBranch(projectPath: string, branch: string): strin
  * from a commit, so a repository with no commits (`unborn`) is as unusable as
  * no repository at all — but its fix is an initial commit, not an init.
  */
-export function getProjectRepoState(projectPath: string): ProjectRepoState {
+export async function getProjectRepoState(projectPath: string): Promise<ProjectRepoState> {
   // The directory itself is gone: broken, not "no repo here". Offering to
   // initialize one would target a path that does not exist.
   if (!existsSync(projectPath)) return "broken";
-  if (tryGit(projectPath, ["rev-parse", "--git-dir"]) === null) {
+  if ((await tryGit(projectPath, ["rev-parse", "--git-dir"])) === null) {
     return repoStateForFailedProbe(projectPath);
   }
-  return tryGit(projectPath, ["rev-parse", "--verify", "--quiet", "HEAD"]) === null
+  return (await tryGit(projectPath, ["rev-parse", "--verify", "--quiet", "HEAD"])) === null
     ? "unborn"
     : "ready";
 }
@@ -1408,24 +1432,27 @@ export function getProjectRepoState(projectPath: string): ProjectRepoState {
  * to branch from, so a repository with no commits cannot host a workspace.
  * Existing project files are included so a new workspace starts from them.
  */
-export function initProjectRepo(
+export async function initProjectRepo(
   projectPath: string,
   identity: { name?: string | null; email?: string | null },
   defaultBranch = "main",
-): void {
+): Promise<void> {
   if (!existsSync(projectPath)) throw new Error(`Project path does not exist: ${projectPath}`);
-  const isRepo = tryGit(projectPath, ["rev-parse", "--git-dir"]) !== null;
-  // Re-running `git init` on a live repository rewrites HEAD and the local
-  // identity config. The UI only offers this for a project with no repo or no
-  // commits, so reaching here with commits means the caller is acting on
-  // stale state.
-  if (isRepo && tryGit(projectPath, ["rev-parse", "--verify", "--quiet", "HEAD"]) !== null) {
-    throw new Error("This project is already a git repository.");
-  }
-  if (!isRepo) git(projectPath, ["init", "-b", defaultBranch]);
-  if (identity.name) git(projectPath, ["config", "user.name", identity.name]);
-  if (identity.email) git(projectPath, ["config", "user.email", identity.email]);
-  createInitialCommit(projectPath);
+  await withRepositoryLock(projectPath, async () => {
+    const isRepo = (await tryGit(projectPath, ["rev-parse", "--git-dir"])) !== null;
+    // Re-running `git init` on a live repository rewrites HEAD and the local
+    // identity config. The UI only offers this for a project with no repo or no
+    // commits, so reaching here with commits means the caller is acting on
+    // stale state (or lost a race with another init of the same project).
+    const head = isRepo
+      ? await tryGit(projectPath, ["rev-parse", "--verify", "--quiet", "HEAD"])
+      : null;
+    if (head !== null) throw new Error("This project is already a git repository.");
+    if (!isRepo) await git(projectPath, ["init", "-b", defaultBranch]);
+    if (identity.name) await git(projectPath, ["config", "user.name", identity.name]);
+    if (identity.email) await git(projectPath, ["config", "user.email", identity.email]);
+    await createInitialCommit(projectPath);
+  });
 }
 
 /**
@@ -1434,20 +1461,22 @@ export function initProjectRepo(
  * instead of git's "Author identity unknown" wall — env-provided identity
  * (CI, tests) counts, same rule git applies.
  */
-function createInitialCommit(projectPath: string): void {
-  if (tryGit(projectPath, ["var", "GIT_AUTHOR_IDENT"]) === null) {
+async function createInitialCommit(projectPath: string): Promise<void> {
+  if ((await tryGit(projectPath, ["var", "GIT_AUTHOR_IDENT"])) === null) {
     throw new Error(
       "Git identity is missing: set user.name and user.email (repo-local config or global) before initializing.",
     );
   }
-  git(projectPath, ["add", "-A"]);
-  git(projectPath, ["commit", "--allow-empty", "-m", "Initial commit"]);
+  await git(projectPath, ["add", "-A"]);
+  await git(projectPath, ["commit", "--allow-empty", "-m", "Initial commit"], GIT_HOOK_TIMEOUT_MS);
 }
 
-function assertInsideRepo(cwd: string): void {
+async function assertInsideRepo(cwd: string): Promise<void> {
   try {
-    git(cwd, ["rev-parse", "--git-dir"]);
-  } catch {
+    await git(cwd, ["rev-parse", "--git-dir"]);
+  } catch (err) {
+    // A timeout or spawn failure is not evidence the path is no repository.
+    if (err instanceof WorktreeCommandError && err.kind !== "exit") throw err;
     throw new Error(`Not a git repository: ${cwd}`);
   }
 }

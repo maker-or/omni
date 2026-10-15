@@ -499,7 +499,7 @@ export class AgentConnectionManager {
     // selected agents whose catalog is still empty so draft @model is not
     // limited to providers with a currently open thread.
     const catalogCwd =
-      this.getActiveCwd() ??
+      (await this.getActiveCwd()) ??
       (this.activeProjectId
         ? (getProject(this.activeProjectId)?.path ?? process.cwd())
         : process.cwd());
@@ -956,7 +956,7 @@ export class AgentConnectionManager {
    * so file listings and other cwd-relative surfaces follow a worktree switch
    * automatically (switching a worktree switches the active thread).
    */
-  getActiveCwd(): string | null {
+  async getActiveCwd(): Promise<string | null> {
     const threadId = this.activeThreadId;
     if (!threadId) return null;
     const runtime = this.sessions.get(threadId);
@@ -1898,8 +1898,11 @@ export class AgentConnectionManager {
    * keeps git the source of truth — an externally-removed worktree degrades to
    * the project root instead of failing `session/new` on a stale path.
    */
-  private resolveThreadCwd(worktreePath: string | null | undefined, projectPath: string): string {
-    if (worktreePath && isLiveWorktree(worktreePath, projectPath)) return worktreePath;
+  private async resolveThreadCwd(
+    worktreePath: string | null | undefined,
+    projectPath: string,
+  ): Promise<string> {
+    if (worktreePath && (await isLiveWorktree(worktreePath, projectPath))) return worktreePath;
     return projectPath;
   }
 
@@ -2134,11 +2137,9 @@ export class AgentConnectionManager {
       console.warn(`[thread-restore] opening ${thread.id} snapshot-only:`, error);
       // switchThreadCore's reconciliation never ran, so a snapshot-only launch
       // must still select the thread's workspace and give it an open tab.
+      const workspaceCwd = await this.resolveThreadCwd(thread.worktree_path, project.path);
       await Promise.all([
-        updateWorkspaceSelection(
-          project.id,
-          this.resolveThreadCwd(thread.worktree_path, project.path),
-        ),
+        updateWorkspaceSelection(project.id, workspaceCwd),
         recordThreadSwitch(thread.id),
       ]);
     }
@@ -2163,13 +2164,13 @@ export class AgentConnectionManager {
     const wasResidentInMemory = this.sessions.has(threadId);
     const cachedSessionCount = this.sessions.size;
     const agentIdBefore = this.lifecycle.active?.agentId ?? null;
-    const workspaceCwdBefore = this.getActiveCwd();
+    const workspaceCwdBefore = await this.getActiveCwd();
     let phase: MonitorSwitchPhase = wasResidentInMemory ? "cache_hit" : "session_load";
     let openTabCount = 0;
-    const record = (success: boolean, error?: string) => {
+    const record = async (success: boolean, error?: string) => {
       const thread = getThread(threadId);
       const agentIdTarget = thread?.agent_id ?? null;
-      const workspaceCwdTarget = this.getActiveCwd();
+      const workspaceCwdTarget = await this.getActiveCwd().catch(() => null);
       this.monitorObserver?.onSwitchRecord?.({
         timestamp: Date.now(),
         threadId,
@@ -2207,7 +2208,7 @@ export class AgentConnectionManager {
       // The returned tabs state reflects the open-tab set after this
       // activation; capture it so records are comparable to tab events.
       openTabCount = state.openThreadIds.length;
-      record(true);
+      await record(true);
       return state;
     } catch (err) {
       try {
@@ -2215,7 +2216,7 @@ export class AgentConnectionManager {
       } catch {
         // best effort
       }
-      record(false, err instanceof Error ? err.message : String(err));
+      await record(false, err instanceof Error ? err.message : String(err));
       throw err;
     }
   }
@@ -2233,7 +2234,10 @@ export class AgentConnectionManager {
     if (!project) throw new Error(`Project not found: ${thread.project_id}`);
 
     // Bind the session to its worktree (validated), else the project root.
-    const cwd = this.resolveThreadCwd(thread.worktree_path, project.path);
+    const cwd = await this.resolveThreadCwd(thread.worktree_path, project.path);
+    // Validating the worktree awaited Git: a newer activation may have
+    // superseded this one before any state below is touched.
+    throwIfSuperseded(signal);
     const projectChanged = this.activeProjectId !== project.id;
     this.activeProjectId = project.id;
     this.activeThreadId = threadId;
@@ -2572,7 +2576,7 @@ export class AgentConnectionManager {
 
     // Bind to the worktree when valid; store only what we actually bound to so a
     // stale/invalid path is never persisted as this thread's worktree.
-    const cwd = this.resolveThreadCwd(worktreePath, project.path);
+    const cwd = await this.resolveThreadCwd(worktreePath, project.path);
     const boundWorktree = cwd === project.path ? null : cwd;
     if (opts?.requireWorktree && !boundWorktree) {
       throw new Error(
@@ -2587,7 +2591,7 @@ export class AgentConnectionManager {
     const live = opts?.background
       ? await this.acquireConnection(targetAgentId)
       : await this.ensureConnection(targetAgentId);
-    if (opts?.requireWorktree && !isLiveWorktree(cwd, project.path)) {
+    if (opts?.requireWorktree && !(await isLiveWorktree(cwd, project.path))) {
       throw new Error("The isolated workspace is no longer available. No task was started.");
     }
     const created = await this.sessionNew(live, cwd);
@@ -2847,7 +2851,7 @@ export class AgentConnectionManager {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
     const abortGeneration = this.abortGenerations.get(threadId) ?? 0;
-    const assertIsolation = () => {
+    const assertIsolation = async () => {
       if ((this.abortGenerations.get(threadId) ?? 0) !== abortGeneration) {
         throw new Error("Task stopped before the agent was ready.");
       }
@@ -2858,7 +2862,7 @@ export class AgentConnectionManager {
       if (
         !thread?.worktree_path ||
         !project ||
-        !isLiveWorktree(thread.worktree_path, project.path) ||
+        !(await isLiveWorktree(thread.worktree_path, project.path)) ||
         (runtime && runtime.cwd !== thread.worktree_path)
       ) {
         throw new Error(
@@ -2866,7 +2870,7 @@ export class AgentConnectionManager {
         );
       }
     };
-    assertIsolation();
+    await assertIsolation();
     if (!this.sessions.has(threadId)) {
       // Background senders (phone) must not leave desktop focus behind on a
       // restored thread: remember the active thread and put it back after.
@@ -2925,6 +2929,11 @@ export class AgentConnectionManager {
       runtime = this.sessions.get(threadId);
       if (!runtime) throw new Error("No session for thread");
     }
+    // Validate isolation (an async Git read) before the in-flight check, so no
+    // await separates that check from enqueueing the prompt below.
+    await assertIsolation();
+    runtime = this.sessions.get(threadId);
+    if (!runtime) throw new Error("No session for thread");
     const live = this.connectionForAgent(runtime.agentId);
     if (!live || runtime.agentReady === false) throw new Error("No ready agent session for thread");
 
@@ -2932,7 +2941,6 @@ export class AgentConnectionManager {
       throw new Error("A prompt is already in flight; choose follow-up or steer to queue it.");
     }
 
-    assertIsolation();
     const caps = live.agentCapabilities.promptCapabilities;
     const blocks = assemblePromptBlocks({
       message: input.message,

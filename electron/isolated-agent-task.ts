@@ -37,7 +37,7 @@ export async function prepareIsolatedAgentTask(
   }
   let worktree;
   try {
-    worktree = createWorktree({
+    worktree = await createWorktree({
       projectPath: project.path,
       projectId: project.id,
       name: `phone-${randomBytes(8).toString("hex")}`,
@@ -59,7 +59,10 @@ export async function prepareIsolatedAgentTask(
       model,
       { background: true, requireWorktree: true },
     );
-    if (thread.worktree_path !== worktree.path || !isLiveWorktree(worktree.path, project.path)) {
+    if (
+      thread.worktree_path !== worktree.path ||
+      !(await isLiveWorktree(worktree.path, project.path))
+    ) {
       throw new RemoteTaskError(
         "The thread could not bind to its isolated workspace. No prompt was sent. Check Pipper on your Mac.",
       );
@@ -86,7 +89,7 @@ export async function prepareIsolatedAgentTask(
     };
   } catch (error) {
     if (!listThreads().some((t) => t.worktree_path === worktree.path)) {
-      removeWorktreeBestEffort(project.path, worktree.path, worktree.branch);
+      await removeWorktreeBestEffort(project.path, worktree.path, worktree.branch);
     }
     throw error;
   }
