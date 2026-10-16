@@ -312,7 +312,8 @@ function rssByKind(tree) {
 function installMainProbe() {
   const { monitorEventLoopDelay } = process.getBuiltinModule("node:perf_hooks");
   const probe = {
-    histogram: monitorEventLoopDelay({ resolution: 1 }),
+    // 20 ms: a 1 ms resolution timer alone costs ~7 points of idle main CPU.
+    histogram: monitorEventLoopDelay({ resolution: 20 }),
     cpu: process.cpuUsage(),
     wall: performance.now(),
   };
