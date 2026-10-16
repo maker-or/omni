@@ -38,6 +38,8 @@ const { values } = parseArgs({
     runs: { type: "string", default: "3" },
     switches: { type: "string", default: "3" },
     "idle-ms": { type: "string", default: "8000" },
+    "launch-timeout-ms": { type: "string", default: "300000" },
+    "close-timeout-ms": { type: "string", default: "20000" },
     output: { type: "string" },
     label: { type: "string", default: "" },
   },
@@ -48,6 +50,17 @@ const appRoot = resolve(values["app-root"]);
 const runs = boundedInt(values.runs, "--runs", 1, 20);
 const switchRounds = boundedInt(values.switches, "--switches", 1, 20);
 const idleMs = boundedInt(values["idle-ms"], "--idle-ms", 1000, 120_000);
+// One app launch (setup through shutdown) may not exceed this; the run fails
+// and its process tree is killed instead of stalling the whole benchmark.
+const launchTimeoutMs = boundedInt(
+  values["launch-timeout-ms"],
+  "--launch-timeout-ms",
+  30_000,
+  3_600_000,
+);
+// An app that has not exited this long after close() is recorded as a hung
+// shutdown and killed.
+const closeTimeoutMs = boundedInt(values["close-timeout-ms"], "--close-timeout-ms", 1000, 300_000);
 const list = (raw, name, max) => raw.split(",").map((value) => boundedInt(value, name, 0, max));
 const threadCounts = list(values.threads, "--threads", 32);
 const terminalCounts = list(values.terminals, "--terminals", 32);
@@ -238,6 +251,35 @@ function processTree(rootPid) {
   };
 }
 
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** SIGKILLs a process and every descendant (descendants first). */
+function killTree(pid, knownPids = []) {
+  let pids = [...knownPids];
+  try {
+    pids = [...new Set([...pids, ...processTree(pid).processes.map((row) => row.pid)])];
+  } catch {
+    // ps failed; fall back to the PIDs we already know.
+  }
+  if (!pids.includes(pid)) pids.push(pid);
+  for (const target of pids.filter((target) => target !== pid).concat(pid)) {
+    try {
+      process.kill(target, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function parseCpuTime(text) {
   // [[dd-]hh:]mm:ss.cc
   const [days, rest] = text.includes("-") ? text.split("-") : ["0", text];
@@ -404,7 +446,12 @@ async function measureIdleWindow(app, page, durationMs) {
   };
 }
 
-async function runOnce(config, run, buildHash) {
+/**
+ * `state` is shared with the caller: the phase names where a failure or
+ * timeout happened, `pid` lets the caller kill a stuck app, and `shutdown`
+ * records how the app exited.
+ */
+async function runOnce(config, run, buildHash, state) {
   const root = mkdtempSync(join(tmpdir(), "pipper-bench-app-"));
   let app;
   const peak = { rssBytes: 0, timer: null };
@@ -426,13 +473,23 @@ async function runOnce(config, run, buildHash) {
     };
     delete env.ELECTRON_RUN_AS_NODE;
     const launched = performance.now();
+    state.phase = "launch";
     app = await _electron.launch({
       args: ["--js-flags=--expose-gc", join(appRoot, "out/main/index.js")],
       cwd: root,
       env,
       timeout: 60_000,
     });
+    state.pid = app.process().pid;
+    state.phase = "first-window";
     const page = await app.firstWindow();
+    page.on("close", () => {
+      // Any close before shutdown is unexpected: record where it happened.
+      if (state.phase !== "shutdown") state.mainWindowClosedDuring ??= state.phase;
+    });
+    page.on("crash", () => {
+      state.rendererCrashedDuring ??= state.phase;
+    });
     await page.waitForFunction(() => Boolean(window.omni?.agent && window.omni?.projects), null, {
       timeout: 60_000,
     });
@@ -483,6 +540,7 @@ async function runOnce(config, run, buildHash) {
       );
 
     // Warmup: one provider, thread, prompt and switch outside the measurements.
+    state.phase = "warmup";
     const warm = await createThread("pipper-mock", "Warmup");
     await prompt([warm.id], "Warmup");
     await page.evaluate((id) => window.omni.agent.switchThread(id), warm.id);
@@ -491,6 +549,7 @@ async function runOnce(config, run, buildHash) {
 
     await app.evaluate(() => globalThis.__pipperBench.reset());
     await page.evaluate(() => window.__pipperBench.reset());
+    state.phase = "create-threads";
     const threads = [];
     for (const agent of agents.slice(1))
       threads.push(await createThread(agent.id, agent.displayName));
@@ -518,6 +577,7 @@ async function runOnce(config, run, buildHash) {
       }, terminalIds);
     }
 
+    state.phase = "history";
     const turnMs = [];
     const ids = threads.map((thread) => thread.id);
     for (let turn = 0; turn < config.history; turn++)
@@ -539,6 +599,7 @@ async function runOnce(config, run, buildHash) {
     const switchTargets = ids.length > 1 ? ids : [warm.id, ids[0]];
     await app.evaluate(() => globalThis.__pipperBench.reset());
     await page.evaluate(() => window.__pipperBench.reset());
+    state.phase = "switching";
     const switchMs = await page.evaluate(
       async ({ targets, rounds }) => {
         const timings = [];
@@ -555,6 +616,7 @@ async function runOnce(config, run, buildHash) {
     const switchMain = await app.evaluate(() => globalThis.__pipperBench.read());
     const switchRenderer = await page.evaluate(() => window.__pipperBench.read());
 
+    state.phase = "idle";
     if (config.monitor === "open") {
       const opened = app.waitForEvent("window");
       await page.evaluate(() => window.omni.monitor.openWindow());
@@ -565,6 +627,7 @@ async function runOnce(config, run, buildHash) {
     // Let switch-triggered persistence and monitor work settle before idling.
     await page.waitForTimeout(3000);
     const idle = await measureIdleWindow(app, page, idleMs);
+    state.phase = "final-memory";
     const final = await measureMemory(app, page);
     const monitorHealth =
       config.monitor === "off"
@@ -589,7 +652,40 @@ async function runOnce(config, run, buildHash) {
     };
   } finally {
     if (peak.timer) clearInterval(peak.timer);
-    if (app) await app.close().catch(() => {});
+    state.phase = "shutdown";
+    if (app && state.pid) {
+      const pid = state.pid;
+      let treePids = [];
+      try {
+        treePids = processTree(pid).processes.map((row) => row.pid);
+      } catch {
+        // Already exiting.
+      }
+      const closed = await Promise.race([
+        app.close().then(
+          () => true,
+          () => true,
+        ),
+        sleep(closeTimeoutMs).then(() => false),
+      ]);
+      // close() can resolve while the process is still alive (e.g. quit cleanup stalls).
+      const deadline = Date.now() + 2000;
+      while (isAlive(pid) && Date.now() < deadline) await sleep(100);
+      if (state.shutdown === "killed-at-deadline") {
+        // The caller already killed the tree.
+      } else if (!closed || isAlive(pid)) {
+        state.shutdown = "hung";
+        killTree(pid, treePids);
+      } else {
+        state.shutdown = "clean";
+        // Providers the app failed to reap.
+        const orphans = treePids.filter((child) => child !== pid && isAlive(child));
+        if (orphans.length > 0) {
+          state.orphanedChildren = orphans.length;
+          killTree(pid, orphans);
+        }
+      }
+    }
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -754,17 +850,50 @@ for (let run = 1; run <= runs; run++) {
   for (const config of configs) {
     const label = `${configKey(config)} run ${run}/${runs}`;
     const started = performance.now();
+    const state = { phase: "setup", pid: null, shutdown: null };
+    const attempt = runOnce(config, run, buildHash, state);
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const phase = state.phase;
+        state.timedOutDuring = phase;
+        state.shutdown = "killed-at-deadline";
+        if (state.pid) killTree(state.pid);
+        reject(new Error(`launch exceeded ${launchTimeoutMs} ms during ${phase}`));
+      }, launchTimeoutMs);
+    });
+    const diagnostics = () => ({
+      shutdown: state.shutdown,
+      ...(state.mainWindowClosedDuring
+        ? { mainWindowClosedDuring: state.mainWindowClosedDuring }
+        : {}),
+      ...(state.rendererCrashedDuring
+        ? { rendererCrashedDuring: state.rendererCrashedDuring }
+        : {}),
+      ...(state.orphanedChildren ? { orphanedChildren: state.orphanedChildren } : {}),
+    });
     try {
-      const result = await runOnce(config, run, buildHash);
-      report.results.push(result);
-      console.log(`  ${label}: ${((performance.now() - started) / 1000).toFixed(1)} s`);
+      const result = await Promise.race([attempt, deadline]);
+      report.results.push({ ...result, ...diagnostics() });
+      const note = state.shutdown === "hung" ? " (shutdown hung; killed)" : "";
+      console.log(`  ${label}: ${((performance.now() - started) / 1000).toFixed(1)} s${note}`);
     } catch (error) {
+      // Give the killed run a moment to finish its cleanup, but never wait on it.
+      await Promise.race([attempt.catch(() => {}), sleep(closeTimeoutMs + 5000)]);
+      const message = error instanceof Error ? error.message : String(error);
       report.results.push({
         run,
         config,
+        failedPhase: state.timedOutDuring ?? state.phase,
+        ...diagnostics(),
         error: error instanceof Error ? error.stack : String(error),
       });
-      console.error(`  ${label} failed: ${error instanceof Error ? error.message : error}`);
+      const closedNote = state.mainWindowClosedDuring
+        ? `; main window closed during ${state.mainWindowClosedDuring}`
+        : "";
+      console.error(`  ${label} failed: ${message}${closedNote}; shutdown ${state.shutdown}`);
+    } finally {
+      clearTimeout(timer);
     }
     mkdirSync(dirname(output), { recursive: true });
     writeFileSync(output, JSON.stringify(report, null, 2));
@@ -785,4 +914,7 @@ console.log(
 );
 printTable(report.summaries);
 console.log(`\nReport: ${output}`);
-if (report.results.some((result) => result.error)) process.exitCode = 1;
+const hung = report.results.filter((result) => result.shutdown === "hung").length;
+if (hung > 0) console.log(`${hung} launch(es) did not exit after close() and were killed.`);
+// Exit explicitly: a stuck child must never keep the driver alive.
+process.exit(report.results.some((result) => result.error) ? 1 : 0);
