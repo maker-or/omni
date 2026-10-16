@@ -54,7 +54,12 @@ import type { AgentOsNotification, OsNotifier } from "./os-notifications.ts";
 import type { WindowAttentionSource, WindowVisibilitySource } from "./window-visibility.ts";
 import { WorkspaceGuard } from "./workspace-guard.ts";
 import { ThreadSessionRegistry, type ThreadSessionRuntime } from "./thread-session-registry.ts";
-import { ThreadSnapshotStore, type LoadedThreadSnapshot } from "./thread-snapshot-store.ts";
+import {
+  ThreadSnapshotStore,
+  hydrateSnapshotImages,
+  snapshotImageRefs,
+  type LoadedThreadSnapshot,
+} from "./thread-snapshot-store.ts";
 import {
   ActivationSupersededError,
   isActivationSuperseded,
@@ -755,6 +760,30 @@ export class AgentConnectionManager {
       }
       if (this.sessions.get(runtime.threadId) === runtime) this.scheduleSnapshot(runtime);
       return false;
+    }
+  }
+
+  /**
+   * Large images in a restored transcript paint as placeholders; their stored
+   * content follows right after the first paint.
+   */
+  private async hydrateSnapshotImages(
+    runtime: ThreadSessionRuntime,
+    snapshot: LoadedThreadSnapshot,
+  ): Promise<void> {
+    const refs = snapshotImageRefs(snapshot.slice);
+    if (refs.length === 0) return;
+    try {
+      const images = await this.snapshotStore.loadImages(snapshot, refs);
+      if (this.sessions.get(runtime.threadId) !== runtime) return;
+      // The replay may already have replaced the slice; only placeholders
+      // that are still present are filled in.
+      const entries = hydrateSnapshotImages(runtime.slice.entries, images);
+      if (!entries) return;
+      runtime.slice = { ...runtime.slice, entries };
+      this.pushState(runtime.threadId);
+    } catch (error) {
+      console.warn(`[thread-snapshot] image restore failed for ${runtime.threadId}:`, error);
     }
   }
 
@@ -2298,6 +2327,7 @@ export class AgentConnectionManager {
           cachedThreadIds: [...this.sessions.keys()],
         });
         this.pushState(threadId);
+        void this.hydrateSnapshotImages(runtime, restoredSnapshot);
         this.captureAnalytics?.("thread_opened", {
           project_id: project.id,
           thread_id: threadId,

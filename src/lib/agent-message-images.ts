@@ -69,3 +69,11 @@ export function extractMessageImages(message: MessageLike): ChatImageAttachment[
 export function extractGroupedMessageImages(messages: MessageLike[]): ChatImageAttachment[] {
   return messages.flatMap(extractMessageImages);
 }
+
+/**
+ * A restored transcript paints stored images as placeholders (empty `data`)
+ * and loads their content right after. They cannot be re-sent until then.
+ */
+export function hasPendingImages(images: readonly { data: string }[]): boolean {
+  return images.some((image) => !image.data);
+}
