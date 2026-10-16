@@ -42,7 +42,8 @@ import {
 import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import { getWorktreeAutoInstall, setWorktreeAutoInstall } from "./worktree-preferences.ts";
 import { WorktreeInstallQueue } from "./worktree-install-queue.ts";
-import { compactDatabase, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { compactWhenIdle, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { applicationStorage } from "./storage-maintenance.ts";
 import {
   commitWorkspace,
   configureGithubPrSnapshotCache,
@@ -2043,7 +2044,7 @@ function registerIpc(): void {
     setWorktreeAutoInstall(enabled),
   );
   ipcMain.handle("storage:compactDatabase", () => {
-    databaseCompaction ??= compactDatabase(join(app.getPath("userData"), "omni.sqlite")).finally(
+    databaseCompaction ??= compactWhenIdle(join(app.getPath("userData"), "omni.sqlite")).finally(
       () => {
         databaseCompaction = null;
       },
@@ -3290,6 +3291,8 @@ app.whenReady().then(async () => {
     attention: { isFocused: () => mainWindowFocused },
     notify: osNotifier,
   });
+  // Database maintenance waits for agent turns to finish (see R15).
+  applicationStorage.setBusyProbe(() => (agentManager?.getRunningThreadIds().length ?? 0) > 0);
   sleeplessController = new SleeplessController({
     platform: process.platform,
     settingsPath: join(app.getPath("userData"), "sleepless.json"),

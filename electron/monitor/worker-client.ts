@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
 import type {
   MonitorDiffIngestion,
@@ -10,6 +11,7 @@ import type {
   MonitorSession,
 } from "../../contracts/monitor.ts";
 import { samplePid, type RawProcessMetrics } from "./platform-sampler.ts";
+import { migrateLegacyMonitorStep, openMonitorDatabase } from "./storage.ts";
 import {
   ensureMonitorTables,
   finishMonitorSession,
@@ -38,7 +40,7 @@ export function monitorWorkerUrl(moduleUrl: string = import.meta.url): URL {
 }
 
 export type WorkerCommand =
-  | { type: "init"; dbPath: string }
+  | { type: "init"; dbPath: string; legacyDbPath?: string }
   | {
       type: "sample";
       descriptors: MonitorProcessDescriptor[];
@@ -107,20 +109,27 @@ async function collectProcessTick(
   return { timestamp, processes };
 }
 
+/** Fallback mode: drain the legacy backlog in short steps on this thread. */
+function migrateLegacyInProcess(db: DatabaseSync, legacyDbPath: string): void {
+  setImmediate(() => {
+    let done = true;
+    try {
+      done = migrateLegacyMonitorStep(db, legacyDbPath);
+    } catch (error) {
+      console.warn("[Monitor] Legacy diagnostics migration paused:", error);
+    }
+    if (!done) migrateLegacyInProcess(db, legacyDbPath);
+    else db.close();
+  });
+}
+
 async function executeCommandInProcess(command: WorkerCommand): Promise<unknown> {
   try {
     switch (command.type) {
       case "init":
         if (!isMonitorDbInitialized()) {
           try {
-            const { DatabaseSync } = await import("node:sqlite");
-            if (DatabaseSync) {
-              const db = new DatabaseSync(command.dbPath);
-              db.exec("PRAGMA foreign_keys = ON;");
-              db.exec("PRAGMA journal_mode = WAL;");
-              db.exec("PRAGMA busy_timeout = 5000;");
-              initializeMonitorDb(db);
-            }
+            initializeMonitorDb(openMonitorDatabase(command.dbPath));
           } catch {
             // node:sqlite not available in this environment
           }
@@ -130,6 +139,14 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
             ensureMonitorTables();
           } catch {
             // Table creation best-effort
+          }
+        }
+        if (command.legacyDbPath) {
+          // Its own connection: ATTACH must not affect the shared monitor handle.
+          try {
+            migrateLegacyInProcess(openMonitorDatabase(command.dbPath), command.legacyDbPath);
+          } catch (error) {
+            console.warn("[Monitor] Legacy diagnostics migration unavailable:", error);
           }
         }
         return;
@@ -241,7 +258,8 @@ export class MonitorWorkerClient {
   private lastError: string | null = null;
   private readonly initPromise: Promise<void>;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: { legacyDbPath?: string } = {}) {
+    const init: WorkerCommand = { type: "init", dbPath, legacyDbPath: options.legacyDbPath };
     try {
       this.worker = new Worker(monitorWorkerUrl());
       this.worker.unref();
@@ -252,12 +270,12 @@ export class MonitorWorkerClient {
           this.handleWorkerCrash(new Error(`Monitor worker exited with code ${code}`));
         }
       });
-      this.initPromise = this.request<void>({ type: "init", dbPath });
+      this.initPromise = this.request<void>(init);
     } catch (error) {
       this.useFallback = true;
       this.worker = null;
       this.lastError = error instanceof Error ? error.message : String(error);
-      this.initPromise = executeCommandInProcess({ type: "init", dbPath }) as Promise<void>;
+      this.initPromise = executeCommandInProcess(init) as Promise<void>;
     }
   }
 

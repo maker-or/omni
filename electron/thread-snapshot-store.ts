@@ -22,6 +22,7 @@ import {
   type BodyLocation,
   type IndexedBodies,
 } from "./thread-snapshot-bodies.ts";
+import { applicationStorage } from "./storage-maintenance.ts";
 import { ensureThreadSnapshotSchema, UNACCOUNTED_SNAPSHOT_ROWS } from "./thread-snapshot-schema.ts";
 
 export { ThreadSnapshotBodiesUnavailableError } from "./thread-snapshot-bodies.ts";
@@ -266,7 +267,8 @@ export class ThreadSnapshotStore {
     this.maxMemoryBytes = options.maxMemoryBytes ?? DEFAULT_THREAD_SNAPSHOT_MEMORY_BYTES;
     this.maxMemoryEntries = options.maxMemoryEntries ?? DEFAULT_THREAD_SNAPSHOT_MEMORY_ENTRIES;
     this.isPinned = options.isPinned ?? (() => false);
-    this.writeGate = options.writeGate;
+    // The application database's snapshot writes wait out maintenance.
+    this.writeGate = options.writeGate ?? (options.database ? undefined : applicationStorage);
     // An injected database belongs to its caller (tests, benchmarks), which
     // runs maintenance explicitly unless it opts into scheduling.
     this.maintenanceDelayMs =

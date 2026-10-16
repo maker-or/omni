@@ -51,6 +51,12 @@ import {
   updateIncident,
 } from "./db.ts";
 import { MonitorWorkerClient } from "./worker-client.ts";
+import {
+  MONITOR_DATABASE_FILE,
+  hasLegacyMonitorTables,
+  openMonitorDatabase,
+  reserveLegacyMonitorIds,
+} from "./storage.ts";
 
 const SAMPLE_INTERVAL_MS = 1000;
 const RING_CAPACITY = 300;
@@ -120,9 +126,17 @@ export class MonitorService {
     this.getInventory = options.getInventory;
     this.getRunningThreadIds = options.getRunningThreadIds;
     this.onBroadcast = options.onBroadcast;
-    initializeMonitorDb(getDb());
+    // Diagnostics have their own database file; see storage.ts.
+    const monitorPath = join(app.getPath("userData"), MONITOR_DATABASE_FILE);
+    const monitorDb = openMonitorDatabase(monitorPath);
+    initializeMonitorDb(monitorDb);
     ensureMonitorTables();
-    this.worker = new MonitorWorkerClient(join(app.getPath("userData"), "omni.sqlite"));
+    const appDb = getDb();
+    const legacyRows = hasLegacyMonitorTables(appDb);
+    if (legacyRows) reserveLegacyMonitorIds(monitorDb, appDb);
+    this.worker = new MonitorWorkerClient(monitorPath, {
+      legacyDbPath: legacyRows ? join(app.getPath("userData"), "omni.sqlite") : undefined,
+    });
   }
 
   start(): void {
