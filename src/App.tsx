@@ -119,10 +119,19 @@ export default function App() {
   useEffect(() => {
     if (!monitorEnabled) return;
     const observerId = createMonitorObserverId();
+    // Detailed DOM attribution only while a monitor window or recording uses it.
+    let detailed = false;
+    void window.omni.monitor.getDemand().then((demand) => {
+      detailed = demand.detailed;
+    });
+    const offDemand = window.omni.monitor.onDemand((demand) => {
+      detailed = demand.detailed;
+    });
     const context = {
       observerId,
       getActiveThreadId: () => useAgentStore.getState().state?.threadId ?? null,
       getRunningThreadIds: () => useAgentStore.getState().runningThreadIds,
+      isDetailed: () => detailed,
     };
     const stopFreezeObserver = startMonitorFreezeObserver(context, (report) => {
       void window.omni.monitor.reportRendererFreeze({
@@ -135,6 +144,7 @@ export default function App() {
       void window.omni.monitor.reportRendererTelemetry(telemetry);
     });
     return () => {
+      offDemand();
       stopFreezeObserver();
       stopRuntimeObserver();
     };

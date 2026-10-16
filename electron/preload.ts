@@ -33,13 +33,15 @@ import type {
 } from "../contracts/launcher-updates.ts";
 import type {
   MonitorConnectionEpisode,
+  MonitorDemand,
   MonitorDiffIngestion,
   MonitorIncident,
+  MonitorLiveMessage,
   MonitorLiveSnapshot,
+  MonitorLiveState,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
   MonitorSessionCacheEvent,
-  MonitorSampleTick,
   MonitorRecordedSession,
   MonitorSession,
   MonitorSwitchRecord,
@@ -47,6 +49,7 @@ import type {
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../contracts/monitor.ts";
+import { applyMonitorLiveMessage } from "../contracts/monitor.ts";
 import type { MonitorService } from "./monitor/service.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
 import type {
@@ -73,6 +76,21 @@ export interface CreateProjectInput {
 }
 
 export type ThinkingLevel = "low" | "medium" | "high";
+
+let liveState: MonitorLiveState | null = null;
+const liveCallbacks = new Set<(snapshot: MonitorLiveSnapshot) => void>();
+
+function handleLiveMessage(_event: Electron.IpcRendererEvent, message: MonitorLiveMessage): void {
+  const next = applyMonitorLiveMessage(liveState, message);
+  if (!next) {
+    // A delta that does not follow our revision: ask for a full snapshot.
+    ipcRenderer.send("monitor:resync");
+    return;
+  }
+  liveState = next;
+  for (const callback of liveCallbacks) callback(next.snapshot);
+  ipcRenderer.send("monitor:ack", next.revision);
+}
 
 const api = {
   storage: {
@@ -592,17 +610,33 @@ const api = {
     getSwitchTimeline: (): Promise<ReturnType<MonitorService["getSwitchTimeline"]>> =>
       ipcRenderer.invoke("monitor:getSwitchTimeline"),
     openWindow: (): Promise<void> => ipcRenderer.invoke("monitor:openWindow"),
+    /**
+     * Subscribes to the live feed. Main sends a full snapshot first and deltas
+     * afterwards; each applied message is acknowledged so main can bound how
+     * far this window falls behind.
+     */
     onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, snapshot: MonitorLiveSnapshot) =>
-        callback(snapshot);
-      ipcRenderer.on("monitor:live", listener);
-      return () => ipcRenderer.removeListener("monitor:live", listener);
+      liveCallbacks.add(callback);
+      if (liveCallbacks.size === 1) {
+        liveState = null;
+        ipcRenderer.on("monitor:live", handleLiveMessage);
+        ipcRenderer.send("monitor:subscribe");
+      } else if (liveState) {
+        callback(liveState.snapshot);
+      }
+      return () => {
+        if (!liveCallbacks.delete(callback) || liveCallbacks.size > 0) return;
+        ipcRenderer.removeListener("monitor:live", handleLiveMessage);
+        ipcRenderer.send("monitor:unsubscribe");
+        liveState = null;
+      };
     },
-    onTick: (callback: (tick: MonitorSampleTick) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, tick: MonitorSampleTick) =>
-        callback(tick);
-      ipcRenderer.on("monitor:tick", listener);
-      return () => ipcRenderer.removeListener("monitor:tick", listener);
+    getDemand: (): Promise<MonitorDemand> => ipcRenderer.invoke("monitor:getDemand"),
+    onDemand: (callback: (demand: MonitorDemand) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, demand: MonitorDemand) =>
+        callback(demand);
+      ipcRenderer.on("monitor:demand", listener);
+      return () => ipcRenderer.removeListener("monitor:demand", listener);
     },
     onIncident: (callback: (incident: MonitorIncident) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, incident: MonitorIncident) =>

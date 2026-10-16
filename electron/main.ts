@@ -450,6 +450,8 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
     });
 }
 let monitorService: MonitorService | null = null;
+/** webContents ids whose navigation/destroy listeners end their live-feed subscription. */
+const liveFeedSenders = new Set<number>();
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
 let remoteAccess: RemoteAccessController | null = null;
@@ -1527,6 +1529,8 @@ function initializeMonitorService(): void {
       }),
     getRunningThreadIds: () => agentManager?.getRunningThreadIds() ?? [],
     onBroadcast: (channel, payload) => broadcastToMonitor(channel, payload),
+    // Renderer observers switch DOM census/mutation tracking on demand.
+    onDemandChange: (demand) => broadcastToWindows("monitor:demand", demand),
   });
   monitorService.start();
 
@@ -3058,6 +3062,34 @@ function registerIpc(): void {
 
   ipcMain.handle("monitor:isEnabled", () => isMonitorEnabled());
   ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
+  ipcMain.handle("monitor:getDemand", () => monitorService?.getDemand() ?? { detailed: false });
+  // Live feed: full snapshot on subscribe, then deltas; acks bound in-flight messages.
+  ipcMain.on("monitor:subscribe", (event) => {
+    const sender = event.sender;
+    if (!monitorService || sender.isDestroyed()) return;
+    const id = sender.id;
+    monitorService.subscribeLive(id, (message) => {
+      if (sender.isDestroyed()) {
+        monitorService?.unsubscribeLive(id);
+        return;
+      }
+      sender.send("monitor:live", message);
+    });
+    if (liveFeedSenders.has(id)) return;
+    // A reload or close ends the subscription; the new page subscribes again.
+    liveFeedSenders.add(id);
+    const end = () => monitorService?.unsubscribeLive(id);
+    sender.on("did-navigate", end);
+    sender.once("destroyed", () => {
+      liveFeedSenders.delete(id);
+      end();
+    });
+  });
+  ipcMain.on("monitor:unsubscribe", (event) => monitorService?.unsubscribeLive(event.sender.id));
+  ipcMain.on("monitor:ack", (event, revision: number) =>
+    monitorService?.acknowledgeLive(event.sender.id, revision),
+  );
+  ipcMain.on("monitor:resync", (event) => monitorService?.resyncLive(event.sender.id));
   ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
   ipcMain.handle(
     "monitor:getConnectionEpisodes",

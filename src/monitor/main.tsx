@@ -143,23 +143,12 @@ function MonitorApp() {
 
   useEffect(() => {
     if (!enabled) return;
-    void window.omni.monitor.getLive().then(setLive);
     void window.omni.monitor.getIncidents().then(setIncidents);
     void window.omni.monitor.getConnectionEpisodes().then(setConnectionEpisodes);
     void window.omni.monitor.getSessions().then(setSessions);
 
+    // The feed starts with a full snapshot and carries new ticks in its deltas.
     const offLive = window.omni.monitor.onLive(setLive);
-    const offTick = window.omni.monitor.onTick((tick) => {
-      setLive((current) =>
-        current
-          ? {
-              ...current,
-              timestamp: tick.timestamp,
-              recentTicks: [...current.recentTicks, tick].slice(-300),
-            }
-          : current,
-      );
-    });
     const offIncident = window.omni.monitor.onIncident((incident) => {
       setIncidents((current) => [incident, ...current].slice(0, 200));
       if (incident.kind === "connection_loss") {
@@ -168,7 +157,6 @@ function MonitorApp() {
     });
     return () => {
       offLive();
-      offTick();
       offIncident();
     };
   }, [enabled]);

@@ -175,6 +175,33 @@ export interface MonitorPipelineTelemetry {
   maxWriteLatencyMs: number;
   lastFlushMs: number;
   lastError: string | null;
+  /** Subprocesses (`ps`) launched by the process sampler since startup. */
+  processLaunches?: number;
+  /** True while a live subscriber or recording needs per-tick process detail. */
+  detailedSampling?: boolean;
+  liveSubscribers?: number;
+  lastPrune?: MonitorPruneReport | null;
+}
+
+/** Result of one bounded retention pass (see electron/monitor/retention.ts). */
+export interface MonitorPruneReport {
+  finishedAt: number;
+  durationMs: number;
+  /** Logical deletions per table. Freed pages stay in the file until compaction. */
+  deletedRows: Record<string, number>;
+  /** False when the batch budget ran out; the next pass continues. */
+  complete: boolean;
+  /** Free pages left in the database file (reclaimable by compaction). */
+  freelistBytes: number | null;
+}
+
+/**
+ * Whether anything currently consumes detailed diagnostics: a subscribed
+ * monitor window or an active recording. Expensive collection (per-thread
+ * process states, renderer DOM census) follows this; cheap counters do not.
+ */
+export interface MonitorDemand {
+  detailed: boolean;
 }
 
 export interface MonitorLiveSnapshot {
@@ -191,6 +218,92 @@ export interface MonitorLiveSnapshot {
   recentAcpUpdates: MonitorAcpUpdate[];
   recentBridgeEvents: MonitorBridgeEvent[];
   pipelineTelemetry: MonitorPipelineTelemetry;
+}
+
+/** Ring capacities of the live snapshot; deltas never carry more than these. */
+export const MONITOR_LIVE_CAPACITY = {
+  ticks: 300,
+  rendererTelemetry: 120,
+  acpUpdates: 600,
+  bridgeEvents: 600,
+} as const;
+
+type MonitorLiveRingKey =
+  | "recentTicks"
+  | "recentRendererTelemetry"
+  | "recentAcpUpdates"
+  | "recentBridgeEvents";
+
+/** Live snapshot without its rings: what every delta restates in full. */
+export type MonitorLiveScalars = Omit<MonitorLiveSnapshot, MonitorLiveRingKey>;
+
+export interface MonitorLiveDelta extends MonitorLiveScalars {
+  appendedTicks: MonitorSampleTick[];
+  appendedRendererTelemetry: MonitorRendererTelemetry[];
+  appendedAcpUpdates: MonitorAcpUpdate[];
+  appendedBridgeEvents: MonitorBridgeEvent[];
+}
+
+/**
+ * Live monitor feed message. A subscriber receives a full snapshot when it
+ * attaches (or falls too far behind) and revisioned deltas afterwards.
+ * `revision` counts messages sent to that subscriber.
+ */
+export type MonitorLiveMessage =
+  | { kind: "full"; revision: number; snapshot: MonitorLiveSnapshot }
+  | { kind: "delta"; revision: number; baseRevision: number; delta: MonitorLiveDelta };
+
+export interface MonitorLiveState {
+  revision: number;
+  snapshot: MonitorLiveSnapshot;
+}
+
+function appendBounded<T>(current: T[], appended: T[], capacity: number): T[] {
+  if (appended.length === 0) return current;
+  const next = current.concat(appended);
+  return next.length > capacity ? next.slice(next.length - capacity) : next;
+}
+
+/**
+ * Applies a feed message. Returns null when a delta does not follow the
+ * current revision; the subscriber must then request a full snapshot.
+ */
+export function applyMonitorLiveMessage(
+  current: MonitorLiveState | null,
+  message: MonitorLiveMessage,
+): MonitorLiveState | null {
+  if (message.kind === "full") return { revision: message.revision, snapshot: message.snapshot };
+  if (!current || current.revision !== message.baseRevision) return null;
+  const {
+    appendedTicks,
+    appendedRendererTelemetry,
+    appendedAcpUpdates,
+    appendedBridgeEvents,
+    ...scalars
+  } = message.delta;
+  const previous = current.snapshot;
+  return {
+    revision: message.revision,
+    snapshot: {
+      ...scalars,
+      recentTicks: appendBounded(previous.recentTicks, appendedTicks, MONITOR_LIVE_CAPACITY.ticks),
+      recentRendererTelemetry: appendBounded(
+        previous.recentRendererTelemetry,
+        appendedRendererTelemetry,
+        MONITOR_LIVE_CAPACITY.rendererTelemetry,
+      ),
+      recentAcpUpdates: appendBounded(
+        previous.recentAcpUpdates,
+        appendedAcpUpdates,
+        MONITOR_LIVE_CAPACITY.acpUpdates,
+      ),
+      recentBridgeEvents: appendBounded(
+        previous.recentBridgeEvents,
+        appendedBridgeEvents,
+        MONITOR_LIVE_CAPACITY.bridgeEvents,
+      ),
+    },
+  };
 }
 
 export interface MonitorAggregate {

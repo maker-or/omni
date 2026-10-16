@@ -1,15 +1,22 @@
 import { Worker } from "node:worker_threads";
+import type { DatabaseSync } from "node:sqlite";
 import type {
   MonitorDiffIngestion,
   MonitorAcpUpdate,
   MonitorBridgeEvent,
   MonitorProcessDescriptor,
-  MonitorProcessSample,
+  MonitorPruneReport,
   MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
 } from "../../contracts/monitor.ts";
-import { samplePid, type RawProcessMetrics } from "./platform-sampler.ts";
+import {
+  collectProcessTick,
+  samplerStats,
+  type RawProcessMetrics,
+  type SamplerStats,
+} from "./platform-sampler.ts";
+import { pruneMonitorData, type MonitorRetentionPolicy } from "./retention.ts";
 import {
   ensureMonitorTables,
   finishMonitorSession,
@@ -21,7 +28,6 @@ import {
   insertSampleBatch,
   isMonitorDbInitialized,
   initializeMonitorDb,
-  pruneOldSamples,
 } from "./db.ts";
 
 const MAX_QUEUED_WRITES = 256;
@@ -44,6 +50,7 @@ export type WorkerCommand =
       descriptors: MonitorProcessDescriptor[];
       sessionId: string | null;
       mainPid: number;
+      threadDetail: boolean;
       mainProcessMetrics?: RawProcessMetrics;
     }
   | { type: "start-recording"; session: MonitorSession }
@@ -53,8 +60,13 @@ export type WorkerCommand =
   | { type: "acp-update"; sessionId: string; update: MonitorAcpUpdate }
   | { type: "bridge-event"; sessionId: string; event: MonitorBridgeEvent }
   | { type: "flush" }
-  | { type: "prune"; retentionMs: number }
+  | { type: "prune"; policy: MonitorRetentionPolicy }
   | { type: "shutdown" };
+
+export interface MonitorSampleResult {
+  tick: MonitorSampleTick;
+  sampler: SamplerStats;
+}
 
 interface WorkerResponse {
   id: number;
@@ -71,41 +83,8 @@ interface PendingRequest {
   command: WorkerCommand;
 }
 
-async function collectProcessTick(
-  descriptors: MonitorProcessDescriptor[],
-  mainPid: number,
-  mainProcessMetrics?: RawProcessMetrics,
-): Promise<MonitorSampleTick> {
-  const timestamp = Date.now();
-  const uniqueByPid = new Map<number, MonitorProcessDescriptor>();
-  for (const descriptor of descriptors) {
-    if (!uniqueByPid.has(descriptor.pid)) uniqueByPid.set(descriptor.pid, descriptor);
-  }
-
-  const processes: MonitorProcessSample[] = [];
-  await Promise.all(
-    [...uniqueByPid.entries()].map(async ([pid, descriptor]) => {
-      const metrics =
-        pid === mainPid && mainProcessMetrics ? mainProcessMetrics : await samplePid(pid);
-      if (!metrics) return;
-      processes.push({
-        pid,
-        role: descriptor.role,
-        label: descriptor.label,
-        agentId: descriptor.agentId,
-        threadId: descriptor.threadId,
-        threadIds: descriptor.threadIds ?? (descriptor.threadId ? [descriptor.threadId] : []),
-        streamingThreadIds: descriptor.streamingThreadIds ?? [],
-        sessionId: descriptor.sessionId,
-        isStreaming: descriptor.isStreaming,
-        ...metrics,
-      });
-    }),
-  );
-
-  processes.sort((a, b) => a.label.localeCompare(b.label));
-  return { timestamp, processes };
-}
+// Fallback-mode connection, used for retention passes when the worker is down.
+let fallbackDb: DatabaseSync | null = null;
 
 async function executeCommandInProcess(command: WorkerCommand): Promise<unknown> {
   try {
@@ -120,6 +99,7 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
               db.exec("PRAGMA journal_mode = WAL;");
               db.exec("PRAGMA busy_timeout = 5000;");
               initializeMonitorDb(db);
+              fallbackDb = db;
             }
           } catch {
             // node:sqlite not available in this environment
@@ -137,6 +117,7 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
         const tick = await collectProcessTick(
           command.descriptors,
           command.mainPid,
+          { threadDetail: command.threadDetail },
           command.mainProcessMetrics,
         );
         if (command.sessionId && isMonitorDbInitialized()) {
@@ -146,7 +127,7 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
             console.warn("[Monitor] Failed to write sample batch in process:", e);
           }
         }
-        return tick;
+        return { tick, sampler: samplerStats() } satisfies MonitorSampleResult;
       }
       case "start-recording":
         if (isMonitorDbInitialized()) {
@@ -205,21 +186,24 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
       case "flush":
         return;
       case "prune":
-        if (isMonitorDbInitialized()) {
+        if (fallbackDb) {
           try {
-            pruneOldSamples(command.retentionMs);
+            return pruneMonitorData(fallbackDb, command.policy);
           } catch (e) {
-            console.warn("[Monitor] Failed to prune old samples in process:", e);
+            console.warn("[Monitor] Failed to prune monitor data in process:", e);
           }
         }
-        return;
+        return null;
       case "shutdown":
         return;
     }
   } catch (error) {
     console.error("[Monitor] executeCommandInProcess failed:", error);
     if (command.type === "sample") {
-      return { timestamp: Date.now(), processes: [] };
+      return {
+        tick: { timestamp: Date.now(), processes: [] },
+        sampler: samplerStats(),
+      } satisfies MonitorSampleResult;
     }
     return;
   }
@@ -239,6 +223,7 @@ export class MonitorWorkerClient {
   private maxWriteLatencyMs = 0;
   private lastFlushMs = 0;
   private lastError: string | null = null;
+  private processLaunches = 0;
   private readonly initPromise: Promise<void>;
 
   constructor(dbPath: string) {
@@ -265,19 +250,23 @@ export class MonitorWorkerClient {
     return this.initPromise;
   }
 
-  sample(
+  async sample(
     descriptors: MonitorProcessDescriptor[],
     sessionId: string | null,
     mainPid: number,
+    threadDetail: boolean,
     mainProcessMetrics?: RawProcessMetrics,
   ): Promise<MonitorSampleTick> {
-    return this.request<MonitorSampleTick>({
+    const result = await this.request<MonitorSampleResult>({
       type: "sample",
       descriptors,
       sessionId,
       mainPid,
+      threadDetail,
       mainProcessMetrics,
     });
+    this.processLaunches = result.sampler.processLaunches;
+    return result.tick;
   }
 
   startRecording(session: MonitorSession): Promise<void> {
@@ -324,11 +313,13 @@ export class MonitorWorkerClient {
       maxWriteLatencyMs: this.maxWriteLatencyMs,
       lastFlushMs: this.lastFlushMs,
       lastError: this.lastError,
+      processLaunches: this.processLaunches,
     };
   }
 
-  prune(retentionMs: number): boolean {
-    return this.postWrite({ type: "prune", retentionMs });
+  /** One bounded retention pass; resolves null when the database is unavailable. */
+  prune(policy: MonitorRetentionPolicy): Promise<MonitorPruneReport | null> {
+    return this.request<MonitorPruneReport | null>({ type: "prune", policy });
   }
 
   async shutdown(): Promise<void> {
