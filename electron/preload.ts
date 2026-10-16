@@ -457,9 +457,11 @@ const api = {
       cancelled?: boolean;
     }): Promise<void> => ipcRenderer.invoke("agent:respondToPermission", response),
     listAgents: (): Promise<AcpAgentDescriptor[]> => ipcRenderer.invoke("agent:listAgents"),
-    getModelCatalogs: (): Promise<
-      Record<string, Array<{ modelId: string; name: string; provider?: string }>>
-    > => ipcRenderer.invoke("agent:getModelCatalogs"),
+    /** Cached catalogs; `refresh` names the only providers that may be started for theirs. */
+    getModelCatalogs: (options?: {
+      refresh?: string[];
+    }): Promise<Record<string, Array<{ modelId: string; name: string; provider?: string }>>> =>
+      ipcRenderer.invoke("agent:getModelCatalogs", options),
     probeAgent: (agentId: string): Promise<AgentProbeResult> =>
       ipcRenderer.invoke("agent:probeAgent", agentId),
     authenticate: (agentId: string, methodId: string): Promise<void> =>

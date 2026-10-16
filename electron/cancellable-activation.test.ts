@@ -1,40 +1,17 @@
-import { describe, expect, test, vi } from "vitest";
-import { AgentConnectionManager } from "./agent-connection-manager.ts";
+import { describe, expect, test } from "vitest";
 import {
   ActivationSupersededError,
   isActivationSuperseded,
+  KeyedMutex,
   raceActivation,
+  SelectionFence,
   throwIfSuperseded,
 } from "./activation.ts";
-import type { AcpBridgeEvent } from "../contracts/acp.ts";
-
-vi.mock("electron", () => ({
-  app: {
-    getPath: () => process.env.PIPPER_LIBRARY_PATH ?? process.env.TMPDIR ?? "/tmp",
-    connect: vi.fn(),
-  },
-}));
 
 /**
- * Cancellable activations: a newly requested activation supersedes the one
- * running ahead of it instead of queueing behind its full phase timeout, and
- * FIFO order is otherwise preserved.
+ * Activation primitives: selection requests supersede older ones without a
+ * global queue, and per-thread work is serialized only per key.
  */
-
-function makeManager() {
-  const events: AcpBridgeEvent[] = [];
-  const manager = new AgentConnectionManager({
-    sendToRenderer: (event: unknown) => events.push(event as AcpBridgeEvent),
-    setWindowTitle: () => {},
-  });
-  return manager;
-}
-
-function enqueue(manager: AgentConnectionManager) {
-  return manager as unknown as {
-    enqueueThreadActivation: (task: (signal: AbortSignal) => Promise<unknown>) => Promise<unknown>;
-  };
-}
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -72,81 +49,52 @@ describe("activation cancellation primitives", () => {
   });
 });
 
-describe("superseding activation queue", () => {
-  test("a newer request aborts the slow activation ahead of it and runs next", async () => {
-    const manager = makeManager();
-    const queue = enqueue(manager);
+describe("selection fence", () => {
+  test("a newer claim aborts the older ticket and only the newest is latest", () => {
+    const fence = new SelectionFence();
+    const first = fence.claim();
+    const second = fence.claim();
+    expect(first.signal.aborted).toBe(true);
+    expect(second.signal.aborted).toBe(false);
+    expect(fence.isLatest(first)).toBe(false);
+    expect(fence.isLatest(second)).toBe(true);
+    expect(() => fence.assertLatest(first)).toThrow(ActivationSupersededError);
+    expect(fence.current).toBe(second.generation);
+  });
+});
 
-    let slowSettled = false;
-    let fastRan = false;
+describe("keyed mutex", () => {
+  test("serializes one key, runs other keys concurrently, and drains to empty", async () => {
+    const mutex = new KeyedMutex();
     const order: string[] = [];
-
-    // Slow activation: hangs until its signal fires (like a stuck session/load).
-    const slow = queue.enqueueThreadActivation((signal) =>
-      raceActivation(new Promise((resolve) => setTimeout(resolve, 60_000)), signal).finally(() => {
-        slowSettled = true;
-      }),
-    );
-    await tick();
-
-    // The newer request must not wait out the slow one's timeout.
-    const fast = queue.enqueueThreadActivation(async () => {
-      order.push("fast");
-      fastRan = true;
-    });
-
-    await expect(slow).rejects.toBeInstanceOf(ActivationSupersededError);
-    await fast;
-
-    expect(slowSettled).toBe(true);
-    expect(fastRan).toBe(true);
-    expect(order).toEqual(["fast"]);
-  });
-
-  test("rapid requests obsolete queued-but-unstarted activations too", async () => {
-    const manager = makeManager();
-    const queue = enqueue(manager);
-
-    // Model a real cancellable prepare: entry check plus signal-aware awaits.
-    const hangUntilAborted = (signal: AbortSignal) =>
-      new Promise<string>((_resolve, reject) => {
-        throwIfSuperseded(signal);
-        signal.addEventListener(
-          "abort",
-          () => reject(signal.reason ?? new ActivationSupersededError()),
-          { once: true },
-        );
+    let releaseFirst!: () => void;
+    const first = mutex.run("a", async () => {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
       });
-
-    const slow = queue.enqueueThreadActivation((signal) => hangUntilAborted(signal));
+      order.push("a1");
+    });
+    const second = mutex.run("a", async () => {
+      order.push("a2");
+    });
+    const other = mutex.run("b", async () => {
+      order.push("b");
+    });
+    await other;
     await tick();
-    // Two clicks in quick succession: the second supersedes the first even
-    // though it is still queued behind the slow activation.
-    const middle = queue.enqueueThreadActivation((signal) => hangUntilAborted(signal));
-    const last = queue.enqueueThreadActivation(async () => "last");
-
-    await expect(slow).rejects.toBeInstanceOf(ActivationSupersededError);
-    await expect(middle).rejects.toBeInstanceOf(ActivationSupersededError);
-    await expect(last).resolves.toBe("last");
+    expect(order).toEqual(["b"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["b", "a1", "a2"]);
+    await tick();
+    expect(mutex.size).toBe(0);
   });
 
-  test("FIFO is preserved when nothing is superseded", async () => {
-    const manager = makeManager();
-    const queue = enqueue(manager);
-    const order: number[] = [];
-
-    await Promise.all([
-      queue.enqueueThreadActivation(async () => {
-        order.push(1);
-      }),
-      queue.enqueueThreadActivation(async () => {
-        order.push(2);
-      }),
-      queue.enqueueThreadActivation(async () => {
-        order.push(3);
-      }),
-    ]);
-
-    expect(order).toEqual([1, 2, 3]);
+  test("a failed task does not block the next one for the key", async () => {
+    const mutex = new KeyedMutex();
+    await expect(mutex.run("a", async () => Promise.reject(new Error("boom")))).rejects.toThrow(
+      "boom",
+    );
+    await expect(mutex.run("a", async () => "next")).resolves.toBe("next");
   });
 });

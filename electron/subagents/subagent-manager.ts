@@ -104,6 +104,39 @@ const SUBAGENT_PREAMBLE =
 
 const FINISHED_RUNS_KEPT = 50;
 
+/*
+ * Long-running call contract. `spawn_subagent` is one blocking MCP
+ * `tools/call` whose whole operation (queueing, connection, session/new and
+ * the prompt) is bounded by `runTimeoutMs` (default 10 minutes). Some MCP
+ * clients stop waiting sooner (OpenCode's tools/call limit was observed at
+ * 300 s) and may retry the call. So:
+ *
+ * - A caller giving up does not cancel the run; it keeps its own deadline and
+ *   is cancelled only by that deadline, the parent session's cancellation or
+ *   the parent session closing.
+ * - A retry with identical arguments from the same parent session attaches to
+ *   the run already in flight instead of starting a duplicate, and a
+ *   successful report stays available to such a retry for
+ *   RETRY_RESULT_RETENTION_MS. Failed or cancelled runs are not retained: a
+ *   retry after a failure starts a fresh run.
+ *
+ * A start/status/cancel job API with durable ids was considered and not
+ * added: every supported agent already calls the tool synchronously, retry
+ * attachment covers the observed client-timeout case without a protocol
+ * change, and runs are bounded by their deadline either way.
+ */
+/** How long a finished report can still be collected by a retried call. */
+export const RETRY_RESULT_RETENTION_MS = 10 * 60_000;
+/** Finished reports retained for retries, across all sessions. */
+const RETAINED_RESULTS_MAX = 16;
+
+interface SpawnCall {
+  token: string;
+  report: Promise<string>;
+  /** Set once the run succeeded; failed calls are dropped instead. */
+  settledAt: number | null;
+}
+
 /** Settle with `promise`, or reject with the signal's reason as soon as it aborts. */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
@@ -145,6 +178,8 @@ export class SubagentManager {
   private readonly runs = new Map<string, RunState>();
   private readonly runsBySession = new Map<string, RunState>();
   private activeRuns = 0;
+  /** spawn_subagent calls by parent token + arguments, for retry attachment. */
+  private readonly spawnCalls = new Map<string, SpawnCall>();
   private readonly slotWaiters: Array<() => void> = [];
   private disposed = false;
 
@@ -247,10 +282,7 @@ export class SubagentManager {
   /** Release MCP endpoints owned by an ACP session after it is closed. */
   releaseSessionMcp(sessionId: string): void {
     for (const [token, context] of this.tokens) {
-      if (context.sessionId === sessionId) {
-        this.tokens.delete(token);
-        this.server.unregister(token);
-      }
+      if (context.sessionId === sessionId) this.releaseToken(token);
     }
   }
 
@@ -258,11 +290,30 @@ export class SubagentManager {
     if (!token) return;
     this.tokens.delete(token);
     this.server.unregister(token);
+    // Nobody can retry through a released endpoint; drop its retained reports.
+    for (const [key, call] of this.spawnCalls) {
+      if (call.token === token) this.spawnCalls.delete(key);
+    }
   }
 
   /** Release an endpoint created for a session before that session is bound. */
   releaseTokenForSession(token: string): void {
     this.releaseToken(token);
+  }
+
+  /** Registered MCP endpoints (lifecycle diagnostics). */
+  endpointCount(): number {
+    return this.tokens.size;
+  }
+
+  /** True while a run for this provider is queued or running (keeps it warm). */
+  hasActiveRunsForAgent(agentId: string): boolean {
+    for (const run of this.runs.values()) {
+      if (run.agentId === agentId && (run.status === "queued" || run.status === "running")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** True when the session belongs to a subagent run (vs a user-facing thread). */
@@ -309,6 +360,7 @@ export class SubagentManager {
     }
     this.server.close();
     this.tokens.clear();
+    this.spawnCalls.clear();
     this.started = null;
   }
 
@@ -375,7 +427,10 @@ export class SubagentManager {
           "Delegate a task to another coding agent running in its own isolated session, and get its " +
           "final report back. The subagent shares NO context with you — include every needed detail " +
           "(background, file paths, constraints, expected output) in the task. Call this tool multiple " +
-          "times, including in parallel, to fan work out across agents.\n\nAvailable agents:\n" +
+          "times, including in parallel, to fan work out across agents. If this call times out on " +
+          "your side, the subagent keeps running: call spawn_subagent again with identical " +
+          "arguments to wait for (or collect) that same run's report instead of starting another." +
+          "\n\nAvailable agents:\n" +
           catalog,
         inputSchema: {
           type: "object",
@@ -420,10 +475,58 @@ export class SubagentManager {
       return { content: [{ type: "text", text: JSON.stringify(agents, null, 2) }] };
     }
     if (name === "spawn_subagent") {
-      const text = await this.runSubagent(token, args);
+      const text = await this.spawnOrAttach(token, args);
       return { content: [{ type: "text", text }] };
     }
     throw new Error(`unknown tool: ${name}`);
+  }
+
+  /**
+   * Start a run, or attach a retried call to the identical run already in
+   * flight (or recently finished) for the same parent session.
+   */
+  private spawnOrAttach(token: string, args: Record<string, unknown>): Promise<string> {
+    const now = Date.now();
+    for (const [key, call] of this.spawnCalls) {
+      if (call.settledAt != null && now - call.settledAt >= RETRY_RESULT_RETENTION_MS) {
+        this.spawnCalls.delete(key);
+      }
+    }
+    const key = JSON.stringify([
+      token,
+      args.agent_id ?? null,
+      typeof args.task === "string" ? args.task.trim() : null,
+      args.context ?? null,
+      args.cwd ?? null,
+    ]);
+    const existing = this.spawnCalls.get(key);
+    if (existing) return existing.report;
+
+    const call: SpawnCall = { token, report: this.runSubagent(token, args), settledAt: null };
+    this.spawnCalls.set(key, call);
+    call.report.then(
+      () => {
+        if (this.spawnCalls.get(key) !== call) return;
+        call.settledAt = Date.now();
+        // Re-insert so iteration order is settle order, then bound retention.
+        this.spawnCalls.delete(key);
+        this.spawnCalls.set(key, call);
+        let retained = 0;
+        for (const candidate of this.spawnCalls.values()) {
+          if (candidate.settledAt != null) retained++;
+        }
+        for (const [candidateKey, candidate] of this.spawnCalls) {
+          if (retained <= RETAINED_RESULTS_MAX) break;
+          if (candidate.settledAt == null) continue;
+          this.spawnCalls.delete(candidateKey);
+          retained--;
+        }
+      },
+      () => {
+        if (this.spawnCalls.get(key) === call) this.spawnCalls.delete(key);
+      },
+    );
+    return call.report;
   }
 
   private async runSubagent(token: string, args: Record<string, unknown>): Promise<string> {

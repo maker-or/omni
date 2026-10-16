@@ -480,6 +480,53 @@ describe("subagent runs", () => {
     expect(manager.getRunSnapshots().map((r) => r.status)).toEqual(["finished", "finished"]);
   });
 
+  test("a retried call attaches to the run in flight and collects its report afterwards", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prompted: string[] = [];
+    const fake = makeFakeAgent({
+      onPrompt: async (sessionId) => {
+        prompted.push(sessionId);
+        await gate;
+        manager!.handleSessionUpdate(sessionId, {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "done once" },
+        } as never);
+      },
+    });
+    const made = await makeManager(fake);
+    manager = made.manager;
+    const attached = await manager.attachMcpServers(
+      [],
+      { mcpCapabilities: { http: true } },
+      { cwd: "/repo", depth: 0 },
+    );
+    manager.bindSession(attached.token!, "orchestrator-session");
+    const url = endpointUrl(attached.servers);
+    const args = { agent_id: "agent-a", task: "long task" };
+
+    // The client times out and retries while the first call is still running.
+    const original = callSpawn(url, args);
+    await vi.waitFor(() => expect(prompted).toHaveLength(1));
+    const retry = callSpawn(url, args);
+    release();
+    const [first, second] = await Promise.all([original, retry]);
+    expect(first.content[0].text).toBe("done once");
+    expect(second.content[0].text).toBe("done once");
+
+    // A retry after the run finished collects the retained report.
+    const late = await callSpawn(url, args);
+    expect(late.content[0].text).toBe("done once");
+    expect(prompted).toEqual(["sub-session-1"]);
+    expect(manager.getRunSnapshots()).toHaveLength(1);
+
+    // A different task from the same session is a new run.
+    await callSpawn(url, { agent_id: "agent-a", task: "another task" });
+    expect(prompted).toEqual(["sub-session-1", "sub-session-2"]);
+  });
+
   test("updates for unknown sessions are not swallowed", async () => {
     const fake = makeFakeAgent({ onPrompt: () => {} });
     const made = await makeManager(fake);

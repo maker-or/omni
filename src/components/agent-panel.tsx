@@ -2160,17 +2160,23 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   }, [registryAgents, selectedAgentIds]);
 
   // Ensure the agent catalog is loaded for draft model ownership labels.
+  // Cached catalogs start nothing. Only the provider the draft targets is
+  // started for its catalog, and only while it has none: that provider is the
+  // one the next thread will use, so starting it also warms the thread start.
+  const draftAgentId = draft?.agentId ?? null;
   useEffect(() => {
     void (async () => {
       await useAgentRegistryStore.getState().load();
-      const catalogs = await window.omni?.agent?.getModelCatalogs?.();
+      const known = useModelCatalogStore.getState().byAgentId;
+      const refresh = draftAgentId && !known[draftAgentId]?.length ? [draftAgentId] : [];
+      const catalogs = await window.omni?.agent?.getModelCatalogs?.({ refresh });
       if (!catalogs) return;
       const remember = useModelCatalogStore.getState().remember;
       for (const [agentId, models] of Object.entries(catalogs)) {
         remember(agentId, models);
       }
     })();
-  }, [selectedAgentKey]);
+  }, [selectedAgentKey, draftAgentId]);
   const catalogByAgentId = useModelCatalogStore((state) => state.byAgentId);
   /**
    * Draft model list is agent-scoped via the learned catalog — never the active
