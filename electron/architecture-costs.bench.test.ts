@@ -1,6 +1,6 @@
 import { afterAll, expect, test, vi } from "vitest";
-import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync, backup } from "node:sqlite";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -9,7 +9,7 @@ import { applySessionUpdate, createEmptySessionSlice } from "../src/lib/acp-sess
 import { toLeanToolCall } from "../src/lib/tool-call-payload.ts";
 vi.mock("electron", () => ({ app: { getPath: () => process.env.TMPDIR ?? "/tmp" } }));
 vi.mock("../src/components/ui/toast", () => ({ toast: vi.fn() }));
-import { ThreadSnapshotStore } from "./thread-snapshot-store.ts";
+import { ThreadSnapshotStore, snapshotImageRefs } from "./thread-snapshot-store.ts";
 import {
   rememberHydratedToolCalls,
   hydrateStoredToolCalls,
@@ -107,6 +107,8 @@ test.skipIf(!enabled)(
         baseCompressedBytes: previousBytes,
         changedJsonBytes: Buffer.byteLength(JSON.stringify([id, value]) + "\n"),
         newCompressedBytes: snapshot.payloadBytes,
+        // Bytes this write put on disk (indexed generations append only changes).
+        writtenBytes: statSync(snapshot.payloadPath).size,
       });
     }
     report.sidecar = {
@@ -313,3 +315,119 @@ test.skipIf(!enabled)("measure renderer hydrated body retention until explicit c
       "Actual renderer cache module in a Node worker with forced GC. No time-based eviction exists; explicit cleanup is exercised. The final validation reference can retain one body during cleanup.",
   };
 });
+
+test.skipIf(!enabled)(
+  "measure stored byte accounting and transcript image bodies on a private copy",
+  async () => {
+    const source = process.env.PIPPER_ARCHITECTURE_DATABASE;
+    if (!source) {
+      report.storedAccounting = { skipped: "Provide PIPPER_ARCHITECTURE_DATABASE" };
+      return;
+    }
+    const copyPath = join(root!, "accounting-copy.sqlite");
+    const input = new DatabaseSync(source, { readOnly: true });
+    await backup(input, copyPath);
+    input.close();
+    const db = new DatabaseSync(copyPath);
+    const store = new ThreadSnapshotStore({
+      rootPath: join(root!, "copy-snapshots"),
+      database: db,
+      maxMemoryEntries: 0,
+    });
+    // Migration + one-time backfill (runs in idle maintenance in the app).
+    let begin = performance.now();
+    store.storageUsage();
+    const migrationMs = performance.now() - begin;
+    begin = performance.now();
+    while (store.backfillAccounting(1_000) > 0);
+    const backfillMs = performance.now() - begin;
+
+    const oldExact = db.prepare(
+      `SELECT thread_id,payload_path,payload_bytes+length(CAST(slice_json AS BLOB)) AS total_bytes FROM thread_snapshots ORDER BY updated_at ASC`,
+    );
+    const stored = db.prepare(
+      `SELECT COALESCE(SUM(slice_bytes),0)+COALESCE(SUM(payload_bytes),0) AS total FROM thread_snapshots INDEXED BY idx_thread_snapshots_budget`,
+    );
+    const evictionOrder = db.prepare(
+      `SELECT thread_id, slice_bytes + payload_bytes AS total_bytes FROM thread_snapshots INDEXED BY idx_thread_snapshots_budget ORDER BY updated_at ASC`,
+    );
+    const independent = (oldExact.all() as Array<{ total_bytes: number }>).reduce(
+      (sum, row) => sum + row.total_bytes,
+      0,
+    );
+    expect((stored.get() as { total: number }).total).toBe(independent);
+    const trials = [];
+    for (let run = 0; run < 10; run++) {
+      begin = performance.now();
+      oldExact.all();
+      const oldExactMs = performance.now() - begin;
+      begin = performance.now();
+      stored.get();
+      const storedTotalMs = performance.now() - begin;
+      begin = performance.now();
+      evictionOrder.all();
+      const storedEvictionScanMs = performance.now() - begin;
+      begin = performance.now();
+      store.storageUsage();
+      const storageUsageMs = performance.now() - begin;
+      trials.push({ oldExactMs, storedTotalMs, storedEvictionScanMs, storageUsageMs });
+    }
+
+    // Re-persist the largest transcript through the store (images become bodies).
+    const largest = db
+      .prepare(
+        `SELECT thread_id, agent_session_id, agent_id, slice_json FROM thread_snapshots ORDER BY slice_bytes DESC LIMIT 1`,
+      )
+      .get() as
+      | { thread_id: string; agent_session_id: string; agent_id: string; slice_json: string }
+      | undefined;
+    let largestTranscript;
+    if (largest) {
+      const beforeBytes = Buffer.byteLength(largest.slice_json);
+      const written = (await store.write({
+        threadId: largest.thread_id,
+        agentSessionId: largest.agent_session_id,
+        agentId: largest.agent_id,
+        slice: JSON.parse(largest.slice_json),
+        payloads: new Map(),
+      }))!;
+      const read = db.prepare("SELECT slice_json FROM thread_snapshots WHERE thread_id=?");
+      const restoreTrials = [];
+      for (let i = 0; i < 5; i++) {
+        begin = performance.now();
+        const row = read.get(largest.thread_id) as { slice_json: string };
+        const sqlReadMs = performance.now() - begin;
+        begin = performance.now();
+        const parsed = JSON.parse(row.slice_json);
+        const parseMs = performance.now() - begin;
+        begin = performance.now();
+        const images = await store.loadImages(written, snapshotImageRefs(parsed));
+        const imageLoadMs = performance.now() - begin;
+        restoreTrials.push({ sqlReadMs, parseMs, imageLoadMs, images: images.size });
+      }
+      largestTranscript = {
+        beforeBytes,
+        afterBytes: Buffer.byteLength(
+          (read.get(largest.thread_id) as { slice_json: string }).slice_json,
+        ),
+        bodyBytes: written.payloadBytes,
+        restoreTrials,
+        scope:
+          "sqlReadMs + parseMs are on the paint path; imageLoadMs is asynchronous and after paint.",
+      };
+    }
+    report.storedAccounting = {
+      rows: trials.length ? (evictionOrder.all() as unknown[]).length : 0,
+      exactTotalBytes: independent,
+      migrationMs,
+      backfillMs,
+      trials,
+      largestTranscript,
+      scope:
+        "Private backup of the provided database. Stored totals are verified equal to the old exact full-row sum before timing.",
+    };
+    store.dispose();
+    db.close();
+  },
+  120000,
+);

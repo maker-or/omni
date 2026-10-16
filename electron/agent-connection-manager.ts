@@ -54,6 +54,7 @@ import type { AgentOsNotification, OsNotifier } from "./os-notifications.ts";
 import type { WindowAttentionSource, WindowVisibilitySource } from "./window-visibility.ts";
 import { WorkspaceGuard } from "./workspace-guard.ts";
 import { ThreadSessionRegistry, type ThreadSessionRuntime } from "./thread-session-registry.ts";
+import { SnapshotFreshness } from "./snapshot-freshness.ts";
 import {
   ThreadSnapshotStore,
   hydrateSnapshotImages,
@@ -263,6 +264,7 @@ export class AgentConnectionManager {
     isPinned: (threadId) => this.sessions.has(threadId),
   });
   private readonly snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly snapshotFreshness = new SnapshotFreshness();
   /** Tail of each thread's write chain: at most one active write plus one pending. */
   private readonly snapshotWriteChains = new Map<string, Promise<boolean>>();
   /** Queued writes that have not started; they capture the runtime when they run. */
@@ -664,6 +666,7 @@ export class AgentConnectionManager {
 
   private scheduleSnapshot(runtime: ThreadSessionRuntime): void {
     if (!this.snapshotStore.enabled || runtime.snapshotDirty === false) return;
+    this.snapshotFreshness.noteSettled(runtime.threadId);
     const existing = this.snapshotTimers.get(runtime.threadId);
     if (existing) clearTimeout(existing);
     // While storage is failing, debounced writes wait out the backoff instead
@@ -739,6 +742,7 @@ export class AgentConnectionManager {
       this.snapshotWriteFailures = 0;
       this.snapshotWritesBlockedUntil = 0;
       if (!snapshot) return false;
+      this.snapshotFreshness.notePersisted(runtime.threadId);
       if (this.sessions.get(runtime.threadId) !== runtime) return true;
       runtime.snapshotPayloadSource = snapshot;
       if ((runtime.payloadRevision ?? 0) === payloadRevision) {
@@ -794,6 +798,14 @@ export class AgentConnectionManager {
     return this.queueSnapshotWrite(runtime);
   }
 
+  /** Display-cache freshness and disk budget categories (diagnostics, benchmarks). */
+  snapshotStorageStats() {
+    return {
+      freshness: this.snapshotFreshness.summary(),
+      usage: this.snapshotStore.enabled ? this.snapshotStore.storageUsage() : null,
+    };
+  }
+
   /** Force a settled snapshot to disk (used by benchmark setup and shutdown). */
   async flushThreadSnapshot(threadId: string): Promise<boolean> {
     const runtime = this.sessions.get(threadId);
@@ -811,6 +823,7 @@ export class AgentConnectionManager {
   }
 
   private async deletePersistedSnapshot(threadId: string): Promise<void> {
+    this.snapshotFreshness.forget(threadId);
     const timer = this.snapshotTimers.get(threadId);
     if (timer) clearTimeout(timer);
     this.snapshotTimers.delete(threadId);
@@ -2328,6 +2341,7 @@ export class AgentConnectionManager {
         });
         this.pushState(threadId);
         void this.hydrateSnapshotImages(runtime, restoredSnapshot);
+        this.snapshotFreshness.noteRestored(restoredSnapshot.writtenAt);
         this.captureAnalytics?.("thread_opened", {
           project_id: project.id,
           thread_id: threadId,

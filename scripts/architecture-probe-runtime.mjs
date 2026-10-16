@@ -179,6 +179,7 @@ export function installArchitectureProbe(api) {
           .all()
           .map((live) => ({ agentId: live.agentId, pid: live.process.pid })),
         snapshotCache: manager.snapshotStore.memoryCacheStats(),
+        snapshotStorage: manager.snapshotStorageStats(),
       };
     },
     setSelectedAgentIds: api.setSelectedAgentIds,
