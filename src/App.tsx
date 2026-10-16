@@ -474,6 +474,9 @@ export default function App() {
     if (!window.omni?.worktrees?.onSetupProgress) return;
     return window.omni.worktrees.onSetupProgress((progress) => {
       if (uiMode === "advanced") return;
+      // Remote/phone workspaces set up in the background; only a failure is
+      // worth interrupting the desktop user for.
+      if (progress.activation === "background" && progress.status !== "failed") return;
       if (progress.status === "installing") {
         toast({
           icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,

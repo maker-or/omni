@@ -25,7 +25,10 @@ vi.mock("./worktree-manager.ts", () => ({
   gitBinary: () => "git",
   isLiveWorktree: () => true,
   removeWorktreeBestEffort: () => undefined,
+  // No package manifest: workspace setup reports "skipped" without spawning.
+  resolveInstallCommand: () => null,
 }));
+vi.mock("./worktree-preferences.ts", () => ({ getWorktreeAutoInstall: () => true }));
 vi.mock("./siri/siri-catalog.ts", () => ({
   buildSiriCatalog: () => ({ defaultAgentId: "codex-acp", projects: [], agents: [] }),
 }));

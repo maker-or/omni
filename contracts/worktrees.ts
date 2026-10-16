@@ -70,14 +70,31 @@ export function orderWorktreesForDisplay(worktrees: Worktree[]): Worktree[] {
 }
 
 /**
+ * How a new workspace is set up after its Git checkout exists:
+ * `prepared` installs dependencies in the background, `source-only` leaves
+ * that to the user. Desktop and remote creation share this policy.
+ */
+export type WorkspaceSetupPolicy = "source-only" | "prepared";
+
+/**
+ * Who is waiting on a new workspace: `foreground` for the desktop user, who
+ * gets progress notifications; `background` for remote/phone tasks, whose
+ * setup must not interrupt the desktop UI.
+ */
+export type WorkspaceActivation = "foreground" | "background";
+
+/**
  * Progress of the background dependency install that follows a worktree
  * create, broadcast to the renderer for toasts. `skipped` means the project
- * has no Node dependency manifest.
+ * has no Node dependency manifest, the policy is source-only, or the
+ * workspace went away first.
  */
 export interface WorktreeSetupProgress {
   projectId: string;
   worktreePath: string;
   workspaceName: string;
+  policy?: WorkspaceSetupPolicy;
+  activation?: WorkspaceActivation;
   status: "installing" | "installed" | "failed" | "skipped";
   /** Package manager used (bun/pnpm/yarn/npm) when installing. */
   manager?: string;

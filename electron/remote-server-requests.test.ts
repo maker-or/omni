@@ -51,7 +51,10 @@ vi.mock("./worktree-manager.ts", () => ({
   removeWorktreeBestEffort: mocks.removeWorktreeBestEffort,
   isLiveWorktree: mocks.isLiveWorktree,
   gitBinary: () => "git",
+  // No package manifest: workspace setup reports "skipped" without spawning.
+  resolveInstallCommand: () => null,
 }));
+vi.mock("./worktree-preferences.ts", () => ({ getWorktreeAutoInstall: () => true }));
 vi.mock("./agent-instances.ts", () => ({
   listAgentInstanceDescriptors: () =>
     catalog.agents
