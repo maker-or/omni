@@ -238,63 +238,93 @@ function measureMixedRun() {
   };
 }
 
+/**
+ * Arrival schedules for the store bridge: `burst` events delivered back to
+ * back every `gapMs`. "synchronous" delivers the whole stream in one task.
+ * Same schedules as scripts/measure-stream-paint.mjs.
+ */
+const ARRIVAL_SCHEDULES = [
+  { name: "synchronous", gapMs: 0, burst: Number.POSITIVE_INFINITY },
+  { name: "steady-8ms", gapMs: 8, burst: 1 },
+  { name: "steady-2ms", gapMs: 2, burst: 1 },
+  { name: "burst-8x32ms", gapMs: 32, burst: 8 },
+];
+
 /** Full renderer store path: bridge handler, reducer, payload store and projection. */
 function measureStoreBridge() {
   const result = [];
-  for (const runEntries of [0, 1500]) {
-    const history = longRunHistory(runEntries);
-    const updates = mixedStream(1000, `store-${runEntries}`);
-    const trials = [];
-    for (let run = 0; run < STREAM_TRIALS + 1; run++) {
-      let handler: (event: AcpBridgeEvent) => void = () => {};
-      const initial = sessionFixture(history.entries, history.toolCalls);
-      (globalThis as { window?: unknown }).window = {
-        omni: {
-          agent: {
-            onEvent: (next: (event: AcpBridgeEvent) => void) => {
-              handler = next;
-              return () => {};
+  // Fake timers stand in for arrival spacing and the store's frame/timeout
+  // flush; timings therefore include flush work but no idle time.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    for (const schedule of ARRIVAL_SCHEDULES) {
+      for (const runEntries of [0, 1500]) {
+        const history = longRunHistory(runEntries);
+        const updates = mixedStream(1000, `store-${runEntries}`);
+        const trials = [];
+        for (let run = 0; run < STREAM_TRIALS + 1; run++) {
+          let handler: (event: AcpBridgeEvent) => void = () => {};
+          const initial = sessionFixture(history.entries, history.toolCalls);
+          (globalThis as { window?: unknown }).window = {
+            omni: {
+              agent: {
+                onEvent: (next: (event: AcpBridgeEvent) => void) => {
+                  handler = next;
+                  return () => {};
+                },
+                getState: async () => initial,
+              },
             },
-            getState: async () => initial,
-          },
-        },
-      };
-      // connect() resolves getState asynchronously; drive the synchronous
-      // parts by seeding state directly, exactly as connect() would.
-      void useAgentStore.getState().connect();
-      useAgentStore.setState({
-        state: initial,
-        slice: createEmptySessionSlice({
-          entries: initial.entries,
-          toolCalls: initial.toolCalls,
-          isStreaming: true,
-        }),
-        snapshot: toPanelSnapshot(initial),
-      });
-      let notifications = 0;
-      const unsubscribe = useAgentStore.subscribe(() => {
-        notifications += 1;
-      });
-      const begin = performance.now();
-      for (const update of updates) {
-        handler({ type: "session-update", sessionId: "fixture", threadId: "fixture", update });
+          };
+          // connect() resolves getState asynchronously; drive the synchronous
+          // parts by seeding state directly, exactly as connect() would.
+          void useAgentStore.getState().connect();
+          useAgentStore.setState({
+            state: initial,
+            slice: createEmptySessionSlice({
+              entries: initial.entries,
+              toolCalls: initial.toolCalls,
+              isStreaming: true,
+            }),
+            snapshot: toPanelSnapshot(initial),
+          });
+          let notifications = 0;
+          const unsubscribe = useAgentStore.subscribe(() => {
+            notifications += 1;
+          });
+          const begin = performance.now();
+          for (let i = 0; i < updates.length; i++) {
+            if (i > 0 && i % schedule.burst === 0) vi.advanceTimersByTime(schedule.gapMs);
+            handler({
+              type: "session-update",
+              sessionId: "fixture",
+              threadId: "fixture",
+              update: updates[i]!,
+            });
+          }
+          vi.advanceTimersByTime(16);
+          const ms = performance.now() - begin;
+          unsubscribe();
+          expect(useAgentStore.getState().snapshot?.streamingMessage).not.toBeNull();
+          if (run > 0) trials.push({ ms, notifications });
+        }
+        result.push({
+          schedule: schedule.name,
+          runEntries,
+          events: updates.length,
+          trials,
+          medianMs: median(trials.map((trial) => trial.ms)),
+          medianNotifications: median(trials.map((trial) => trial.notifications)),
+        });
       }
-      const ms = performance.now() - begin;
-      unsubscribe();
-      expect(useAgentStore.getState().snapshot?.streamingMessage).not.toBeNull();
-      if (run > 0) trials.push({ ms, notifications });
     }
-    result.push({
-      runEntries,
-      events: updates.length,
-      trials,
-      medianMs: median(trials.map((trial) => trial.ms)),
-    });
+  } finally {
+    vi.useRealTimers();
   }
   delete (globalThis as { window?: unknown }).window;
   return {
     scope:
-      "useAgentStore bridge handler for session-update events (reducer, tool payload store, projection, zustand set). Excludes React commits and paint.",
+      "useAgentStore bridge handler for session-update events (reducer, tool payload store, projection, zustand set) under timed arrival. Excludes React commits and paint.",
     result,
   };
 }

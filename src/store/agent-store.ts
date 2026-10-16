@@ -769,6 +769,78 @@ function withSnapshot(
   return partial;
 }
 
+type SessionUpdateEvent = Extract<AcpBridgeEvent, { type: "session-update" }>;
+
+/**
+ * Streamed text arrives as one bridge event per delta, and every set()
+ * notifies every subscriber (the panel subscribes to the whole store), so
+ * applying each delta on its own re-renders the panel per token burst. Text
+ * deltas for the displayed thread are buffered and applied in order with a
+ * single set() on the next frame, or after STREAM_FLUSH_MS when frames are
+ * throttled (occluded window). Anything else that touches this store flushes
+ * the buffer first, so ordering against tool calls, permissions, stops,
+ * snapshots and optimistic prompts is unchanged. `getState()` readers can see
+ * text up to one frame old; nothing else is deferred.
+ */
+const STREAM_FLUSH_MS = 16;
+let streamBuffer: SessionUpdateEvent[] = [];
+let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let streamFlushFrame: number | null = null;
+
+function isBufferedStreamDelta(
+  state: Pick<AgentState, "state">,
+  payload: AcpBridgeEvent,
+): payload is SessionUpdateEvent {
+  if (payload.type !== "session-update" || pendingThreadTarget) return false;
+  const kind = payload.update.sessionUpdate;
+  if (kind !== "agent_message_chunk" && kind !== "agent_thought_chunk") return false;
+  return payload.threadId === (state.state?.threadId ?? null);
+}
+
+/** Events this store ignores whatever the buffer holds; flushing for them would only add renders. */
+function cannotObserveStreamBuffer(state: Pick<AgentState, "state">, payload: AcpBridgeEvent) {
+  if (payload.type === "terminal-output") return true;
+  return payload.type === "session-update" && payload.threadId !== (state.state?.threadId ?? null);
+}
+
+function cancelStreamFlush(): void {
+  if (streamFlushTimer !== null) clearTimeout(streamFlushTimer);
+  if (streamFlushFrame !== null) cancelAnimationFrame(streamFlushFrame);
+  streamFlushTimer = null;
+  streamFlushFrame = null;
+}
+
+function scheduleStreamFlush(): void {
+  if (streamFlushTimer !== null) return;
+  streamFlushTimer = setTimeout(flushStreamDeltas, STREAM_FLUSH_MS);
+  if (typeof requestAnimationFrame === "function") {
+    streamFlushFrame = requestAnimationFrame(() => flushStreamDeltas());
+  }
+}
+
+/** Snapshots read from main already contain every delta received before them. */
+function discardStreamDeltas(): void {
+  cancelStreamFlush();
+  streamBuffer = [];
+}
+
+/** Applies buffered text deltas in arrival order with one notification. */
+function flushStreamDeltas(): void {
+  cancelStreamFlush();
+  if (streamBuffer.length === 0) return;
+  const pending = streamBuffer;
+  streamBuffer = [];
+  let view = useAgentStore.getState();
+  let patch: Partial<AgentState> = {};
+  for (const payload of pending) {
+    const next = applyBridgeEvent(view, payload);
+    if (Object.keys(next).length === 0) continue;
+    patch = { ...patch, ...next };
+    view = { ...view, ...next };
+  }
+  if (Object.keys(patch).length > 0) useAgentStore.setState(withSnapshot(patch));
+}
+
 export const useAgentStore = create<AgentState>((set, get) => ({
   state: null,
   snapshot: null,
@@ -787,6 +859,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   connect: async () => {
     if (!window.omni?.agent) return;
+    flushStreamDeltas();
     set({ isConnecting: true, error: null });
     try {
       if (unsubscribeBridge) {
@@ -813,6 +886,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const activeThreadId = get().state?.threadId ?? null;
         const eventThreadId =
           "threadId" in payload && typeof payload.threadId === "string" ? payload.threadId : null;
+        const isActive = eventThreadId === null || eventThreadId === activeThreadId;
+        if (isBufferedStreamDelta(get(), payload)) {
+          streamBuffer.push(payload);
+          scheduleStreamFlush();
+          recordRendererEvent({
+            eventType: payload.type,
+            bytes: payloadBytes,
+            isActive,
+            applyMs: performance.now() - eventStartedAt,
+            buffered: true,
+          });
+          return;
+        }
+        if (!cannotObserveStreamBuffer(get(), payload)) flushStreamDeltas();
         let ignored = false;
         if (payload.type === "terminal-output") {
           useAgentTerminalStore
@@ -844,7 +931,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         recordRendererEvent({
           eventType: payload.type,
           bytes: payloadBytes,
-          isActive: eventThreadId === null || eventThreadId === activeThreadId,
+          isActive,
           applyMs: performance.now() - eventStartedAt,
           ignored,
         });
@@ -854,6 +941,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         unsubscribeBridge = null;
       };
       const state = preserveOptimisticState(get().state, await window.omni.agent.getState());
+      discardStreamDeltas();
       set(
         withSnapshot({
           state,
@@ -892,11 +980,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   refresh: async () => {
+    flushStreamDeltas();
     const refreshId = ++latestRefreshId;
     try {
       const state = preserveOptimisticState(get().state, await window.omni.agent.getState());
       set(() => {
         if (refreshId !== latestRefreshId) return {};
+        discardStreamDeltas();
         pendingThreadTarget = null;
         return withSnapshot({
           state,
@@ -926,9 +1016,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   hydrateToolCalls: async (threadId, toolCallIds) => {
     if (toolCallIds.length === 0 || !window.omni?.agent?.getToolCalls) return;
+    flushStreamDeltas();
     const remote = await window.omni.agent.getToolCalls(threadId, toolCallIds);
     if (Object.keys(remote).length === 0) return;
     rememberHydratedToolCalls(threadId, remote);
+    flushStreamDeltas();
     set((current) => {
       // The watermark only needs lean records; bodies stay in the bounded
       // payload cache (and in the displayed state below while it is shown).
@@ -954,6 +1046,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   respondToPermission: async (response) => {
+    flushStreamDeltas();
     await window.omni.agent.respondToPermission(response);
     set((s) => {
       const uiRequestQueue = s.uiRequestQueue.filter(
@@ -1020,6 +1113,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   sendPrompt: async (input) => {
+    // The previous turn's tail must land before the optimistic echo.
+    flushStreamDeltas();
     // Optimistic local user message
     if (input.message || input.images?.length) {
       set((s) => {
@@ -1046,10 +1141,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   replacePrompt: async (input) => {
+    flushStreamDeltas();
     await window.omni.agent.replacePrompt(input);
   },
 
   abort: async () => {
+    flushStreamDeltas();
     const sessionId = get().state?.agentSessionId;
     await window.omni.agent.abort();
     if (sessionId) {
@@ -1060,6 +1157,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   switchThread: async (threadId) => {
+    flushStreamDeltas();
     if (get().state?.threadId === threadId && pendingThreadTarget == null) return;
 
     const switchId = ++latestThreadSwitchId;
@@ -1087,6 +1185,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           const state = preserveOptimisticState(get().state, await window.omni.agent.getState());
           set(() => {
             if (switchId !== latestThreadSwitchId || state.threadId !== threadId) return {};
+            discardStreamDeltas();
             pendingThreadTarget = null;
             return withSnapshot({
               state,
@@ -1132,6 +1231,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   createThread: async (projectId, title, afterThreadId, agentId, worktreePath, initialModelId) => {
+    flushStreamDeltas();
     const thread = await window.omni.agent.createThread(
       projectId,
       title ?? null,
@@ -1145,6 +1245,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   setConfigOption: async (configId, value) => {
+    flushStreamDeltas();
     await window.omni.agent.setConfigOption(configId, value);
     await get().refresh();
   },
@@ -1156,6 +1257,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   switchAgent: async (agentId) => {
     if (!window.omni.agent.switchAgent) return;
+    flushStreamDeltas();
     set((s) => ({
       state: s.state ? { ...s.state, switchingAgent: true } : s.state,
     }));
