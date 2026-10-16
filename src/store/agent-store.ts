@@ -42,8 +42,10 @@ import {
   forgetThreadToolPayloads,
   rememberHydratedToolCalls,
   rememberToolPayloadFromUpdate,
+  setActiveToolPayloadThread,
   syncToolPayloadIds,
 } from "./tool-payload-store";
+import { toLeanToolCall } from "../lib/tool-call-payload";
 
 /**
  * An agent naming a session ("title" bridge event) is the source of truth
@@ -760,6 +762,8 @@ function withSnapshot(
   if ("state" in partial) {
     const nextState = partial.state ?? null;
     rememberModelsFromState(nextState);
+    // The displayed thread's tool bodies are pinned in the payload cache.
+    setActiveToolPayloadThread(nextState?.threadId ?? null);
     return { ...partial, snapshot: toPanelSnapshot(nextState) };
   }
   return partial;
@@ -926,11 +930,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (Object.keys(remote).length === 0) return;
     rememberHydratedToolCalls(threadId, remote);
     set((current) => {
+      // The watermark only needs lean records; bodies stay in the bounded
+      // payload cache (and in the displayed state below while it is shown).
+      const leanRemote: Record<string, AcpToolCallState> = {};
+      for (const [id, toolCall] of Object.entries(remote))
+        leanRemote[id] = toLeanToolCall(toolCall);
       const threadToolCalls = {
         ...current.threadToolCalls,
         [threadId]: {
           ...current.threadToolCalls[threadId],
-          ...remote,
+          ...leanRemote,
         },
       };
       if (current.state?.threadId !== threadId) return { threadToolCalls };

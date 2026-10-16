@@ -32,6 +32,12 @@ export interface DiffThreadState {
   summaries: Record<string, DiffTurnSummary>;
   /** Content fingerprints only; retaining full tool-call payloads duplicated the agent store. */
   lastSeenToolCallVersions: Record<string, string>;
+  /**
+   * File contents were released to meet the byte budget. Summaries and the
+   * unseen count survive; the next ingestion rebuilds files from tool calls
+   * (refetched from main as needed) without counting them as new.
+   */
+  evicted?: boolean;
 }
 
 export interface DiffIngestionMetrics {
@@ -83,6 +89,85 @@ const emptyThreadState = (): DiffThreadState => ({
 });
 
 const MAX_RETAINED_THREADS = 100;
+/**
+ * Budget for old/new file text retained across threads (UTF-16 bytes). The
+ * active thread is pinned and may exceed it on its own.
+ */
+export const DIFF_RETAINED_BYTES_BUDGET = 16 * 1024 * 1024;
+let retainedBytesBudget = DIFF_RETAINED_BYTES_BUDGET;
+
+/** Test hook; production uses the default budget. */
+export function setDiffRetainedBytesBudget(bytes: number): void {
+  retainedBytesBudget = bytes;
+}
+
+const fileBytesCache = new WeakMap<Record<string, DiffFileEntry>, number>();
+
+/** Estimated retained bytes of a thread's file texts (memoized per files object). */
+export function diffThreadBytes(thread: Pick<DiffThreadState, "files">): number {
+  const cached = fileBytesCache.get(thread.files);
+  if (cached !== undefined) return cached;
+  let bytes = 0;
+  for (const path in thread.files) {
+    const file = thread.files[path]!;
+    bytes += (file.oldText.length + file.newText.length + path.length) * 2;
+  }
+  fileBytesCache.set(thread.files, bytes);
+  return bytes;
+}
+
+/** Least recently ingested/activated last. */
+const threadRecency = new Map<string, true>();
+
+function touchThread(threadId: string): void {
+  threadRecency.delete(threadId);
+  threadRecency.set(threadId, true);
+}
+
+function evictedThread(thread: DiffThreadState): DiffThreadState {
+  return {
+    ...thread,
+    files: {},
+    order: [],
+    lastSeenToolCallVersions: {},
+    evicted: true,
+  };
+}
+
+/**
+ * Enforce the thread-count and byte budgets in place on a fresh `threads`
+ * copy. Pinned threads (active view, current ingestion target) are never
+ * released; the oldest other threads lose their file texts first, and only
+ * the count cap drops a thread's entry entirely.
+ */
+function enforceDiffBudgets(
+  threads: Record<string, DiffThreadState>,
+  pinned: ReadonlyArray<string | null>,
+): void {
+  const isPinned = (id: string) => pinned.includes(id);
+  for (const id of Object.keys(threads)) {
+    if (!threadRecency.has(id)) touchThread(id);
+  }
+  for (const id of threadRecency.keys()) {
+    if (!threads[id]) threadRecency.delete(id);
+  }
+  while (Object.keys(threads).length > MAX_RETAINED_THREADS) {
+    const evict = [...threadRecency.keys()].find((id) => !isPinned(id));
+    if (!evict) break;
+    delete threads[evict];
+    threadRecency.delete(evict);
+  }
+  let bytes = 0;
+  for (const id in threads) bytes += diffThreadBytes(threads[id]!);
+  if (bytes <= retainedBytesBudget) return;
+  for (const id of threadRecency.keys()) {
+    if (bytes <= retainedBytesBudget) return;
+    const thread = threads[id];
+    if (!thread || isPinned(id) || thread.order.length === 0) continue;
+    bytes -= diffThreadBytes(thread);
+    threads[id] = evictedThread(thread);
+  }
+}
 
 function extractDiffs(
   value: unknown,
@@ -221,11 +306,14 @@ function ingestThread(
     }
   }
 
+  // Rebuilding an evicted thread restores files the user already saw: keep
+  // their selected file and do not count the files as new.
+  const restoring = previous.evicted === true;
+  const keepPrevious = Boolean(previous.activePath && files[previous.activePath]);
   const activePath =
-    lastAddedPath ??
-    (previous.activePath && files[previous.activePath]
-      ? previous.activePath
-      : (order.at(-1) ?? null));
+    (restoring && keepPrevious ? previous.activePath : lastAddedPath) ??
+    (keepPrevious ? previous.activePath : (order.at(-1) ?? null));
+  if (restoring) added = 0;
   return {
     next: {
       files,
@@ -310,11 +398,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
         lastSeenToolCallVersions: {},
       };
     }
-    while (Object.keys(threads).length > MAX_RETAINED_THREADS) {
-      const evict = Object.keys(threads).find((id) => id !== threadId && id !== state.threadId);
-      if (!evict) break;
-      delete threads[evict];
-    }
+    touchThread(threadId);
+    enforceDiffBudgets(threads, [threadId, isActive ? threadId : state.threadId]);
 
     if (!isActive) {
       set({ threads, unseenCount: state.unseenCount + result.added });
@@ -394,6 +479,10 @@ export const useDiffStore = create<DiffState>((set, get) => ({
     // closes it (even if the target thread was opened before), so stale diffs
     // never render over a newly-active conversation and no cross-thread work
     // happens for a panel nobody is looking at.
+    const threads = { ...state.threads, [threadId]: { ...thread, isOpen: false } };
+    touchThread(threadId);
+    // The previously active thread is no longer pinned and may now be released.
+    enforceDiffBudgets(threads, [threadId]);
     set({
       threadId,
       files: thread.files,
@@ -402,7 +491,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       summaries: thread.summaries,
       unseenCount: thread.unseenCount,
       isOpen: false,
-      threads: { ...state.threads, [threadId]: { ...thread, isOpen: false } },
+      threads,
     });
   },
 
@@ -438,7 +527,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
         : state.threads,
     });
   },
-  clear: () =>
+  clear: () => {
+    threadRecency.clear();
     set({
       threadId: null,
       files: {},
@@ -448,6 +538,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       unseenCount: 0,
       summaries: {},
       threads: {},
-    }),
+    });
+  },
   markSeen: () => set({ unseenCount: 0 }),
 }));

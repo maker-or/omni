@@ -493,3 +493,70 @@ test.skipIf(!enabled)("measure renderer hydrated body retention until explicit c
       "Actual renderer cache module in a Node worker with forced GC. No time-based eviction exists; explicit cleanup is exercised. The final validation reference can retain one body during cleanup.",
   };
 });
+
+test.skipIf(!enabled)(
+  "measure renderer payload and diff retention across many threads",
+  async () => {
+    if (!global.gc) throw new Error("Run with --execArgv=--expose-gc");
+    const { useDiffStore } = await import("../src/store/diff-store.ts");
+    const threads = 64;
+    const bodyChars = 512 * 1024;
+    const heap = () => {
+      global.gc!();
+      global.gc!();
+      return process.memoryUsage().heapUsed;
+    };
+
+    resetToolPayloadStore();
+    let before = heap();
+    for (let i = 0; i < threads; i++)
+      rememberHydratedToolCalls(`expanded-${i}`, {
+        read: {
+          toolCallId: "read",
+          title: "Read",
+          status: "completed",
+          hasPayload: true,
+          rawOutput: randomBytes((bodyChars * 3) / 4).toString("base64"),
+        },
+      });
+    const payloadRetainedBytes = heap() - before;
+    resetToolPayloadStore();
+
+    useDiffStore.getState().clear();
+    const fileChars = 256 * 1024;
+    before = heap();
+    for (let i = 0; i < threads; i++) {
+      const text = () => randomBytes((fileChars * 3) / 4).toString("base64");
+      useDiffStore.getState().activateThread(`diff-${i}`);
+      useDiffStore.getState().ingestToolCalls(`diff-${i}`, {
+        edit: {
+          toolCallId: "edit",
+          title: "Edit",
+          kind: "edit",
+          status: "completed",
+          content: [
+            { type: "diff", path: `/repo/${i}.ts`, oldText: text(), newText: text() } as never,
+          ],
+        },
+      });
+    }
+    const diffRetainedBytes = heap() - before;
+    useDiffStore.getState().clear();
+
+    report.rendererCacheRetention = {
+      threads,
+      payload: {
+        bodyCharsPerThread: bodyChars,
+        rawBytes: threads * bodyChars,
+        retainedHeapBytes: payloadRetainedBytes,
+      },
+      diff: {
+        utf16BytesPerThread: 2 * fileChars,
+        rawBytes: threads * 2 * fileChars,
+        retainedHeapBytes: diffRetainedBytes,
+      },
+      scope:
+        "Actual renderer payload and diff store modules in a Node worker, forced GC, one expanded body or one viewed diff per thread, last thread displayed. Not Electron RSS.",
+    };
+  },
+);

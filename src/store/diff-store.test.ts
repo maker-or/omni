@@ -1,5 +1,10 @@
-import { beforeEach, describe, expect, test } from "vitest";
-import { useDiffStore } from "./diff-store";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import {
+  DIFF_RETAINED_BYTES_BUDGET,
+  diffThreadBytes,
+  setDiffRetainedBytesBudget,
+  useDiffStore,
+} from "./diff-store";
 import type { AcpToolCallState } from "../../contracts/acp.ts";
 
 function editToolCall(
@@ -281,5 +286,90 @@ describe("diff-store", () => {
       useDiffStore.getState().ingestToolCalls(`thread-${i}`, {}, false);
     }
     expect(Object.keys(useDiffStore.getState().threads)).toHaveLength(100);
+  });
+
+  describe("byte budget", () => {
+    afterEach(() => setDiffRetainedBytesBudget(DIFF_RETAINED_BYTES_BUDGET));
+
+    function text(seed: string, length = 2048): string {
+      let out = seed;
+      while (out.length < length) out += `\n${seed}:${out.length}`;
+      return out.slice(0, length);
+    }
+
+    function threadCalls(i: number) {
+      return {
+        [`a-${i}`]: {
+          ...editToolCall(`/repo/${i}/a.ts`, text(`old-a-${i}`), text(`new-a-${i}`)),
+          toolCallId: `a-${i}`,
+        },
+        [`b-${i}`]: {
+          ...editToolCall(`/repo/${i}/b.ts`, text(`old-b-${i}`), text(`new-b-${i}`)),
+          toolCallId: `b-${i}`,
+        },
+      };
+    }
+
+    test("viewing diffs across many threads stays within the byte budget", () => {
+      // Four 2,048-char texts in UTF-16, plus a little for the two paths.
+      const perThread = 4 * 2048 * 2 + 64;
+      setDiffRetainedBytesBudget(perThread * 3);
+      for (let i = 0; i < 20; i++) {
+        const store = useDiffStore.getState();
+        store.activateThread(`thread-${i}`);
+        store.ingestToolCalls(`thread-${i}`, threadCalls(i));
+        const threads = useDiffStore.getState().threads;
+        const retained = Object.values(threads).reduce((sum, t) => sum + diffThreadBytes(t), 0);
+        expect(retained).toBeLessThanOrEqual(perThread * 3 + 256);
+      }
+      const threads = useDiffStore.getState().threads;
+      expect(threads["thread-19"]?.order).toHaveLength(2);
+      // Only the oldest threads give up their texts: exactly what fits stays.
+      expect(threads["thread-18"]?.order).toHaveLength(2);
+      expect(Object.values(threads).filter((t) => t.order.length > 0)).toHaveLength(3);
+      expect(threads["thread-0"]?.evicted).toBe(true);
+      expect(threads["thread-0"]?.files).toEqual({});
+
+      // Background ingestion never releases the active (pinned) thread, even
+      // once it is the least recently used.
+      for (let i = 20; i < 26; i++) {
+        useDiffStore.getState().ingestToolCalls(`thread-${i}`, threadCalls(i), false);
+      }
+      const after = useDiffStore.getState();
+      expect(after.threadId).toBe("thread-19");
+      expect(after.threads["thread-19"]?.order).toHaveLength(2);
+      expect(after.threads["thread-19"]?.evicted).toBeUndefined();
+    });
+
+    test("an evicted thread rebuilds exact files without new unseen counts", () => {
+      setDiffRetainedBytesBudget(4 * 2048 * 2 + 256);
+      const store = useDiffStore.getState();
+      store.activateThread("thread-0");
+      store.ingestToolCalls("thread-0", threadCalls(0));
+      store.recordTurnSummary("thread-0", "a-0", threadCalls(0));
+      const original = useDiffStore.getState().files;
+      const activePath = useDiffStore.getState().threads["thread-0"]!.activePath;
+      const unseen = useDiffStore.getState().unseenCount;
+
+      // Activating another thread unpins thread-0; its texts are released.
+      useDiffStore.getState().activateThread("thread-1");
+      useDiffStore.getState().ingestToolCalls("thread-1", threadCalls(1));
+      const evicted = useDiffStore.getState().threads["thread-0"]!;
+      expect(evicted.evicted).toBe(true);
+      expect(evicted.summaries["a-0"]).toBeDefined();
+
+      useDiffStore.getState().activateThread("thread-0");
+      expect(useDiffStore.getState().files).toEqual({});
+      useDiffStore.getState().ingestToolCalls("thread-0", threadCalls(0));
+      const restored = useDiffStore.getState();
+      expect(restored.order).toEqual(["/repo/0/a.ts", "/repo/0/b.ts"]);
+      for (const path of restored.order) {
+        expect(restored.files[path]!.oldText).toBe(original[path]!.oldText);
+        expect(restored.files[path]!.newText).toBe(original[path]!.newText);
+      }
+      expect(restored.activePath).toBe(activePath);
+      expect(restored.unseenCount).toBe(unseen);
+      expect(restored.threads["thread-0"]?.evicted).toBeUndefined();
+    });
   });
 });
