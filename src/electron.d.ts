@@ -1,5 +1,5 @@
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
-import type { DatabaseCompactionResult } from "../contracts/storage.ts";
+import type { DatabaseCompactionResult, WorkspaceDiskUsageReport } from "../contracts/storage.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type {
   RemoteDevicesState,
@@ -77,7 +77,10 @@ export interface CreateProjectInput {
 declare global {
   interface Window {
     omni: {
-      storage: { compactDatabase: () => Promise<DatabaseCompactionResult> };
+      storage: {
+        compactDatabase: () => Promise<DatabaseCompactionResult>;
+        workspaceUsage: () => Promise<WorkspaceDiskUsageReport>;
+      };
       launch: {
         complete: (projectId: string) => Promise<void>;
         show: (stage?: "list" | "add" | "onboarding") => Promise<void>;

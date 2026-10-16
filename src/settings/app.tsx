@@ -17,6 +17,7 @@ import type { IconComponent } from "@/lib/icon-context";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { useTabGestureStore } from "@/store/tab-gesture-store";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
+import type { WorkspaceDiskUsageReport } from "../../contracts/storage.ts";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -337,7 +338,10 @@ function AgentsSettingsSection() {
 }
 
 const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
-  storage: { title: "Storage", blurb: "Control dependency installs in new workspaces." },
+  storage: {
+    title: "Storage",
+    blurb: "Control dependency installs and see what each workspace uses on disk.",
+  },
   design: {
     title: "Workspace design system",
     blurb: "Git-state colors, surfaces, and controls in light and dark mode.",
@@ -481,6 +485,105 @@ function PowerView() {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+/**
+ * Per-workspace disk usage, split into source and regenerable output. The
+ * scan reads every file's size, so it only runs when the user asks.
+ */
+function WorkspaceUsagePanel() {
+  const [report, setReport] = useState<WorkspaceDiskUsageReport | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scan = async () => {
+    if (scanning) return;
+    setScanning(true);
+    setError(null);
+    try {
+      setReport(await window.omni.storage.workspaceUsage());
+    } catch {
+      setError("Could not measure workspace disk usage.");
+    } finally {
+      setScanning(false);
+    }
+  };
+  const workspaces = useMemo(
+    () =>
+      [...(report?.workspaces ?? [])].sort(
+        (a, b) => b.dependencyBytes + b.buildBytes - (a.dependencyBytes + a.buildBytes),
+      ),
+    [report],
+  );
+  return (
+    <>
+      <Elevated offset={1} className="mt-3 overflow-hidden rounded-xl border border-border/70">
+        <SettingRow
+          title="Workspace disk usage"
+          description="Shows each workspace’s own files separately from dependencies and build output, which an install or build can recreate. Git history is shared between workspaces and not counted. Nothing is deleted."
+        >
+          <Button
+            disabled={scanning}
+            onClick={() => void scan()}
+            data-pipper-id="settings-workspace-usage-scan"
+          >
+            {scanning ? "Measuring…" : report ? "Measure again" : "Measure"}
+          </Button>
+        </SettingRow>
+        {report && workspaces.length > 0 && (
+          <Table data-pipper-id="settings-workspace-usage-table">
+            <TableBody>
+              {workspaces.map((workspace, index) => (
+                <TableRow key={workspace.path} index={index}>
+                  <TableCell>
+                    <span className="font-medium text-foreground">{workspace.name}</span>
+                    <span
+                      className="mt-0.5 block truncate text-[11px] leading-4"
+                      title={workspace.path}
+                    >
+                      {workspace.projectName}
+                      {workspace.isProjectRoot ? " · main checkout" : ""}
+                      {workspace.truncated ? " · partial scan" : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell className="w-[1%] text-right text-[11px] whitespace-nowrap">
+                    <span className="block text-foreground">
+                      {formatBytes(workspace.sourceBytes)} source
+                    </span>
+                    <span className="block">
+                      {formatBytes(workspace.dependencyBytes)} dependencies ·{" "}
+                      {formatBytes(workspace.buildBytes)} build
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Elevated>
+      {report && workspaces.length === 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+          No Git workspaces found.
+        </p>
+      )}
+      {error && (
+        <p className="mt-2 text-[11px] text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
 function StorageView() {
   const [autoInstall, setAutoInstall] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -571,6 +674,7 @@ function StorageView() {
           {error}
         </p>
       )}
+      <WorkspaceUsagePanel />
     </>
   );
 }

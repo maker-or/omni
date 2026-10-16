@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DatabaseCompactionResult } from "../contracts/storage.ts";
+import type { DatabaseCompactionResult, WorkspaceDiskUsageReport } from "../contracts/storage.ts";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
@@ -78,6 +78,8 @@ const api = {
   storage: {
     compactDatabase: (): Promise<DatabaseCompactionResult> =>
       ipcRenderer.invoke("storage:compactDatabase"),
+    workspaceUsage: (): Promise<WorkspaceDiskUsageReport> =>
+      ipcRenderer.invoke("storage:workspaceUsage"),
   },
   launch: {
     complete: (projectId: string): Promise<void> =>

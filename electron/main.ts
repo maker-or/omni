@@ -44,6 +44,7 @@ import {
   setWorkspaceSetupProgressSink,
 } from "./workspace-lifecycle.ts";
 import { compactDatabase, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { scanWorkspaceDiskUsage } from "./workspace-disk-usage.ts";
 import {
   commitWorkspace,
   configureGithubPrSnapshotCache,
@@ -1853,6 +1854,8 @@ function registerIpc(): void {
   ipcMain.handle("worktrees:setAutoInstall", (_event, enabled: boolean) =>
     setWorktreeAutoInstall(enabled),
   );
+  // Read-only: reports per-workspace source vs. dependency/build bytes.
+  ipcMain.handle("storage:workspaceUsage", () => scanWorkspaceDiskUsage());
   ipcMain.handle("storage:compactDatabase", () => {
     databaseCompaction ??= compactDatabase(join(app.getPath("userData"), "omni.sqlite")).finally(
       () => {
