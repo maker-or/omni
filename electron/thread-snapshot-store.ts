@@ -14,6 +14,7 @@ import type { ToolCallPayload } from "../src/lib/tool-call-payload.ts";
 import { getDb } from "./db.ts";
 import {
   SegmentWriter,
+  ThreadSnapshotBodiesUnavailableError,
   parseBodyIndex,
   readCompressedBodies,
   readIndexedBodies,
@@ -488,6 +489,17 @@ export class ThreadSnapshotStore {
         }
         const sizes = new Map(baseIndex.files);
         const carriedFiles = new Set([...entries.values()].map((entry) => entry.file));
+        // Never commit a generation that points at a segment that is gone:
+        // fail the write so the caller can rewrite from in-memory bodies.
+        for (const file of carriedFiles) {
+          await stat(file).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT") throw error;
+            throw new ThreadSnapshotBodiesUnavailableError(
+              `Snapshot body file is missing: ${file}`,
+              { cause: error },
+            );
+          });
+        }
         const carriedFileBytes = [...carriedFiles].reduce((sum, file) => sum + sizes.get(file)!, 0);
         const liveBytes = [...entries.values()].reduce((sum, entry) => sum + entry.length, 0);
         if (

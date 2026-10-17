@@ -202,7 +202,11 @@ export async function* readLegacyBodies(
     }
     throw error;
   }
-  const lines = createInterface({ input: input.pipe(createGunzip()), crlfDelay: Infinity });
+  const gunzip = createGunzip();
+  // `pipe()` does not forward source errors. Without this, a read error after
+  // open leaves the reader (and any write copying from it) pending forever.
+  input.once("error", (error) => gunzip.destroy(error));
+  const lines = createInterface({ input: input.pipe(gunzip), crlfDelay: Infinity });
   try {
     for await (const line of lines) {
       if (!line) continue;
@@ -220,6 +224,7 @@ export async function* readLegacyBodies(
   } finally {
     lines.close();
     input.destroy();
+    gunzip.destroy();
   }
 }
 

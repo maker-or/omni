@@ -52,6 +52,7 @@ import { WorkspaceGuard } from "./workspace-guard.ts";
 import { ThreadSessionRegistry, type ThreadSessionRuntime } from "./thread-session-registry.ts";
 import { SnapshotFreshness } from "./snapshot-freshness.ts";
 import {
+  ThreadSnapshotBodiesUnavailableError,
   ThreadSnapshotStore,
   hydrateSnapshotImages,
   snapshotImageRefs,
@@ -68,6 +69,7 @@ import { ProviderCatalogStore, sameModels, type CatalogModel } from "./provider-
 import { PermissionCoordinator } from "./permission-coordinator.ts";
 import { ACP_PROMPT_TIMEOUT_MS, PromptScheduler } from "./prompt-scheduler.ts";
 import { RendererBroadcaster } from "./renderer-broadcaster.ts";
+import { waitBounded } from "./bounded-shutdown.ts";
 import {
   applySessionUpdate,
   applySessionUpdateInPlace,
@@ -148,6 +150,13 @@ interface ThreadTarget {
 function isPhaseTimeout(error: unknown): boolean {
   return error instanceof Error && /timed out/i.test(error.message);
 }
+
+/**
+ * How long dispose waits for snapshot writes before abandoning them. A write
+ * replaces its generation atomically (temp file, rename, one row update), so an
+ * abandoned or interrupted write leaves the previous snapshot intact.
+ */
+export const DISPOSE_SNAPSHOT_FLUSH_MS = 3_000;
 
 function loadPreferredAgentId(): string {
   try {
@@ -313,6 +322,9 @@ export class AgentConnectionManager {
   private readonly snapshotFreshness = new SnapshotFreshness();
   /** Tail of each thread's write chain: at most one active write plus one pending. */
   private readonly snapshotWriteChains = new Map<string, Promise<boolean>>();
+  /** Set once dispose starts: no new debounced snapshot writes are scheduled. */
+  private disposing = false;
+  private disposed: Promise<void> | null = null;
   /** Queued writes that have not started; they capture the runtime when they run. */
   private readonly pendingSnapshotWrites = new Map<string, Promise<boolean>>();
   private readonly backgroundToolCallTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -846,7 +858,7 @@ export class AgentConnectionManager {
   }
 
   private scheduleSnapshot(runtime: ThreadSessionRuntime): void {
-    if (!this.snapshotStore.enabled || runtime.snapshotDirty === false) return;
+    if (this.disposing || !this.snapshotStore.enabled || runtime.snapshotDirty === false) return;
     this.snapshotFreshness.noteSettled(runtime.threadId);
     const existing = this.snapshotTimers.get(runtime.threadId);
     if (existing) clearTimeout(existing);
@@ -909,6 +921,7 @@ export class AgentConnectionManager {
     if (!this.snapshotWritable(runtime)) return runtime.snapshotDirty === false;
     const slice = runtime.slice;
     const payloadRevision = runtime.payloadRevision ?? 0;
+    const baseSnapshot = runtime.snapshotPayloadSource;
     try {
       const snapshot = await this.snapshotStore.write({
         threadId: runtime.threadId,
@@ -918,7 +931,7 @@ export class AgentConnectionManager {
         payloads: new Map(this.payloadsFor(runtime)),
         // Resolve the base generation only after the prior per-thread write
         // settles; that write may have atomically replaced and unlinked it.
-        baseSnapshot: runtime.snapshotPayloadSource,
+        baseSnapshot,
       });
       this.snapshotWriteFailures = 0;
       this.snapshotWritesBlockedUntil = 0;
@@ -942,6 +955,15 @@ export class AgentConnectionManager {
       this.snapshotWritesBlockedUntil = Date.now() + backoffMs;
       if (this.snapshotWriteFailures === 1) {
         console.warn("[thread-snapshot] write failed; retrying with backoff:", error);
+      }
+      const baseUnreadable =
+        error instanceof ThreadSnapshotBodiesUnavailableError ||
+        ((error as NodeJS.ErrnoException | null)?.code === "ENOENT" &&
+          (error as NodeJS.ErrnoException).path === baseSnapshot?.payloadPath);
+      if (baseSnapshot && runtime.snapshotPayloadSource === baseSnapshot && baseUnreadable) {
+        // The generation this write copies from is gone or corrupt. Retrying
+        // against it can never succeed; write what is still in memory instead.
+        runtime.snapshotPayloadSource = undefined;
       }
       if (this.sessions.get(runtime.threadId) === runtime) this.scheduleSnapshot(runtime);
       return false;
@@ -3568,12 +3590,38 @@ export class AgentConnectionManager {
     await this.activateProject(state.projectId, state.threadId);
   }
 
-  async dispose(): Promise<void> {
+  /**
+   * Shutdown: persist what can be persisted within `snapshotFlushMs`, then
+   * close every connection and terminate every provider process. Always
+   * reaches the provider teardown, even when a snapshot write never settles.
+   */
+  dispose(options: { snapshotFlushMs?: number } = {}): Promise<void> {
+    if (!this.disposed) {
+      this.disposing = true;
+      this.disposed = this.runDispose(options.snapshotFlushMs ?? DISPOSE_SNAPSHOT_FLUSH_MS);
+    }
+    return this.disposed;
+  }
+
+  private async runDispose(snapshotFlushMs: number): Promise<void> {
     if (this.idleSweepTimer) clearInterval(this.idleSweepTimer);
     this.idleSweepTimer = null;
     this.terminalManager.killAll();
     this.subagents.dispose();
-    await Promise.all([this.flushAllSnapshots(), this.catalogs.flush()]);
+    const flushed = await waitBounded(
+      Promise.all([this.flushAllSnapshots(), this.catalogs.flush()]),
+      snapshotFlushMs,
+    );
+    if (flushed.status === "timeout") {
+      console.warn(
+        `[thread-snapshot] shutdown flush did not finish within ${snapshotFlushMs} ms; ` +
+          "unfinished writes keep their previous snapshot",
+      );
+    } else if (flushed.status === "error") {
+      console.warn("[thread-snapshot] shutdown flush failed:", flushed.error);
+    }
+    for (const timer of this.snapshotTimers.values()) clearTimeout(timer);
+    this.snapshotTimers.clear();
     await this.closeConnection();
   }
 
