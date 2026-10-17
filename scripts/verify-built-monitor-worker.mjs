@@ -102,6 +102,14 @@ try {
       2,
     ),
   );
+  // Quit must finish promptly; a quit that falls through to the 13 s
+  // backstop means the will-quit chain failed to exit.
+  const closingAt = Date.now();
+  await app.close();
+  app = null;
+  const quitMs = Date.now() - closingAt;
+  console.log(`quit: ${quitMs} ms`);
+  if (quitMs > 5_000) throw new Error(`Quit took ${quitMs} ms; expected under 5000 ms`);
 } finally {
   if (app) await app.close();
   rmSync(root, { recursive: true, force: true });

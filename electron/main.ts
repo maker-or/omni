@@ -3443,6 +3443,10 @@ app.on("will-quit", (event) => {
   ).finally(() => {
     killAllProviderProcessesSync();
     quitCleanupFinished = true;
-    app.quit();
+    // Cleanup is complete, so exit directly. A second app.quit() issued while
+    // Electron is still unwinding the quit this handler prevented is ignored
+    // (the steps can all settle within a millisecond), which left the app
+    // running until the backstop below.
+    app.exit(0);
   });
 });
