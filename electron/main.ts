@@ -2607,7 +2607,13 @@ function registerIpc(): void {
     requireAgentManager().respondToPermission(response),
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
-  ipcMain.handle("agent:getModelCatalogs", () => requireAgentManager().getModelCatalogs());
+  ipcMain.handle("agent:getModelCatalogs", (_event, options?: { refresh?: unknown }) =>
+    requireAgentManager().getModelCatalogs({
+      refresh: Array.isArray(options?.refresh)
+        ? options.refresh.filter((id): id is string => typeof id === "string").slice(0, 8)
+        : undefined,
+    }),
+  );
   ipcMain.handle("agent:probeAgent", async (_event, agentId: string) => {
     const result = await probeAgentById(agentId, { clientVersion: app.getVersion() });
     if (result.status !== "ready") {

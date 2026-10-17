@@ -379,7 +379,12 @@ export type AcpBridgeEvent =
   /** Thread IDs whose agent is currently streaming, across all open threads. */
   | { type: "running-threads"; threadIds: string[] }
   /** Snapshot of all subagent runs whenever any run changes state. */
-  | { type: "subagent-runs"; runs: SubagentRunSnapshot[] };
+  | { type: "subagent-runs"; runs: SubagentRunSnapshot[] }
+  /** Provider model catalogs that changed (cached in main; see getModelCatalogs). */
+  | {
+      type: "model-catalogs";
+      catalogs: Record<string, Array<{ modelId: string; name: string; provider?: string }>>;
+    };
 
 /**
  * User preferences for the client-hosted subagent tool. Persisted as

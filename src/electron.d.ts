@@ -305,9 +305,9 @@ declare global {
           cancelled?: boolean;
         }) => Promise<void>;
         listAgents: () => Promise<AcpAgentDescriptor[]>;
-        getModelCatalogs: () => Promise<
-          Record<string, Array<{ modelId: string; name: string; provider?: string }>>
-        >;
+        getModelCatalogs: (options?: {
+          refresh?: string[];
+        }) => Promise<Record<string, Array<{ modelId: string; name: string; provider?: string }>>>;
         probeAgent: (agentId: string) => Promise<AgentProbeResult>;
         authenticate: (agentId: string, methodId: string) => Promise<void>;
         switchAgent: (agentId: string) => Promise<void>;

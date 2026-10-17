@@ -561,6 +561,9 @@ function applyBridgeEvent(
     return { subagentRuns: payload.runs };
   }
 
+  // Catalogs live in the model-catalog store (applied by the bridge listener).
+  if (payload.type === "model-catalogs") return {};
+
   if (
     pendingThreadTarget &&
     payload.type !== "session-state" &&
@@ -908,6 +911,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         }
         if (payload.type === "title") {
           applyThreadTitleUpdate(payload.threadId, payload.title);
+        }
+        if (payload.type === "model-catalogs") {
+          const remember = useModelCatalogStore.getState().remember;
+          for (const [agentId, models] of Object.entries(payload.catalogs)) {
+            remember(agentId, models);
+          }
         }
         if (payload.type === "notification") {
           let icon = React.createElement(Info, { className: "size-5 text-blue-500" });
