@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, test, vi } from "vitest";
-import { startMonitorFreezeObserver } from "./monitor-runtime-observer.ts";
+import {
+  beginRendererInteraction,
+  startMonitorFreezeObserver,
+} from "./monitor-runtime-observer.ts";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -13,6 +16,7 @@ function observe() {
   let time = 0;
   let hidden = false;
   let frame!: FrameRequestCallback;
+  let requests = 0;
   vi.spyOn(performance, "now").mockImplementation(() => time);
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
   vi.spyOn(document, "visibilityState", "get").mockImplementation(() =>
@@ -20,6 +24,7 @@ function observe() {
   );
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     frame = callback;
+    requests += 1;
     return 1;
   });
   vi.stubGlobal("cancelAnimationFrame", () => {});
@@ -31,6 +36,7 @@ function observe() {
   return {
     report,
     stop,
+    requests: () => requests,
     frame: (timestamp: number) => {
       time = timestamp;
       frame(timestamp);
@@ -70,5 +76,20 @@ test("a pending timer probe is discarded across visibility changes", () => {
   observer.visibility(false, 30_000);
   vi.advanceTimersByTime(100);
   expect(observer.report).not.toHaveBeenCalled();
+  observer.stop();
+});
+
+test("the frame sampler stops when idle and re-arms on activity", () => {
+  const observer = observe();
+  observer.frame(16);
+  observer.frame(32);
+  const whileArmed = observer.requests();
+  // Past the arm window: this frame does not schedule another.
+  observer.frame(5_000);
+  expect(observer.requests()).toBe(whileArmed);
+  beginRendererInteraction("scroll");
+  expect(observer.requests()).toBe(whileArmed + 1);
+  observer.frame(5_016);
+  expect(observer.requests()).toBe(whileArmed + 2);
   observer.stop();
 });

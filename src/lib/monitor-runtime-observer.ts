@@ -6,7 +6,14 @@ import type {
 } from "../../contracts/monitor.ts";
 
 const RUNTIME_SAMPLE_INTERVAL_MS = 5000;
+/**
+ * Without a monitor window or recording, the DOM census (attribution walk)
+ * runs on every Nth telemetry sample only, at idle; mutation tracking is off.
+ */
+const BACKGROUND_CENSUS_EVERY_SAMPLES = 12;
 const FREEZE_EPISODE_QUIET_MS = 1500;
+/** How long the RAF gap sampler keeps running after the last activity. */
+const FREEZE_RAF_ARM_MS = 3000;
 const DOM_ATTRIBUTION_SELECTOR = "[data-pipper-id]";
 const MAX_DOM_ATTRIBUTIONS = 24;
 
@@ -40,6 +47,8 @@ export interface RendererMonitorContext {
   observerId: string;
   getActiveThreadId: () => string | null;
   getRunningThreadIds: () => string[];
+  /** True while a monitor window or recording wants detailed DOM attribution. */
+  isDetailed?: () => boolean;
 }
 
 interface DiffCounters {
@@ -104,6 +113,8 @@ let scrollActiveUntil = 0;
 let pendingEventPaint: { startedAt: number; count: number } | null = null;
 let lastRendererEventAt = 0;
 let currentBurstSize = 0;
+// Set while a freeze observer runs; keeps its frame sampler armed during activity.
+let armFreezeSampler: (() => void) | null = null;
 
 interface DomMutationCounters {
   addedNodeCount: number;
@@ -253,12 +264,14 @@ export function recordDiffIngestion(input: {
 }
 
 export function beginRendererInteraction(kind: "tab-click" | "scroll"): void {
+  armFreezeSampler?.();
   const until = now() + (kind === "scroll" ? 250 : 1200);
   if (kind === "tab-click") tabClickActiveUntil = Math.max(tabClickActiveUntil, until);
   else scrollActiveUntil = Math.max(scrollActiveUntil, until);
 }
 
 export function recordRendererEvent(input: RendererEventRecord): void {
+  armFreezeSampler?.();
   const current = now();
   if (current - lastRendererEventAt <= 50) currentBurstSize += 1;
   else {
@@ -359,7 +372,20 @@ export function startMonitorRuntimeObserver(
       domMutations.set(id, current);
     }
   });
-  domObserver.observe(document.documentElement, { childList: true, subtree: true });
+  const isDetailed = () => context.isDetailed?.() ?? true;
+  let observingMutations = false;
+  const syncMutationObserver = () => {
+    const wanted = isDetailed();
+    if (wanted === observingMutations) return;
+    observingMutations = wanted;
+    if (wanted) {
+      domObserver.observe(document.documentElement, { childList: true, subtree: true });
+    } else {
+      domObserver.disconnect();
+      domMutations.clear();
+    }
+  };
+  syncMutationObserver();
   let pauseObserver: PerformanceObserver | undefined;
   try {
     pauseObserver = new PerformanceObserver((list) => {
@@ -386,7 +412,7 @@ export function startMonitorRuntimeObserver(
   } catch {
     pauseObserver = undefined;
   }
-  const emit = () => {
+  const emit = (census: boolean) => {
     const counters = diffCounters;
     diffCounters = emptyDiffCounters();
     const pauses = pauseCounters;
@@ -410,7 +436,7 @@ export function startMonitorRuntimeObserver(
       activeThreadId: context.getActiveThreadId(),
       runningThreadCount: context.getRunningThreadIds().length,
       domNodeCount: document.getElementsByTagName("*").length,
-      domAttributions: collectDomAttributions(previousDomNodeCounts, domMutations),
+      domAttributions: census ? collectDomAttributions(previousDomNodeCounts, domMutations) : [],
       ...diffGauges,
       ...counters,
       ...pauses,
@@ -418,13 +444,52 @@ export function startMonitorRuntimeObserver(
     });
   };
 
-  emit();
-  const interval = window.setInterval(emit, RUNTIME_SAMPLE_INTERVAL_MS);
+  let stopped = false;
+  let samples = 0;
+  let censusPending = false;
+  const sample = () => {
+    samples += 1;
+    syncMutationObserver();
+    const census = isDetailed() || samples % BACKGROUND_CENSUS_EVERY_SAMPLES === 1;
+    if (!census) {
+      emit(false);
+      return;
+    }
+    if (censusPending) return;
+    censusPending = true;
+    // The census walks the document; run it when the renderer is idle.
+    runWhenIdle(() => {
+      censusPending = false;
+      if (!stopped) emit(true);
+    });
+  };
+
+  sample();
+  const interval = window.setInterval(sample, RUNTIME_SAMPLE_INTERVAL_MS);
   return () => {
+    stopped = true;
     window.clearInterval(interval);
     pauseObserver?.disconnect();
     domObserver.disconnect();
   };
+}
+
+function runWhenIdle(callback: () => void): void {
+  const idle = (
+    globalThis as typeof globalThis & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    }
+  ).requestIdleCallback;
+  if (typeof idle === "function") idle(callback, { timeout: 2000 });
+  else window.setTimeout(callback, 0);
+}
+
+function longTasksSupported(): boolean {
+  if (typeof PerformanceObserver === "undefined") return false;
+  const supported = (
+    PerformanceObserver as typeof PerformanceObserver & { supportedEntryTypes?: string[] }
+  ).supportedEntryTypes;
+  return Array.isArray(supported) && supported.includes("longtask");
 }
 
 export function startMonitorFreezeObserver(
@@ -513,12 +578,48 @@ export function startMonitorFreezeObserver(
     finishTimer = window.setTimeout(finish, FREEZE_EPISODE_QUIET_MS);
   };
 
+  // The RAF gap sampler keeps the compositor producing frames, so it only
+  // runs while something is happening (input, renderer events, becoming
+  // visible) and stops FREEZE_RAF_ARM_MS after the last activity. Long Task
+  // entries cover blocking work at any other time.
+  let rafId = 0;
+  let rafRunning = false;
+  let armedUntil = 0;
+  const onFrame = (frameNow: number) => {
+    const delta = frameNow - lastFrame;
+    if (delta > 200) signal("raf_gap", delta);
+    lastFrame = frameNow;
+    if (!stopped && !document.hidden && now() < armedUntil) {
+      rafId = requestAnimationFrame(onFrame);
+    } else {
+      rafRunning = false;
+    }
+  };
+  const arm = () => {
+    armedUntil = now() + FREEZE_RAF_ARM_MS;
+    if (rafRunning || stopped || document.hidden) return;
+    rafRunning = true;
+    lastFrame = now();
+    rafId = requestAnimationFrame(onFrame);
+  };
+  armFreezeSampler = arm;
+  cleanups.push(() => {
+    cancelAnimationFrame(rafId);
+    rafRunning = false;
+    if (armFreezeSampler === arm) armFreezeSampler = null;
+  });
+  for (const type of ["pointerdown", "keydown", "wheel"] as const) {
+    window.addEventListener(type, arm, { capture: true, passive: true });
+    cleanups.push(() => window.removeEventListener(type, arm, { capture: true }));
+  }
+
   const resetVisibility = () => {
     visibilityEpoch++;
     lastFrame = now();
     if (finishTimer !== undefined) window.clearTimeout(finishTimer);
     if (episode) finish();
     finishTimer = undefined;
+    if (!document.hidden) arm();
   };
   document.addEventListener("visibilitychange", resetVisibility);
   cleanups.push(() => document.removeEventListener("visibilitychange", resetVisibility));
@@ -537,16 +638,16 @@ export function startMonitorFreezeObserver(
     }
   }
 
-  let rafId = 0;
-  const onFrame = (frameNow: number) => {
-    const delta = frameNow - lastFrame;
-    if (delta > 200) signal("raf_gap", delta);
-    lastFrame = frameNow;
-    rafId = requestAnimationFrame(onFrame);
-  };
-  rafId = requestAnimationFrame(onFrame);
-  cleanups.push(() => cancelAnimationFrame(rafId));
+  arm();
 
+  // Timer drift duplicates Long Task coverage; keep it only as a fallback.
+  if (longTasksSupported()) {
+    return () => {
+      stopped = true;
+      for (const cleanup of cleanups) cleanup();
+      if (finishTimer !== undefined) window.clearTimeout(finishTimer);
+    };
+  }
   const interval = window.setInterval(() => {
     if (document.hidden) return;
     const started = now();

@@ -7,10 +7,16 @@ import type {
   MonitorAcpUpdate,
   MonitorBridgeEvent,
   MonitorConnectionEpisode,
+  MonitorDemand,
   MonitorDiffIngestion,
+  MonitorIncident,
+  MonitorIncidentKind,
+  MonitorLiveMessage,
+  MonitorLiveScalars,
   MonitorLiveSnapshot,
   MonitorProcessDescriptor,
   MonitorProcessSample,
+  MonitorPruneReport,
   MonitorRecordedSession,
   MonitorRendererTelemetry,
   MonitorRendererFreezeReport,
@@ -50,13 +56,24 @@ import {
   upsertConnectionEpisode,
   updateIncident,
 } from "./db.ts";
+import { IncidentCoalescer, mergeOccurrence } from "./incident-coalescer.ts";
+import { buildLiveSnapshot, createMonitorLiveRings, MonitorLiveFeed } from "./live-feed.ts";
+import { DEFAULT_MONITOR_RETENTION } from "./retention.ts";
 import { MonitorWorkerClient } from "./worker-client.ts";
 
 const SAMPLE_INTERVAL_MS = 1000;
-const RING_CAPACITY = 300;
-const RENDERER_RING_CAPACITY = 120;
+/**
+ * Without a live subscriber or recording, per-thread process states (an extra
+ * `ps` launch on macOS) are refreshed on every Nth tick only. CPU and RSS are
+ * sampled every tick regardless, so incident context stays current.
+ */
+const BACKGROUND_DETAIL_EVERY_TICKS = 10;
 const MAX_RENDERER_EPISODES = 256;
-const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const FIRST_PRUNE_DELAY_MS = 60_000;
+const PRUNE_INTERVAL_MS = 30 * 60_000;
+/** Retry interval when a pass stopped at its batch budget. */
+const PRUNE_CONTINUE_MS = 60_000;
+const SYSTEM_CPU_COUNT = Math.max(os.availableParallelism?.() ?? os.cpus().length, 1);
 
 export interface MonitorConnectionLossEvent {
   connectionId: string;
@@ -91,23 +108,29 @@ export interface MonitorServiceOptions {
   getInventory: () => MonitorProcessDescriptor[];
   getRunningThreadIds: () => string[];
   onBroadcast: (channel: string, payload: unknown) => void;
+  /** Detailed collection is wanted when a monitor window or recording needs it. */
+  onDemandChange?: (demand: MonitorDemand) => void;
 }
 
 export class MonitorService {
   private readonly getInventory: () => MonitorProcessDescriptor[];
   private readonly getRunningThreadIds: () => string[];
   private readonly onBroadcast: (channel: string, payload: unknown) => void;
+  private readonly onDemandChange?: (demand: MonitorDemand) => void;
   private readonly worker: MonitorWorkerClient;
 
   private timer: NodeJS.Timeout | null = null;
+  private pruneTimer: NodeJS.Timeout | null = null;
   private sampling = false;
-  private readonly ring: MonitorSampleTick[] = [];
-  private readonly rendererRing: MonitorRendererTelemetry[] = [];
-  private readonly acpRing: MonitorAcpUpdate[] = [];
-  private readonly bridgeRing: MonitorBridgeEvent[] = [];
+  private tickCount = 0;
+  private detailed = false;
+  private lastPrune: MonitorPruneReport | null = null;
+  private readonly rings = createMonitorLiveRings();
+  private readonly feed: MonitorLiveFeed;
+  private readonly coalescer = new IncidentCoalescer();
   private readonly rendererEpisodes = new Map<
     string,
-    { incidentId: number; payload: Record<string, unknown> }
+    { incidentId: number; coalesceKey: string; first: boolean }
   >();
   private recordingSessionId: string | null = null;
   private recordingStartedAt: number | null = null;
@@ -120,6 +143,12 @@ export class MonitorService {
     this.getInventory = options.getInventory;
     this.getRunningThreadIds = options.getRunningThreadIds;
     this.onBroadcast = options.onBroadcast;
+    this.onDemandChange = options.onDemandChange;
+    this.feed = new MonitorLiveFeed({
+      rings: this.rings,
+      scalars: () => this.liveScalars(),
+      onSubscribersChanged: () => this.updateDemand(),
+    });
     initializeMonitorDb(getDb());
     ensureMonitorTables();
     this.worker = new MonitorWorkerClient(join(app.getPath("userData"), "omni.sqlite"));
@@ -136,6 +165,7 @@ export class MonitorService {
     void this.tick().catch((error) => {
       console.error("[Monitor] Initial sampling failed:", error);
     });
+    this.schedulePrune(FIRST_PRUNE_DELAY_MS);
   }
 
   stop(): void {
@@ -143,6 +173,11 @@ export class MonitorService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.pruneTimer) {
+      clearTimeout(this.pruneTimer);
+      this.pruneTimer = null;
+    }
+    this.feed.dispose();
     void this.worker.shutdown().catch((error) => {
       console.error("[Monitor] Worker shutdown failed:", error);
     });
@@ -153,26 +188,59 @@ export class MonitorService {
   }
 
   getLiveSnapshot(): MonitorLiveSnapshot {
-    const recentTicks = [...this.ring];
-    const latestTick = recentTicks.at(-1);
+    return buildLiveSnapshot(this.liveScalars(), this.rings);
+  }
+
+  getDemand(): MonitorDemand {
+    return { detailed: this.detailed };
+  }
+
+  /**
+   * Live feed for a monitor window: a full snapshot now, then coalesced
+   * deltas. Snapshots are only built while someone is subscribed.
+   */
+  subscribeLive(id: string | number, send: (message: MonitorLiveMessage) => void): void {
+    this.feed.subscribe(id, send);
+  }
+
+  unsubscribeLive(id: string | number): void {
+    this.feed.unsubscribe(id);
+  }
+
+  acknowledgeLive(id: string | number, revision: number): void {
+    this.feed.acknowledge(id, revision);
+  }
+
+  resyncLive(id: string | number): void {
+    this.feed.resync(id);
+  }
+
+  private liveScalars(): MonitorLiveScalars {
+    const latestTick = this.rings.ticks.at(-1);
     return {
       timestamp: Date.now(),
       recording: this.recordingSessionId != null,
       recordingSessionId: this.recordingSessionId,
       recordingStartedAt: this.recordingStartedAt,
-      systemCpuCount: Math.max(os.cpus().length, 1),
+      systemCpuCount: SYSTEM_CPU_COUNT,
       aggregate: aggregateSamples(latestTick?.processes ?? []),
-      recentTicks,
       runningThreadIds: this.getRunningThreadIds(),
-      rendererTelemetry: this.rendererRing.at(-1) ?? null,
-      recentRendererTelemetry: [...this.rendererRing],
-      recentAcpUpdates: [...this.acpRing],
-      recentBridgeEvents: [...this.bridgeRing],
+      rendererTelemetry: this.rings.rendererTelemetry.at(-1) ?? null,
       pipelineTelemetry: {
         timestamp: Date.now(),
         ...this.worker.health(),
+        detailedSampling: this.detailed,
+        liveSubscribers: this.feed.subscriberCount,
+        lastPrune: this.lastPrune,
       },
     };
+  }
+
+  private updateDemand(): void {
+    const detailed = this.feed.subscriberCount > 0 || this.recordingSessionId != null;
+    if (detailed === this.detailed) return;
+    this.detailed = detailed;
+    this.onDemandChange?.({ detailed });
   }
 
   getIncidents(limit = 100) {
@@ -241,6 +309,7 @@ export class MonitorService {
     }
     this.recordingSessionId = session.id;
     this.recordingStartedAt = session.startedAt;
+    this.updateDemand();
     this.broadcastLive();
     return session;
   }
@@ -262,6 +331,7 @@ export class MonitorService {
     };
     this.recordingSessionId = null;
     this.recordingStartedAt = null;
+    this.updateDemand();
     this.broadcastLive();
     return finishedSession;
   }
@@ -355,7 +425,7 @@ export class MonitorService {
       this.connectionStartedAt.delete(event.connectionId);
       return;
     }
-    const preDropTicks = this.ring.slice(-30);
+    const preDropTicks = this.rings.ticks.toArray(30);
     const payload = {
       ...episode,
       preDropTicks,
@@ -400,25 +470,62 @@ export class MonitorService {
     const phase = report.phase ?? "start";
     const existing = this.rendererEpisodes.get(episodeId);
     if (phase === "end" && existing) {
-      const payload = { ...existing.payload, ...report, phase, endedAt: Date.now() };
+      this.rendererEpisodes.delete(episodeId);
+      const group = this.coalescer.get(existing.coalesceKey);
+      // The group payload is current even if later episodes joined it.
+      const current = group?.incidentId === existing.incidentId ? group.payload : null;
+      if (!current) return;
+      const maxBlockedMs = Math.max(
+        Number(current.maxBlockedMs ?? 0),
+        Number(report.maxBlockedMs ?? report.blockedMs),
+      );
+      const payload: Record<string, unknown> = existing.first
+        ? { ...current, ...report, phase, endedAt: Date.now(), maxBlockedMs }
+        : { ...current, maxBlockedMs, lastEndedAt: Date.now() };
+      // Keep the group's occurrence bookkeeping over the report's fields.
+      payload.occurrences = current.occurrences;
+      payload.recentOccurrences = current.recentOccurrences;
+      group!.payload = payload;
       const incident = updateIncident(
         existing.incidentId,
         payload,
-        `Renderer freeze episode ${Math.round(Number(payload.maxBlockedMs ?? report.blockedMs))}ms`,
+        freezeSummary(payload, "episode"),
       );
-      this.rendererEpisodes.delete(episodeId);
       if (incident) this.onBroadcast("monitor:incident", incident);
       return;
     }
 
     if (existing) return;
-    const payload = {
+    const now = Date.now();
+    const coalesceKey = `renderer_freeze:${report.observerId ?? ""}`;
+    const group = this.coalescer.find(coalesceKey, now);
+    if (group) {
+      const payload = mergeOccurrence(
+        group,
+        { at: now, value: report.blockedMs, threadId: report.activeThreadId ?? null },
+        "blockedMs",
+      );
+      this.trackRendererEpisode(episodeId, {
+        incidentId: group.incidentId,
+        coalesceKey,
+        first: false,
+      });
+      const incident = updateIncident(
+        group.incidentId,
+        payload,
+        freezeSummary(payload, "episodes"),
+      );
+      if (incident) this.onBroadcast("monitor:incident", incident);
+      return;
+    }
+    const payload: Record<string, unknown> = {
       ...report,
       phase: "start",
       episodeId,
+      occurrences: 1,
       runningThreadIds: report.runningThreadIds ?? this.getRunningThreadIds(),
-      preDropTicks: this.ring.slice(-5),
-      rendererTelemetry: this.rendererRing.slice(-3),
+      preDropTicks: this.rings.ticks.toArray(5),
+      rendererTelemetry: this.rings.rendererTelemetry.toArray(3),
       sessionId: this.recordingSessionId,
     };
     const incident = insertIncident(
@@ -426,18 +533,52 @@ export class MonitorService {
       `Renderer freeze episode started (${Math.round(report.blockedMs)}ms)`,
       payload,
     );
-    this.rendererEpisodes.set(episodeId, { incidentId: incident.id, payload });
+    this.coalescer.open(coalesceKey, incident.id, payload, now);
+    this.trackRendererEpisode(episodeId, { incidentId: incident.id, coalesceKey, first: true });
+    this.onBroadcast("monitor:incident", incident);
+  }
+
+  private trackRendererEpisode(
+    episodeId: string,
+    entry: { incidentId: number; coalesceKey: string; first: boolean },
+  ): void {
+    this.rendererEpisodes.set(episodeId, entry);
     while (this.rendererEpisodes.size > MAX_RENDERER_EPISODES) {
       const oldest = this.rendererEpisodes.keys().next().value;
       if (!oldest) break;
       this.rendererEpisodes.delete(oldest);
     }
-    this.onBroadcast("monitor:incident", incident);
+  }
+
+  /**
+   * Inserts an incident, or folds it into the open incident with the same key
+   * (see IncidentCoalescer). `valueField` is the payload number whose peak is kept.
+   */
+  private recordCoalescedIncident(
+    kind: MonitorIncidentKind,
+    key: string,
+    summary: (payload: Record<string, unknown>) => string,
+    payload: Record<string, unknown>,
+    valueField: string,
+  ): MonitorIncident | null {
+    const now = Date.now();
+    const coalesceKey = `${kind}:${key}`;
+    const group = this.coalescer.find(coalesceKey, now);
+    if (group) {
+      const value = Number(payload[valueField] ?? 0);
+      const threadId = typeof payload.threadId === "string" ? payload.threadId : null;
+      const merged = mergeOccurrence(group, { at: now, value, threadId }, valueField);
+      return updateIncident(group.incidentId, merged, summary(merged));
+    }
+    const initial = { ...payload, occurrences: 1 };
+    const incident = insertIncident(kind, summary(initial), initial, now);
+    this.coalescer.open(coalesceKey, incident.id, initial, now);
+    return incident;
   }
 
   reportRendererTelemetry(telemetry: MonitorRendererTelemetry): void {
-    this.rendererRing.push(telemetry);
-    while (this.rendererRing.length > RENDERER_RING_CAPACITY) this.rendererRing.shift();
+    this.rings.rendererTelemetry.push(telemetry);
+    this.feed.schedule();
     if (this.recordingSessionId) {
       this.worker.writeRendererTelemetry(this.recordingSessionId, telemetry);
     }
@@ -451,27 +592,28 @@ export class MonitorService {
   }
 
   reportAcpUpdate(update: MonitorAcpUpdate): void {
-    this.acpRing.push(update);
-    while (this.acpRing.length > 600) this.acpRing.shift();
+    this.rings.acpUpdates.push(update);
     if (this.recordingSessionId) this.worker.writeAcpUpdate(this.recordingSessionId, update);
   }
 
   reportBridgeEvent(event: MonitorBridgeEvent): void {
-    this.bridgeRing.push(event);
-    while (this.bridgeRing.length > 600) this.bridgeRing.shift();
+    this.rings.bridgeEvents.push(event);
     if (this.recordingSessionId) this.worker.writeBridgeEvent(this.recordingSessionId, event);
   }
 
   reportTabMismatch(report: MonitorTabMismatchReport): void {
-    const incident = insertIncident(
+    const incident = this.recordCoalescedIncident(
       "tab_highlight_mismatch",
-      `Tab highlight mismatch (${Math.round(report.durationMs)}ms)`,
-      {
-        ...report,
-        sessionId: this.recordingSessionId,
-      },
+      "",
+      (payload) =>
+        withOccurrences(
+          `Tab highlight mismatch (${Math.round(Number(payload.maxDurationMs ?? payload.durationMs))}ms)`,
+          payload,
+        ),
+      { ...report, sessionId: this.recordingSessionId },
+      "durationMs",
     );
-    this.onBroadcast("monitor:incident", incident);
+    if (incident) this.onBroadcast("monitor:incident", incident);
   }
 
   noteSwitchCompleted(input: {
@@ -483,7 +625,7 @@ export class MonitorService {
     if (!input.success) {
       const incident = insertIncident("switch_failed", `Thread switch failed (${input.threadId})`, {
         ...input,
-        preDropTicks: this.ring.slice(-15),
+        preDropTicks: this.rings.ticks.toArray(15),
         sessionId: this.recordingSessionId,
       });
       this.onBroadcast("monitor:incident", incident);
@@ -491,16 +633,22 @@ export class MonitorService {
       return;
     }
     if (input.durationMs >= SLOW_SWITCH_MS) {
-      const incident = insertIncident(
+      const incident = this.recordCoalescedIncident(
         "switch_slow",
-        `Slow thread switch (${Math.round(input.durationMs)}ms)`,
+        "",
+        (payload) =>
+          withOccurrences(
+            `Slow thread switch (${Math.round(Number(payload.maxDurationMs ?? payload.durationMs))}ms)`,
+            payload,
+          ),
         {
           ...input,
-          preDropTicks: this.ring.slice(-15),
+          preDropTicks: this.rings.ticks.toArray(15),
           sessionId: this.recordingSessionId,
         },
+        "durationMs",
       );
-      this.onBroadcast("monitor:incident", incident);
+      if (incident) this.onBroadcast("monitor:incident", incident);
       this.broadcastLive();
     }
   }
@@ -514,15 +662,18 @@ export class MonitorService {
   reportSwitch(record: MonitorSwitchRecord): void {
     insertSwitchRecord(record);
     if (record.wasResidentInMemory && record.phase !== "cache_hit") {
-      const incident = insertIncident(
+      const incident = this.recordCoalescedIncident(
         "unexpected_cold_switch",
-        `Unexpected cold switch for thread ${record.threadId} (expected warm cache hit)`,
-        {
-          ...record,
-          sessionId: this.recordingSessionId,
-        },
+        record.threadId,
+        (payload) =>
+          withOccurrences(
+            `Unexpected cold switch for thread ${record.threadId} (expected warm cache hit)`,
+            payload,
+          ),
+        { ...record, sessionId: this.recordingSessionId },
+        "durationMs",
       );
-      this.onBroadcast("monitor:incident", incident);
+      if (incident) this.onBroadcast("monitor:incident", incident);
     }
     this.broadcastLive();
   }
@@ -580,32 +731,45 @@ export class MonitorService {
     this.sampling = true;
     try {
       const descriptors = this.mergeElectronMetrics(this.getInventory());
-      const tick = await this.worker.sample(
+      const threadDetail = this.detailed || this.tickCount % BACKGROUND_DETAIL_EVERY_TICKS === 0;
+      this.tickCount += 1;
+      const tick: MonitorSampleTick = await this.worker.sample(
         descriptors,
         this.recordingSessionId,
         process.pid,
+        threadDetail,
         sampleCurrentProcessMetrics(),
       );
-      this.pushRing(tick);
-      this.onBroadcast("monitor:tick", tick);
-      this.broadcastLive();
-      if (Math.random() < 0.01) {
-        this.worker.prune(RETENTION_MS);
-      }
+      this.rings.ticks.push(tick);
+      this.feed.schedule();
     } finally {
       this.sampling = false;
     }
   }
 
-  private pushRing(tick: MonitorSampleTick): void {
-    this.ring.push(tick);
-    while (this.ring.length > RING_CAPACITY) {
-      this.ring.shift();
-    }
+  private schedulePrune(delayMs: number): void {
+    if (this.pruneTimer) clearTimeout(this.pruneTimer);
+    this.pruneTimer = setTimeout(() => {
+      this.pruneTimer = null;
+      void this.worker
+        .prune(DEFAULT_MONITOR_RETENTION)
+        .then((report) => {
+          if (report) this.lastPrune = report;
+          if (this.timer) {
+            this.schedulePrune(report && !report.complete ? PRUNE_CONTINUE_MS : PRUNE_INTERVAL_MS);
+          }
+        })
+        .catch((error) => {
+          console.warn("[Monitor] Retention pass failed:", error);
+          if (this.timer) this.schedulePrune(PRUNE_INTERVAL_MS);
+        });
+    }, delayMs);
+    this.pruneTimer.unref?.();
   }
 
+  /** Coalesced: builds nothing unless a monitor window is subscribed. */
   private broadcastLive(): void {
-    this.onBroadcast("monitor:live", this.getLiveSnapshot());
+    this.feed.schedule();
   }
 
   private mergeElectronMetrics(
@@ -675,4 +839,17 @@ function summarizeSession(
     peakMemoryBytes: Math.max(0, ...aggregates.map((aggregate) => aggregate.totalMemoryBytes)),
     peakBusyThreads: Math.max(0, ...aggregates.map((aggregate) => aggregate.busyThreads)),
   };
+}
+
+function withOccurrences(summary: string, payload: Record<string, unknown>): string {
+  const occurrences = Number(payload.occurrences ?? 1);
+  return occurrences > 1 ? `${summary} ×${occurrences}` : summary;
+}
+
+function freezeSummary(payload: Record<string, unknown>, noun: "episode" | "episodes"): string {
+  const occurrences = Number(payload.occurrences ?? 1);
+  const peak = Math.round(Number(payload.maxBlockedMs ?? payload.blockedMs ?? 0));
+  return occurrences > 1
+    ? `Renderer freeze episodes ×${occurrences} (max ${peak}ms)`
+    : `Renderer freeze ${noun === "episode" ? "episode" : "episode started"} ${peak}ms`;
 }

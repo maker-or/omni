@@ -48,7 +48,7 @@ import type {
   MonitorRecordedSession,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
-  MonitorSampleTick,
+  MonitorDemand,
   MonitorSession,
   MonitorSessionCacheEvent,
   MonitorSwitchRecord,
@@ -383,7 +383,8 @@ declare global {
         getTabClickTimings: () => Promise<MonitorTabClickTiming[]>;
         openWindow: () => Promise<void>;
         onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;
-        onTick: (callback: (tick: MonitorSampleTick) => void) => () => void;
+        getDemand: () => Promise<MonitorDemand>;
+        onDemand: (callback: (demand: MonitorDemand) => void) => () => void;
         onIncident: (callback: (incident: MonitorIncident) => void) => () => void;
       };
       benchmark: {
