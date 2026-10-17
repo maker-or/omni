@@ -27,6 +27,7 @@ import {
   insertMonitorSession,
   insertRendererTelemetry,
   insertSampleBatch,
+  currentMonitorDb,
   isMonitorDbInitialized,
   initializeMonitorDb,
 } from "./db.ts";
@@ -84,9 +85,6 @@ interface PendingRequest {
   command: WorkerCommand;
 }
 
-// Fallback-mode connection, used for retention passes when the worker is down.
-let fallbackDb: DatabaseSync | null = null;
-
 /** Fallback mode: drain the legacy backlog in short steps on this thread. */
 function migrateLegacyInProcess(db: DatabaseSync, legacyDbPath: string): void {
   setImmediate(() => {
@@ -108,9 +106,7 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
         if (!isMonitorDbInitialized()) {
           try {
             // Diagnostics have their own database file; see storage.ts.
-            const db = openMonitorDatabase(command.dbPath);
-            initializeMonitorDb(db);
-            fallbackDb = db;
+            initializeMonitorDb(openMonitorDatabase(command.dbPath));
           } catch {
             // node:sqlite not available in this environment
           }
@@ -203,15 +199,19 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
         return;
       case "flush":
         return;
-      case "prune":
-        if (fallbackDb) {
+      case "prune": {
+        // Prune the connection fallback writes go to. MonitorService usually
+        // opened it before the worker failed, so init above may not have.
+        const db = currentMonitorDb();
+        if (db) {
           try {
-            return pruneMonitorData(fallbackDb, command.policy);
+            return pruneMonitorData(db, command.policy);
           } catch (e) {
             console.warn("[Monitor] Failed to prune monitor data in process:", e);
           }
         }
         return null;
+      }
       case "shutdown":
         return;
     }

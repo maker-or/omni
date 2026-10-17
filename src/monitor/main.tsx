@@ -150,7 +150,11 @@ function MonitorApp() {
     // The feed starts with a full snapshot and carries new ticks in its deltas.
     const offLive = window.omni.monitor.onLive(setLive);
     const offIncident = window.omni.monitor.onIncident((incident) => {
-      setIncidents((current) => [incident, ...current].slice(0, 200));
+      // Repeated freezes and slow switches update one coalesced incident:
+      // replace its row (moving it to the top) instead of adding a copy.
+      setIncidents((current) =>
+        [incident, ...current.filter((existing) => existing.id !== incident.id)].slice(0, 200),
+      );
       if (incident.kind === "connection_loss") {
         void window.omni.monitor.getConnectionEpisodes().then(setConnectionEpisodes);
       }

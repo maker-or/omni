@@ -2323,7 +2323,13 @@ export class AgentConnectionManager {
     const threadId = target.thread.id;
     const inFlight = this.threadPreparations.get(threadId);
     if (inFlight) return inFlight;
-    const preparation = this.threadMutations.run(threadId, () => this.prepareThreadRuntime(target));
+    const preparation = this.threadMutations.run(threadId, async () => {
+      // The target was read before this task entered the per-thread queue; a
+      // delete queued ahead of it may have removed the thread since. Never
+      // restore a session for a thread whose row is gone.
+      if (!getThread(threadId)) throw new Error(`Thread not found: ${threadId}`);
+      return this.prepareThreadRuntime(target);
+    });
     this.threadPreparations.set(threadId, preparation);
     const clear = () => {
       if (this.threadPreparations.get(threadId) === preparation) {

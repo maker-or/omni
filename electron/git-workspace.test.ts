@@ -46,7 +46,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  // Git can still be writing (e.g. a detached auto-maintenance step) when a
+  // test ends; retry instead of failing on ENOTEMPTY.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 describe("getWorkspaceGitStatus", () => {

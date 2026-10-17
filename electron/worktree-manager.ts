@@ -253,18 +253,18 @@ export class WorktreeCommandError extends Error {
 }
 
 /**
- * Stop a child and everything it started. POSIX children are spawned as
- * process-group leaders so a shell's own children (`sleep`, a package manager)
- * die with it; Windows uses `taskkill /T` for the same tree semantics.
+ * Stop a child and everything it started, resolving once the tree is down.
+ * POSIX children are spawned as process-group leaders so a shell's own
+ * children (`sleep`, a hook, a package manager) die with it; Windows uses
+ * `taskkill /T /F` for the same tree semantics.
  */
-function killProcessTree(child: ChildProcess): void {
+function killProcessTree(child: ChildProcess): Promise<void> {
   const pid = child.pid;
-  if (pid === undefined) return;
+  if (pid === undefined) return Promise.resolve();
   if (process.platform === "win32") {
-    execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => {
-      // The process may already be gone; nothing further to do.
+    return new Promise((resolve) => {
+      execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => resolve());
     });
-    return;
   }
   const signalGroup = (signal: NodeJS.Signals) => {
     try {
@@ -277,10 +277,21 @@ function killProcessTree(child: ChildProcess): void {
       }
     }
   };
+  // `close` fires once the leader exited and every holder of its stdio pipes
+  // (the children that could still be writing) has gone.
+  const closed = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    child.once("close", () => resolve());
+  });
+  const within = (ms: number) =>
+    Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, ms).unref())]);
   signalGroup("SIGTERM");
-  setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) signalGroup("SIGKILL");
-  }, KILL_GRACE_MS).unref();
+  return within(KILL_GRACE_MS).then(() => {
+    // Always signal the group: the leader may exit on SIGTERM while children
+    // that ignore it keep running.
+    signalGroup("SIGKILL");
+    return within(KILL_GRACE_MS);
+  });
 }
 
 export interface RunCommandOptions {
@@ -293,9 +304,10 @@ export interface RunCommandOptions {
 
 /**
  * Run a process without blocking the event loop. Resolves with stdout on exit
- * code 0; otherwise rejects with a `WorktreeCommandError`. On timeout the
- * promise rejects immediately and the process tree is stopped in the
- * background, so a process that ignores SIGTERM cannot extend the wait.
+ * code 0; otherwise rejects with a `WorktreeCommandError`. On timeout (or the
+ * output limit) the promise rejects only after the whole process group was
+ * stopped (SIGTERM, then SIGKILL after `KILL_GRACE_MS`), so callers can roll
+ * back or release the repository queue without a hook still writing.
  */
 export function runCommand(
   command: string,
@@ -304,6 +316,7 @@ export function runCommand(
 ): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
     let settled = false;
+    let stopping = false;
     const settle = (error: WorktreeCommandError | null, stdout = "") => {
       if (settled) return;
       settled = true;
@@ -344,16 +357,18 @@ export function runCommand(
       return;
     }
 
-    const timer = setTimeout(() => {
-      settle(fail("timeout"));
-      killProcessTree(child);
-    }, options.timeoutMs);
+    const stop = (error: WorktreeCommandError) => {
+      if (stopping || settled) return;
+      stopping = true;
+      clearTimeout(timer);
+      void killProcessTree(child).then(() => settle(error));
+    };
+    const timer = setTimeout(() => stop(fail("timeout")), options.timeoutMs);
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
       if (stdoutBytes > STDOUT_LIMIT_BYTES) {
-        settle(fail("output-limit"));
-        killProcessTree(child);
+        stop(fail("output-limit"));
         return;
       }
       stdoutChunks.push(chunk);
@@ -361,8 +376,12 @@ export function runCommand(
     child.stderr?.on("data", (chunk: Buffer) => {
       stderrTail = (stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_BYTES);
     });
-    child.on("error", (error) => settle(fail("spawn", { cause: error })));
+    child.on("error", (error) => {
+      if (!stopping) settle(fail("spawn", { cause: error }));
+    });
     child.on("close", (exitCode, signal) => {
+      // A stopped command settles with its timeout/limit error once the tree is down.
+      if (stopping) return;
       if (exitCode === 0) settle(null, Buffer.concat(stdoutChunks).toString("utf8"));
       else settle(fail("exit", { exitCode, signal }));
     });

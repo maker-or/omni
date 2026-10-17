@@ -129,6 +129,7 @@ test.skipIf(process.env.PIPPER_ARCHITECTURE_SCHEDULING !== "1")(
 );
 
 import { AgentConnectionManager } from "./agent-connection-manager.ts";
+import { SnapshotFreshness } from "./snapshot-freshness.ts";
 import { createEmptySessionSlice } from "../src/lib/acp-session-reducer.ts";
 function snapshotManager(write: (input: any) => Promise<any>) {
   return Object.assign(Object.create(AgentConnectionManager.prototype), {
@@ -140,6 +141,8 @@ function snapshotManager(write: (input: any) => Promise<any>) {
     pendingSnapshotWrites: new Map(),
     snapshotWriteFailures: 0,
     snapshotWritesBlockedUntil: 0,
+    snapshotFreshness: new SnapshotFreshness(),
+    disposing: false,
   });
 }
 function runtime(id: string) {

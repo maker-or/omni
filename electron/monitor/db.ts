@@ -39,6 +39,11 @@ export function isMonitorDbInitialized(): boolean {
   return monitorDb !== null;
 }
 
+/** The connection this process writes diagnostics to, if one is open. */
+export function currentMonitorDb(): DatabaseSync | null {
+  return monitorDb;
+}
+
 function getDb(): DatabaseSync {
   if (!monitorDb) throw new Error("Monitor database has not been initialized.");
   return monitorDb;

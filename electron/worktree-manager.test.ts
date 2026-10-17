@@ -25,6 +25,7 @@ import {
   parseWorktreePorcelain,
   removeWorktree,
   resolveInstallCommand,
+  runCommand,
   samePath,
   setWorktreeCommandTimeoutsForTests,
   switchWorktreeBranch,
@@ -611,6 +612,39 @@ describe("continueWorktreeOnNewBranch", () => {
 
 describe("asynchronous Git and setup commands", () => {
   let restoreTimeouts: (() => void) | null = null;
+
+  test.skipIf(process.platform === "win32")(
+    "a timed-out command settles only after a SIGTERM-ignoring tree is gone",
+    async () => {
+      const pidFile = join(root, "child.pid");
+      // The shell and its background child both ignore SIGTERM, so only the
+      // group SIGKILL after the grace period stops them.
+      await expect(
+        runCommand("/bin/sh", ["-c", `trap "" TERM; sleep 30 & echo $! > "${pidFile}"; wait`], {
+          cwd: root,
+          env: GIT_ENV,
+          timeoutMs: 300,
+          operation: "test",
+          stdout: "ignore",
+        }),
+      ).rejects.toMatchObject({ kind: "timeout" });
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      // The killed child can linger briefly as a zombie until it is reaped.
+      // Without the fix it stays alive for the whole 2 s grace period.
+      const alive = () => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const deadline = Date.now() + 500;
+      while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      expect(alive()).toBe(false);
+    },
+    15_000,
+  );
 
   afterEach(() => {
     restoreTimeouts?.();

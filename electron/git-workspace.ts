@@ -15,7 +15,6 @@ import type {
 import {
   foreignGitEnv,
   gitBinary,
-  KILL_GRACE_MS,
   runCommand,
   withRepositoryLock,
   WorktreeCommandError,
@@ -1393,12 +1392,9 @@ export async function mergeWorkspaceBranch(projectPath: string, branch: string):
 }
 
 /** Best-effort `git merge --abort` after `cause` made a merge fail. */
-async function abortMerge(projectPath: string, cause: unknown): Promise<void> {
-  // A timed-out merge is still being stopped in the background (SIGTERM, then
-  // SIGKILL after the grace period) and may hold `index.lock` until it exits.
-  if (cause instanceof WorktreeCommandError && cause.kind === "timeout") {
-    await new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS + 500));
-  }
+async function abortMerge(projectPath: string, _cause: unknown): Promise<void> {
+  // A timed-out merge rejects only after its process group was stopped
+  // (runCommand), so `index.lock` is already released here.
   try {
     await git(projectPath, ["merge", "--abort"]);
   } catch {
