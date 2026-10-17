@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -47,6 +47,7 @@ import {
   upsertEntity,
 } from "@/lib/composer-tokens";
 import { selectThread } from "@/lib/thread-actions";
+import { invalidateProjectFiles, useProjectFileIndex } from "@/lib/project-file-index";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AssistantTraceDeck } from "@/components/ui/assistant-trace-deck";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
@@ -778,13 +779,6 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   const selectedAgentKey = selectedAgentIds.join("\0");
   const [draftContent, setDraftContent] = useState<ComposerContent>(blankContent());
   const [liveContent, setLiveContent] = useState<ComposerContent>(blankContent());
-  const [projectFileItems, setProjectFileItems] = useState<
-    Array<{ id: string; label: string; description?: string }>
-  >([]);
-  const [projectFilesRevision, setProjectFilesRevision] = useState(0);
-  const refreshProjectFiles = useCallback(() => {
-    setProjectFilesRevision((revision) => revision + 1);
-  }, []);
   const draftBootstrappedRef = useRef(false);
 
   // When in agent view with no active thread, no requested thread, and no draft,
@@ -2250,8 +2244,8 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
   }, [isDraftMode, draftAgentItems, snapshot?.agentId, models, registryAgents]);
 
   // File list for smart @file mentions (draft needs a project; live uses active cwd).
-  // Re-read whenever the picker opens so files added within the same workspace
-  // appear without switching threads or projects.
+  // Nothing is scanned until the file mention menu opens; the list is then
+  // shared per workspace and reused until invalidated or stale.
   const fileProjectId = useMemo(
     () =>
       isDraftMode
@@ -2279,31 +2273,16 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
       activeProject?.path,
     ],
   );
+  const projectFileSource = useMemo(
+    () => ({ projectId: fileProjectId, worktreePath: fileWorktreePath }),
+    [fileProjectId, fileWorktreePath],
+  );
+  const { items: projectFileItems, request: refreshProjectFiles } =
+    useProjectFileIndex(projectFileSource);
+  // A finished turn may have created or deleted files in this workspace.
   useEffect(() => {
-    const canList = Boolean(fileProjectId || fileWorktreePath);
-    if (!canList || !window.omni?.projects?.listFiles) {
-      setProjectFileItems([]);
-      return;
-    }
-    let cancelled = false;
-    void window.omni.projects
-      .listFiles(fileWorktreePath ? undefined : (fileProjectId ?? undefined), fileWorktreePath)
-      .then((paths) => {
-        if (cancelled) return;
-        setProjectFileItems(
-          paths.map((path) => ({
-            id: path,
-            label: path,
-          })),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setProjectFileItems([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fileProjectId, fileWorktreePath, projectFilesRevision]);
+    if (!isStreaming) invalidateProjectFiles(projectFileSource);
+  }, [isStreaming, projectFileSource]);
 
   // Keep live free-text content aligned when not using entity chips from draft.
   useEffect(() => {

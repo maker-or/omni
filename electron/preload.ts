@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DatabaseCompactionResult } from "../contracts/storage.ts";
+import type { DatabaseCompactionResult, WorkspaceDiskUsageReport } from "../contracts/storage.ts";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
@@ -78,6 +78,8 @@ const api = {
   storage: {
     compactDatabase: (): Promise<DatabaseCompactionResult> =>
       ipcRenderer.invoke("storage:compactDatabase"),
+    workspaceUsage: (): Promise<WorkspaceDiskUsageReport> =>
+      ipcRenderer.invoke("storage:workspaceUsage"),
   },
   launch: {
     complete: (projectId: string): Promise<void> =>
@@ -206,8 +208,15 @@ const api = {
     create: (input: CreateProjectInput): Promise<Project> =>
       ipcRenderer.invoke("projects:create", input),
     getActive: (): Promise<Project | null> => ipcRenderer.invoke("projects:getActive"),
-    listFiles: (projectId?: string, worktreePath?: string | null): Promise<string[]> =>
-      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null),
+    listFiles: (
+      projectId?: string,
+      worktreePath?: string | null,
+      requestId?: string | null,
+    ): Promise<string[]> =>
+      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null, requestId ?? null),
+    cancelListFiles: (requestId: string): void => {
+      ipcRenderer.send("projects:cancelListFiles", requestId);
+    },
     getFileTree: (): Promise<ProjectFileTreeSnapshot> => ipcRenderer.invoke("projects:getFileTree"),
     setActive: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("projects:setActive", projectId),

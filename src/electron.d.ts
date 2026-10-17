@@ -1,5 +1,5 @@
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
-import type { DatabaseCompactionResult } from "../contracts/storage.ts";
+import type { DatabaseCompactionResult, WorkspaceDiskUsageReport } from "../contracts/storage.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type {
   RemoteDevicesState,
@@ -77,7 +77,10 @@ export interface CreateProjectInput {
 declare global {
   interface Window {
     omni: {
-      storage: { compactDatabase: () => Promise<DatabaseCompactionResult> };
+      storage: {
+        compactDatabase: () => Promise<DatabaseCompactionResult>;
+        workspaceUsage: () => Promise<WorkspaceDiskUsageReport>;
+      };
       launch: {
         complete: (projectId: string) => Promise<void>;
         show: (stage?: "list" | "add" | "onboarding") => Promise<void>;
@@ -140,7 +143,13 @@ declare global {
         list: () => Promise<Project[]>;
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
-        listFiles: (projectId?: string, worktreePath?: string | null) => Promise<string[]>;
+        /** `requestId` lets the caller abandon the scan via `cancelListFiles`. */
+        listFiles: (
+          projectId?: string,
+          worktreePath?: string | null,
+          requestId?: string | null,
+        ) => Promise<string[]>;
+        cancelListFiles?: (requestId: string) => void;
         getFileTree: () => Promise<ProjectFileTreeSnapshot>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;

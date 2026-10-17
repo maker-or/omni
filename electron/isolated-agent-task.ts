@@ -5,7 +5,8 @@ import { getProject } from "./projects.ts";
 import { listThreads } from "./threads.ts";
 import { listAgentInstanceDescriptors } from "./agent-instances.ts";
 import { buildSiriCatalog } from "./siri/siri-catalog.ts";
-import { createWorktree, isLiveWorktree, removeWorktreeBestEffort } from "./worktree-manager.ts";
+import { isLiveWorktree } from "./worktree-manager.ts";
+import { createWorkspace, type CreatedWorkspace } from "./workspace-lifecycle.ts";
 import { RemoteTaskError } from "./remote-requests.ts";
 
 /** All external entry points bind to a verified worktree before dispatch. */
@@ -35,12 +36,14 @@ export async function prepareIsolatedAgentTask(
       "The selected agent is unavailable. Choose an installed agent on your Mac.",
     );
   }
-  let worktree;
+  let workspace: CreatedWorkspace;
   try {
-    worktree = await createWorktree({
-      projectPath: project.path,
+    // Same lifecycle and setup policy as desktop creation; `background` keeps
+    // its setup progress from interrupting whoever is using the desktop.
+    workspace = await createWorkspace({
       projectId: project.id,
       name: `phone-${randomBytes(8).toString("hex")}`,
+      activation: "background",
     });
   } catch (error) {
     // The git error names local paths; it stays in the laptop log.
@@ -49,6 +52,7 @@ export async function prepareIsolatedAgentTask(
       "Could not create an isolated workspace. No task was started. Check that the project has a Git commit and a writable worktree directory on your Mac.",
     );
   }
+  const { worktree } = workspace;
   try {
     const thread = await am.createThread(
       project.id,
@@ -88,8 +92,10 @@ export async function prepareIsolatedAgentTask(
             ),
     };
   } catch (error) {
+    // Roll back only what this request created, and only while no thread
+    // has bound to it.
     if (!listThreads().some((t) => t.worktree_path === worktree.path)) {
-      await removeWorktreeBestEffort(project.path, worktree.path, worktree.branch);
+      await workspace.rollback();
     }
     throw error;
   }

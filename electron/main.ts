@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import fs from "node:fs";
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { isFluidPageSwipeEnabled } from "./page-swipe-preference";
 import { promisify } from "node:util";
 import * as pty from "node-pty";
@@ -29,20 +29,22 @@ import { createProject, getProject, listProjects } from "./projects";
 import { logMain } from "./main-log";
 import {
   continueWorktreeOnNewBranch,
-  createWorktree,
   foreignGitEnv,
   gitBinary,
   listBranches,
   listWorktrees,
   removeWorktree,
-  resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
 } from "./worktree-manager";
-import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
 import { getWorktreeAutoInstall, setWorktreeAutoInstall } from "./worktree-preferences.ts";
-import { WorktreeInstallQueue } from "./worktree-install-queue.ts";
+import {
+  cancelWorkspaceSetup,
+  createWorkspace,
+  setWorkspaceSetupProgressSink,
+} from "./workspace-lifecycle.ts";
 import { compactDatabase, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { scanWorkspaceDiskUsage } from "./workspace-disk-usage.ts";
 import {
   commitWorkspace,
   configureGithubPrSnapshotCache,
@@ -57,6 +59,7 @@ import {
 } from "./git-workspace";
 import type { ProjectFileGitStatus, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session";
+import { ProjectFileLister } from "./project-file-list.ts";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import {
   isAllowedClerkAuthUrl,
@@ -222,55 +225,7 @@ function resolveWindowsShell(): string {
   return "powershell.exe";
 }
 
-const FILE_MENTION_IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".next",
-  ".turbo",
-  ".cache",
-]);
-
-async function listProjectFiles(projectPath: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      {
-        cwd: projectPath,
-        maxBuffer: 1024 * 1024 * 4,
-      },
-    );
-    const paths = Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
-    // An empty Git result can still mean this is an uninitialized repository
-    // or a folder whose files are not visible to Git. Use the filesystem
-    // fallback in that case instead of returning an empty mention catalog.
-    if (paths.length > 0) return paths;
-    throw new Error("Git returned no project files");
-  } catch {
-    const results: string[] = [];
-    const walk = (dir: string, prefix = "") => {
-      if (results.length >= 5000) return;
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.name.startsWith(".") && entry.name !== ".env") continue;
-        if (FILE_MENTION_IGNORED_DIRS.has(entry.name)) continue;
-        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-        const absolute = join(dir, entry.name);
-        if (entry.isDirectory()) walk(absolute, relative);
-        else if (entry.isFile()) results.push(relative);
-      }
-    };
-    try {
-      walk(projectPath);
-    } catch {
-      return [];
-    }
-    return results.sort();
-  }
-}
+const projectFileLister = new ProjectFileLister();
 
 function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStatus"] {
   const entries: ProjectFileTreeSnapshot["gitStatus"] = [];
@@ -305,7 +260,7 @@ function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStat
 
 async function listProjectFileTree(projectPath: string): Promise<ProjectFileTreeSnapshot> {
   const [paths, gitStatus] = await Promise.all([
-    listProjectFiles(projectPath),
+    projectFileLister.list(projectPath),
     // Resolved binary + sanitized env: a bare "git" silently fails (empty
     // status decorations) when a GUI launch strips PATH.
     execFileAsync(gitBinary(), ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
@@ -872,159 +827,7 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   return { thread, worktree: target };
 }
 
-const WORKTREE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
-/** After asking an installer to stop, force-kill it, then stop waiting. */
-const WORKTREE_INSTALL_KILL_GRACE_MS = 5_000;
-
-/**
- * Signal an installer and every process it started. Package managers spawn
- * their own children, and on Windows the direct child is the shell, so
- * killing only `child` can leave the real installer writing files.
- */
-function signalProcessTree(child: ChildProcess, force: boolean): void {
-  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" }).on(
-      "error",
-      () => child.kill(),
-    );
-    return;
-  }
-  try {
-    // The installer runs as its own process group leader (detached spawn).
-    process.kill(-child.pid, force ? "SIGKILL" : "SIGTERM");
-  } catch {
-    child.kill(force ? "SIGKILL" : "SIGTERM");
-  }
-}
-const worktreeInstallQueue = new WorktreeInstallQueue();
 let databaseCompaction: Promise<DatabaseCompactionResult> | null = null;
-
-type WorktreeInstallOutcome = Pick<WorktreeSetupProgress, "status" | "manager" | "message">;
-
-/**
- * Install a freshly created worktree's dependencies in the background so the
- * workspace is ready to run without a manual install. The package manager is
- * detected from the worktree's lockfile; progress is broadcast to the
- * renderer (`worktrees:setupProgress`) for toasts. Never throws — a failed
- * install must not undo the created worktree, it just reports; the outcome is
- * also returned so callers that must wait (restore) can act on it.
- */
-async function installWorktreeDependencies(
-  projectId: string,
-  worktreePath: string,
-  workspaceName: string,
-): Promise<WorktreeInstallOutcome> {
-  return worktreeInstallQueue.enqueue(worktreePath, (signal) =>
-    performWorktreeDependencyInstall(projectId, worktreePath, workspaceName, signal),
-  );
-}
-
-async function performWorktreeDependencyInstall(
-  projectId: string,
-  worktreePath: string,
-  workspaceName: string,
-  signal: AbortSignal,
-): Promise<WorktreeInstallOutcome> {
-  const report = (progress: WorktreeInstallOutcome): WorktreeInstallOutcome => {
-    broadcastToWindows("worktrees:setupProgress", {
-      projectId,
-      worktreePath,
-      workspaceName,
-      ...progress,
-    } satisfies WorktreeSetupProgress);
-    return progress;
-  };
-
-  // The workspace may have been deleted while this job waited in the queue.
-  if (signal.aborted || !fs.existsSync(worktreePath)) {
-    return report({ status: "skipped", message: "Workspace was removed before install." });
-  }
-  const install = resolveInstallCommand(worktreePath);
-  if (!install) return report({ status: "skipped" });
-  if (!getWorktreeAutoInstall()) {
-    return report({
-      status: "skipped",
-      manager: install.manager,
-      message: `Run ${install.manager} install in this workspace when you need its dependencies.`,
-    });
-  }
-
-  report({ status: "installing", manager: install.manager });
-  try {
-    await new Promise<void>((resolvePromise, rejectPromise) => {
-      const child = spawn(install.command, install.args, {
-        cwd: worktreePath,
-        env: process.env,
-        shell: process.platform === "win32",
-        // Own process group on POSIX so cancellation can stop the whole tree.
-        detached: process.platform !== "win32",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let outputTail = "";
-      const collect = (chunk: Buffer) => {
-        outputTail = (outputTail + chunk.toString()).slice(-4000);
-      };
-      child.stdout?.on("data", collect);
-      child.stderr?.on("data", collect);
-      // Settle a stopped install only once its process has exited, so a
-      // cancelled install cannot keep writing into a workspace being removed.
-      let stopError: unknown = null;
-      let forceTimer: ReturnType<typeof setTimeout> | null = null;
-      const stop = (error: unknown) => {
-        if (stopError) return;
-        stopError = error;
-        clearTimeout(timeout);
-        signalProcessTree(child, false);
-        forceTimer = setTimeout(() => {
-          signalProcessTree(child, true);
-          // A process that survives SIGKILL must not hang workspace deletion.
-          forceTimer = setTimeout(() => rejectPromise(stopError), WORKTREE_INSTALL_KILL_GRACE_MS);
-        }, WORKTREE_INSTALL_KILL_GRACE_MS);
-      };
-      const timeout = setTimeout(
-        () => stop(new Error(`${install.manager} install timed out after 10 minutes.`)),
-        WORKTREE_INSTALL_TIMEOUT_MS,
-      );
-      const onAbort = () => stop(signal.reason);
-      signal.addEventListener("abort", onAbort, { once: true });
-      child.on("error", (err) => {
-        clearTimeout(timeout);
-        if (forceTimer) clearTimeout(forceTimer);
-        signal.removeEventListener("abort", onAbort);
-        rejectPromise(
-          new Error(`Could not run ${install.manager}: ${err.message}. Is it installed?`),
-        );
-      });
-      child.on("close", (code) => {
-        clearTimeout(timeout);
-        if (forceTimer) clearTimeout(forceTimer);
-        signal.removeEventListener("abort", onAbort);
-        if (stopError) rejectPromise(stopError);
-        else if (code === 0) resolvePromise();
-        else {
-          const tail = outputTail.trim().split("\n").slice(-8).join("\n");
-          rejectPromise(new Error(`${install.manager} install exited with code ${code}.\n${tail}`));
-        }
-      });
-    });
-    return report({ status: "installed", manager: install.manager });
-  } catch (err) {
-    if (signal.aborted) {
-      return report({
-        status: "skipped",
-        manager: install.manager,
-        message: "Install stopped because the workspace was removed.",
-      });
-    }
-    console.error(`[Worktree] Dependency install failed for ${worktreePath}:`, err);
-    return report({
-      status: "failed",
-      manager: install.manager,
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
 
 /**
  * Predicate for "tab in the same (project, workspace) as this thread", used
@@ -1967,23 +1770,32 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "projects:listFiles",
-    async (_event, projectId?: string, worktreePath?: string | null) => {
+    async (event, projectId?: string, worktreePath?: string | null, requestId?: string | null) => {
+      // Request ids are scoped per renderer so one window cannot cancel
+      // another window's scan.
+      const scopedRequestId = requestId ? `${event.sender.id}:${requestId}` : null;
+      const list = (path: string) => projectFileLister.listForRequest(path, scopedRequestId);
       if (projectId) {
         const project = getProject(projectId);
         const cwd = worktreePath && fs.existsSync(worktreePath) ? worktreePath : project?.path;
-        return cwd && fs.existsSync(cwd) ? listProjectFiles(cwd) : [];
+        return cwd && fs.existsSync(cwd) ? list(cwd) : [];
       }
-      if (worktreePath && fs.existsSync(worktreePath)) return listProjectFiles(worktreePath);
+      if (worktreePath && fs.existsSync(worktreePath)) return list(worktreePath);
       // Follow the active worktree's cwd, not the project root, so file paths
       // reflect the selected workspace. Falls back to the project root.
       const cwd = await requireAgentManager().getActiveCwd();
-      if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
+      if (cwd && fs.existsSync(cwd)) return list(cwd);
       const id = getActiveProjectId();
       const project = id ? getProject(id) : null;
       if (!project || !fs.existsSync(project.path)) return [];
-      return listProjectFiles(project.path);
+      return list(project.path);
     },
   );
+
+  ipcMain.on("projects:cancelListFiles", (event, requestId: unknown) => {
+    if (typeof requestId !== "string" || !requestId) return;
+    projectFileLister.cancel(`${event.sender.id}:${requestId}`);
+  });
 
   ipcMain.handle("projects:getFileTree", async () => {
     // Keep the flyout aligned with the currently selected worktree.
@@ -2042,6 +1854,8 @@ function registerIpc(): void {
   ipcMain.handle("worktrees:setAutoInstall", (_event, enabled: boolean) =>
     setWorktreeAutoInstall(enabled),
   );
+  // Read-only: reports per-workspace source vs. dependency/build bytes.
+  ipcMain.handle("storage:workspaceUsage", () => scanWorkspaceDiskUsage());
   ipcMain.handle("storage:compactDatabase", () => {
     databaseCompaction ??= compactDatabase(join(app.getPath("userData"), "omni.sqlite")).finally(
       () => {
@@ -2090,22 +1904,22 @@ function registerIpc(): void {
     },
   );
 
+  setWorkspaceSetupProgressSink((progress) =>
+    broadcastToWindows("worktrees:setupProgress", progress),
+  );
   ipcMain.handle("worktrees:create", async (_event, input: { projectId: string; name: string }) => {
-    const project = getProject(input.projectId);
-    if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const worktree = await createWorktree({
-      projectPath: project.path,
-      projectId: project.id,
+    // Shared with remote/phone creation: the user's setup policy installs
+    // dependencies in the background (installs can take minutes; the create
+    // itself stays snappy) and streams progress to the renderer for toasts.
+    const { project, worktree } = await createWorkspace({
+      projectId: input.projectId,
       name: input.name,
+      activation: "foreground",
     });
     captureAnalytics("worktree_created", {
       windowType: "main",
       properties: { project_id: project.id },
     });
-    // A fresh worktree must be usable without a manual `bun/npm install` —
-    // kick that off in the background (installs can take minutes; the create
-    // itself stays snappy) and stream progress to the renderer for toasts.
-    void installWorktreeDependencies(project.id, worktree.path, input.name);
     // Return the same annotated Git view used by the title bar, rather than
     // a locally invented display label for the newly-created checkout.
     return (
@@ -2320,7 +2134,7 @@ function registerIpc(): void {
 
     // Stop a queued or running dependency install so it cannot keep writing
     // into (or later recreate files in) the workspace being removed.
-    await worktreeInstallQueue.cancel(target.path);
+    await cancelWorkspaceSetup(target.path);
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
     const removed = await removeWorktree(project.path, target.path, project.id);
