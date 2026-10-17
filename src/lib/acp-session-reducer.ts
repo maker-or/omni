@@ -43,12 +43,28 @@ export interface AcpSessionSlice {
 export const MAX_SESSION_ENTRIES = 2_000;
 export const MAX_SESSION_TOOL_CALLS = 500;
 
+/**
+ * Tool-call maps already counted and found within budget. Text chunks reuse
+ * the same map, so the per-chunk check is O(1) instead of an O(toolCalls)
+ * `Object.keys` allocation.
+ */
+const toolCallsWithinBudget = new WeakSet<Record<string, AcpToolCallState>>();
+
+function toolCallsOverBudget(toolCalls: Record<string, AcpToolCallState>): boolean {
+  if (toolCallsWithinBudget.has(toolCalls)) return false;
+  let count = 0;
+  for (const _ in toolCalls) {
+    if (++count > MAX_SESSION_TOOL_CALLS) return true;
+  }
+  toolCallsWithinBudget.add(toolCalls);
+  return false;
+}
+
 export function trimSessionSlice(state: AcpSessionSlice): AcpSessionSlice {
   // Fast path: this runs on every streamed chunk. When nothing is over
   // budget, skip building the referenced-id Set and the tool-call entry list
   // entirely — both are O(entries + toolCalls) allocations per update.
-  const toolCallCount = Object.keys(state.toolCalls).length;
-  if (state.entries.length <= MAX_SESSION_ENTRIES && toolCallCount <= MAX_SESSION_TOOL_CALLS) {
+  if (state.entries.length <= MAX_SESSION_ENTRIES && !toolCallsOverBudget(state.toolCalls)) {
     return state;
   }
   const entries =
@@ -418,6 +434,7 @@ export function applySessionUpdateInPlace(state: AcpSessionSlice, update: Sessio
       const toolCallId = update.toolCallId;
       if (!state.toolCalls[toolCallId]) {
         state.entries.push({ type: "tool_call", id: nextEntryId(), toolCallId });
+        toolCallsWithinBudget.delete(state.toolCalls);
       }
       state.toolCalls[toolCallId] = mergeToolCall(state.toolCalls[toolCallId], {
         toolCallId,
@@ -438,6 +455,7 @@ export function applySessionUpdateInPlace(state: AcpSessionSlice, update: Sessio
       const existing = state.toolCalls[toolCallId];
       if (!existing) {
         state.entries.push({ type: "tool_call", id: nextEntryId(), toolCallId });
+        toolCallsWithinBudget.delete(state.toolCalls);
       }
       state.toolCalls[toolCallId] = mergeToolCall(existing, {
         toolCallId,

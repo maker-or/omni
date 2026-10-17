@@ -31,6 +31,11 @@ export class WorkspaceGuard {
     this.rootsBySession.clear();
   }
 
+  /** Number of sessions with registered roots (lifecycle diagnostics). */
+  get size(): number {
+    return this.rootsBySession.size;
+  }
+
   /**
    * Reject an agent file/terminal target that escapes its session's workspace
    * root(s). No-op when there is no session id (callers that never bind a

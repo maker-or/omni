@@ -17,6 +17,7 @@ import type { IconComponent } from "@/lib/icon-context";
 import { useAgentRegistryStore } from "@/store/agent-registry-store";
 import { useTabGestureStore } from "@/store/tab-gesture-store";
 import type { AcpAgentDescriptor } from "../../contracts/acp.ts";
+import type { WorkspaceDiskUsageReport } from "../../contracts/storage.ts";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -47,7 +48,15 @@ function modifierSymbol(): string {
     : "Ctrl";
 }
 
-type SectionId = "design" | "appearance" | "agents" | "accounts" | "keyboard" | "power" | "remote";
+type SectionId =
+  | "design"
+  | "appearance"
+  | "agents"
+  | "accounts"
+  | "keyboard"
+  | "power"
+  | "remote"
+  | "storage";
 
 const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "appearance", label: "Appearance" },
@@ -56,6 +65,7 @@ const NAV_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: "accounts", label: "Account" },
   { id: "keyboard", label: "Keyboard & trackpad" },
   { id: "power", label: "Power" },
+  { id: "storage", label: "Storage" },
   { id: "remote", label: "Remote" },
 ];
 
@@ -328,6 +338,10 @@ function AgentsSettingsSection() {
 }
 
 const SECTION_META: Record<SectionId, { title: string; blurb: string }> = {
+  storage: {
+    title: "Storage",
+    blurb: "Control dependency installs and see what each workspace uses on disk.",
+  },
   design: {
     title: "Workspace design system",
     blurb: "Git-state colors, surfaces, and controls in light and dark mode.",
@@ -471,6 +485,204 @@ function PowerView() {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+/**
+ * Per-workspace disk usage, split into source and regenerable output. The
+ * scan reads every file's size, so it only runs when the user asks.
+ */
+function WorkspaceUsagePanel() {
+  const [report, setReport] = useState<WorkspaceDiskUsageReport | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scan = async () => {
+    if (scanning) return;
+    setScanning(true);
+    setError(null);
+    try {
+      setReport(await window.omni.storage.workspaceUsage());
+    } catch {
+      setError("Could not measure workspace disk usage.");
+    } finally {
+      setScanning(false);
+    }
+  };
+  const workspaces = useMemo(
+    () =>
+      [...(report?.workspaces ?? [])].sort(
+        (a, b) => b.dependencyBytes + b.buildBytes - (a.dependencyBytes + a.buildBytes),
+      ),
+    [report],
+  );
+  return (
+    <>
+      <Elevated offset={1} className="mt-3 overflow-hidden rounded-xl border border-border/70">
+        <SettingRow
+          title="Workspace disk usage"
+          description="Shows each workspace’s own files separately from dependencies and build output, which an install or build can recreate. Git history is shared between workspaces and not counted. Nothing is deleted."
+        >
+          <Button
+            disabled={scanning}
+            onClick={() => void scan()}
+            data-pipper-id="settings-workspace-usage-scan"
+          >
+            {scanning ? "Measuring…" : report ? "Measure again" : "Measure"}
+          </Button>
+        </SettingRow>
+        {report && workspaces.length > 0 && (
+          <Table data-pipper-id="settings-workspace-usage-table">
+            <TableBody>
+              {workspaces.map((workspace, index) => (
+                <TableRow key={workspace.path} index={index}>
+                  <TableCell>
+                    <span className="font-medium text-foreground">{workspace.name}</span>
+                    <span
+                      className="mt-0.5 block truncate text-[11px] leading-4"
+                      title={workspace.path}
+                    >
+                      {workspace.projectName}
+                      {workspace.isProjectRoot ? " · main checkout" : ""}
+                      {workspace.truncated ? " · partial scan" : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell className="w-[1%] text-right text-[11px] whitespace-nowrap">
+                    <span className="block text-foreground">
+                      {formatBytes(workspace.sourceBytes)} source
+                    </span>
+                    <span className="block">
+                      {formatBytes(workspace.dependencyBytes)} dependencies ·{" "}
+                      {formatBytes(workspace.buildBytes)} build
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Elevated>
+      {report && workspaces.length === 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+          No Git workspaces found.
+        </p>
+      )}
+      {error && (
+        <p className="mt-2 text-[11px] text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+function StorageView() {
+  const [autoInstall, setAutoInstall] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [compacting, setCompacting] = useState(false);
+  const [compactionMessage, setCompactionMessage] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    window.omni.worktrees
+      .getAutoInstall()
+      .then((value) => {
+        if (!disposed) setAutoInstall(value);
+      })
+      .catch(() => {
+        if (!disposed) setError("Could not load storage settings.");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  const toggle = async () => {
+    if (autoInstall === null || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      setAutoInstall(await window.omni.worktrees.setAutoInstall(!autoInstall));
+    } catch {
+      setError("Could not save storage settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const compact = async () => {
+    if (compacting) return;
+    setCompacting(true);
+    setError(null);
+    setCompactionMessage(null);
+    try {
+      const result = await window.omni.storage.compactDatabase();
+      const mib = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
+      setCompactionMessage(
+        result.status === "busy"
+          ? "Pipper is busy. Space is reclaimed once running agents finish; try again then."
+          : result.status === "insufficient-space"
+            ? `Not enough free disk space. Free about ${mib((result.requiredFreeBytes ?? 0) - (result.availableFreeBytes ?? 0))} MiB and try again.`
+            : result.checkpointBusy
+              ? "Database compacted. Some disk space can be reclaimed after current database reads finish."
+              : `${mib(result.reclaimedBytes)} MiB reclaimed. Your projects, conversations and diagnostics are kept.`,
+      );
+    } catch {
+      setError("Could not compact the database. Finish current tasks and try again.");
+    } finally {
+      setCompacting(false);
+    }
+  };
+  return (
+    <>
+      <Elevated offset={1} className="overflow-hidden rounded-xl border border-border/70">
+        <SettingRow
+          title="Install dependencies automatically"
+          description="Each new workspace gets its own dependencies. Turn this off to save disk space, then run your package manager’s install command in a workspace when needed. Existing workspaces are kept."
+        >
+          <Switch
+            label="Install dependencies automatically"
+            checked={autoInstall ?? false}
+            disabled={autoInstall === null || saving}
+            onToggle={() => void toggle()}
+            className="gap-0 px-0 py-0 [&>span:last-of-type]:sr-only"
+            data-pipper-id="settings-worktree-auto-install"
+          />
+        </SettingRow>
+        <SettingRow
+          title="Reclaim unused database space"
+          description="Return space freed by old records to disk. This keeps your conversations and workspaces and may take a moment."
+        >
+          <Button
+            disabled={compacting}
+            onClick={() => void compact()}
+            data-pipper-id="settings-compact-database"
+          >
+            {compacting ? "Compacting…" : "Reclaim space"}
+          </Button>
+        </SettingRow>
+      </Elevated>
+      {compactionMessage && (
+        <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+          {compactionMessage}
+        </p>
+      )}
+      {error && (
+        <p className="mt-2 text-[11px] text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      <WorkspaceUsagePanel />
+    </>
+  );
+}
+
 function RemoteView() {
   return (
     <>
@@ -551,6 +763,7 @@ export function SettingsApp() {
                 {section === "accounts" && <AccountsView />}
                 {section === "keyboard" && <KeyboardView />}
                 {section === "power" && <PowerView />}
+                {section === "storage" && <StorageView />}
                 {section === "remote" && <RemoteView />}
               </main>
             </ScrollArea>

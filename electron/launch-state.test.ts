@@ -79,3 +79,95 @@ describe("workspace selections in launch state", () => {
     expect(parseWorkspaceSelections({ p1: 42, p2: "", p3: "/ok" })).toEqual({ p3: "/ok" });
   });
 });
+
+describe("launch-state durability", () => {
+  test("a corrupt state file falls back to the last-known-good copy", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");
+    const file = join(root!, "launch-state.json");
+    await writeFile(file, JSON.stringify({ projectId: "known-good" }), "utf-8");
+    // The first write of a process keeps the starting state as the backup.
+    await updateLaunchSelection({ threadId: "thread-1" });
+    expect(JSON.parse(await readFile(`${file}.bak`, "utf-8")).projectId).toBe("known-good");
+
+    await writeFile(file, '{"projectId": "trunc', "utf-8");
+    const state = await readLaunchState();
+    expect(state.projectId).toBe("known-good");
+  });
+
+  test("recovering from a corrupt primary keeps the good backup", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const file = join(root!, "launch-state.json");
+    await writeFile(`${file}.bak`, JSON.stringify({ projectId: "known-good" }), "utf-8");
+    await writeFile(file, '{"projectId": "trunc', "utf-8");
+    vi.resetModules();
+    const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");
+    expect((await readLaunchState()).projectId).toBe("known-good");
+
+    await updateLaunchSelection({ threadId: "thread-1" });
+    expect(JSON.parse(await readFile(`${file}.bak`, "utf-8")).projectId).toBe("known-good");
+  });
+
+  test("writes replace the file atomically and leave no temporary files", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const { readLaunchState, updateLaunchSelection } = await import("./launch-state.ts");
+    await updateLaunchSelection({ projectId: "p1", threadId: "t1" });
+    await updateLaunchSelection({ threadId: "t2" });
+    expect((await readdir(root!)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    expect((await readLaunchState()).activeThreadId).toBe("t2");
+  });
+});
+
+describe("navigation commits", () => {
+  test("one commit persists project, thread and workspace together with a new revision", async () => {
+    const { commitNavigation, getLaunchStateIoStats, readLaunchState } =
+      await import("./launch-state.ts");
+    const before = getLaunchStateIoStats();
+    const committed = await commitNavigation({
+      projectId: "p1",
+      threadId: "t1",
+      workspace: { projectId: "p1", path: "/worktrees/feature" },
+    });
+    expect(getLaunchStateIoStats().diskWrites - before.diskWrites).toBe(1);
+    expect(committed).toMatchObject({
+      projectId: "p1",
+      threadId: "t1",
+      activeThreadId: "t1",
+      selectedWorktreePathByProject: { p1: "/worktrees/feature" },
+      revision: 1,
+    });
+    expect(await readLaunchState()).toEqual(committed);
+  });
+
+  test("an identical commit is skipped and keeps its revision", async () => {
+    const { commitNavigation, getLaunchStateIoStats } = await import("./launch-state.ts");
+    const first = await commitNavigation({ projectId: "p1", threadId: "t1" });
+    const writes = getLaunchStateIoStats().diskWrites;
+    const second = await commitNavigation({ projectId: "p1", threadId: "t1" });
+    expect(getLaunchStateIoStats().diskWrites).toBe(writes);
+    expect(second.revision).toBe(first.revision);
+  });
+
+  test("reads after the first load are served from memory", async () => {
+    const { commitNavigation, getLaunchStateIoStats, readLaunchState } =
+      await import("./launch-state.ts");
+    await readLaunchState();
+    const reads = getLaunchStateIoStats().diskReads;
+    for (let index = 0; index < 5; index += 1) {
+      await commitNavigation({ threadId: `t${index}` });
+      await readLaunchState();
+    }
+    expect(getLaunchStateIoStats().diskReads).toBe(reads);
+  });
+
+  test("a state recovered from the backup is rewritten even when unchanged", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const file = join(root!, "launch-state.json");
+    await writeFile(`${file}.bak`, JSON.stringify({ projectId: "p1" }), "utf-8");
+    await writeFile(file, '{"projectId": "trunc', "utf-8");
+    vi.resetModules();
+    const { commitNavigation } = await import("./launch-state.ts");
+    await commitNavigation({ projectId: "p1" });
+    expect(JSON.parse(await readFile(file, "utf-8")).projectId).toBe("p1");
+  });
+});

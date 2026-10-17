@@ -90,15 +90,10 @@ function sessionsOf(manager: AgentConnectionManager) {
   ).sessions;
 }
 
-/** Make `switchAgent` succeed with a live connection the manager considers active. */
+/** Make provider acquisition succeed with a live connection, without spawning anything. */
 function stubAgentSwitch(manager: AgentConnectionManager, agentId: string): LiveConnection {
   const live = { agentId } as LiveConnection;
-  vi.spyOn(manager, "switchAgent").mockImplementation(async () => {
-    (
-      manager as unknown as { lifecycle: { setActive: (live: LiveConnection) => void } }
-    ).lifecycle.setActive(live);
-    return live;
-  });
+  vi.spyOn(manager, "acquireConnection").mockResolvedValue(live);
   return live;
 }
 
@@ -247,11 +242,7 @@ describe("Antigravity snapshot-restored threads", () => {
     const runtime = seedSnapshotRuntime(manager, thread, project.id);
     runtime.agentId = "codex-acp";
     runtime.snapshotRestored = false;
-    vi.spyOn(manager, "switchAgent").mockRejectedValue(new Error("agent unavailable"));
-    vi.spyOn(
-      manager as unknown as { ensureConnection: (agentId: string) => Promise<LiveConnection> },
-      "ensureConnection",
-    ).mockRejectedValue(new Error("no fallback"));
+    vi.spyOn(manager, "acquireConnection").mockRejectedValue(new Error("agent unavailable"));
 
     await expect(manager.switchThread(thread.id)).rejects.toThrow();
     expect(sessionsOf(manager).get(thread.id)).toBeUndefined();

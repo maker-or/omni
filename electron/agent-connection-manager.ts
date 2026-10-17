@@ -17,7 +17,7 @@ import type {
   AcpToolCallState,
 } from "../contracts/acp.ts";
 import type { OpenTabsState, Thread } from "../contracts/threads.ts";
-import { readOpenTabsState, recordThreadSwitch } from "./open-tabs.ts";
+import { commitThreadNavigation, readOpenTabsState } from "./open-tabs.ts";
 import { getProject } from "./projects.ts";
 import { getAppSetting, setAppSetting, getSelectedAgentIds } from "./db.ts";
 import { setActiveProjectId } from "./session.ts";
@@ -31,11 +31,7 @@ import {
   getThreadSortOrder,
   deleteThread as removeThreadRow,
 } from "./threads.ts";
-import {
-  updateLaunchSelection,
-  updateWorkspaceSelection,
-  readLaunchState,
-} from "./launch-state.ts";
+import { commitNavigation, readLaunchState, updateLaunchSelection } from "./launch-state.ts";
 import { normalizeWorkspacePath, pickWorkspaceThread } from "../contracts/workspace-scope.ts";
 import { isLiveWorktree } from "./worktree-manager.ts";
 import { getAgentDescriptor, getDefaultAgentId, listRegisteredAgents } from "./agents/registry.ts";
@@ -54,16 +50,26 @@ import type { AgentOsNotification, OsNotifier } from "./os-notifications.ts";
 import type { WindowAttentionSource, WindowVisibilitySource } from "./window-visibility.ts";
 import { WorkspaceGuard } from "./workspace-guard.ts";
 import { ThreadSessionRegistry, type ThreadSessionRuntime } from "./thread-session-registry.ts";
-import { ThreadSnapshotStore, type LoadedThreadSnapshot } from "./thread-snapshot-store.ts";
+import { SnapshotFreshness } from "./snapshot-freshness.ts";
 import {
-  ActivationSupersededError,
+  ThreadSnapshotBodiesUnavailableError,
+  ThreadSnapshotStore,
+  hydrateSnapshotImages,
+  snapshotImageRefs,
+  type LoadedThreadSnapshot,
+} from "./thread-snapshot-store.ts";
+import {
   isActivationSuperseded,
+  KeyedMutex,
   raceActivation,
-  throwIfSuperseded,
+  SelectionFence,
+  type SelectionTicket,
 } from "./activation.ts";
+import { ProviderCatalogStore, sameModels, type CatalogModel } from "./provider-catalog-store.ts";
 import { PermissionCoordinator } from "./permission-coordinator.ts";
 import { ACP_PROMPT_TIMEOUT_MS, PromptScheduler } from "./prompt-scheduler.ts";
 import { RendererBroadcaster } from "./renderer-broadcaster.ts";
+import { waitBounded } from "./bounded-shutdown.ts";
 import {
   applySessionUpdate,
   applySessionUpdateInPlace,
@@ -95,6 +101,62 @@ import type {
 
 /** Persisted pointer to the last-used provider instance. */
 const PREFERRED_INSTANCE_KEY = "preferred_agent_instance";
+/**
+ * Opt-in: minutes a provider may sit with no sessions, prompts, auth, catalog
+ * probes or subagent runs before its process is released. Unset or 0 keeps
+ * every used provider warm (the default), because releasing one makes the
+ * next thread on it pay a cold start.
+ */
+const PROVIDER_IDLE_RELEASE_KEY = "provider_idle_release_minutes";
+export const PROVIDER_IDLE_RELEASE_MIN_MINUTES = 30;
+const PROVIDER_IDLE_RELEASE_MAX_MINUTES = 24 * 60;
+const PROVIDER_IDLE_SWEEP_MS = 60_000;
+
+function clampIdleReleaseMinutes(value: unknown): number {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+  return Math.min(
+    PROVIDER_IDLE_RELEASE_MAX_MINUTES,
+    Math.max(PROVIDER_IDLE_RELEASE_MIN_MINUTES, Math.round(minutes)),
+  );
+}
+
+function loadIdleReleaseMinutes(): number {
+  try {
+    return clampIdleReleaseMinutes(getAppSetting(PROVIDER_IDLE_RELEASE_KEY));
+  } catch {
+    return 0;
+  }
+}
+
+/** What a thread's runtime preparation resolved, shared by every caller waiting on it. */
+interface PreparedThread {
+  thread: Thread;
+  project: NonNullable<ReturnType<typeof getProject>>;
+  runtime: ThreadSessionRuntime;
+  live: LiveConnection;
+  phase: MonitorSwitchPhase;
+  openSource: "resident" | "replay" | "snapshot";
+  restoreStartedAt: number;
+}
+
+/** A thread plus the validated cwd its session runs in. */
+interface ThreadTarget {
+  thread: Thread;
+  project: NonNullable<ReturnType<typeof getProject>>;
+  cwd: string;
+}
+
+function isPhaseTimeout(error: unknown): boolean {
+  return error instanceof Error && /timed out/i.test(error.message);
+}
+
+/**
+ * How long dispose waits for snapshot writes before abandoning them. A write
+ * replaces its generation atomically (temp file, rename, one row update), so an
+ * abandoned or interrupted write leaves the previous snapshot intact.
+ */
+export const DISPOSE_SNAPSHOT_FLUSH_MS = 3_000;
 
 function loadPreferredAgentId(): string {
   try {
@@ -238,7 +300,6 @@ export class AgentConnectionManager {
   ) => void;
   private readonly onRunningThreadsChanged?: (threadIds: string[]) => void;
 
-  private connecting: Promise<LiveConnection> | null = null;
   private activeProjectId: string | null = null;
   private activeThreadId: string | null = null;
   private preferredAgentId: string = loadPreferredAgentId();
@@ -254,12 +315,23 @@ export class AgentConnectionManager {
     string,
     { promise: Promise<void>; resolve: () => void }
   >();
-  private readonly snapshotStore = new ThreadSnapshotStore();
+  private readonly snapshotStore = new ThreadSnapshotStore({
+    isPinned: (threadId) => this.sessions.has(threadId),
+  });
   private readonly snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly snapshotWriteChains = new Map<string, Promise<void>>();
+  private readonly snapshotFreshness = new SnapshotFreshness();
+  /** Tail of each thread's write chain: at most one active write plus one pending. */
+  private readonly snapshotWriteChains = new Map<string, Promise<boolean>>();
+  /** Set once dispose starts: no new debounced snapshot writes are scheduled. */
+  private disposing = false;
+  private disposed: Promise<void> | null = null;
+  /** Queued writes that have not started; they capture the runtime when they run. */
+  private readonly pendingSnapshotWrites = new Map<string, Promise<boolean>>();
   private readonly backgroundToolCallTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private snapshotPreloadTask: ReturnType<typeof setImmediate> | null = null;
-  private snapshotWritesDisabled = false;
+  /** Consecutive failed snapshot writes; debounced writes back off while non-zero. */
+  private snapshotWriteFailures = 0;
+  private snapshotWritesBlockedUntil = 0;
   /** Per-session filesystem containment for agent reads/writes/terminals. */
   private readonly workspaceGuard = new WorkspaceGuard();
   private readonly permissions = new PermissionCoordinator({
@@ -281,11 +353,23 @@ export class AgentConnectionManager {
   /** Per tool-call start timestamps for `tool_call_finished` timing, keyed `${sessionId}:${toolCallId}`. */
   private readonly toolCallStarts = new Map<string, { startedAt: number; kind?: string }>();
   private monitorObserver: AgentMonitorObserver | null = null;
-  private threadActivationQueue: Promise<unknown> = Promise.resolve();
-  /** Aborts the currently running (or queued) activation; nulled when it settles. */
-  private activationAbort: AbortController | null = null;
-  private activationGeneration = 0;
-  private readonly threadActivationGenerations = new Map<string, number>();
+  /**
+   * Orders active-selection commits. Preparation is not queued behind it: a
+   * slow provider start never delays an unrelated resident switch.
+   */
+  private readonly selection = new SelectionFence();
+  /** Per-thread exclusion for prepare, close and delete of the same thread. */
+  private readonly threadMutations = new KeyedMutex();
+  /** In-flight runtime preparation per thread; concurrent callers share it. */
+  private readonly threadPreparations = new Map<string, Promise<PreparedThread>>();
+  /** Persisted model catalogs, so pickers never start a provider just to list models. */
+  private readonly catalogs: ProviderCatalogStore;
+  /** Leases that keep a provider busy for idle release (prepares, creates, auth, probes). */
+  private readonly providerLeases = new Map<string, number>();
+  /** Last time each live provider was observed busy; drives opt-in idle release. */
+  private readonly providerLastBusyAt = new Map<string, number>();
+  private providerIdleReleaseMinutes = loadIdleReleaseMinutes();
+  private idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 
   private currentEditorText = "";
   private turnSequence = 0;
@@ -304,7 +388,10 @@ export class AgentConnectionManager {
     notify?: OsNotifier;
     /** App version for ACP `clientInfo`; defaults when unset (tests). */
     clientVersion?: string;
+    /** Provider catalog cache file; defaults to userData (tests override). */
+    catalogPath?: string;
   }) {
+    this.catalogs = new ProviderCatalogStore({ path: options.catalogPath });
     this.sendToRenderer =
       options.sendToRenderer.length <= 1
         ? (_channel, payload) =>
@@ -379,6 +466,7 @@ export class AgentConnectionManager {
           error_type: errorName,
         } as AnalyticsProperties),
     });
+    this.scheduleIdleSweep();
   }
 
   getSubagentConfig() {
@@ -428,116 +516,235 @@ export class AgentConnectionManager {
     }
   }
 
-  async getModelCatalogs(): Promise<
-    Record<string, Array<{ modelId: string; name: string; provider?: string }>>
-  > {
-    // Draft model pickers need catalogs before a thread exists. Warm every
-    // selected agent so the picker is not limited to whichever providers have
-    // already been used in a live session. A provider that is unavailable or
-    // needs authentication is skipped; its catalog can still be populated by
-    // a later successful session.
+  /**
+   * Model catalogs for pickers. Cached catalogs are returned immediately and
+   * nothing is started to serve them: only `refresh` may start a provider,
+   * and only the providers it names (e.g. the provider a draft targets that
+   * has no catalog yet, which is about to be used anyway). Providers that are
+   * already running refresh a missing or stale catalog in the background and
+   * publish the result as a `model-catalogs` event.
+   */
+  async getModelCatalogs(
+    options: { refresh?: readonly string[] } = {},
+  ): Promise<Record<string, CatalogModel[]>> {
+    await this.catalogs.load();
+    const refreshIds = [...new Set(options.refresh ?? [])].filter((id) => getAgentDescriptor(id));
+    // Explicit refresh is awaited so the caller receives the fresh catalog.
+    await Promise.all(refreshIds.map((agentId) => this.refreshCatalog(agentId, { start: true })));
+
+    const agentIds = new Set([...this.catalogAgentIds(), ...refreshIds]);
+    // A provider used before keeps its catalog visible, as long as it exists.
+    for (const agentId of this.catalogs.agentIds()) {
+      if (getAgentDescriptor(agentId)) agentIds.add(agentId);
+    }
+    for (const runtime of this.sessions.values()) agentIds.add(runtime.agentId);
+    for (const live of this.lifecycle.all()) agentIds.add(live.agentId);
+    for (const agentId of agentIds) {
+      if (refreshIds.includes(agentId)) continue;
+      if (!this.lifecycle.getCached(agentId) || !this.catalogs.needsRefresh(agentId)) continue;
+      void this.refreshCatalog(agentId, { start: false });
+    }
+
+    const result: Record<string, CatalogModel[]> = {};
+    for (const agentId of agentIds) {
+      const models = this.catalogs.get(agentId);
+      if (models?.length) result[agentId] = models;
+    }
+    return result;
+  }
+
+  /**
+   * Selections are provider-level (a driver id or a default instance id), but
+   * catalogs are keyed per instance: include every enabled instance whose
+   * driver is selected so accounts added later in Settings appear too.
+   */
+  private catalogAgentIds(): string[] {
     const selectedAgentIds = getSelectedAgentIds();
-    // Selections are provider-level (a driver id or a default instance id), but
-    // catalogs are keyed per instance. Warm every enabled instance whose driver
-    // is selected so accounts added later in Settings have catalogs too.
     const selectedSet = new Set(selectedAgentIds);
-    const warmIds = new Set(selectedAgentIds);
+    const ids = new Set(selectedAgentIds);
     for (const instance of listAgentInstanceDescriptors()) {
       const driver = instance.driverId ?? instance.id;
-      if (selectedSet.has(instance.id) || selectedSet.has(driver)) warmIds.add(instance.id);
+      if (selectedSet.has(instance.id) || selectedSet.has(driver)) ids.add(instance.id);
     }
-    const agentsToWarm = [...warmIds];
-    await Promise.all(
-      agentsToWarm.map(async (agentId) => {
-        try {
-          await this.acquireConnection(agentId);
-        } catch {
-          // Best effort: one unavailable provider must not hide the others.
-        }
-      }),
-    );
+    return [...ids];
+  }
 
-    const result: Record<string, Array<{ modelId: string; name: string; provider?: string }>> = {};
-    const add = (
-      agentId: string,
-      models: Array<{ modelId: string; name: string; provider?: string }>,
-    ) => {
-      if (!models.length) return;
-      const current = result[agentId] ?? [];
-      const seen = new Set(current.map((model) => `${model.provider ?? ""}:${model.modelId}`));
-      for (const model of models) {
-        const key = `${model.provider ?? ""}:${model.modelId}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          current.push(model);
-        }
-      }
-      result[agentId] = current;
-    };
+  /**
+   * Refresh one provider's catalog; concurrent refreshes share one probe.
+   * With `start: false` a provider that is not already running is skipped,
+   * so background refreshes never spawn a process.
+   */
+  private async refreshCatalog(agentId: string, opts: { start: boolean }): Promise<void> {
+    const before = this.catalogs.get(agentId);
+    const models = await this.catalogs.refresh(agentId, async () => {
+      const live = opts.start
+        ? await this.acquireConnection(agentId).catch(() => null)
+        : (this.lifecycle.getCached(agentId) ?? null);
+      if (!live) return null;
+      return this.withProviderLease(live.agentId, () => this.probeCatalog(live));
+    });
+    if (models && !(before && sameModels(before, models))) this.emitCatalog(agentId, models);
+  }
+
+  /**
+   * Read a running provider's models: initialize metadata or a resident
+   * session's options when available, else a temporary session that is closed
+   * again (several ACP agents only advertise models from session/new).
+   */
+  private async probeCatalog(live: LiveConnection): Promise<CatalogModel[] | null> {
+    const fromInit = (live.modelState?.availableModels ?? []).map((model) => ({
+      modelId: model.modelId,
+      name: model.name,
+    }));
+    if (fromInit.length) return fromInit;
     for (const runtime of this.sessions.values()) {
-      add(runtime.agentId, modelOptionsFromConfig(runtime.slice.configOptions));
+      if (runtime.agentId !== live.agentId) continue;
+      const models = modelOptionsFromConfig(runtime.slice.configOptions);
+      if (models.length) return models;
     }
-    for (const live of this.lifecycle.all()) {
-      add(
-        live.agentId,
-        (live.modelState?.availableModels ?? []).map((model) => ({
-          modelId: model.modelId,
-          name: model.name,
-        })),
-      );
-    }
-
-    // A number of ACP agents only advertise model choices in the
-    // session/new response, not initialize. Probe a temporary session for
-    // selected agents whose catalog is still empty so draft @model is not
-    // limited to providers with a currently open thread.
-    const catalogCwd =
-      this.getActiveCwd() ??
+    const cwd =
+      (await this.getActiveCwd()) ??
       (this.activeProjectId
         ? (getProject(this.activeProjectId)?.path ?? process.cwd())
         : process.cwd());
-    await Promise.all(
-      agentsToWarm.map(async (agentId) => {
-        if (result[agentId]?.length) return;
-        const live = this.lifecycle.getCached(agentId);
-        if (!live) return;
-        let attached: Awaited<ReturnType<typeof this.sessionMcpServers>> | null = null;
-        let sessionId: string | null = null;
+    let attached: Awaited<ReturnType<typeof this.sessionMcpServers>> | null = null;
+    let sessionId: string | null = null;
+    try {
+      attached = await this.sessionMcpServers(live, cwd);
+      const request = live.agent.request(acp.methods.agent.session.new, {
+        cwd,
+        mcpServers: attached.servers as never,
+      }) as Promise<{ sessionId: string; configOptions?: SessionConfigOption[] | null }>;
+      let created: Awaited<typeof request>;
+      try {
+        created = await requestWithTimeout(
+          request,
+          ACP_SWITCH_PHASE_TIMEOUT_MS,
+          "agent/model-catalog-session-new",
+        );
+      } catch (error) {
+        this.closeLateSession(live, request);
+        throw error;
+      }
+      sessionId = created.sessionId;
+      const models = modelOptionsFromConfig(
+        this.withModelOption(live, created.configOptions ?? []),
+      );
+      return models.length ? models : null;
+    } finally {
+      if (sessionId) {
         try {
-          attached = await this.sessionMcpServers(live, catalogCwd);
-          const created = (await requestWithTimeout(
-            live.agent.request(acp.methods.agent.session.new, {
-              cwd: catalogCwd,
-              mcpServers: attached.servers as never,
-            }),
+          await requestWithTimeout(
+            live.agent.request(acp.methods.agent.session.close, { sessionId }),
             ACP_SWITCH_PHASE_TIMEOUT_MS,
-            "agent/model-catalog-session-new",
-          )) as { sessionId: string; configOptions?: SessionConfigOption[] | null };
-          sessionId = created.sessionId;
-          add(
-            agentId,
-            modelOptionsFromConfig(this.withModelOption(live, created.configOptions ?? [])),
+            "agent/model-catalog-session-close",
           );
         } catch {
-          // Model discovery is best effort; the provider can still populate
-          // its catalog when the user opens a real thread later.
-        } finally {
-          if (sessionId) {
-            try {
-              await requestWithTimeout(
-                live.agent.request(acp.methods.agent.session.close, { sessionId }),
-                ACP_SWITCH_PHASE_TIMEOUT_MS,
-                "agent/model-catalog-session-close",
-              );
-            } catch {
-              // best effort
-            }
-          }
-          attached?.release();
+          // best effort
         }
-      }),
-    );
-    return result;
+      }
+      attached?.release();
+    }
+  }
+
+  /** Record models a session or initialize reply advertised; publish when they changed. */
+  private recordCatalog(agentId: string, models: CatalogModel[]): void {
+    if (!models.length || !this.catalogs.record(agentId, models)) return;
+    this.emitCatalog(agentId, this.catalogs.get(agentId) ?? models);
+  }
+
+  private emitCatalog(agentId: string, models: CatalogModel[]): void {
+    this.emit({ type: "model-catalogs", catalogs: { [agentId]: models } });
+  }
+
+  /** Mark a provider busy for idle release while `task` runs. */
+  private async withProviderLease<T>(agentId: string, task: () => Promise<T>): Promise<T> {
+    this.providerLeases.set(agentId, (this.providerLeases.get(agentId) ?? 0) + 1);
+    this.providerLastBusyAt.set(agentId, Date.now());
+    try {
+      return await task();
+    } finally {
+      const remaining = (this.providerLeases.get(agentId) ?? 1) - 1;
+      if (remaining > 0) this.providerLeases.set(agentId, remaining);
+      else this.providerLeases.delete(agentId);
+      this.providerLastBusyAt.set(agentId, Date.now());
+    }
+  }
+
+  getProviderIdleReleaseMinutes(): number {
+    return this.providerIdleReleaseMinutes;
+  }
+
+  /**
+   * Opt in to releasing idle providers. 0 disables it (the default); other
+   * values are clamped to at least PROVIDER_IDLE_RELEASE_MIN_MINUTES.
+   */
+  setProviderIdleReleaseMinutes(minutes: number): number {
+    this.providerIdleReleaseMinutes = clampIdleReleaseMinutes(minutes);
+    try {
+      setAppSetting(PROVIDER_IDLE_RELEASE_KEY, String(this.providerIdleReleaseMinutes));
+    } catch {
+      // Non-fatal: the setting applies for this run only.
+    }
+    this.scheduleIdleSweep();
+    return this.providerIdleReleaseMinutes;
+  }
+
+  private scheduleIdleSweep(): void {
+    if (this.idleSweepTimer) clearInterval(this.idleSweepTimer);
+    this.idleSweepTimer = null;
+    if (this.providerIdleReleaseMinutes <= 0) return;
+    this.idleSweepTimer = setInterval(() => {
+      void this.releaseIdleProviders();
+    }, PROVIDER_IDLE_SWEEP_MS);
+    this.idleSweepTimer.unref?.();
+  }
+
+  /** A provider is busy while anything could still need its process. */
+  private providerBusy(agentId: string): boolean {
+    if (this.providerLeases.has(agentId)) return true;
+    if (this.catalogs.isRefreshing(agentId)) return true;
+    if (this.subagents.hasActiveRunsForAgent(agentId)) return true;
+    for (const runtime of this.sessions.values()) {
+      if (runtime.agentId === agentId) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Release providers idle for the configured period. The preferred provider
+   * (where new threads start) and the composer's active provider stay warm.
+   * Returns the released provider ids.
+   */
+  private async releaseIdleProviders(now = Date.now()): Promise<string[]> {
+    const thresholdMs = this.providerIdleReleaseMinutes * 60_000;
+    if (thresholdMs <= 0) return [];
+    const liveIds = new Set<string>();
+    const released: string[] = [];
+    for (const live of this.lifecycle.all()) {
+      const agentId = live.agentId;
+      liveIds.add(agentId);
+      if (this.providerBusy(agentId)) {
+        this.providerLastBusyAt.set(agentId, now);
+        continue;
+      }
+      if (agentId === this.preferredAgentId || this.lifecycle.active === live) continue;
+      const lastBusyAt = this.providerLastBusyAt.get(agentId);
+      if (lastBusyAt == null) {
+        this.providerLastBusyAt.set(agentId, now);
+        continue;
+      }
+      if (now - lastBusyAt < thresholdMs) continue;
+      released.push(agentId);
+    }
+    for (const agentId of this.providerLastBusyAt.keys()) {
+      if (!liveIds.has(agentId)) this.providerLastBusyAt.delete(agentId);
+    }
+    for (const agentId of released) {
+      this.providerLastBusyAt.delete(agentId);
+      await this.lifecycle.close(agentId);
+    }
+    return released;
   }
 
   async getToolCalls(
@@ -550,6 +757,9 @@ export class AgentConnectionManager {
       ? requestedIds.filter((id) => Boolean(runtime.slice.toolCalls[id]))
       : Object.keys(runtime.slice.toolCalls);
     const payloads = this.payloadsFor(runtime);
+    // Persisted bodies are request-scoped. Keeping every expanded trace in
+    // runtime.toolPayloads defeated snapshot eviction until the next write.
+    let selectedPayloads: ReadonlyMap<string, ToolCallPayload> = payloads;
     const missingIds = ids.filter(
       (id) => runtime.slice.toolCalls[id]?.hasPayload && !payloads.has(id),
     );
@@ -560,9 +770,9 @@ export class AgentConnectionManager {
           missingIds,
         );
         if (this.sessions.get(threadId) === runtime) {
-          for (const [id, payload] of restored) {
-            if (!payloads.has(id)) payloads.set(id, payload);
-          }
+          // Live updates can arrive while the sidecar is being read; prefer
+          // their newer bodies over the persisted generation.
+          selectedPayloads = new Map([...restored, ...payloads]);
         }
       } catch (error) {
         console.warn(`[thread-snapshot] selective payload restore failed for ${threadId}:`, error);
@@ -573,7 +783,7 @@ export class AgentConnectionManager {
     const selected = Object.fromEntries(
       ids.map((id) => [id, runtime.slice.toolCalls[id]]).filter(([, toolCall]) => toolCall),
     ) as Record<string, AcpToolCallState>;
-    return hydrateToolCalls(selected, payloads);
+    return hydrateToolCalls(selected, selectedPayloads);
   }
 
   private payloadsFor(runtime: ThreadSessionRuntime): Map<string, ToolCallPayload> {
@@ -648,83 +858,155 @@ export class AgentConnectionManager {
   }
 
   private scheduleSnapshot(runtime: ThreadSessionRuntime): void {
-    if (
-      !this.snapshotStore.enabled ||
-      this.snapshotWritesDisabled ||
-      runtime.snapshotDirty === false
-    ) {
-      return;
-    }
+    if (this.disposing || !this.snapshotStore.enabled || runtime.snapshotDirty === false) return;
+    this.snapshotFreshness.noteSettled(runtime.threadId);
     const existing = this.snapshotTimers.get(runtime.threadId);
     if (existing) clearTimeout(existing);
+    // While storage is failing, debounced writes wait out the backoff instead
+    // of hammering a full or broken disk. Explicit flushes still try once.
+    const delay = Math.max(2_000, this.snapshotWritesBlockedUntil - Date.now());
     const timer = setTimeout(() => {
       this.snapshotTimers.delete(runtime.threadId);
       void this.queueSnapshotWrite(runtime);
-    }, 2_000);
+    }, delay);
     timer.unref?.();
     this.snapshotTimers.set(runtime.threadId, timer);
   }
 
-  private queueSnapshotWrite(runtime: ThreadSessionRuntime): Promise<void> {
-    if (
-      !this.snapshotStore.enabled ||
-      this.snapshotWritesDisabled ||
-      runtime.slice.isStreaming ||
-      runtime.promptInFlight ||
-      this.loadingSessionThreads.has(runtime.threadId) ||
-      runtime.agentReady === false
-    ) {
-      return Promise.resolve();
-    }
-    const input = {
-      threadId: runtime.threadId,
-      agentSessionId: runtime.agentSessionId,
-      agentId: runtime.agentId,
-      slice: runtime.slice,
-      payloads: new Map(this.payloadsFor(runtime)),
-    };
-    const payloadRevision = runtime.payloadRevision ?? 0;
-    const previous = this.snapshotWriteChains.get(runtime.threadId) ?? Promise.resolve();
-    const write = previous
-      .catch(() => undefined)
-      .then(() =>
-        this.snapshotStore.write({
-          ...input,
-          // Resolve the base generation only after the prior per-thread write
-          // settles; that write may have atomically replaced and unlinked it.
-          baseSnapshot: runtime.snapshotPayloadSource,
-        }),
-      )
-      .then((snapshot) => {
-        if (!snapshot || this.sessions.get(runtime.threadId) !== runtime) return;
-        runtime.snapshotPayloadSource = snapshot;
-        if ((runtime.payloadRevision ?? 0) === payloadRevision) {
-          // The immutable sidecar is now the backing store. Keep the main
-          // process lean; individual trace/diff payloads reload on demand.
-          this.payloadsFor(runtime).clear();
-          runtime.snapshotDirty = false;
+  private snapshotWritable(runtime: ThreadSessionRuntime): boolean {
+    return (
+      this.snapshotStore.enabled &&
+      !runtime.slice.isStreaming &&
+      !runtime.promptInFlight &&
+      !this.loadingSessionThreads.has(runtime.threadId) &&
+      runtime.agentReady !== false
+    );
+  }
+
+  /**
+   * Queue a display-snapshot write. Resolves true only when the runtime's
+   * state is on disk: written by this request, or already clean. A failed,
+   * skipped (turn in progress) or store-disabled write resolves false.
+   * Requests made while a write is already pending share it:
+   * the pending write captures the runtime when it starts, so it persists the
+   * latest revision and retains one input per thread instead of one per call.
+   */
+  private queueSnapshotWrite(runtime: ThreadSessionRuntime): Promise<boolean> {
+    if (!this.snapshotWritable(runtime)) return Promise.resolve(runtime.snapshotDirty === false);
+    const threadId = runtime.threadId;
+    const pending = this.pendingSnapshotWrites.get(threadId);
+    if (pending) return pending;
+    const previous = this.snapshotWriteChains.get(threadId) ?? Promise.resolve(true);
+    const write: Promise<boolean> = previous
+      .catch(() => false)
+      .then(() => {
+        if (this.pendingSnapshotWrites.get(threadId) === write) {
+          this.pendingSnapshotWrites.delete(threadId);
         }
-      })
-      .catch((error) => {
-        if (!this.snapshotWritesDisabled) {
-          console.warn("[thread-snapshot] disabling writes for this app session:", error);
-        }
-        this.snapshotWritesDisabled = true;
+        return this.writeSnapshotNow(runtime);
       })
       .finally(() => {
-        if (this.snapshotWriteChains.get(runtime.threadId) === write) {
-          this.snapshotWriteChains.delete(runtime.threadId);
+        if (this.snapshotWriteChains.get(threadId) === write) {
+          this.snapshotWriteChains.delete(threadId);
         }
       });
-    this.snapshotWriteChains.set(runtime.threadId, write);
+    this.pendingSnapshotWrites.set(threadId, write);
+    this.snapshotWriteChains.set(threadId, write);
     return write;
   }
 
-  private async flushRuntimeSnapshot(runtime: ThreadSessionRuntime): Promise<void> {
+  private async writeSnapshotNow(runtime: ThreadSessionRuntime): Promise<boolean> {
+    // A turn may have started while this write waited behind the previous one;
+    // settling that turn schedules the next write.
+    if (!this.snapshotWritable(runtime)) return runtime.snapshotDirty === false;
+    const slice = runtime.slice;
+    const payloadRevision = runtime.payloadRevision ?? 0;
+    const baseSnapshot = runtime.snapshotPayloadSource;
+    try {
+      const snapshot = await this.snapshotStore.write({
+        threadId: runtime.threadId,
+        agentSessionId: runtime.agentSessionId,
+        agentId: runtime.agentId,
+        slice,
+        payloads: new Map(this.payloadsFor(runtime)),
+        // Resolve the base generation only after the prior per-thread write
+        // settles; that write may have atomically replaced and unlinked it.
+        baseSnapshot,
+      });
+      this.snapshotWriteFailures = 0;
+      this.snapshotWritesBlockedUntil = 0;
+      if (!snapshot) return false;
+      this.snapshotFreshness.notePersisted(runtime.threadId);
+      if (this.sessions.get(runtime.threadId) !== runtime) return true;
+      runtime.snapshotPayloadSource = snapshot;
+      if ((runtime.payloadRevision ?? 0) === payloadRevision) {
+        // The immutable sidecar is now the backing store. Keep the main
+        // process lean; individual trace/diff payloads reload on demand.
+        this.payloadsFor(runtime).clear();
+        if (runtime.slice === slice) runtime.snapshotDirty = false;
+      }
+      return true;
+    } catch (error) {
+      // Back off globally (one disk serves every thread) but never disable
+      // writes for the rest of the session: the next success resets it. Live
+      // payloads stay in memory because they were not persisted.
+      this.snapshotWriteFailures++;
+      const backoffMs = Math.min(5 * 60_000, 2_000 * 2 ** (this.snapshotWriteFailures - 1));
+      this.snapshotWritesBlockedUntil = Date.now() + backoffMs;
+      if (this.snapshotWriteFailures === 1) {
+        console.warn("[thread-snapshot] write failed; retrying with backoff:", error);
+      }
+      const baseUnreadable =
+        error instanceof ThreadSnapshotBodiesUnavailableError ||
+        ((error as NodeJS.ErrnoException | null)?.code === "ENOENT" &&
+          (error as NodeJS.ErrnoException).path === baseSnapshot?.payloadPath);
+      if (baseSnapshot && runtime.snapshotPayloadSource === baseSnapshot && baseUnreadable) {
+        // The generation this write copies from is gone or corrupt. Retrying
+        // against it can never succeed; write what is still in memory instead.
+        runtime.snapshotPayloadSource = undefined;
+      }
+      if (this.sessions.get(runtime.threadId) === runtime) this.scheduleSnapshot(runtime);
+      return false;
+    }
+  }
+
+  /**
+   * Large images in a restored transcript paint as placeholders; their stored
+   * content follows right after the first paint.
+   */
+  private async hydrateSnapshotImages(
+    runtime: ThreadSessionRuntime,
+    snapshot: LoadedThreadSnapshot,
+  ): Promise<void> {
+    const refs = snapshotImageRefs(snapshot.slice);
+    if (refs.length === 0) return;
+    try {
+      const images = await this.snapshotStore.loadImages(snapshot, refs);
+      if (this.sessions.get(runtime.threadId) !== runtime) return;
+      // The replay may already have replaced the slice; only placeholders
+      // that are still present are filled in.
+      const entries = hydrateSnapshotImages(runtime.slice.entries, images);
+      if (!entries) return;
+      runtime.slice = { ...runtime.slice, entries };
+      this.pushState(runtime.threadId);
+    } catch (error) {
+      console.warn(`[thread-snapshot] image restore failed for ${runtime.threadId}:`, error);
+    }
+  }
+
+  private flushRuntimeSnapshot(runtime: ThreadSessionRuntime): Promise<boolean> {
     const timer = this.snapshotTimers.get(runtime.threadId);
     if (timer) clearTimeout(timer);
     this.snapshotTimers.delete(runtime.threadId);
-    await this.queueSnapshotWrite(runtime);
+    return this.queueSnapshotWrite(runtime);
+  }
+
+  /** Display-cache freshness and disk budget categories (diagnostics, benchmarks). */
+  snapshotStorageStats() {
+    return {
+      freshness: this.snapshotFreshness.summary(),
+      usage: this.snapshotStore.enabled ? this.snapshotStore.storageUsage() : null,
+    };
   }
 
   /** Force a settled snapshot to disk (used by benchmark setup and shutdown). */
@@ -733,8 +1015,7 @@ export class AgentConnectionManager {
     if (!runtime || runtime.agentReady === false || this.loadingSessionThreads.has(threadId)) {
       return false;
     }
-    await this.flushRuntimeSnapshot(runtime);
-    return !this.snapshotWritesDisabled;
+    return this.flushRuntimeSnapshot(runtime);
   }
 
   private async flushAllSnapshots(): Promise<void> {
@@ -745,6 +1026,7 @@ export class AgentConnectionManager {
   }
 
   private async deletePersistedSnapshot(threadId: string): Promise<void> {
+    this.snapshotFreshness.forget(threadId);
     const timer = this.snapshotTimers.get(threadId);
     if (timer) clearTimeout(timer);
     this.snapshotTimers.delete(threadId);
@@ -919,7 +1201,7 @@ export class AgentConnectionManager {
    * so file listings and other cwd-relative surfaces follow a worktree switch
    * automatically (switching a worktree switches the active thread).
    */
-  getActiveCwd(): string | null {
+  async getActiveCwd(): Promise<string | null> {
     const threadId = this.activeThreadId;
     if (!threadId) return null;
     const runtime = this.sessions.get(threadId);
@@ -1073,7 +1355,6 @@ export class AgentConnectionManager {
     runtime.pendingLocalEntries = [];
     runtime.replaySlice = undefined;
     runtime.replayToolPayloads = undefined;
-    this.threadActivationGenerations.delete(threadId);
     this.endThreadLoad(threadId);
     this.pushState(threadId);
     return true;
@@ -1202,29 +1483,6 @@ export class AgentConnectionManager {
     this.emit({ type: "running-threads", threadIds: running });
   }
 
-  async ensureConnection(agentId?: string): Promise<LiveConnection> {
-    const targetId = agentId ?? this.preferredAgentId;
-    const active = this.lifecycle.active;
-    if (active && active.agentId === targetId) {
-      return active;
-    }
-    const cached = this.lifecycle.getCached(targetId);
-    if (cached) {
-      this.lifecycle.setActive(cached);
-      return cached;
-    }
-    if (this.connecting) {
-      const live = await this.connecting;
-      if (live.agentId === targetId) return live;
-    }
-    this.connecting = this.switchAgent(targetId);
-    try {
-      return await this.connecting;
-    } finally {
-      this.connecting = null;
-    }
-  }
-
   /**
    * Get (or spawn) a live connection for an agent WITHOUT making it the
    * active UI agent — used by subagent runs so an orchestrator spawning e.g.
@@ -1236,7 +1494,16 @@ export class AgentConnectionManager {
       throw new Error(`Unknown agent: ${agentId}`);
     }
     // Spawn dedup + registration + connect analytics live in ConnectionLifecycle.
-    return this.lifecycle.acquire(descriptor);
+    const live = await this.lifecycle.acquire(descriptor);
+    this.providerLastBusyAt.set(live.agentId, Date.now());
+    const advertised = live.modelState?.availableModels ?? [];
+    if (advertised.length) {
+      this.recordCatalog(
+        live.agentId,
+        advertised.map((model) => ({ modelId: model.modelId, name: model.name })),
+      );
+    }
+    return live;
   }
 
   async authenticateAgent(agentId: string, methodId: string): Promise<void> {
@@ -1244,16 +1511,19 @@ export class AgentConnectionManager {
     const method = live.authMethods.find((candidate) => candidate.id === methodId);
     if (!method || ("type" in method && method.type === "terminal"))
       throw new Error("This authentication method cannot be started from Pipper.");
-    await requestWithTimeout(
-      live.agent.request(acp.methods.agent.authenticate, { methodId }),
-      5 * 60_000,
-      "agent/authenticate",
+    await this.withProviderLease(agentId, () =>
+      requestWithTimeout(
+        live.agent.request(acp.methods.agent.authenticate, { methodId }),
+        5 * 60_000,
+        "agent/authenticate",
+      ),
     );
     live.authRequiredMessage = null;
     // A thread whose restore failed with `auth_required` is still snapshot-only.
-    // Now that credentials exist, re-run its activation in the background so
+    // Now that credentials exist, re-establish its session in the background so
     // signing in unblocks the thread it was requested from. Not awaited: the
-    // caller's button state must not hang on a slow re-activation.
+    // caller's button state must not hang on a slow re-activation. This is not
+    // a selection request, so it cannot override a switch the user made since.
     const threadId = this.activeThreadId;
     const runtime = threadId ? this.sessions.get(threadId) : undefined;
     if (
@@ -1262,9 +1532,14 @@ export class AgentConnectionManager {
       runtime.agentId === agentId &&
       !this.loadingSessionThreads.has(threadId)
     ) {
-      void this.switchThread(threadId).catch((error) => {
-        console.warn(`[agent-auth] retry activation for ${threadId} failed:`, error);
-      });
+      void this.resolveThreadTarget(threadId)
+        .then((target) => this.ensureThreadRuntime(target))
+        .then(() => {
+          if (this.activeThreadId === threadId) this.pushState(threadId);
+        })
+        .catch((error) => {
+          console.warn(`[agent-auth] retry activation for ${threadId} failed:`, error);
+        });
     }
   }
 
@@ -1274,26 +1549,17 @@ export class AgentConnectionManager {
       state: { ...this.getState(), switchingAgent: true },
     });
 
-    const previousAgentId = this.lifecycle.active?.agentId ?? null;
     const live = await this.acquireConnection(agentId);
-    this.lifecycle.setActive(live);
-    this.preferredAgentId = agentId;
-    persistPreferredAgentId(agentId);
-    if (previousAgentId && previousAgentId !== live.agentId) {
-      this.captureAnalytics?.("agent_switched", {
-        from_agent_id: previousAgentId,
-        to_agent_id: live.agentId,
-        agent_name: getAgentDescriptor(live.agentId)?.name,
+    if (!this.activateConnection(live)) {
+      // Already active: still confirm the connection so the picker settles.
+      this.emit({
+        type: "connection",
+        agentId: live.agentId,
+        agentCapabilities: live.agentCapabilities,
+        authMethods: live.authMethods,
+        authRequiredMessage: live.authRequiredMessage,
       });
     }
-
-    this.emit({
-      type: "connection",
-      agentId: live.agentId,
-      agentCapabilities: live.agentCapabilities,
-      authMethods: live.authMethods,
-      authRequiredMessage: live.authRequiredMessage,
-    });
     this.pushState();
     return live;
   }
@@ -1861,8 +2127,11 @@ export class AgentConnectionManager {
    * keeps git the source of truth — an externally-removed worktree degrades to
    * the project root instead of failing `session/new` on a stale path.
    */
-  private resolveThreadCwd(worktreePath: string | null | undefined, projectPath: string): string {
-    if (worktreePath && isLiveWorktree(worktreePath, projectPath)) return worktreePath;
+  private async resolveThreadCwd(
+    worktreePath: string | null | undefined,
+    projectPath: string,
+  ): Promise<string> {
+    if (worktreePath && (await isLiveWorktree(worktreePath, projectPath))) return worktreePath;
     return projectPath;
   }
 
@@ -1880,21 +2149,19 @@ export class AgentConnectionManager {
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     const attached = await this.sessionMcpServers(live, cwd);
+    const request = live.agent.request(acp.methods.agent.session.new, {
+      cwd,
+      mcpServers: attached.servers as never,
+    });
     let result: { sessionId: string; configOptions?: SessionConfigOption[] | null };
     try {
-      result = await requestWithTimeout(
-        live.agent.request(acp.methods.agent.session.new, {
-          cwd,
-          mcpServers: attached.servers as never,
-        }),
-        ACP_SWITCH_PHASE_TIMEOUT_MS,
-        "session/new",
-      );
+      result = await requestWithTimeout(request, ACP_SWITCH_PHASE_TIMEOUT_MS, "session/new");
     } catch (err) {
       // A genuine "not signed in" surfaces here as an ACP `auth_required`
       // error — the only reliable signal — so record it for `authMessage()`.
       this.recordAuthRequired(live, err);
       attached.release();
+      this.closeLateSession(live, request);
       throw err;
     }
     live.authRequiredMessage = null;
@@ -1904,6 +2171,7 @@ export class AgentConnectionManager {
       live,
       (result.configOptions as SessionConfigOption[] | null | undefined) ?? [],
     );
+    this.recordCatalog(live.agentId, modelOptionsFromConfig(configOptions));
 
     // Preserve the compatibility sync for other adapters that leak tab-separated
     // defaults. Official Antigravity ACP values remain opaque and are never rewritten.
@@ -1946,31 +2214,28 @@ export class AgentConnectionManager {
     sessionId: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     const attached = await this.sessionMcpServers(live, cwd);
+    const request = live.agent.request(acp.methods.agent.session.load, {
+      cwd,
+      sessionId,
+      mcpServers: attached.servers as never,
+    }) as Promise<{ sessionId?: string; configOptions?: SessionConfigOption[] | null }>;
     let result: { sessionId?: string; configOptions?: SessionConfigOption[] | null };
     try {
-      result = await requestWithTimeout(
-        live.agent.request(acp.methods.agent.session.load, {
-          cwd,
-          sessionId,
-          mcpServers: attached.servers as never,
-        }),
-        ACP_SWITCH_PHASE_TIMEOUT_MS,
-        "session/load",
-      );
+      result = await requestWithTimeout(request, ACP_SWITCH_PHASE_TIMEOUT_MS, "session/load");
     } catch (err) {
       // A restore that needs sign-in is the same persistent signal as a new
       // session: without this the renderer hides the transient switch error
       // and shows nothing lasting to act on.
       this.recordAuthRequired(live, err);
       attached.release();
+      this.closeLateSession(live, request, sessionId);
       throw err;
     }
     live.authRequiredMessage = null;
     attached.bind(result?.sessionId ?? sessionId);
-    return {
-      sessionId: result?.sessionId ?? sessionId,
-      configOptions: this.withModelOption(live, result?.configOptions ?? []),
-    };
+    const configOptions = this.withModelOption(live, result?.configOptions ?? []);
+    this.recordCatalog(live.agentId, modelOptionsFromConfig(configOptions));
+    return { sessionId: result?.sessionId ?? sessionId, configOptions };
   }
 
   private async sessionResume(
@@ -1979,236 +2244,141 @@ export class AgentConnectionManager {
     cwd: string,
   ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     const attached = await this.sessionMcpServers(live, cwd);
+    const request = live.agent.request(acp.methods.agent.session.resume, {
+      sessionId: prevSessionId,
+      cwd,
+      mcpServers: attached.servers as never,
+    } as never) as Promise<{ sessionId?: string; configOptions?: SessionConfigOption[] | null }>;
     let result: { sessionId?: string; configOptions?: SessionConfigOption[] | null };
     try {
-      result = await requestWithTimeout(
-        live.agent.request(acp.methods.agent.session.resume, {
-          sessionId: prevSessionId,
-          cwd,
-          mcpServers: attached.servers as never,
-        } as never),
-        ACP_SWITCH_PHASE_TIMEOUT_MS,
-        "session/resume",
-      );
+      result = await requestWithTimeout(request, ACP_SWITCH_PHASE_TIMEOUT_MS, "session/resume");
     } catch (err) {
       this.recordAuthRequired(live, err);
       attached.release();
+      this.closeLateSession(live, request, prevSessionId);
       throw err;
     }
     live.authRequiredMessage = null;
     attached.bind(result?.sessionId ?? prevSessionId);
-    return {
-      sessionId: result?.sessionId ?? prevSessionId,
-      configOptions: this.withModelOption(live, result?.configOptions ?? []),
-    };
+    const configOptions = this.withModelOption(live, result?.configOptions ?? []);
+    this.recordCatalog(live.agentId, modelOptionsFromConfig(configOptions));
+    return { sessionId: result?.sessionId ?? prevSessionId, configOptions };
   }
 
-  private enqueueThreadActivation<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    // A newly requested activation supersedes the slow prepare running ahead
-    // of it: cancellable operations (switch/restore) abandon their in-flight
-    // session phases instead of making every later request wait out full phase
-    // timeouts. Durable operations (create/delete/close) receive the signal
-    // but deliberately ignore it — their effect must complete.
-    this.activationAbort?.abort(new ActivationSupersededError());
-    const controller = new AbortController();
-    this.activationAbort = controller;
-    const result = this.threadActivationQueue.then(
-      () => task(controller.signal),
-      () => task(controller.signal),
-    );
-    this.threadActivationQueue = result.then(
+  /**
+   * A phase timeout only ends our wait: the provider may still establish the
+   * session afterwards. Give that late session an owner. A runtime that has
+   * since claimed the id keeps it; otherwise it is closed and its subagent
+   * MCP endpoints are released, so the provider does not hold an orphan.
+   * A rejected request established nothing and needs no cleanup.
+   */
+  private closeLateSession(
+    live: LiveConnection,
+    request: Promise<{ sessionId?: string } | null | undefined>,
+    knownSessionId?: string,
+  ): void {
+    request.then(
+      (late) => {
+        const sessionId = late?.sessionId ?? knownSessionId;
+        if (!sessionId || this.sessions.threadIdForSession(sessionId) != null) return;
+        this.subagents.releaseSessionMcp(sessionId);
+        void live.agent
+          .request(acp.methods.agent.session.close, { sessionId })
+          .catch(() => undefined);
+      },
       () => undefined,
-      () => undefined,
-    );
-    void result
-      .catch(() => {
-        // Rejection is the caller's concern; this chain only clears the abort handle.
-      })
-      .finally(() => {
-        if (this.activationAbort === controller) this.activationAbort = null;
-      });
-    return result;
-  }
-
-  async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
-    return this.enqueueThreadActivation((signal) =>
-      this.activateProjectInternal(projectId, preferredThreadId, signal),
     );
   }
 
-  private async activateProjectInternal(
-    projectId: string,
-    preferredThreadId?: string | null,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    throwIfSuperseded(signal);
-    const project = getProject(projectId);
-    if (!project) throw new Error(`Project not found: ${projectId}`);
-
-    this.activeProjectId = projectId;
-    setActiveProjectId(projectId);
-    this.broadcastActiveProject?.(projectId);
-
-    const threads = listThreads().filter((t) => t.project_id === projectId);
-    let thread: Thread | null = preferredThreadId ? getThread(preferredThreadId) : null;
-    if (!thread) {
-      // No explicit thread: enter the project's persisted workspace context —
-      // its most-recently-used open tab there, else its most recent thread —
-      // before falling back to any project thread.
-      const state = await readLaunchState();
-      const workspacePath = normalizeWorkspacePath(
-        state.selectedWorktreePathByProject[projectId],
-        project.path,
-      );
-      thread =
-        pickWorkspaceThread({
-          projectId,
-          workspacePath,
-          openThreadIds: state.openThreadIds,
-          threadSwitchHistory: state.threadSwitchHistory,
-          threads,
-        }) ??
-        threads[0] ??
-        null;
-    }
-
-    if (!thread) {
-      this.activeThreadId = null;
-      await updateLaunchSelection({ projectId, threadId: null });
-      this.pushState(null);
-      return;
-    }
-
-    // switchThread reconciles the persisted workspace to the activated
-    // thread's cwd, so header/tabs/terminals agree after restart and after
-    // project switches.
-    try {
-      await this.switchThreadInternal(thread.id, "restore", signal);
-    } catch (error) {
-      // A newer activation superseded this one: the caller must not treat the
-      // abandoned switch as a completed launch.
-      if (isActivationSuperseded(error)) throw error;
-      // A snapshot-restored thread must not block project launch: the user
-      // needs the workspace open to read its saved history and start a
-      // replacement thread (e.g. a legacy `pipper-agy-` id the official
-      // Antigravity server cannot resume). The failure is still recorded on
-      // the switch monitor and the transcript stays displayable.
-      if (!this.sessions.get(thread.id)?.snapshotRestored) throw error;
-      console.warn(`[thread-restore] opening ${thread.id} snapshot-only:`, error);
-      // switchThreadCore's reconciliation never ran, so a snapshot-only launch
-      // must still select the thread's workspace and give it an open tab.
-      await Promise.all([
-        updateWorkspaceSelection(
-          project.id,
-          this.resolveThreadCwd(thread.worktree_path, project.path),
-        ),
-        recordThreadSwitch(thread.id),
-      ]);
-    }
-
-    await updateLaunchSelection({ projectId, threadId: thread.id });
+  /**
+   * Run a mutation of one thread (close, delete) after any in-flight work on
+   * that thread. Later requests must not join a preparation that started
+   * before this mutation, so the shared preparation handle is dropped here.
+   */
+  private mutateThread<T>(threadId: string, task: () => Promise<T>): Promise<T> {
+    this.threadPreparations.delete(threadId);
+    return this.threadMutations.run(threadId, task);
   }
 
-  async switchThread(threadId: string): Promise<OpenTabsState> {
-    return this.enqueueThreadActivation((signal) =>
-      this.switchThreadInternal(threadId, "tab", signal),
-    );
-  }
-
-  private async switchThreadInternal(
-    threadId: string,
-    source: MonitorSwitchRecord["source"] = "tab",
-    signal?: AbortSignal,
-  ): Promise<OpenTabsState> {
-    throwIfSuperseded(signal);
-    const startedAt = Date.now();
-    const previousThreadId = this.activeThreadId;
-    const wasResidentInMemory = this.sessions.has(threadId);
-    const cachedSessionCount = this.sessions.size;
-    const agentIdBefore = this.lifecycle.active?.agentId ?? null;
-    const workspaceCwdBefore = this.getActiveCwd();
-    let phase: MonitorSwitchPhase = wasResidentInMemory ? "cache_hit" : "session_load";
-    let openTabCount = 0;
-    const record = (success: boolean, error?: string) => {
-      const thread = getThread(threadId);
-      const agentIdTarget = thread?.agent_id ?? null;
-      const workspaceCwdTarget = this.getActiveCwd();
-      this.monitorObserver?.onSwitchRecord?.({
-        timestamp: Date.now(),
-        threadId,
-        agentId: this.lifecycle.active?.agentId ?? null,
-        projectId: this.activeProjectId,
-        source,
-        phase,
-        durationMs: Date.now() - startedAt,
-        success,
-        error,
-        openTabCount,
-        previousThreadId,
-        cachedSessionCount,
-        wasResidentInMemory,
-        agentIdBefore,
-        agentIdTarget,
-        agentSwitched:
-          agentIdBefore !== null && agentIdTarget !== null && agentIdBefore !== agentIdTarget,
-        workspaceCwdBefore,
-        workspaceCwdTarget,
-        workspaceCwdChanged:
-          workspaceCwdBefore !== null &&
-          workspaceCwdTarget !== null &&
-          workspaceCwdBefore !== workspaceCwdTarget,
-      });
-    };
-    try {
-      const state = await this.switchThreadCore(
-        threadId,
-        (nextPhase) => {
-          phase = nextPhase;
-        },
-        signal,
-      );
-      // The returned tabs state reflects the open-tab set after this
-      // activation; capture it so records are comparable to tab events.
-      openTabCount = state.openThreadIds.length;
-      record(true);
-      return state;
-    } catch (err) {
-      try {
-        openTabCount = (await readOpenTabsState()).openThreadIds.length;
-      } catch {
-        // best effort
-      }
-      record(false, err instanceof Error ? err.message : String(err));
-      throw err;
-    }
-  }
-
-  private async switchThreadCore(
-    threadId: string,
-    onPhase: (phase: MonitorSwitchPhase) => void,
-    signal?: AbortSignal,
-  ): Promise<OpenTabsState> {
-    const restoreStartedAt = performance.now();
-    let openAnalyticsCaptured = false;
+  /** Look up a thread and validate the cwd its session should run in. */
+  private async resolveThreadTarget(threadId: string): Promise<ThreadTarget> {
     const thread = getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     const project = getProject(thread.project_id);
     if (!project) throw new Error(`Project not found: ${thread.project_id}`);
-
     // Bind the session to its worktree (validated), else the project root.
-    const cwd = this.resolveThreadCwd(thread.worktree_path, project.path);
-    const projectChanged = this.activeProjectId !== project.id;
-    this.activeProjectId = project.id;
-    this.activeThreadId = threadId;
-    setActiveProjectId(project.id);
-    if (projectChanged) this.broadcastActiveProject?.(project.id);
+    const cwd = await this.resolveThreadCwd(thread.worktree_path, project.path);
+    return { thread, project, cwd };
+  }
 
-    const generation = ++this.activationGeneration;
-    this.threadActivationGenerations.set(threadId, generation);
+  /**
+   * Establish (or reuse) a thread's runtime without touching the active
+   * selection. Concurrent requests for one thread share a single
+   * preparation, and close/delete of that thread wait for it; other threads
+   * are never blocked. A preparation is not abandoned when its caller is
+   * superseded: the session it establishes is adopted by the runtime, which
+   * stays resident like any visited thread.
+   */
+  private ensureThreadRuntime(target: ThreadTarget): Promise<PreparedThread> {
+    const threadId = target.thread.id;
+    const inFlight = this.threadPreparations.get(threadId);
+    if (inFlight) return inFlight;
+    const preparation = this.threadMutations.run(threadId, async () => {
+      // The target was read before this task entered the per-thread queue; a
+      // delete queued ahead of it may have removed the thread since. Never
+      // restore a session for a thread whose row is gone.
+      if (!getThread(threadId)) throw new Error(`Thread not found: ${threadId}`);
+      return this.prepareThreadRuntime(target);
+    });
+    this.threadPreparations.set(threadId, preparation);
+    const clear = () => {
+      if (this.threadPreparations.get(threadId) === preparation) {
+        this.threadPreparations.delete(threadId);
+      }
+    };
+    preparation.then(clear, clear);
+    return preparation;
+  }
+
+  /**
+   * Get the provider for a thread without making it the UI's active agent. A
+   * thread whose provider cannot start opens on the preferred provider
+   * instead, except Antigravity, whose sessions belong to its own server.
+   */
+  private async acquireThreadConnection(thread: Thread): Promise<LiveConnection> {
+    const targetId = thread.agent_id || this.preferredAgentId;
+    try {
+      return await this.acquireConnection(targetId);
+    } catch (error) {
+      if (
+        !thread.agent_id ||
+        thread.agent_id === "antigravity-acp" ||
+        thread.agent_id === this.preferredAgentId
+      ) {
+        throw error;
+      }
+      return this.acquireConnection(this.preferredAgentId);
+    }
+  }
+
+  private async prepareThreadRuntime(target: ThreadTarget): Promise<PreparedThread> {
+    const restoreStartedAt = performance.now();
+    const { thread, project, cwd } = target;
+    const threadId = thread.id;
     let runtime = this.sessions.get(threadId);
-    const runtimeWasResident = runtime?.agentReady !== false && runtime != null;
-    let restoredSnapshot: LoadedThreadSnapshot | null = null;
+    let phase: MonitorSwitchPhase = runtime ? "cache_hit" : "session_load";
+    let openSource: PreparedThread["openSource"] =
+      runtime && runtime.agentReady !== false ? "resident" : "replay";
 
+    // Resident fast path: nothing to establish and nothing to wait for.
+    if (runtime && runtime.agentReady !== false) {
+      const owner = this.connectionForAgent(runtime.agentId);
+      if (owner) {
+        return { thread, project, runtime, live: owner, phase, openSource, restoreStartedAt };
+      }
+    }
+
+    let restoredSnapshot: LoadedThreadSnapshot | null = null;
     // The display cache is intentionally restored before spawning or switching
     // an agent. Reading a thread must never wait for a CLI handshake.
     if (!runtime) {
@@ -2218,7 +2388,8 @@ export class AgentConnectionManager {
         console.warn(`[thread-snapshot] restore failed for ${threadId}:`, error);
       }
       if (restoredSnapshot) {
-        onPhase("snapshot_restore");
+        phase = "snapshot_restore";
+        openSource = "snapshot";
         runtime = {
           threadId,
           agentSessionId: thread.agent_session_id,
@@ -2256,7 +2427,10 @@ export class AgentConnectionManager {
           openTabCount: 0,
           cachedThreadIds: [...this.sessions.keys()],
         });
+        // Publishes only when this thread is the active selection.
         this.pushState(threadId);
+        void this.hydrateSnapshotImages(runtime, restoredSnapshot);
+        this.snapshotFreshness.noteRestored(restoredSnapshot.writtenAt);
         this.captureAnalytics?.("thread_opened", {
           project_id: project.id,
           thread_id: threadId,
@@ -2264,27 +2438,17 @@ export class AgentConnectionManager {
           thread_open_source: "snapshot",
           restore_duration_ms: performance.now() - restoreStartedAt,
         });
-        openAnalyticsCaptured = true;
         this.scheduleAdjacentSnapshotPreload(thread);
       }
     }
 
     // Agent restoration is the non-paint-critical phase. Cold spawns can take
     // seconds, but a snapshot-restored timeline above is already interactive.
+    let live: LiveConnection;
     try {
-      if (thread.agent_id && thread.agent_id !== this.lifecycle.active?.agentId) {
-        try {
-          await raceActivation(this.switchAgent(thread.agent_id), signal);
-        } catch (err) {
-          if (isActivationSuperseded(err) || thread.agent_id === "antigravity-acp") throw err;
-          await raceActivation(this.ensureConnection(this.preferredAgentId), signal);
-        }
-      } else {
-        await raceActivation(
-          this.ensureConnection(thread.agent_id || this.preferredAgentId),
-          signal,
-        );
-      }
+      live = await this.withProviderLease(thread.agent_id || this.preferredAgentId, () =>
+        this.acquireThreadConnection(thread),
+      );
     } catch (error) {
       if (this.preserveSnapshotRuntimeAfterFailure(threadId, runtime)) throw error;
       if (runtime?.agentReady === false) {
@@ -2293,193 +2457,427 @@ export class AgentConnectionManager {
       }
       throw error;
     }
+    if (runtime && runtime.agentReady !== false) {
+      return { thread, project, runtime, live, phase, openSource, restoreStartedAt };
+    }
+    if (!restoredSnapshot) phase = "session_load";
 
-    const live = this.lifecycle.active!;
-    this.publishActiveAgentContext(live.agentId);
+    // Register the runtime BEFORE awaiting session/load: agents stream the
+    // conversation replay as session/update notifications while the load
+    // request is still in flight, and handleSessionUpdate can only route
+    // them into this slice if the sessionId is already known here. Without
+    // this, a reloaded thread renders with an empty timeline.
+    if (!runtime) {
+      runtime = {
+        threadId,
+        agentSessionId: thread.agent_session_id,
+        agentId: live.agentId,
+        projectId: project.id,
+        cwd,
+        slice: createEmptySessionSlice(),
+        editorText: "",
+        promptInFlight: false,
+        activeTurnId: null,
+        monitorUpdateCount: 0,
+        toolPayloads: new Map(),
+        retention: new SessionRetentionTracker(),
+        emittedToolCalls: null,
+        agentReady: false,
+        snapshotRestored: false,
+        payloadsReady: true,
+        snapshotDirty: true,
+        payloadRevision: 0,
+      };
+      this.sessions.register(runtime);
+      this.beginThreadLoad(threadId);
+      this.monitorObserver?.onSessionCacheEvent?.({
+        timestamp: Date.now(),
+        action: "insert",
+        threadId,
+        agentSessionId: thread.agent_session_id,
+        agentId: live.agentId,
+        trigger: "switch_load",
+        cachedSessionCount: this.sessions.size,
+        openTabCount: 0,
+        cachedThreadIds: [...this.sessions.keys()],
+      });
+    } else if (!this.loadingSessionThreads.has(threadId)) {
+      runtime.replaySlice = createEmptySessionSlice();
+      runtime.replayToolPayloads = new Map();
+      this.beginThreadLoad(threadId);
+    }
 
-    // Close previous session optionally — skip for rapid switches; load new
-    if (!runtime || runtime.agentReady === false) {
-      if (!restoredSnapshot) onPhase("session_load");
-      // Register the runtime BEFORE awaiting session/load: agents stream the
-      // conversation replay as session/update notifications while the load
-      // request is still in flight, and handleSessionUpdate can only route
-      // them into this slice if the sessionId is already known here. Without
-      // this, a reloaded thread renders with an empty timeline.
-      if (!runtime) {
-        runtime = {
-          threadId,
-          agentSessionId: thread.agent_session_id,
-          agentId: live.agentId,
-          projectId: project.id,
-          cwd,
-          slice: createEmptySessionSlice(),
-          editorText: "",
-          promptInFlight: false,
-          activeTurnId: null,
-          monitorUpdateCount: 0,
-          toolPayloads: new Map(),
-          retention: new SessionRetentionTracker(),
-          emittedToolCalls: null,
-          agentReady: false,
-          snapshotRestored: false,
-          payloadsReady: true,
-          snapshotDirty: true,
-          payloadRevision: 0,
-        };
-        this.sessions.register(runtime);
-        this.beginThreadLoad(threadId);
+    const placeholder = runtime;
+    try {
+      const established = await this.withProviderLease(live.agentId, () =>
+        this.establishThreadSession(live, placeholder, thread, cwd, (next) => {
+          phase = next;
+        }),
+      );
+      // The runtime can lose its owner while the session is established (the
+      // provider exited, or its account was removed). The late session must
+      // not leak: close it instead of binding it to a removed runtime.
+      if (this.sessions.get(threadId) !== placeholder) {
+        if (this.sessions.threadIdForSession(established.sessionId) == null) {
+          this.subagents.releaseSessionMcp(established.sessionId);
+          void live.agent
+            .request(acp.methods.agent.session.close, { sessionId: established.sessionId })
+            .catch(() => undefined);
+        }
+        throw new Error("The thread's session was closed while it was being restored.");
+      }
+
+      // Merge instead of replacing the slice: the replay already populated
+      // entries/toolCalls, only the session identity and config are new.
+      // Rebind also updates the session-id index so streaming keeps routing
+      // here under the session's NEW id.
+      this.sessions.rebindSession(threadId, established.sessionId);
+      this.registerWorkspaceRoot(established.sessionId, cwd);
+      if (placeholder.replaySlice) {
+        placeholder.slice = this.mergePendingLocalEntries(placeholder, placeholder.replaySlice);
+        for (const [id, payload] of placeholder.replayToolPayloads ?? []) {
+          this.payloadsFor(placeholder).set(id, payload);
+        }
+        placeholder.replaySlice = undefined;
+        placeholder.replayToolPayloads = undefined;
+        placeholder.snapshotRestored = false;
+        placeholder.payloadsReady = true;
+      } else {
+        // Resume/new fallback may also have accumulated a prompt locally
+        // while the agent was reconnecting. Preserve it across the swap.
+        placeholder.slice = this.mergePendingLocalEntries(placeholder, placeholder.slice);
+      }
+      const { configOptions } = established;
+      if (configOptions.length > 0 || placeholder.slice.configOptions.length === 0) {
+        placeholder.slice = { ...placeholder.slice, configOptions };
+      }
+      // A session/load replay describes settled history, not a live turn.
+      // Individual chunks set isStreaming while they are reduced; clear it
+      // once the load request has delivered the complete replay. Trim was
+      // deferred during replay so the cap still applies exactly once here.
+      this.evictOrphanToolPayloads(placeholder);
+      this.retentionFor(placeholder).recompute(placeholder.slice);
+      placeholder.agentReady = true;
+      if (!placeholder.slice.isStreaming) this.scheduleSnapshot(placeholder);
+    } catch (err) {
+      // A snapshot-restored Antigravity thread keeps its runtime: the
+      // restored transcript is the user's only access to that history, and
+      // evicting it here is what blanked the view. Everything else is a
+      // placeholder with nothing to lose.
+      if (
+        this.sessions.get(threadId) === placeholder &&
+        !this.preserveSnapshotRuntimeAfterFailure(threadId, placeholder)
+      ) {
+        // No session could be established — remove the placeholder so a
+        // retry doesn't silently reuse a dead runtime.
+        this.sessions.remove(threadId);
         this.monitorObserver?.onSessionCacheEvent?.({
           timestamp: Date.now(),
-          action: "insert",
+          action: "evict",
           threadId,
-          agentSessionId: thread.agent_session_id,
-          agentId: live.agentId,
+          agentSessionId: placeholder.agentSessionId,
+          agentId: placeholder.agentId,
           trigger: "switch_load",
           cachedSessionCount: this.sessions.size,
           openTabCount: 0,
           cachedThreadIds: [...this.sessions.keys()],
+          reason: "Session establishment failed",
         });
-      } else if (!this.loadingSessionThreads.has(threadId)) {
-        runtime.replaySlice = createEmptySessionSlice();
-        runtime.replayToolPayloads = new Map();
-        this.beginThreadLoad(threadId);
       }
+      throw err;
+    } finally {
+      this.endThreadLoad(threadId);
+    }
+    return { thread, project, runtime: placeholder, live, phase, openSource, restoreStartedAt };
+  }
 
+  /** session/load, falling back to resume and then new when the provider lost the session. */
+  private async establishThreadSession(
+    live: LiveConnection,
+    runtime: ThreadSessionRuntime,
+    thread: Thread,
+    cwd: string,
+    onPhase: (phase: MonitorSwitchPhase) => void,
+  ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
+    const threadId = thread.id;
+    try {
+      if (live.agentId === "antigravity-acp" && thread.agent_session_id?.startsWith("pipper-agy-"))
+        throw new Error(
+          "This Antigravity thread used Pipper's earlier CLI bridge. Its saved history is preserved, but the official ACP server cannot resume that CLI session. Start a new Antigravity thread to continue.",
+        );
+      return await this.sessionLoad(live, cwd, thread.agent_session_id);
+    } catch (err) {
+      // A phase timeout only settles the local request. The ACP request may
+      // still complete later, so never cascade into resume/new and create a
+      // second session while the timed-out load is alive.
+      if (isPhaseTimeout(err)) throw err;
+      // Antigravity session IDs belong to a specific implementation. A failed
+      // restore must leave its snapshot and identity intact.
+      if (live.agentId === "antigravity-acp") throw err;
+      // Agent restarted — try resume. A failed load may have streamed a
+      // partial replay before erroring; drop it so the fallback path
+      // doesn't append onto half a timeline.
+      runtime.slice = createEmptySessionSlice();
+      runtime.snapshotRestored = false;
+      runtime.snapshotPayloadSource = undefined;
+      runtime.snapshotDirty = true;
+      runtime.replaySlice = undefined;
+      runtime.replayToolPayloads = undefined;
+      this.retentionFor(runtime).reset();
+      this.payloadsFor(runtime).clear();
+      if (runtime.threadId === this.activeThreadId) this.pushState(runtime.threadId);
       try {
-        let sessionId = thread.agent_session_id;
-        let configOptions: SessionConfigOption[] = [];
-        try {
-          if (live.agentId === "antigravity-acp" && sessionId?.startsWith("pipper-agy-"))
-            throw new Error(
-              "This Antigravity thread used Pipper's earlier CLI bridge. Its saved history is preserved, but the official ACP server cannot resume that CLI session. Start a new Antigravity thread to continue.",
-            );
-          const loaded = await raceActivation(this.sessionLoad(live, cwd, sessionId), signal);
-          if (this.threadActivationGenerations.get(threadId) !== generation) {
-            throw new Error(`Stale activation for thread ${threadId}`);
-          }
-          sessionId = loaded.sessionId;
-          configOptions = loaded.configOptions;
-        } catch (err) {
-          // A phase timeout only settles the local request. The ACP request may
-          // still complete later, so never cascade into resume/new and create a
-          // second session while the timed-out load is alive.
-          if (err instanceof Error && /timed out/i.test(err.message)) throw err;
-          // Same rule when superseded: nobody is waiting on this thread, so
-          // abandon instead of establishing sessions behind the newer request.
-          if (isActivationSuperseded(err)) throw err;
-          // Antigravity session IDs belong to a specific implementation. A failed
-          // restore must leave its snapshot and identity intact.
-          if (live.agentId === "antigravity-acp") throw err;
-          // Agent restarted — try resume. A failed load may have streamed a
-          // partial replay before erroring; drop it so the fallback path
-          // doesn't append onto half a timeline.
-          runtime.slice = createEmptySessionSlice();
-          runtime.snapshotRestored = false;
-          runtime.snapshotPayloadSource = undefined;
-          runtime.snapshotDirty = true;
-          runtime.replaySlice = undefined;
-          runtime.replayToolPayloads = undefined;
-          this.retentionFor(runtime).reset();
-          this.payloadsFor(runtime).clear();
-          if (runtime.threadId === this.activeThreadId) this.pushState(runtime.threadId);
-          try {
-            const resumed = await raceActivation(
-              this.sessionResume(live, thread.agent_session_id, cwd),
-              signal,
-            );
-            onPhase("session_resume");
-            sessionId = resumed.sessionId;
-            configOptions = resumed.configOptions;
-            updateThreadAgentSessionId(threadId, sessionId);
-          } catch (err) {
-            if (
-              isActivationSuperseded(err) ||
-              (err instanceof Error && /timed out/i.test(err.message))
-            )
-              throw err;
-            const created = await raceActivation(this.sessionNew(live, cwd), signal);
-            onPhase("session_new");
-            sessionId = created.sessionId;
-            configOptions = created.configOptions;
-            updateThreadAgentSessionId(threadId, sessionId);
-          }
-        }
-
-        // Merge instead of replacing the slice: the replay already populated
-        // entries/toolCalls, only the session identity and config are new.
-        // Rebind also updates the session-id index so streaming keeps routing
-        // here under the session's NEW id.
-        this.sessions.rebindSession(threadId, sessionId);
-        this.registerWorkspaceRoot(sessionId, cwd);
-        if (runtime.replaySlice) {
-          runtime.slice = this.mergePendingLocalEntries(runtime, runtime.replaySlice);
-          for (const [id, payload] of runtime.replayToolPayloads ?? []) {
-            this.payloadsFor(runtime).set(id, payload);
-          }
-          runtime.replaySlice = undefined;
-          runtime.replayToolPayloads = undefined;
-          runtime.snapshotRestored = false;
-          runtime.payloadsReady = true;
-        } else {
-          // Resume/new fallback may also have accumulated a prompt locally
-          // while the agent was reconnecting. Preserve it across the swap.
-          runtime.slice = this.mergePendingLocalEntries(runtime, runtime.slice);
-        }
-        if (configOptions.length > 0 || runtime.slice.configOptions.length === 0) {
-          runtime.slice = { ...runtime.slice, configOptions };
-        }
-        // A session/load replay describes settled history, not a live turn.
-        // Individual chunks set isStreaming while they are reduced; clear it
-        // once the load request has delivered the complete replay. Trim was
-        // deferred during replay so the cap still applies exactly once here.
-        this.evictOrphanToolPayloads(runtime);
-        this.retentionFor(runtime).recompute(runtime.slice);
-        runtime.agentReady = true;
-        if (!runtime.slice.isStreaming) this.scheduleSnapshot(runtime);
-      } catch (err) {
-        // A snapshot-restored Antigravity thread keeps its runtime: the
-        // restored transcript is the user's only access to that history, and
-        // evicting it here is what blanked the view. Everything else is a
-        // placeholder with nothing to lose.
-        if (!this.preserveSnapshotRuntimeAfterFailure(threadId, runtime)) {
-          // No session could be established — remove the placeholder so a
-          // retry doesn't silently reuse a dead runtime.
-          this.sessions.remove(threadId);
-          this.monitorObserver?.onSessionCacheEvent?.({
-            timestamp: Date.now(),
-            action: "evict",
-            threadId,
-            agentSessionId: runtime.agentSessionId,
-            agentId: runtime.agentId,
-            trigger: "switch_load",
-            cachedSessionCount: this.sessions.size,
-            openTabCount: 0,
-            cachedThreadIds: [...this.sessions.keys()],
-            reason: "Session establishment failed",
-          });
-          this.threadActivationGenerations.delete(threadId);
-        }
-        throw err;
-      } finally {
-        this.endThreadLoad(threadId);
+        const resumed = await this.sessionResume(live, thread.agent_session_id, cwd);
+        onPhase("session_resume");
+        updateThreadAgentSessionId(threadId, resumed.sessionId);
+        return resumed;
+      } catch (resumeError) {
+        if (isPhaseTimeout(resumeError)) throw resumeError;
+        const created = await this.sessionNew(live, cwd);
+        onPhase("session_new");
+        updateThreadAgentSessionId(threadId, created.sessionId);
+        return created;
       }
     }
+  }
 
+  /**
+   * Make `live` the composer's provider. Returns false when it already was.
+   * Part of a selection commit, so only the newest selection calls it.
+   */
+  private activateConnection(live: LiveConnection): boolean {
+    const previous = this.lifecycle.active;
+    if (previous === live) return false;
+    this.lifecycle.setActive(live);
+    if (this.preferredAgentId !== live.agentId) {
+      this.preferredAgentId = live.agentId;
+      persistPreferredAgentId(live.agentId);
+    }
+    if (previous && previous.agentId !== live.agentId) {
+      this.captureAnalytics?.("agent_switched", {
+        from_agent_id: previous.agentId,
+        to_agent_id: live.agentId,
+        agent_name: getAgentDescriptor(live.agentId)?.name,
+      });
+    }
+    this.emit({
+      type: "connection",
+      agentId: live.agentId,
+      agentCapabilities: live.agentCapabilities,
+      authMethods: live.authMethods,
+      authRequiredMessage: live.authRequiredMessage,
+    });
+    return true;
+  }
+
+  /** Point the UI at a project/thread; part of a selection commit. */
+  private selectThread(projectId: string, threadId: string | null): void {
+    const projectChanged = this.activeProjectId !== projectId;
+    this.activeProjectId = projectId;
+    this.activeThreadId = threadId;
+    setActiveProjectId(projectId);
+    if (projectChanged) this.broadcastActiveProject?.(projectId);
+  }
+
+  async activateProject(projectId: string, preferredThreadId?: string | null): Promise<void> {
+    return this.activateProjectInternal(projectId, preferredThreadId, this.selection.claim());
+  }
+
+  private async activateProjectInternal(
+    projectId: string,
+    preferredThreadId: string | null | undefined,
+    ticket: SelectionTicket,
+  ): Promise<void> {
+    const project = getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+
+    this.activeProjectId = projectId;
+    setActiveProjectId(projectId);
+    this.broadcastActiveProject?.(projectId);
+
+    const threads = listThreads().filter((t) => t.project_id === projectId);
+    let thread: Thread | null = preferredThreadId ? getThread(preferredThreadId) : null;
+    if (!thread) {
+      // No explicit thread: enter the project's persisted workspace context —
+      // its most-recently-used open tab there, else its most recent thread —
+      // before falling back to any project thread.
+      const state = await readLaunchState();
+      const workspacePath = normalizeWorkspacePath(
+        state.selectedWorktreePathByProject[projectId],
+        project.path,
+      );
+      thread =
+        pickWorkspaceThread({
+          projectId,
+          workspacePath,
+          openThreadIds: state.openThreadIds,
+          threadSwitchHistory: state.threadSwitchHistory,
+          threads,
+        }) ??
+        threads[0] ??
+        null;
+    }
+    this.selection.assertLatest(ticket);
+
+    if (!thread) {
+      this.activeThreadId = null;
+      await updateLaunchSelection({ projectId, threadId: null });
+      this.pushState(null);
+      return;
+    }
+
+    // switchThread reconciles the persisted workspace to the activated
+    // thread's cwd, so header/tabs/terminals agree after restart and after
+    // project switches.
+    try {
+      await this.switchThreadInternal(thread.id, "restore", ticket);
+    } catch (error) {
+      // A newer activation superseded this one: the caller must not treat the
+      // abandoned switch as a completed launch.
+      if (isActivationSuperseded(error)) throw error;
+      // A snapshot-restored thread must not block project launch: the user
+      // needs the workspace open to read its saved history and start a
+      // replacement thread (e.g. a legacy `pipper-agy-` id the official
+      // Antigravity server cannot resume). The failure is still recorded on
+      // the switch monitor and the transcript stays displayable.
+      if (!this.sessions.get(thread.id)?.snapshotRestored) throw error;
+      console.warn(`[thread-restore] opening ${thread.id} snapshot-only:`, error);
+      // switchThreadCore's reconciliation never ran, so a snapshot-only launch
+      // must still select the thread's workspace and give it an open tab.
+      const workspaceCwd = await this.resolveThreadCwd(thread.worktree_path, project.path);
+      this.selection.assertLatest(ticket);
+      await commitThreadNavigation({
+        projectId,
+        threadId: thread.id,
+        workspacePath: workspaceCwd,
+      });
+    }
+    // Both paths committed project, thread and workspace in one write.
+  }
+
+  async switchThread(threadId: string): Promise<OpenTabsState> {
+    return this.switchThreadInternal(threadId, "tab", this.selection.claim());
+  }
+
+  private async switchThreadInternal(
+    threadId: string,
+    source: MonitorSwitchRecord["source"],
+    ticket: SelectionTicket,
+  ): Promise<OpenTabsState> {
+    const startedAt = Date.now();
+    const previousThreadId = this.activeThreadId;
+    const wasResidentInMemory = this.sessions.has(threadId);
+    const cachedSessionCount = this.sessions.size;
+    const agentIdBefore = this.lifecycle.active?.agentId ?? null;
+    const workspaceCwdBefore = await this.getActiveCwd();
+    let phase: MonitorSwitchPhase = wasResidentInMemory ? "cache_hit" : "session_load";
+    let openTabCount = 0;
+    const record = async (success: boolean, error?: string) => {
+      const thread = getThread(threadId);
+      const agentIdTarget = thread?.agent_id ?? null;
+      const workspaceCwdTarget = await this.getActiveCwd().catch(() => null);
+      this.monitorObserver?.onSwitchRecord?.({
+        timestamp: Date.now(),
+        threadId,
+        agentId: this.lifecycle.active?.agentId ?? null,
+        projectId: this.activeProjectId,
+        source,
+        phase,
+        durationMs: Date.now() - startedAt,
+        success,
+        error,
+        openTabCount,
+        previousThreadId,
+        cachedSessionCount,
+        wasResidentInMemory,
+        agentIdBefore,
+        agentIdTarget,
+        agentSwitched:
+          agentIdBefore !== null && agentIdTarget !== null && agentIdBefore !== agentIdTarget,
+        workspaceCwdBefore,
+        workspaceCwdTarget,
+        workspaceCwdChanged:
+          workspaceCwdBefore !== null &&
+          workspaceCwdTarget !== null &&
+          workspaceCwdBefore !== workspaceCwdTarget,
+      });
+    };
+    try {
+      const state = await this.switchThreadCore(
+        threadId,
+        (nextPhase) => {
+          phase = nextPhase;
+        },
+        ticket,
+      );
+      // The returned tabs state reflects the open-tab set after this
+      // activation; capture it so records are comparable to tab events.
+      openTabCount = state.openThreadIds.length;
+      await record(true);
+      return state;
+    } catch (err) {
+      try {
+        openTabCount = (await readOpenTabsState()).openThreadIds.length;
+      } catch {
+        // best effort
+      }
+      await record(false, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /**
+   * Prepare the thread's runtime (concurrently with other threads), then
+   * commit it as the active selection if no newer selection was requested.
+   * A superseded caller rejects with ActivationSupersededError as soon as the
+   * newer request arrives; its preparation still completes and is adopted.
+   */
+  private async switchThreadCore(
+    threadId: string,
+    onPhase: (phase: MonitorSwitchPhase) => void,
+    ticket: SelectionTicket,
+  ): Promise<OpenTabsState> {
+    const target = await raceActivation(this.resolveThreadTarget(threadId), ticket.signal);
+    const { thread, project, cwd } = target;
+    // Validating the worktree awaited Git: a newer activation may have
+    // superseded this one before any state below is touched.
+    this.selection.assertLatest(ticket);
+    this.selectThread(project.id, threadId);
+    // A preparation already in flight (e.g. a superseded earlier click on this
+    // thread) may have restored the snapshot while another thread was shown.
+    const loading = this.sessions.get(threadId);
+    if (loading && loading.agentReady === false && this.loadingSessionThreads.has(threadId)) {
+      this.pushState(threadId);
+    }
+
+    const prepared = await raceActivation(this.ensureThreadRuntime(target), ticket.signal);
+    onPhase(prepared.phase);
+
+    // Commit: everything below up to the persistence writes is synchronous,
+    // so no newer selection can interleave with it.
+    this.selection.assertLatest(ticket);
+    const { runtime, live } = prepared;
+    if (this.sessions.get(threadId) !== runtime) {
+      throw new Error("The agent session is not ready for this thread.");
+    }
+    this.selectThread(project.id, threadId);
+    this.activateConnection(live);
+    this.publishActiveAgentContext(live.agentId);
     touchThread(threadId);
     // Publish BEFORE persisting: the renderer paints the switched view without
-    // waiting on disk. Durability is unchanged — the writes still run (and are
-    // awaited before this returns), they stay serialized in the launch-state /
-    // open-tabs queues, and FIFO order across activations preserves the
-    // single-writer selection invariant.
+    // waiting on disk. The writes still run (and are awaited before this
+    // returns) and stay serialized in the launch-state / open-tabs queues;
+    // only the newest selection reaches them, so the persisted selection
+    // always matches the visible one.
     this.pushState(threadId);
     this.scheduleAdjacentSnapshotPreload(thread);
-    if (!openAnalyticsCaptured) {
+    if (prepared.openSource !== "snapshot") {
       this.captureAnalytics?.("thread_opened", {
         project_id: project.id,
         thread_id: threadId,
         agent_id: runtime.agentId,
-        thread_open_source: runtimeWasResident ? "resident" : "replay",
-        restore_duration_ms: performance.now() - restoreStartedAt,
+        thread_open_source: prepared.openSource,
+        restore_duration_ms: performance.now() - prepared.restoreStartedAt,
       });
     }
     // Every thread activation reconciles the persisted workspace to the
@@ -2487,16 +2885,15 @@ export class AgentConnectionManager {
     // canonical selection, and the renderer only mirrors it. This keeps
     // header, tab scoping, and terminals coherent for tab clicks, close
     // fallbacks, and orchestration switches alike.
-    const selectionsSettled = Promise.all([
-      updateWorkspaceSelection(project.id, cwd),
-      updateLaunchSelection({ projectId: project.id, threadId }),
-    ]);
-    // Return the state produced by the same queued mutation. Callers that need
-    // to broadcast the tab state can use this result without performing a
-    // second read-modify-write for the same switch.
-    const openTabsState = await recordThreadSwitch(threadId);
-    await selectionsSettled;
-    return openTabsState;
+    // Workspace, launch selection, open tab and MRU history land in one
+    // atomic launch-state write; callers broadcast the returned tab state
+    // without a second read-modify-write for the same switch.
+    const { tabs } = await commitThreadNavigation({
+      projectId: project.id,
+      threadId,
+      workspacePath: cwd,
+    });
+    return tabs;
   }
 
   async createThread(
@@ -2508,34 +2905,42 @@ export class AgentConnectionManager {
     initialModelId?: string | null,
     opts?: { background?: boolean; requireWorktree?: boolean },
   ): Promise<Thread> {
-    return this.enqueueThreadActivation(() =>
-      this.createThreadInternal(
-        projectId,
-        title,
-        afterThreadId,
-        agentId,
-        worktreePath,
-        initialModelId,
-        opts,
-      ),
+    // A foreground create is a selection request; a background (phone) create
+    // never touches the desktop selection, so it takes no ticket.
+    const ticket = opts?.background ? null : this.selection.claim();
+    return this.createThreadInternal(
+      projectId,
+      title,
+      afterThreadId,
+      agentId,
+      worktreePath,
+      initialModelId,
+      opts,
+      ticket,
     );
   }
 
+  /**
+   * Creation is durable: once requested it completes even when a newer
+   * selection arrives meanwhile. It only skips selecting the new thread then,
+   * so a slow provider start cannot pull the user away from where they went.
+   */
   private async createThreadInternal(
     projectId: string,
     title: string | null,
-    afterThreadId?: string | null,
-    agentId?: string | null,
-    worktreePath?: string | null,
-    initialModelId?: string | null,
-    opts?: { background?: boolean; requireWorktree?: boolean },
+    afterThreadId: string | null | undefined,
+    agentId: string | null | undefined,
+    worktreePath: string | null | undefined,
+    initialModelId: string | null | undefined,
+    opts: { background?: boolean; requireWorktree?: boolean } | undefined,
+    ticket: SelectionTicket | null,
   ): Promise<Thread> {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
 
     // Bind to the worktree when valid; store only what we actually bound to so a
     // stale/invalid path is never persisted as this thread's worktree.
-    const cwd = this.resolveThreadCwd(worktreePath, project.path);
+    const cwd = await this.resolveThreadCwd(worktreePath, project.path);
     const boundWorktree = cwd === project.path ? null : cwd;
     if (opts?.requireWorktree && !boundWorktree) {
       throw new Error(
@@ -2544,16 +2949,15 @@ export class AgentConnectionManager {
     }
 
     const targetAgentId = agentId ?? this.preferredAgentId;
-    // Background creation must not flip the desktop-active agent: spawning
-    // via ensureConnection would switchAgent + preferredAgentId when the
-    // phone picks a different agent. acquireConnection spawns detached.
-    const live = opts?.background
-      ? await this.acquireConnection(targetAgentId)
-      : await this.ensureConnection(targetAgentId);
-    if (opts?.requireWorktree && !isLiveWorktree(cwd, project.path)) {
-      throw new Error("The isolated workspace is no longer available. No task was started.");
-    }
-    const created = await this.sessionNew(live, cwd);
+    // Spawning never flips the composer's agent here; only the selection
+    // commit below does, so background or superseded creates leave it alone.
+    const { live, created } = await this.withProviderLease(targetAgentId, async () => {
+      const connection = await this.acquireConnection(targetAgentId);
+      if (opts?.requireWorktree && !(await isLiveWorktree(cwd, project.path))) {
+        throw new Error("The isolated workspace is no longer available. No task was started.");
+      }
+      return { live: connection, created: await this.sessionNew(connection, cwd) };
+    });
     this.registerWorkspaceRoot(created.sessionId, cwd);
 
     let sortOrder: number | undefined;
@@ -2601,50 +3005,37 @@ export class AgentConnectionManager {
       cachedThreadIds: [...this.sessions.keys()],
     });
 
-    const projectChanged = this.activeProjectId !== projectId;
-    // Background (phone) threads must never steal desktop focus: skip the
-    // active-thread switch, workspace mirror, and launch selection so the
-    // desktop keeps showing whatever the user already had open.
-    if (opts?.background) {
-      this.emitRunningThreads();
-    } else {
-      this.activeProjectId = projectId;
-      this.activeThreadId = thread.id;
-      this.publishActiveAgentContext(live.agentId);
-      setActiveProjectId(projectId);
+    touchThread(thread.id);
+    this.captureAnalytics?.("thread_created", {
+      project_id: projectId,
+      thread_id: thread.id,
+      agent_id: live.agentId,
+      agent_name: getAgentDescriptor(live.agentId)?.name,
+      is_main: boundWorktree === null,
+    } as AnalyticsProperties);
+
+    // Background (phone) threads must never steal desktop focus, and neither
+    // may a create that a newer selection superseded: skip the active-thread
+    // switch, workspace mirror, and launch selection so the desktop keeps
+    // showing whatever the user has open.
+    if (ticket && this.selection.isLatest(ticket)) {
       // Creating a thread for another project (tab-bar dropdown) is a project
-      // switch: without this broadcast the renderer's project store — and with
-      // it the header's project name, workspace, and branch — keeps showing
-      // the previous project while the agent panel already follows the new one.
-      if (projectChanged) this.broadcastActiveProject?.(projectId);
-      touchThread(thread.id);
-
-      this.captureAnalytics?.("thread_created", {
-        project_id: projectId,
-        thread_id: thread.id,
-        agent_id: live.agentId,
-        agent_name: getAgentDescriptor(live.agentId)?.name,
-        is_main: boundWorktree === null,
-      } as AnalyticsProperties);
-
+      // switch: selectThread broadcasts it, otherwise the renderer's project
+      // store — and with it the header's project name, workspace, and branch —
+      // keeps showing the previous project while the agent panel follows.
+      this.selectThread(projectId, thread.id);
+      this.activateConnection(live);
+      this.publishActiveAgentContext(live.agentId);
       // Same publish-before-persist ordering as switches: the new thread's view
       // renders immediately while the durable selections settle below.
       this.pushState(thread.id);
-      const selectionsSettled = Promise.all([
-        updateWorkspaceSelection(projectId, cwd),
-        updateLaunchSelection({ projectId, threadId: thread.id }),
-      ]);
-      await selectionsSettled;
-    }
-    if (opts?.background) {
-      touchThread(thread.id);
-      this.captureAnalytics?.("thread_created", {
-        project_id: projectId,
-        thread_id: thread.id,
-        agent_id: live.agentId,
-        agent_name: getAgentDescriptor(live.agentId)?.name,
-        is_main: boundWorktree === null,
-      } as AnalyticsProperties);
+      await commitNavigation({
+        projectId,
+        threadId: thread.id,
+        workspace: { projectId, path: cwd },
+      });
+    } else {
+      this.emitRunningThreads();
     }
 
     // Seed model after the session exists so the first prompt lands on the
@@ -2665,10 +3056,15 @@ export class AgentConnectionManager {
   }
 
   async deleteThread(threadId: string): Promise<void> {
-    return this.enqueueThreadActivation(() => this.deleteThreadInternal(threadId));
+    // Remember which selection was current: a selection requested after this
+    // delete owns the UI, so the replacement switch below must not override it.
+    const selectionAtRequest = this.selection.current;
+    return this.mutateThread(threadId, () =>
+      this.deleteThreadInternal(threadId, selectionAtRequest),
+    );
   }
 
-  private async deleteThreadInternal(threadId: string): Promise<void> {
+  private async deleteThreadInternal(threadId: string, selectionAtRequest: number): Promise<void> {
     const thread = getThread(threadId);
     if (!thread) return;
 
@@ -2696,6 +3092,7 @@ export class AgentConnectionManager {
     this.endThreadLoad(threadId);
     await this.deletePersistedSnapshot(threadId);
     this.sessions.remove(threadId);
+    this.abortGenerations.delete(threadId);
     this.monitorObserver?.onSessionCacheEvent?.({
       timestamp: Date.now(),
       action: "evict",
@@ -2711,34 +3108,42 @@ export class AgentConnectionManager {
     this.emit({ type: "thread-closed", threadId });
     removeThreadRow(threadId);
 
-    if (this.activeThreadId === threadId) {
-      this.activeThreadId = null;
-      const remaining = listThreads().filter((t) => t.project_id === thread.project_id);
-      // Stay in the deleted thread's workspace when it still has threads —
-      // falling back to the project-wide MRU would yank the whole shell
-      // (header, tabs, terminals) into another workspace.
-      const state = await readLaunchState();
-      const replacement =
-        pickWorkspaceThread({
-          projectId: thread.project_id,
-          workspacePath: thread.worktree_path ?? null,
-          openThreadIds: state.openThreadIds,
-          threadSwitchHistory: state.threadSwitchHistory,
-          threads: remaining,
-        }) ??
-        remaining[0] ??
-        null;
-      if (replacement) {
-        await this.switchThreadInternal(replacement.id, "delete");
-      } else {
-        await updateLaunchSelection({ projectId: thread.project_id, threadId: null });
-        this.pushState(null);
+    if (this.activeThreadId !== threadId) return;
+    this.activeThreadId = null;
+    const remaining = listThreads().filter((t) => t.project_id === thread.project_id);
+    // Stay in the deleted thread's workspace when it still has threads —
+    // falling back to the project-wide MRU would yank the whole shell
+    // (header, tabs, terminals) into another workspace.
+    const state = await readLaunchState();
+    const replacement =
+      pickWorkspaceThread({
+        projectId: thread.project_id,
+        workspacePath: thread.worktree_path ?? null,
+        openThreadIds: state.openThreadIds,
+        threadSwitchHistory: state.threadSwitchHistory,
+        threads: remaining,
+      }) ??
+      remaining[0] ??
+      null;
+    // A selection requested after the delete owns the UI and commits itself.
+    if (this.selection.current !== selectionAtRequest) {
+      if (this.activeThreadId === null) this.pushState(null);
+      return;
+    }
+    if (replacement) {
+      try {
+        await this.switchThreadInternal(replacement.id, "delete", this.selection.claim());
+      } catch (error) {
+        if (!isActivationSuperseded(error)) throw error;
       }
+    } else {
+      await updateLaunchSelection({ projectId: thread.project_id, threadId: null });
+      this.pushState(null);
     }
   }
 
   async closeThreadSession(threadId: string): Promise<void> {
-    return this.enqueueThreadActivation(() => this.closeThreadSessionInternal(threadId));
+    return this.mutateThread(threadId, () => this.closeThreadSessionInternal(threadId));
   }
 
   private async closeThreadSessionInternal(threadId: string): Promise<void> {
@@ -2810,7 +3215,7 @@ export class AgentConnectionManager {
     const threadId = input.threadId ?? this.activeThreadId;
     if (!threadId) throw new Error("No active thread");
     const abortGeneration = this.abortGenerations.get(threadId) ?? 0;
-    const assertIsolation = () => {
+    const assertIsolation = async () => {
       if ((this.abortGenerations.get(threadId) ?? 0) !== abortGeneration) {
         throw new Error("Task stopped before the agent was ready.");
       }
@@ -2821,7 +3226,7 @@ export class AgentConnectionManager {
       if (
         !thread?.worktree_path ||
         !project ||
-        !isLiveWorktree(thread.worktree_path, project.path) ||
+        !(await isLiveWorktree(thread.worktree_path, project.path)) ||
         (runtime && runtime.cwd !== thread.worktree_path)
       ) {
         throw new Error(
@@ -2829,34 +3234,9 @@ export class AgentConnectionManager {
         );
       }
     };
-    assertIsolation();
+    await assertIsolation();
     if (!this.sessions.has(threadId)) {
-      // Background senders (phone) must not leave desktop focus behind on a
-      // restored thread: remember the active thread and put it back after.
-      const prevThreadId = opts?.background ? this.activeThreadId : null;
-      const prevProjectId = opts?.background ? this.activeProjectId : null;
-      try {
-        await this.switchThread(threadId);
-      } catch (err) {
-        // Our prepare lost a supersede race with a newer activation. The
-        // winner has finished by now, so one retry runs unqueued and fast.
-        if (!isActivationSuperseded(err)) throw err;
-        await this.switchThread(threadId);
-      } finally {
-        if (opts?.background && prevThreadId !== threadId) {
-          this.activeThreadId = prevThreadId;
-          this.activeProjectId = prevProjectId;
-          if (prevProjectId) setActiveProjectId(prevProjectId);
-          if (prevThreadId) {
-            await updateLaunchSelection({
-              projectId: prevProjectId!,
-              threadId: prevThreadId,
-            }).catch(() => undefined);
-            this.pushState(prevThreadId);
-          }
-          this.emitRunningThreads();
-        }
-      }
+      await this.restoreForPrompt(threadId, Boolean(opts?.background));
     }
     let runtime = this.sessions.get(threadId);
     if (!runtime) throw new Error("No session for thread");
@@ -2888,6 +3268,11 @@ export class AgentConnectionManager {
       runtime = this.sessions.get(threadId);
       if (!runtime) throw new Error("No session for thread");
     }
+    // Validate isolation (an async Git read) before the in-flight check, so no
+    // await separates that check from enqueueing the prompt below.
+    await assertIsolation();
+    runtime = this.sessions.get(threadId);
+    if (!runtime) throw new Error("No session for thread");
     const live = this.connectionForAgent(runtime.agentId);
     if (!live || runtime.agentReady === false) throw new Error("No ready agent session for thread");
 
@@ -2895,7 +3280,6 @@ export class AgentConnectionManager {
       throw new Error("A prompt is already in flight; choose follow-up or steer to queue it.");
     }
 
-    assertIsolation();
     const caps = live.agentCapabilities.promptCapabilities;
     const blocks = assemblePromptBlocks({
       message: input.message,
@@ -2951,16 +3335,27 @@ export class AgentConnectionManager {
     });
   }
 
-  async replacePrompt(input: AcpReplacePromptInput): Promise<void> {
-    const threadId = input.threadId;
-    if (!this.sessions.has(threadId)) {
+  /**
+   * Make a non-resident thread's runtime available for a prompt. Background
+   * senders (phone) only prepare it, never touching the desktop selection. A
+   * foreground send selects the thread; if a newer selection supersedes that,
+   * the prompt still belongs to its thread, so it waits for the preparation.
+   */
+  private async restoreForPrompt(threadId: string, background: boolean): Promise<void> {
+    if (!background) {
       try {
         await this.switchThread(threadId);
+        return;
       } catch (err) {
         if (!isActivationSuperseded(err)) throw err;
-        await this.switchThread(threadId);
       }
     }
+    await this.ensureThreadRuntime(await this.resolveThreadTarget(threadId));
+  }
+
+  async replacePrompt(input: AcpReplacePromptInput): Promise<void> {
+    const threadId = input.threadId;
+    if (!this.sessions.has(threadId)) await this.restoreForPrompt(threadId, false);
     const runtime = this.sessions.get(threadId);
     const live = runtime ? this.connectionForAgent(runtime.agentId) : null;
     if (!runtime || !live) throw new Error("No session for thread");
@@ -3201,11 +3596,61 @@ export class AgentConnectionManager {
     await this.activateProject(state.projectId, state.threadId);
   }
 
-  async dispose(): Promise<void> {
+  /**
+   * Shutdown: persist what can be persisted within `snapshotFlushMs`, then
+   * close every connection and terminate every provider process. Always
+   * reaches the provider teardown, even when a snapshot write never settles.
+   */
+  dispose(options: { snapshotFlushMs?: number } = {}): Promise<void> {
+    if (!this.disposed) {
+      this.disposing = true;
+      this.disposed = this.runDispose(options.snapshotFlushMs ?? DISPOSE_SNAPSHOT_FLUSH_MS);
+    }
+    return this.disposed;
+  }
+
+  private async runDispose(snapshotFlushMs: number): Promise<void> {
+    if (this.idleSweepTimer) clearInterval(this.idleSweepTimer);
+    this.idleSweepTimer = null;
     this.terminalManager.killAll();
     this.subagents.dispose();
-    await this.flushAllSnapshots();
+    const flushed = await waitBounded(
+      Promise.all([this.flushAllSnapshots(), this.catalogs.flush()]),
+      snapshotFlushMs,
+    );
+    if (flushed.status === "timeout") {
+      console.warn(
+        `[thread-snapshot] shutdown flush did not finish within ${snapshotFlushMs} ms; ` +
+          "unfinished writes keep their previous snapshot",
+      );
+    } else if (flushed.status === "error") {
+      console.warn("[thread-snapshot] shutdown flush failed:", flushed.error);
+    }
+    for (const timer of this.snapshotTimers.values()) clearTimeout(timer);
+    this.snapshotTimers.clear();
     await this.closeConnection();
+  }
+
+  /**
+   * Sizes of every per-thread/per-session lifecycle map. Diagnostics and tests
+   * use it to check that create/delete/reconnect/cancel cycles return to a
+   * baseline instead of accumulating entries.
+   */
+  getLifecycleResourceCounts(): Record<string, number> {
+    return {
+      sessions: this.sessions.size,
+      loadingThreads: this.loadingSessionThreads.size,
+      sessionReadyWaiters: this.sessionReadyWaiters.size,
+      threadPreparations: this.threadPreparations.size,
+      threadMutations: this.threadMutations.size,
+      workspaceRoots: this.workspaceGuard.size,
+      toolCallStarts: this.toolCallStarts.size,
+      abortGenerations: this.abortGenerations.size,
+      subagentMcpEndpoints: this.subagents.endpointCount(),
+      snapshotTimers: this.snapshotTimers.size,
+      backgroundToolCallTimers: this.backgroundToolCallTimers.size,
+      providerLeases: this.providerLeases.size,
+    };
   }
 
   /** @deprecated Compact is agent-owned; no-op. */

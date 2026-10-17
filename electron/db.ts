@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
 import { join } from "node:path";
+import { ensureThreadSnapshotSchema } from "./thread-snapshot-schema.ts";
 
 let db: DatabaseSync | null = null;
 
@@ -208,24 +209,9 @@ export function getDb(): DatabaseSync {
 
   // A thread snapshot is a display cache, never the source of truth for the
   // agent session. The lean reduced slice stays in SQLite so a tab activation
-  // can paint synchronously; large tool bodies live in a generation-named
-  // sidecar file referenced by payload_path.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS thread_snapshots (
-      thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
-      schema_version INTEGER NOT NULL,
-      agent_session_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL,
-      entry_count INTEGER NOT NULL,
-      slice_json TEXT NOT NULL,
-      payload_path TEXT NOT NULL,
-      payload_bytes INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_thread_snapshots_updated_at
-      ON thread_snapshots(updated_at ASC);
-  `);
+  // can paint synchronously; tool bodies and large images live in
+  // generation-named body files (see thread-snapshot-store.ts).
+  ensureThreadSnapshotSchema(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_agent_selections (

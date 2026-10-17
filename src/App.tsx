@@ -119,10 +119,19 @@ export default function App() {
   useEffect(() => {
     if (!monitorEnabled) return;
     const observerId = createMonitorObserverId();
+    // Detailed DOM attribution only while a monitor window or recording uses it.
+    let detailed = false;
+    void window.omni.monitor.getDemand().then((demand) => {
+      detailed = demand.detailed;
+    });
+    const offDemand = window.omni.monitor.onDemand((demand) => {
+      detailed = demand.detailed;
+    });
     const context = {
       observerId,
       getActiveThreadId: () => useAgentStore.getState().state?.threadId ?? null,
       getRunningThreadIds: () => useAgentStore.getState().runningThreadIds,
+      isDetailed: () => detailed,
     };
     const stopFreezeObserver = startMonitorFreezeObserver(context, (report) => {
       void window.omni.monitor.reportRendererFreeze({
@@ -135,6 +144,7 @@ export default function App() {
       void window.omni.monitor.reportRendererTelemetry(telemetry);
     });
     return () => {
+      offDemand();
       stopFreezeObserver();
       stopRuntimeObserver();
     };
@@ -474,6 +484,9 @@ export default function App() {
     if (!window.omni?.worktrees?.onSetupProgress) return;
     return window.omni.worktrees.onSetupProgress((progress) => {
       if (uiMode === "advanced") return;
+      // Remote/phone workspaces set up in the background; only a failure is
+      // worth interrupting the desktop user for.
+      if (progress.activation === "background" && progress.status !== "failed") return;
       if (progress.status === "installing") {
         toast({
           icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
@@ -491,6 +504,12 @@ export default function App() {
           icon: <Bell weight="duotone" className="size-5 text-red-500" />,
           title: "Dependency install failed",
           description: `${progress.workspaceName}: ${progress.message ?? "Install did not complete."}`,
+        });
+      } else if (progress.status === "skipped" && progress.message) {
+        toast({
+          icon: <GitBranch weight="duotone" className="size-5 text-foreground" />,
+          title: "Workspace created",
+          description: `${progress.workspaceName}: ${progress.message}`,
         });
       }
       // "skipped" (no package.json) is intentionally silent.

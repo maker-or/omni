@@ -224,6 +224,10 @@ export class McpHttpServer {
         if (typeof params.name !== "string") {
           return rpcError(id, -32602, "tools/call requires a tool name");
         }
+        // Calls block until the tool settles; there is no SSE progress
+        // stream. A client that disconnects or times out does not cancel the
+        // work: SubagentManager bounds each run with its own deadline and lets
+        // an identical retry attach to it (see its long-running call contract).
         try {
           const result = await endpoint.callTool(params.name, params.arguments ?? {});
           return { jsonrpc: "2.0", id, result };

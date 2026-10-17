@@ -39,6 +39,11 @@ export function isMonitorDbInitialized(): boolean {
   return monitorDb !== null;
 }
 
+/** The connection this process writes diagnostics to, if one is open. */
+export function currentMonitorDb(): DatabaseSync | null {
+  return monitorDb;
+}
+
 function getDb(): DatabaseSync {
   if (!monitorDb) throw new Error("Monitor database has not been initialized.");
   return monitorDb;
@@ -189,6 +194,8 @@ export function ensureMonitorTables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_monitor_incidents_ts
       ON monitor_incidents(timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_monitor_incidents_kind_ts
+      ON monitor_incidents(kind, timestamp DESC);
 
     CREATE TABLE IF NOT EXISTS monitor_connection_episodes (
       connection_id TEXT PRIMARY KEY,
@@ -1444,16 +1451,4 @@ export function listTabClickTimings(
     phase: row.phase as MonitorSwitchPhase | null,
     success: row.success === 1,
   }));
-}
-
-export function pruneOldSamples(retentionMs: number): void {
-  ensureMonitorTables();
-  const cutoff = Date.now() - retentionMs;
-  getDb()
-    .prepare(`DELETE FROM monitor_samples WHERE session_id IS NULL AND timestamp < ?`)
-    .run(cutoff);
-  getDb()
-    .prepare(`DELETE FROM monitor_renderer_samples WHERE session_id IS NULL AND timestamp < ?`)
-    .run(cutoff);
-  getDb().prepare(`DELETE FROM monitor_incidents WHERE timestamp < ?`).run(cutoff);
 }

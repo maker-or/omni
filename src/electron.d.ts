@@ -1,4 +1,5 @@
-import type { Project, ProjectFileTreeSnapshot } from "../../contracts/projects.ts";
+import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
+import type { DatabaseCompactionResult, WorkspaceDiskUsageReport } from "../contracts/storage.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type {
   RemoteDevicesState,
@@ -47,7 +48,7 @@ import type {
   MonitorRecordedSession,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
-  MonitorSampleTick,
+  MonitorDemand,
   MonitorSession,
   MonitorSessionCacheEvent,
   MonitorSwitchRecord,
@@ -76,6 +77,10 @@ export interface CreateProjectInput {
 declare global {
   interface Window {
     omni: {
+      storage: {
+        compactDatabase: () => Promise<DatabaseCompactionResult>;
+        workspaceUsage: () => Promise<WorkspaceDiskUsageReport>;
+      };
       launch: {
         complete: (projectId: string) => Promise<void>;
         show: (stage?: "list" | "add" | "onboarding") => Promise<void>;
@@ -138,13 +143,21 @@ declare global {
         list: () => Promise<Project[]>;
         create: (input: CreateProjectInput) => Promise<Project>;
         getActive: () => Promise<Project | null>;
-        listFiles: (projectId?: string, worktreePath?: string | null) => Promise<string[]>;
+        /** `requestId` lets the caller abandon the scan via `cancelListFiles`. */
+        listFiles: (
+          projectId?: string,
+          worktreePath?: string | null,
+          requestId?: string | null,
+        ) => Promise<string[]>;
+        cancelListFiles?: (requestId: string) => void;
         getFileTree: () => Promise<ProjectFileTreeSnapshot>;
         setActive: (projectId: string) => Promise<void>;
         onActiveChanged: (callback: (projectId: string) => void) => () => void;
         onListChanged: (callback: (project: Project) => void) => () => void;
       };
       worktrees: {
+        getAutoInstall: () => Promise<boolean>;
+        setAutoInstall: (enabled: boolean) => Promise<boolean>;
         list: (projectId: string) => Promise<Worktree[]>;
         create: (input: { projectId: string; name: string }) => Promise<Worktree>;
         delete: (input: { projectId: string; path: string }) => Promise<Worktree>;
@@ -292,9 +305,9 @@ declare global {
           cancelled?: boolean;
         }) => Promise<void>;
         listAgents: () => Promise<AcpAgentDescriptor[]>;
-        getModelCatalogs: () => Promise<
-          Record<string, Array<{ modelId: string; name: string; provider?: string }>>
-        >;
+        getModelCatalogs: (options?: {
+          refresh?: string[];
+        }) => Promise<Record<string, Array<{ modelId: string; name: string; provider?: string }>>>;
         probeAgent: (agentId: string) => Promise<AgentProbeResult>;
         authenticate: (agentId: string, methodId: string) => Promise<void>;
         switchAgent: (agentId: string) => Promise<void>;
@@ -370,7 +383,8 @@ declare global {
         getTabClickTimings: () => Promise<MonitorTabClickTiming[]>;
         openWindow: () => Promise<void>;
         onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => () => void;
-        onTick: (callback: (tick: MonitorSampleTick) => void) => () => void;
+        getDemand: () => Promise<MonitorDemand>;
+        onDemand: (callback: (demand: MonitorDemand) => void) => () => void;
         onIncident: (callback: (incident: MonitorIncident) => void) => () => void;
       };
       benchmark: {

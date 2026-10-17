@@ -86,6 +86,14 @@ interface RunState {
   timedOut: boolean;
   cancelled: boolean;
   connection: SubagentConnection | null;
+  /** Aborted by the whole-run deadline or cancellation; every phase observes it. */
+  abort: AbortController;
+  /** MCP token this run's own session uses to spawn children (null until attached). */
+  ownToken: string | null;
+  /** Whether the run currently occupies a concurrency slot. */
+  holdsSlot: boolean;
+  /** Children this run is awaiting; while non-zero it yields its slot to them. */
+  waitingChildren: number;
 }
 
 const SUBAGENT_PREAMBLE =
@@ -96,23 +104,52 @@ const SUBAGENT_PREAMBLE =
 
 const FINISHED_RUNS_KEPT = 50;
 
-function requestWithTimeout<T>(
-  request: Promise<T>,
-  timeoutMs: number,
-  onTimeout: () => void,
-): Promise<T> {
+/*
+ * Long-running call contract. `spawn_subagent` is one blocking MCP
+ * `tools/call` whose whole operation (queueing, connection, session/new and
+ * the prompt) is bounded by `runTimeoutMs` (default 10 minutes). Some MCP
+ * clients stop waiting sooner (OpenCode's tools/call limit was observed at
+ * 300 s) and may retry the call. So:
+ *
+ * - A caller giving up does not cancel the run; it keeps its own deadline and
+ *   is cancelled only by that deadline, the parent session's cancellation or
+ *   the parent session closing.
+ * - A retry with identical arguments from the same parent session attaches to
+ *   the run already in flight instead of starting a duplicate, and a
+ *   successful report stays available to such a retry for
+ *   RETRY_RESULT_RETENTION_MS. Failed or cancelled runs are not retained: a
+ *   retry after a failure starts a fresh run.
+ *
+ * A start/status/cancel job API with durable ids was considered and not
+ * added: every supported agent already calls the tool synchronously, retry
+ * attachment covers the observed client-timeout case without a protocol
+ * change, and runs are bounded by their deadline either way.
+ */
+/** How long a finished report can still be collected by a retried call. */
+export const RETRY_RESULT_RETENTION_MS = 10 * 60_000;
+/** Finished reports retained for retries, across all sessions. */
+const RETAINED_RESULTS_MAX = 16;
+
+interface SpawnCall {
+  token: string;
+  report: Promise<string>;
+  /** Set once the run succeeded; failed calls are dropped instead. */
+  settledAt: number | null;
+}
+
+/** Settle with `promise`, or reject with the signal's reason as soon as it aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      onTimeout();
-      reject(new Error(`subagent prompt timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    request.then(
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
       (value) => {
-        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
         resolve(value);
       },
       (error) => {
-        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
         reject(error);
       },
     );
@@ -120,7 +157,14 @@ function requestWithTimeout<T>(
 }
 
 function truncate(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  // Copy the small prefix: V8 sliced strings can otherwise keep the entire
+  // multi-MiB report alive through a 300-character activity preview.
+  return text.length <= max
+    ? text
+    : `${text
+        .slice(0, max - 1)
+        .split("")
+        .join("")}…`;
 }
 
 export class SubagentManager {
@@ -134,6 +178,8 @@ export class SubagentManager {
   private readonly runs = new Map<string, RunState>();
   private readonly runsBySession = new Map<string, RunState>();
   private activeRuns = 0;
+  /** spawn_subagent calls by parent token + arguments, for retry attachment. */
+  private readonly spawnCalls = new Map<string, SpawnCall>();
   private readonly slotWaiters: Array<() => void> = [];
   private disposed = false;
 
@@ -236,10 +282,7 @@ export class SubagentManager {
   /** Release MCP endpoints owned by an ACP session after it is closed. */
   releaseSessionMcp(sessionId: string): void {
     for (const [token, context] of this.tokens) {
-      if (context.sessionId === sessionId) {
-        this.tokens.delete(token);
-        this.server.unregister(token);
-      }
+      if (context.sessionId === sessionId) this.releaseToken(token);
     }
   }
 
@@ -247,11 +290,30 @@ export class SubagentManager {
     if (!token) return;
     this.tokens.delete(token);
     this.server.unregister(token);
+    // Nobody can retry through a released endpoint; drop its retained reports.
+    for (const [key, call] of this.spawnCalls) {
+      if (call.token === token) this.spawnCalls.delete(key);
+    }
   }
 
   /** Release an endpoint created for a session before that session is bound. */
   releaseTokenForSession(token: string): void {
     this.releaseToken(token);
+  }
+
+  /** Registered MCP endpoints (lifecycle diagnostics). */
+  endpointCount(): number {
+    return this.tokens.size;
+  }
+
+  /** True while a run for this provider is queued or running (keeps it warm). */
+  hasActiveRunsForAgent(agentId: string): boolean {
+    for (const run of this.runs.values()) {
+      if (run.agentId === agentId && (run.status === "queued" || run.status === "running")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** True when the session belongs to a subagent run (vs a user-facing thread). */
@@ -298,11 +360,22 @@ export class SubagentManager {
     }
     this.server.close();
     this.tokens.clear();
+    this.spawnCalls.clear();
     this.started = null;
   }
 
   private async cancelRun(run: RunState): Promise<void> {
+    if (run.cancelled) return;
     run.cancelled = true;
+    if (!run.abort.signal.aborted) run.abort.abort(new Error("subagent run was cancelled"));
+    // Descendants cannot report to a cancelled parent; cancel queued ones too.
+    if (run.ownToken) {
+      for (const child of this.runs.values()) {
+        if (child.parentToken !== run.ownToken) continue;
+        if (child.status !== "queued" && child.status !== "running") continue;
+        void this.cancelRun(child);
+      }
+    }
     if (run.connection && run.sessionId) {
       try {
         await run.connection.agent.notify(acp.methods.agent.session.cancel, {
@@ -354,7 +427,10 @@ export class SubagentManager {
           "Delegate a task to another coding agent running in its own isolated session, and get its " +
           "final report back. The subagent shares NO context with you — include every needed detail " +
           "(background, file paths, constraints, expected output) in the task. Call this tool multiple " +
-          "times, including in parallel, to fan work out across agents.\n\nAvailable agents:\n" +
+          "times, including in parallel, to fan work out across agents. If this call times out on " +
+          "your side, the subagent keeps running: call spawn_subagent again with identical " +
+          "arguments to wait for (or collect) that same run's report instead of starting another." +
+          "\n\nAvailable agents:\n" +
           catalog,
         inputSchema: {
           type: "object",
@@ -399,10 +475,58 @@ export class SubagentManager {
       return { content: [{ type: "text", text: JSON.stringify(agents, null, 2) }] };
     }
     if (name === "spawn_subagent") {
-      const text = await this.runSubagent(token, args);
+      const text = await this.spawnOrAttach(token, args);
       return { content: [{ type: "text", text }] };
     }
     throw new Error(`unknown tool: ${name}`);
+  }
+
+  /**
+   * Start a run, or attach a retried call to the identical run already in
+   * flight (or recently finished) for the same parent session.
+   */
+  private spawnOrAttach(token: string, args: Record<string, unknown>): Promise<string> {
+    const now = Date.now();
+    for (const [key, call] of this.spawnCalls) {
+      if (call.settledAt != null && now - call.settledAt >= RETRY_RESULT_RETENTION_MS) {
+        this.spawnCalls.delete(key);
+      }
+    }
+    const key = JSON.stringify([
+      token,
+      args.agent_id ?? null,
+      typeof args.task === "string" ? args.task.trim() : null,
+      args.context ?? null,
+      args.cwd ?? null,
+    ]);
+    const existing = this.spawnCalls.get(key);
+    if (existing) return existing.report;
+
+    const call: SpawnCall = { token, report: this.runSubagent(token, args), settledAt: null };
+    this.spawnCalls.set(key, call);
+    call.report.then(
+      () => {
+        if (this.spawnCalls.get(key) !== call) return;
+        call.settledAt = Date.now();
+        // Re-insert so iteration order is settle order, then bound retention.
+        this.spawnCalls.delete(key);
+        this.spawnCalls.set(key, call);
+        let retained = 0;
+        for (const candidate of this.spawnCalls.values()) {
+          if (candidate.settledAt != null) retained++;
+        }
+        for (const [candidateKey, candidate] of this.spawnCalls) {
+          if (retained <= RETAINED_RESULTS_MAX) break;
+          if (candidate.settledAt == null) continue;
+          this.spawnCalls.delete(candidateKey);
+          retained--;
+        }
+      },
+      () => {
+        if (this.spawnCalls.get(key) === call) this.spawnCalls.delete(key);
+      },
+    );
+    return call.report;
   }
 
   private async runSubagent(token: string, args: Record<string, unknown>): Promise<string> {
@@ -437,18 +561,38 @@ export class SubagentManager {
       timedOut: false,
       cancelled: false,
       connection: null,
+      abort: new AbortController(),
+      ownToken: null,
+      holdsSlot: false,
+      waitingChildren: 0,
     };
     this.runs.set(run.runId, run);
     this.emitRuns();
 
-    await this.acquireSlot();
+    // One deadline covers queueing, connection, session/new and the prompt.
+    const timeoutMs = this.config.runTimeoutMs;
+    const deadline = setTimeout(() => {
+      run.timedOut = true;
+      run.abort.abort(new Error(`subagent run timed out after ${timeoutMs}ms`));
+      void this.cancelRun(run);
+    }, timeoutMs);
+    deadline.unref?.();
+    const signal = run.abort.signal;
+
+    // A subagent that delegates is waiting, not executing: lend its slot to
+    // the child so nested runs cannot deadlock behind their own parents.
+    const delegatingRun = this.activeRunForOwnToken(token);
+    if (delegatingRun) this.yieldSlot(delegatingRun);
+
     let attachedToken: string | null = null;
     try {
-      if (run.cancelled || this.disposed) throw new Error("subagent run was cancelled");
+      await this.acquireSlot(signal);
+      run.holdsSlot = true;
+      if (this.disposed) throw new Error("subagent run was cancelled");
       run.status = "running";
       this.emitRuns();
 
-      const connection = await this.host.acquireConnection(descriptor.id);
+      const connection = await untilAborted(this.host.acquireConnection(descriptor.id), signal);
       run.connection = connection;
 
       const cwd = typeof args.cwd === "string" && args.cwd ? args.cwd : parent.cwd;
@@ -458,13 +602,33 @@ export class SubagentManager {
         { cwd, depth: run.depth },
       );
       attachedToken = attached.token;
-      const created = (await connection.agent.request(acp.methods.agent.session.new, {
+      run.ownToken = attached.token;
+      signal.throwIfAborted();
+
+      const createRequest = connection.agent.request(acp.methods.agent.session.new, {
         cwd,
         mcpServers: attached.servers as never,
-      })) as { sessionId: string };
+      }) as Promise<{ sessionId: string }>;
+      let created: { sessionId: string };
+      try {
+        created = await untilAborted(createRequest, signal);
+      } catch (error) {
+        // The provider may still create the session after we stop waiting.
+        // Close that one session; never kill the shared provider for it.
+        createRequest.then(
+          (late) =>
+            connection.agent
+              .request(acp.methods.agent.session.close, { sessionId: late.sessionId })
+              .catch(() => {}),
+          () => {},
+        );
+        throw error;
+      }
       run.sessionId = created.sessionId;
       this.runsBySession.set(created.sessionId, run);
       if (attached.token) this.bindSession(attached.token, created.sessionId);
+      // Cancelled or expired while the session was being created: never dispatch.
+      signal.throwIfAborted();
 
       const context = typeof args.context === "string" && args.context ? args.context : null;
       const promptText =
@@ -472,16 +636,12 @@ export class SubagentManager {
         (context ? `\n\n<context>\n${context}\n</context>` : "");
       const prompt: ContentBlock[] = [{ type: "text", text: promptText }];
 
-      await requestWithTimeout(
+      await untilAborted(
         connection.agent.request(acp.methods.agent.session.prompt, {
           sessionId: created.sessionId,
           prompt,
         }),
-        this.config.runTimeoutMs,
-        () => {
-          run.timedOut = true;
-          void this.cancelRun(run);
-        },
+        signal,
       );
 
       run.slice = applyTurnStop(run.slice);
@@ -495,25 +655,23 @@ export class SubagentManager {
         .join("")
         .trim();
 
-      if (run.cancelled && !run.timedOut) throw new Error("subagent run was cancelled");
+      signal.throwIfAborted();
 
-      run.status = run.timedOut ? "cancelled" : "finished";
+      run.status = "finished";
       run.resultPreview = text ? truncate(text, 300) : null;
-      const timeoutNote = run.timedOut
-        ? `\n\n[NOTE: the run hit the ${Math.round(this.config.runTimeoutMs / 60_000)}-minute timeout and was cancelled; output may be incomplete.]`
-        : "";
-      return (text || "(the subagent finished without a final text message)") + timeoutNote;
+      return text || "(the subagent finished without a final text message)";
     } catch (err) {
       run.status = run.cancelled || run.timedOut ? "cancelled" : "failed";
       throw err instanceof Error ? err : new Error(String(err));
     } finally {
+      clearTimeout(deadline);
       run.finishedAt = Date.now();
       this.captureAnalytics?.("subagent_run_completed", {
         agent_id: run.agentId,
         agent_name: getAgentDescriptor(run.agentId)?.name,
         status: run.status,
         depth: run.depth,
-        // Duration of just this run; startedAt is stamped when the slot is acquired.
+        // Duration of just this run, from admission to settlement.
         execution_duration_ms: run.finishedAt - run.startedAt,
         task_category: categorizeIntent(run.task),
       });
@@ -523,23 +681,71 @@ export class SubagentManager {
           .catch(() => {});
         this.runsBySession.delete(run.sessionId);
       }
+      // Activity history only needs the compact snapshot. Release completed
+      // transcripts, full task strings and process/transport references on
+      // success, cancellation and error, while keeping the returned report.
+      run.slice = createEmptySessionSlice();
+      run.task = truncate(run.task, 200);
+      run.connection = null;
       this.releaseToken(attachedToken);
-      this.releaseSlot();
+      if (run.holdsSlot) {
+        run.holdsSlot = false;
+        this.releaseSlot();
+      }
       this.pruneFinishedRuns();
       this.emitRuns();
+      // The delegating parent resumes executing before it sees this result.
+      if (delegatingRun) await this.reclaimSlot(delegatingRun);
     }
   }
 
-  private acquireSlot(): Promise<void> {
+  private activeRunForOwnToken(token: string): RunState | undefined {
+    for (const run of this.runs.values()) {
+      if (run.ownToken === token && run.status === "running") return run;
+    }
+    return undefined;
+  }
+
+  private yieldSlot(run: RunState): void {
+    run.waitingChildren++;
+    if (run.waitingChildren === 1 && run.holdsSlot) {
+      run.holdsSlot = false;
+      this.releaseSlot();
+    }
+  }
+
+  private async reclaimSlot(run: RunState): Promise<void> {
+    run.waitingChildren--;
+    if (run.waitingChildren > 0 || run.holdsSlot || run.finishedAt !== null) return;
+    try {
+      // Resuming work goes ahead of new admissions so parents cannot starve.
+      await this.acquireSlot(run.abort.signal, true);
+      run.holdsSlot = true;
+    } catch {
+      // The parent was cancelled or timed out; its own run settles without a slot.
+    }
+  }
+
+  private acquireSlot(signal: AbortSignal, front = false): Promise<void> {
+    if (signal.aborted) return Promise.reject(signal.reason);
     if (this.activeRuns < this.config.maxConcurrent) {
       this.activeRuns++;
       return Promise.resolve();
     }
-    return new Promise<void>((resolve) => {
-      this.slotWaiters.push(() => {
+    return new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        const index = this.slotWaiters.indexOf(waiter);
+        if (index >= 0) this.slotWaiters.splice(index, 1);
+        reject(signal.reason);
+      };
+      const waiter = () => {
+        signal.removeEventListener("abort", onAbort);
         this.activeRuns++;
         resolve();
-      });
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (front) this.slotWaiters.unshift(waiter);
+      else this.slotWaiters.push(waiter);
     });
   }
 

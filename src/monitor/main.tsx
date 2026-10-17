@@ -143,32 +143,24 @@ function MonitorApp() {
 
   useEffect(() => {
     if (!enabled) return;
-    void window.omni.monitor.getLive().then(setLive);
     void window.omni.monitor.getIncidents().then(setIncidents);
     void window.omni.monitor.getConnectionEpisodes().then(setConnectionEpisodes);
     void window.omni.monitor.getSessions().then(setSessions);
 
+    // The feed starts with a full snapshot and carries new ticks in its deltas.
     const offLive = window.omni.monitor.onLive(setLive);
-    const offTick = window.omni.monitor.onTick((tick) => {
-      setLive((current) =>
-        current
-          ? {
-              ...current,
-              timestamp: tick.timestamp,
-              recentTicks: [...current.recentTicks, tick].slice(-300),
-            }
-          : current,
-      );
-    });
     const offIncident = window.omni.monitor.onIncident((incident) => {
-      setIncidents((current) => [incident, ...current].slice(0, 200));
+      // Repeated freezes and slow switches update one coalesced incident:
+      // replace its row (moving it to the top) instead of adding a copy.
+      setIncidents((current) =>
+        [incident, ...current.filter((existing) => existing.id !== incident.id)].slice(0, 200),
+      );
       if (incident.kind === "connection_loss") {
         void window.omni.monitor.getConnectionEpisodes().then(setConnectionEpisodes);
       }
     });
     return () => {
       offLive();
-      offTick();
       offIncident();
     };
   }, [enabled]);
@@ -476,7 +468,12 @@ function MonitorApp() {
                 </div>
                 <div>
                   <div className="text-muted-foreground">Worker failures</div>
-                  <div className="font-semibold">{live?.pipelineTelemetry.workerFailures ?? 0}</div>
+                  <div className="font-semibold">
+                    {live?.pipelineTelemetry.workerFailures ?? 0}
+                    {live?.pipelineTelemetry.workerMode === "fallback"
+                      ? " (main-thread fallback)"
+                      : ""}
+                  </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Write latency</div>

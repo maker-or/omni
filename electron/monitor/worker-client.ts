@@ -1,15 +1,23 @@
+import type { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
 import type {
   MonitorDiffIngestion,
   MonitorAcpUpdate,
   MonitorBridgeEvent,
   MonitorProcessDescriptor,
-  MonitorProcessSample,
+  MonitorPruneReport,
   MonitorRendererTelemetry,
   MonitorSampleTick,
   MonitorSession,
 } from "../../contracts/monitor.ts";
-import { samplePid, type RawProcessMetrics } from "./platform-sampler.ts";
+import {
+  collectProcessTick,
+  samplerStats,
+  type RawProcessMetrics,
+  type SamplerStats,
+} from "./platform-sampler.ts";
+import { pruneMonitorData, type MonitorRetentionPolicy } from "./retention.ts";
+import { migrateLegacyMonitorStep, openMonitorDatabase } from "./storage.ts";
 import {
   ensureMonitorTables,
   finishMonitorSession,
@@ -19,20 +27,32 @@ import {
   insertMonitorSession,
   insertRendererTelemetry,
   insertSampleBatch,
+  currentMonitorDb,
   isMonitorDbInitialized,
   initializeMonitorDb,
-  pruneOldSamples,
 } from "./db.ts";
 
 const MAX_QUEUED_WRITES = 256;
 
+/**
+ * The built main bundle emits the worker as `monitor-worker.js` beside
+ * `index.js` (see electron.vite.config.ts); source runs (tests) load the
+ * TypeScript entry directly.
+ */
+export function monitorWorkerUrl(moduleUrl: string = import.meta.url): URL {
+  return moduleUrl.endsWith(".ts")
+    ? new URL("./worker.ts", moduleUrl)
+    : new URL("./monitor-worker.js", moduleUrl);
+}
+
 export type WorkerCommand =
-  | { type: "init"; dbPath: string }
+  | { type: "init"; dbPath: string; legacyDbPath?: string }
   | {
       type: "sample";
       descriptors: MonitorProcessDescriptor[];
       sessionId: string | null;
       mainPid: number;
+      threadDetail: boolean;
       mainProcessMetrics?: RawProcessMetrics;
     }
   | { type: "start-recording"; session: MonitorSession }
@@ -42,8 +62,13 @@ export type WorkerCommand =
   | { type: "acp-update"; sessionId: string; update: MonitorAcpUpdate }
   | { type: "bridge-event"; sessionId: string; event: MonitorBridgeEvent }
   | { type: "flush" }
-  | { type: "prune"; retentionMs: number }
+  | { type: "prune"; policy: MonitorRetentionPolicy }
   | { type: "shutdown" };
+
+export interface MonitorSampleResult {
+  tick: MonitorSampleTick;
+  sampler: SamplerStats;
+}
 
 interface WorkerResponse {
   id: number;
@@ -60,40 +85,18 @@ interface PendingRequest {
   command: WorkerCommand;
 }
 
-async function collectProcessTick(
-  descriptors: MonitorProcessDescriptor[],
-  mainPid: number,
-  mainProcessMetrics?: RawProcessMetrics,
-): Promise<MonitorSampleTick> {
-  const timestamp = Date.now();
-  const uniqueByPid = new Map<number, MonitorProcessDescriptor>();
-  for (const descriptor of descriptors) {
-    if (!uniqueByPid.has(descriptor.pid)) uniqueByPid.set(descriptor.pid, descriptor);
-  }
-
-  const processes: MonitorProcessSample[] = [];
-  await Promise.all(
-    [...uniqueByPid.entries()].map(async ([pid, descriptor]) => {
-      const metrics =
-        pid === mainPid && mainProcessMetrics ? mainProcessMetrics : await samplePid(pid);
-      if (!metrics) return;
-      processes.push({
-        pid,
-        role: descriptor.role,
-        label: descriptor.label,
-        agentId: descriptor.agentId,
-        threadId: descriptor.threadId,
-        threadIds: descriptor.threadIds ?? (descriptor.threadId ? [descriptor.threadId] : []),
-        streamingThreadIds: descriptor.streamingThreadIds ?? [],
-        sessionId: descriptor.sessionId,
-        isStreaming: descriptor.isStreaming,
-        ...metrics,
-      });
-    }),
-  );
-
-  processes.sort((a, b) => a.label.localeCompare(b.label));
-  return { timestamp, processes };
+/** Fallback mode: drain the legacy backlog in short steps on this thread. */
+function migrateLegacyInProcess(db: DatabaseSync, legacyDbPath: string): void {
+  setImmediate(() => {
+    let done = true;
+    try {
+      done = migrateLegacyMonitorStep(db, legacyDbPath);
+    } catch (error) {
+      console.warn("[Monitor] Legacy diagnostics migration paused:", error);
+    }
+    if (!done) migrateLegacyInProcess(db, legacyDbPath);
+    else db.close();
+  });
 }
 
 async function executeCommandInProcess(command: WorkerCommand): Promise<unknown> {
@@ -102,14 +105,8 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
       case "init":
         if (!isMonitorDbInitialized()) {
           try {
-            const { DatabaseSync } = await import("node:sqlite");
-            if (DatabaseSync) {
-              const db = new DatabaseSync(command.dbPath);
-              db.exec("PRAGMA foreign_keys = ON;");
-              db.exec("PRAGMA journal_mode = WAL;");
-              db.exec("PRAGMA busy_timeout = 5000;");
-              initializeMonitorDb(db);
-            }
+            // Diagnostics have their own database file; see storage.ts.
+            initializeMonitorDb(openMonitorDatabase(command.dbPath));
           } catch {
             // node:sqlite not available in this environment
           }
@@ -121,11 +118,20 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
             // Table creation best-effort
           }
         }
+        if (command.legacyDbPath) {
+          // Its own connection: ATTACH must not affect the shared monitor handle.
+          try {
+            migrateLegacyInProcess(openMonitorDatabase(command.dbPath), command.legacyDbPath);
+          } catch (error) {
+            console.warn("[Monitor] Legacy diagnostics migration unavailable:", error);
+          }
+        }
         return;
       case "sample": {
         const tick = await collectProcessTick(
           command.descriptors,
           command.mainPid,
+          { threadDetail: command.threadDetail },
           command.mainProcessMetrics,
         );
         if (command.sessionId && isMonitorDbInitialized()) {
@@ -135,7 +141,7 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
             console.warn("[Monitor] Failed to write sample batch in process:", e);
           }
         }
-        return tick;
+        return { tick, sampler: samplerStats() } satisfies MonitorSampleResult;
       }
       case "start-recording":
         if (isMonitorDbInitialized()) {
@@ -193,22 +199,29 @@ async function executeCommandInProcess(command: WorkerCommand): Promise<unknown>
         return;
       case "flush":
         return;
-      case "prune":
-        if (isMonitorDbInitialized()) {
+      case "prune": {
+        // Prune the connection fallback writes go to. MonitorService usually
+        // opened it before the worker failed, so init above may not have.
+        const db = currentMonitorDb();
+        if (db) {
           try {
-            pruneOldSamples(command.retentionMs);
+            return pruneMonitorData(db, command.policy);
           } catch (e) {
-            console.warn("[Monitor] Failed to prune old samples in process:", e);
+            console.warn("[Monitor] Failed to prune monitor data in process:", e);
           }
         }
-        return;
+        return null;
+      }
       case "shutdown":
         return;
     }
   } catch (error) {
     console.error("[Monitor] executeCommandInProcess failed:", error);
     if (command.type === "sample") {
-      return { timestamp: Date.now(), processes: [] };
+      return {
+        tick: { timestamp: Date.now(), processes: [] },
+        sampler: samplerStats(),
+      } satisfies MonitorSampleResult;
     }
     return;
   }
@@ -228,11 +241,13 @@ export class MonitorWorkerClient {
   private maxWriteLatencyMs = 0;
   private lastFlushMs = 0;
   private lastError: string | null = null;
+  private processLaunches = 0;
   private readonly initPromise: Promise<void>;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: { legacyDbPath?: string } = {}) {
+    const init: WorkerCommand = { type: "init", dbPath, legacyDbPath: options.legacyDbPath };
     try {
-      this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+      this.worker = new Worker(monitorWorkerUrl());
       this.worker.unref();
       this.worker.on("message", (response: WorkerResponse) => this.handleResponse(response));
       this.worker.on("error", (error) => this.handleWorkerCrash(error));
@@ -241,12 +256,12 @@ export class MonitorWorkerClient {
           this.handleWorkerCrash(new Error(`Monitor worker exited with code ${code}`));
         }
       });
-      this.initPromise = this.request<void>({ type: "init", dbPath });
+      this.initPromise = this.request<void>(init);
     } catch (error) {
       this.useFallback = true;
       this.worker = null;
       this.lastError = error instanceof Error ? error.message : String(error);
-      this.initPromise = executeCommandInProcess({ type: "init", dbPath }) as Promise<void>;
+      this.initPromise = executeCommandInProcess(init) as Promise<void>;
     }
   }
 
@@ -254,19 +269,23 @@ export class MonitorWorkerClient {
     return this.initPromise;
   }
 
-  sample(
+  async sample(
     descriptors: MonitorProcessDescriptor[],
     sessionId: string | null,
     mainPid: number,
+    threadDetail: boolean,
     mainProcessMetrics?: RawProcessMetrics,
   ): Promise<MonitorSampleTick> {
-    return this.request<MonitorSampleTick>({
+    const result = await this.request<MonitorSampleResult>({
       type: "sample",
       descriptors,
       sessionId,
       mainPid,
+      threadDetail,
       mainProcessMetrics,
     });
+    this.processLaunches = result.sampler.processLaunches;
+    return result.tick;
   }
 
   startRecording(session: MonitorSession): Promise<void> {
@@ -308,15 +327,18 @@ export class MonitorWorkerClient {
       droppedWrites: this.droppedWrites,
       writeFailures: this.writeFailures,
       workerFailures: this.workerFailures,
+      workerMode: this.useFallback ? ("fallback" as const) : ("worker" as const),
       lastWriteLatencyMs: this.lastWriteLatencyMs,
       maxWriteLatencyMs: this.maxWriteLatencyMs,
       lastFlushMs: this.lastFlushMs,
       lastError: this.lastError,
+      processLaunches: this.processLaunches,
     };
   }
 
-  prune(retentionMs: number): boolean {
-    return this.postWrite({ type: "prune", retentionMs });
+  /** One bounded retention pass; resolves null when the database is unavailable. */
+  prune(policy: MonitorRetentionPolicy): Promise<MonitorPruneReport | null> {
+    return this.request<MonitorPruneReport | null>({ type: "prune", policy });
   }
 
   async shutdown(): Promise<void> {
