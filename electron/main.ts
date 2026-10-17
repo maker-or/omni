@@ -43,7 +43,8 @@ import {
   createWorkspace,
   setWorkspaceSetupProgressSink,
 } from "./workspace-lifecycle.ts";
-import { compactDatabase, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { compactWhenIdle, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { applicationStorage } from "./storage-maintenance.ts";
 import { scanWorkspaceDiskUsage } from "./workspace-disk-usage.ts";
 import {
   commitWorkspace,
@@ -1861,7 +1862,7 @@ function registerIpc(): void {
   // Read-only: reports per-workspace source vs. dependency/build bytes.
   ipcMain.handle("storage:workspaceUsage", () => scanWorkspaceDiskUsage());
   ipcMain.handle("storage:compactDatabase", () => {
-    databaseCompaction ??= compactDatabase(join(app.getPath("userData"), "omni.sqlite")).finally(
+    databaseCompaction ??= compactWhenIdle(join(app.getPath("userData"), "omni.sqlite")).finally(
       () => {
         databaseCompaction = null;
       },
@@ -3142,6 +3143,8 @@ app.whenReady().then(async () => {
     attention: { isFocused: () => mainWindowFocused },
     notify: osNotifier,
   });
+  // Database maintenance waits for agent turns to finish (see R15).
+  applicationStorage.setBusyProbe(() => (agentManager?.getRunningThreadIds().length ?? 0) > 0);
   sleeplessController = new SleeplessController({
     platform: process.platform,
     settingsPath: join(app.getPath("userData"), "sleepless.json"),

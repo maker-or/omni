@@ -60,6 +60,12 @@ import { IncidentCoalescer, mergeOccurrence } from "./incident-coalescer.ts";
 import { buildLiveSnapshot, createMonitorLiveRings, MonitorLiveFeed } from "./live-feed.ts";
 import { DEFAULT_MONITOR_RETENTION } from "./retention.ts";
 import { MonitorWorkerClient } from "./worker-client.ts";
+import {
+  MONITOR_DATABASE_FILE,
+  hasLegacyMonitorTables,
+  openMonitorDatabase,
+  reserveLegacyMonitorIds,
+} from "./storage.ts";
 
 const SAMPLE_INTERVAL_MS = 1000;
 /**
@@ -149,9 +155,17 @@ export class MonitorService {
       scalars: () => this.liveScalars(),
       onSubscribersChanged: () => this.updateDemand(),
     });
-    initializeMonitorDb(getDb());
+    // Diagnostics have their own database file; see storage.ts.
+    const monitorPath = join(app.getPath("userData"), MONITOR_DATABASE_FILE);
+    const monitorDb = openMonitorDatabase(monitorPath);
+    initializeMonitorDb(monitorDb);
     ensureMonitorTables();
-    this.worker = new MonitorWorkerClient(join(app.getPath("userData"), "omni.sqlite"));
+    const appDb = getDb();
+    const legacyRows = hasLegacyMonitorTables(appDb);
+    if (legacyRows) reserveLegacyMonitorIds(monitorDb, appDb);
+    this.worker = new MonitorWorkerClient(monitorPath, {
+      legacyDbPath: legacyRows ? join(app.getPath("userData"), "omni.sqlite") : undefined,
+    });
   }
 
   start(): void {

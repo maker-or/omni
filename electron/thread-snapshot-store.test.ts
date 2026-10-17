@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Thread } from "../contracts/threads.ts";
@@ -8,7 +17,13 @@ import { MAX_SESSION_ENTRIES, createEmptySessionSlice } from "../src/lib/acp-ses
 
 vi.mock("electron", () => ({ app: { getPath: () => process.env.TMPDIR ?? "/tmp" } }));
 
-import { THREAD_SNAPSHOT_SCHEMA_VERSION, ThreadSnapshotStore } from "./thread-snapshot-store.ts";
+import {
+  SNAPSHOT_INLINE_IMAGE_CHARS,
+  THREAD_SNAPSHOT_SCHEMA_VERSION,
+  ThreadSnapshotStore,
+  hydrateSnapshotImages,
+  snapshotImageRefs,
+} from "./thread-snapshot-store.ts";
 
 let root: string;
 let database: DatabaseSync;
@@ -60,6 +75,45 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+function addThread(id: string): Thread {
+  const next = { ...thread, id, agent_session_id: `session-${id}` };
+  database
+    .prepare("INSERT INTO threads (id, project_id, agent_id, agent_session_id) VALUES (?, ?, ?, ?)")
+    .run(next.id, next.project_id, next.agent_id, next.agent_session_id);
+  return next;
+}
+
+function writeInput(target: Thread, slice = createEmptySessionSlice(), payloads = new Map()) {
+  return {
+    threadId: target.id,
+    agentSessionId: target.agent_session_id,
+    agentId: target.agent_id,
+    slice,
+    payloads,
+  };
+}
+
+/** Independent scan: transcript text in SQLite plus every referenced file on disk. */
+function independentTotals() {
+  const transcriptBytes = (
+    database
+      .prepare(
+        "SELECT COALESCE(SUM(length(CAST(slice_json AS BLOB))), 0) AS bytes FROM thread_snapshots",
+      )
+      .get() as { bytes: number }
+  ).bytes;
+  const paths = (
+    database.prepare("SELECT path FROM thread_snapshot_files").all() as Array<{ path: string }>
+  ).map((row) => row.path);
+  const bodyBytes = paths.reduce((sum, path) => sum + statSync(path).size, 0);
+  return { transcriptBytes, bodyBytes };
+}
+
+function storedTotals(store: ThreadSnapshotStore) {
+  const usage = store.storageUsage();
+  return { transcriptBytes: usage.transcriptBytes, bodyBytes: usage.bodyBytes };
+}
+
 describe("ThreadSnapshotStore", () => {
   test("counts transcript rows in the disk budget and preserves resident payload sources", async () => {
     const pinned = new Set([thread.id]);
@@ -71,13 +125,14 @@ describe("ThreadSnapshotStore", () => {
     });
     const slice = createEmptySessionSlice({
       entries: [{ type: "agent_text", id: "text", messageId: null, text: "世界".repeat(200) }],
+      toolCalls: { call: { toolCallId: "call", title: "Read", hasPayload: true } },
     });
     const first = await store.write({
       threadId: thread.id,
       agentSessionId: thread.agent_session_id,
       agentId: thread.agent_id,
       slice,
-      payloads: new Map(),
+      payloads: new Map([["call", { rawOutput: "x" }]]),
     });
     for (const id of ["thread-2", "thread-3"]) {
       database
@@ -110,7 +165,7 @@ describe("ThreadSnapshotStore", () => {
   test("reclaims old orphan generations while preserving recent, referenced and unrelated files", async () => {
     const old = join(root, "orphan-123-abcdef.jsonl.gz");
     const partial = join(root, "orphan-123-abcdee.jsonl.gz.tmp");
-    const recent = join(root, "recent-124-abcdef.jsonl.gz");
+    const recent = join(root, "recent-124-abcdef.seg");
     const unrelated = join(root, "notes.jsonl.gz");
     for (const path of [old, partial, recent, unrelated]) writeFileSync(path, "fixture");
     const yesterday = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
@@ -123,6 +178,9 @@ describe("ThreadSnapshotStore", () => {
       slice: createEmptySessionSlice(),
       payloads: new Map(),
     });
+    // Cleanup is scheduled maintenance, not a side effect of the first write.
+    expect(existsSync(old)).toBe(true);
+    await store.runMaintenance();
     expect(existsSync(old)).toBe(false);
     expect(existsSync(partial)).toBe(false);
     expect(existsSync(recent)).toBe(true);
@@ -369,5 +427,252 @@ describe("ThreadSnapshotStore", () => {
     expect(stats.entries).toBe(2);
     expect(stats.bytes).toBeLessThanOrEqual(8 * 1024);
     expect(stats.threadIds).toEqual(["thread-3", "thread-1"]);
+  });
+  test("keeps exact byte totals through overwrite, eviction and a failed transaction", async () => {
+    const store = new ThreadSnapshotStore({ rootPath: root, database, maxPayloadBytes: 6000 });
+    const tools = { call: { toolCallId: "call", title: "Read", hasPayload: true } };
+    const unicode = (text: string) =>
+      createEmptySessionSlice({
+        entries: [{ type: "agent_text", id: "t", messageId: null, text }],
+        toolCalls: tools,
+      });
+    await store.write(
+      writeInput(
+        thread,
+        unicode("héllo 世界 🎉".repeat(40)),
+        new Map([["call", { rawOutput: "a".repeat(500) }]]),
+      ),
+    );
+    expect(storedTotals(store)).toEqual(independentTotals());
+
+    // Overwrite with a different size.
+    await store.write(
+      writeInput(thread, unicode("ü".repeat(10)), new Map([["call", { rawOutput: "b" }]])),
+    );
+    expect(storedTotals(store)).toEqual(independentTotals());
+
+    // Fill past the budget so the least-recent row is evicted.
+    for (const id of ["t2", "t3", "t4"]) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await store.write(writeInput(addThread(id), unicode("世".repeat(600))));
+    }
+    expect(store.load(thread)).toBeNull();
+    expect(storedTotals(store)).toEqual(independentTotals());
+    expect(
+      store.storageUsage().transcriptBytes + store.storageUsage().bodyBytes,
+    ).toBeLessThanOrEqual(6000);
+
+    // A transaction that fails after the row update must not change totals.
+    const before = independentTotals();
+    database.exec(
+      "CREATE TRIGGER fail_files BEFORE INSERT ON thread_snapshot_files BEGIN SELECT RAISE(ABORT, 'injected'); END;",
+    );
+    const t4 = { ...thread, id: "t4", agent_session_id: "session-t4" };
+    await expect(
+      store.write(writeInput(t4, unicode("changed"), new Map([["call", { rawOutput: "c" }]]))),
+    ).rejects.toThrow(/injected/);
+    database.exec("DROP TRIGGER fail_files");
+    expect(independentTotals()).toEqual(before);
+    expect(storedTotals(store)).toEqual(before);
+    expect(store.load(t4)?.slice.entries[0]).toMatchObject({ text: "世".repeat(600) });
+  });
+
+  test("reads and backfills legacy rows, then converts them on the next write", async () => {
+    const legacyPath = join(root, "thread-1-1700000000000-abc123.jsonl.gz");
+    writeFileSync(
+      legacyPath,
+      gzipSync(
+        [
+          JSON.stringify(["a", { rawOutput: "alpha" }]),
+          JSON.stringify(["b", { rawOutput: "beta" }]),
+        ].join("\n") + "\n",
+      ),
+    );
+    const slice = createEmptySessionSlice({
+      entries: [{ type: "agent_text", id: "e", messageId: null, text: "legacy 世界" }],
+      toolCalls: {
+        a: { toolCallId: "a", title: "A", hasPayload: true },
+        b: { toolCallId: "b", title: "B", hasPayload: true },
+      },
+    });
+    const sliceJson = JSON.stringify(slice);
+    database
+      .prepare(`INSERT INTO thread_snapshots VALUES (?, 1, ?, ?, 1, ?, ?, ?, 1, 5)`)
+      .run(
+        thread.id,
+        thread.agent_session_id,
+        thread.agent_id,
+        sliceJson,
+        legacyPath,
+        statSync(legacyPath).size,
+      );
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+
+    const loaded = store.load(thread)!;
+    expect(loaded.bodies?.kind).toBe("legacy");
+    expect((await store.loadPayloads(loaded, ["b"])).get("b")).toEqual({ rawOutput: "beta" });
+    // Unaccounted rows are measured exactly before the backfill persists them.
+    expect(store.storageUsage()).toMatchObject({
+      unaccountedRows: 1,
+      transcriptBytes: Buffer.byteLength(sliceJson),
+    });
+    await store.runMaintenance();
+    expect(store.storageUsage().unaccountedRows).toBe(0);
+    expect(storedTotals(store)).toEqual(independentTotals());
+
+    const converted = (await store.write({
+      ...writeInput(thread, slice, new Map([["b", { rawOutput: "beta-2" }]])),
+      baseSnapshot: loaded,
+    }))!;
+    expect(converted.bodies?.kind).toBe("indexed");
+    expect(existsSync(legacyPath)).toBe(false);
+    expect(Object.fromEntries(await store.loadPayloads(converted))).toEqual({
+      a: { rawOutput: "alpha" },
+      b: { rawOutput: "beta-2" },
+    });
+    expect(storedTotals(store)).toEqual(independentTotals());
+  });
+
+  test("reads one body without decoding the rest of the file and appends only changes", async () => {
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+    const toolCalls: Record<string, { toolCallId: string; title: string; hasPayload: boolean }> =
+      {};
+    const payloads = new Map<string, { rawOutput: string }>();
+    for (let i = 0; i < 32; i++) {
+      toolCalls[`t${i}`] = { toolCallId: `t${i}`, title: `T${i}`, hasPayload: true };
+      payloads.set(`t${i}`, { rawOutput: `${i}:`.padEnd(4096, String(i % 10)) });
+    }
+    const first = (await store.write(
+      writeInput(thread, createEmptySessionSlice({ toolCalls }), payloads),
+    ))!;
+
+    toolCalls.extra = { toolCallId: "extra", title: "Extra", hasPayload: true };
+    const second = (await store.write({
+      ...writeInput(
+        thread,
+        createEmptySessionSlice({ toolCalls }),
+        new Map([["extra", { rawOutput: "new" }]]),
+      ),
+      baseSnapshot: first,
+    }))!;
+    // The earlier generation's segment is carried forward, not rewritten.
+    expect(existsSync(first.payloadPath)).toBe(true);
+    expect(statSync(second.payloadPath).size).toBeLessThan(64);
+
+    // Corrupt every record except t31: a scanning reader would fail.
+    const location =
+      second.bodies!.kind === "indexed" ? second.bodies.index.bodies.get("t31")! : null;
+    const bytes = readFileSync(first.payloadPath);
+    bytes.fill(0, 0, location![1]);
+    writeFileSync(first.payloadPath, bytes);
+    expect(await store.loadPayloads(second, ["t31", "extra"])).toEqual(
+      new Map([
+        ["t31", payloads.get("t31")],
+        ["extra", { rawOutput: "new" }],
+      ]),
+    );
+  });
+
+  test("defers deleting a generation until its in-flight readers finish", async () => {
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+    const slice = createEmptySessionSlice({
+      toolCalls: { a: { toolCallId: "a", title: "A", hasPayload: true } },
+    });
+    const first = (await store.write(
+      writeInput(thread, slice, new Map([["a", { rawOutput: "first" }]])),
+    ))!;
+    // Pause the reader just before it opens the generation's files.
+    let openFile!: () => void;
+    const paused = new Promise<void>((resolve) => (openFile = resolve));
+    const internals = store as unknown as {
+      readBodiesNow: (...args: unknown[]) => Promise<Map<string, unknown>>;
+    };
+    const readBodiesNow = internals.readBodiesNow.bind(store);
+    internals.readBodiesNow = async (...args) => {
+      await paused;
+      return readBodiesNow(...args);
+    };
+    const reading = store.loadPayloads(first, ["a"]);
+    // A replacement generation commits before the queued read opens the file.
+    await store.write({
+      ...writeInput(thread, slice, new Map([["a", { rawOutput: "second" }]])),
+      baseSnapshot: first,
+    });
+    expect(existsSync(first.payloadPath)).toBe(true);
+    openFile();
+    await expect(reading).resolves.toEqual(new Map([["a", { rawOutput: "first" }]]));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(existsSync(first.payloadPath)).toBe(false);
+    // A reader that arrives after deletion gets a defined, recoverable error.
+    await expect(store.loadPayloads(first, ["a"])).rejects.toMatchObject({
+      name: "ThreadSnapshotBodiesUnavailableError",
+    });
+  });
+
+  test("stores large images as bodies and restores their exact content", async () => {
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+    const large = "iVBOR".repeat(SNAPSHOT_INLINE_IMAGE_CHARS);
+    const small = "tiny";
+    const slice = createEmptySessionSlice({
+      entries: [
+        {
+          type: "user_text",
+          id: "u1",
+          messageId: null,
+          text: "look",
+          images: [
+            { data: large, mimeType: "image/png" },
+            { data: small, mimeType: "image/png" },
+          ],
+        },
+      ],
+    });
+    const written = (await store.write(writeInput(thread, slice)))!;
+    const row = database
+      .prepare("SELECT slice_bytes FROM thread_snapshots WHERE thread_id = ?")
+      .get(thread.id) as { slice_bytes: number };
+    expect(row.slice_bytes).toBeLessThan(1024);
+
+    const loaded = store.load(thread)!;
+    const refs = snapshotImageRefs(loaded.slice);
+    expect(refs).toHaveLength(1);
+    const images = await store.loadImages(loaded, refs);
+    const entries = hydrateSnapshotImages(loaded.slice.entries, images)!;
+    expect(entries[0]).toMatchObject({
+      images: [
+        { data: large, mimeType: "image/png" },
+        { data: small, mimeType: "image/png" },
+      ],
+    });
+
+    // Re-persisting hydrated content does not rewrite the stored image.
+    const next = (await store.write({
+      ...writeInput(thread, { ...loaded.slice, entries }),
+      baseSnapshot: written,
+    }))!;
+    expect(next.payloadPath).toBe(written.payloadPath);
+    expect(await store.loadImages(next, refs)).toEqual(new Map([[refs[0], large]]));
+  });
+
+  test("does not store the same live image again on later writes", async () => {
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+    const slice = createEmptySessionSlice({
+      entries: [
+        {
+          type: "user_text",
+          id: "u1",
+          messageId: null,
+          text: "look",
+          images: [{ data: "A".repeat(SNAPSHOT_INLINE_IMAGE_CHARS * 4), mimeType: "image/png" }],
+        },
+      ],
+    });
+    const first = (await store.write(writeInput(thread, slice)))!;
+    const appended = createEmptySessionSlice({
+      entries: [...slice.entries, { type: "agent_text", id: "a1", messageId: null, text: "ok" }],
+    });
+    const second = (await store.write({ ...writeInput(thread, appended), baseSnapshot: first }))!;
+    expect(second.payloadPath).toBe(first.payloadPath);
+    expect(second.payloadBytes).toBe(first.payloadBytes);
   });
 });

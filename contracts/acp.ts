@@ -229,8 +229,12 @@ export type AcpEntry =
       id: string;
       messageId: string | null;
       text: string;
-      /** Images attached to an optimistic local user message. */
-      images?: Array<{ data: string; mimeType: string }>;
+      /**
+       * Images attached to the user message. A restored display snapshot may
+       * carry a placeholder (`data: ""` with `ref`) until main loads the
+       * stored content; `ref` then stays set on the loaded image.
+       */
+      images?: Array<{ data: string; mimeType: string; ref?: string }>;
     }
   | { type: "agent_text"; id: string; messageId: string | null; text: string }
   | { type: "agent_thought"; id: string; messageId: string | null; text: string }

@@ -73,6 +73,7 @@ import { stringifyMessageContent, type MessageLike } from "@/lib/message-utils";
 import {
   extractGroupedMessageImages,
   fileToPromptImage,
+  hasPendingImages,
   MAX_AGENT_IMAGES,
   partitionValidImageFiles,
   type ChatImageAttachment,
@@ -1055,16 +1056,25 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         if (msg.role === "user") {
           const promptText = stringifyMessageContent(msg);
           const entryId = snapshot?.messageEntryRefs[i]?.entryId;
+          const images = extractGroupedMessageImages([msg]).map(({ type, data, mimeType }) => ({
+            type,
+            data,
+            mimeType,
+          }));
+          if (hasPendingImages(images)) {
+            toast({
+              icon: <WarningIcon className="size-5 text-red-500" />,
+              title: "Images are still loading",
+              description: "Try again once the message's images have loaded.",
+            });
+            break;
+          }
           if (entryId && snapshot?.threadId)
             await replacePrompt({
               threadId: snapshot.threadId,
               targetUserEntryId: entryId,
               message: promptText,
-              images: extractGroupedMessageImages([msg]).map(({ type, data, mimeType }) => ({
-                type,
-                data,
-                mimeType,
-              })),
+              images,
             });
           break;
         }
@@ -1772,6 +1782,14 @@ export function AgentPanel({ demoInputValue }: AgentPanelProps = {}) {
         mimeType,
       }));
       const images = [...retained, ...newImages];
+      if (hasPendingImages(images)) {
+        toast({
+          icon: <WarningIcon className="size-5 text-red-500" />,
+          title: "Images are still loading",
+          description: "Try again once the message's images have loaded.",
+        });
+        return;
+      }
       if (images.length > MAX_AGENT_IMAGES) {
         toast({
           icon: <WarningIcon className="size-5 text-red-500" />,

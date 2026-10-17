@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { parentPort } from "node:worker_threads";
 import {
   ensureMonitorTables,
@@ -13,6 +13,7 @@ import {
 } from "./db.ts";
 import { collectProcessTick, samplerStats } from "./platform-sampler.ts";
 import { pruneMonitorData } from "./retention.ts";
+import { migrateLegacyMonitorStep, openMonitorDatabase } from "./storage.ts";
 import type { WorkerCommand } from "./worker-client.ts";
 
 type IncomingCommand = WorkerCommand & { id: number };
@@ -29,13 +30,11 @@ async function handle(command: IncomingCommand): Promise<void> {
     switch (command.type) {
       case "init": {
         db?.close();
-        db = new DatabaseSync(command.dbPath);
-        db.exec("PRAGMA foreign_keys = ON;");
-        db.exec("PRAGMA journal_mode = WAL;");
-        db.exec("PRAGMA busy_timeout = 5000;");
+        db = openMonitorDatabase(command.dbPath);
         initializeMonitorDb(db);
         ensureMonitorTables();
         send(command.id, true);
+        if (command.legacyDbPath) scheduleLegacyMigration(db, command.legacyDbPath);
         return;
       }
       case "sample": {
@@ -89,6 +88,24 @@ async function handle(command: IncomingCommand): Promise<void> {
   } catch (error) {
     send(command.id, false, undefined, error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * Move monitor rows left in the application database by earlier builds.
+ * Each step is queued behind pending commands, so samples and telemetry keep
+ * flowing while the backlog drains.
+ */
+function scheduleLegacyMigration(connection: DatabaseSync, legacyDbPath: string): void {
+  commandQueue = commandQueue.then(() => {
+    if (db !== connection) return;
+    let done = true;
+    try {
+      done = migrateLegacyMonitorStep(connection, legacyDbPath);
+    } catch (error) {
+      console.warn("[Monitor] Legacy diagnostics migration paused:", error);
+    }
+    if (!done) setImmediate(() => scheduleLegacyMigration(connection, legacyDbPath));
+  });
 }
 
 parentPort?.on("message", (command: IncomingCommand) => {

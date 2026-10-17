@@ -623,11 +623,15 @@ function StorageView() {
     setCompactionMessage(null);
     try {
       const result = await window.omni.storage.compactDatabase();
-      const mib = (result.reclaimedBytes / (1024 * 1024)).toFixed(1);
+      const mib = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
       setCompactionMessage(
-        result.checkpointBusy
-          ? "Database compacted. Some disk space can be reclaimed after current database reads finish."
-          : `${mib} MiB reclaimed. Your projects, conversations and diagnostics are kept.`,
+        result.status === "busy"
+          ? "Pipper is busy. Space is reclaimed once running agents finish; try again then."
+          : result.status === "insufficient-space"
+            ? `Not enough free disk space. Free about ${mib((result.requiredFreeBytes ?? 0) - (result.availableFreeBytes ?? 0))} MiB and try again.`
+            : result.checkpointBusy
+              ? "Database compacted. Some disk space can be reclaimed after current database reads finish."
+              : `${mib(result.reclaimedBytes)} MiB reclaimed. Your projects, conversations and diagnostics are kept.`,
       );
     } catch {
       setError("Could not compact the database. Finish current tasks and try again.");

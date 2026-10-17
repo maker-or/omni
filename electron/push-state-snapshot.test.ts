@@ -237,6 +237,31 @@ describe("activation snapshot", () => {
     expect(runtime.replaySlice?.entries[0]).toMatchObject({ text: "authoritative history" });
   });
 
+  test("restored image placeholders are filled in after the first paint", async () => {
+    const { manager, events } = makeManager();
+    seedSession(manager, "t1", "s1");
+    const internal = manager as any;
+    const runtime = internal.sessions.get("t1");
+    const placeholder = { data: "", mimeType: "image/png", ref: "pipper-image:1" };
+    runtime.slice = createEmptySessionSlice({
+      entries: [
+        { type: "user_text", id: "u1", messageId: null, text: "see", images: [placeholder] },
+        { type: "agent_text", id: "a1", messageId: null, text: "ok" },
+      ],
+    });
+    const untouched = runtime.slice.entries[1];
+    const loadImages = vi.fn(async () => new Map([["pipper-image:1", "BASE64"]]));
+    internal.snapshotStore = { loadImages };
+    events.length = 0;
+
+    await internal.hydrateSnapshotImages(runtime, { slice: runtime.slice });
+
+    expect(loadImages).toHaveBeenCalledWith(expect.anything(), ["pipper-image:1"]);
+    expect(runtime.slice.entries[0].images).toEqual([{ ...placeholder, data: "BASE64" }]);
+    expect(runtime.slice.entries[1]).toBe(untouched);
+    expect(events.some((event) => event.type === "session-state")).toBe(true);
+  });
+
   test("snapshot reconciliation does not retain already-persisted tool bodies", async () => {
     const { manager } = makeManager();
     seedSession(manager, "t1", "s1");
