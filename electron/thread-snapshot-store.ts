@@ -206,19 +206,31 @@ export class ThreadSnapshotStore {
     const remaining = toolCallIds ? new Set(toolCallIds) : null;
     if (remaining?.size === 0) return;
     const input = createReadStream(snapshot.payloadPath);
-    const lines = createInterface({ input: input.pipe(createGunzip()), crlfDelay: Infinity });
-    for await (const line of lines) {
-      if (!line) continue;
-      const value: unknown = JSON.parse(line);
-      if (!Array.isArray(value) || typeof value[0] !== "string") {
-        throw new Error("Invalid thread snapshot payload record");
+    const gunzip = createGunzip();
+    // `pipe()` does not forward source errors. Without this, a missing or
+    // unreadable generation leaves the reader (and any write copying from it)
+    // pending forever instead of failing.
+    input.once("error", (error) => gunzip.destroy(error));
+    const lines = createInterface({ input: input.pipe(gunzip), crlfDelay: Infinity });
+    try {
+      for await (const line of lines) {
+        if (!line) continue;
+        const value: unknown = JSON.parse(line);
+        if (!Array.isArray(value) || typeof value[0] !== "string") {
+          throw new Error("Invalid thread snapshot payload record");
+        }
+        if (remaining && !remaining.has(value[0])) continue;
+        yield [value[0], (value[1] ?? {}) as ToolCallPayload];
+        if (remaining) {
+          remaining.delete(value[0]);
+          if (remaining.size === 0) break;
+        }
       }
-      if (remaining && !remaining.has(value[0])) continue;
-      yield [value[0], (value[1] ?? {}) as ToolCallPayload];
-      if (remaining) {
-        remaining.delete(value[0]);
-        if (remaining.size === 0) break;
-      }
+    } finally {
+      // An early exit (all requested ids found, or a parse error) must not
+      // leave the file descriptor open.
+      input.destroy();
+      gunzip.destroy();
     }
   }
 

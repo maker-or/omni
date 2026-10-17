@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
@@ -15,7 +15,7 @@ import {
   ANTIGRAVITY_INSTALL_WAIT_MS,
   waitForAntigravityInstall,
 } from "./agents/antigravity-official.ts";
-import { terminateChildProcess } from "./child-process.ts";
+import { spawnProviderProcess, terminateProviderProcess } from "./provider-processes.ts";
 import type { TerminalManager } from "./terminal-manager.ts";
 
 const configuredSwitchTimeout = Number(process.env.PIPPER_ACP_SWITCH_TIMEOUT_MS);
@@ -180,6 +180,14 @@ export class ConnectionLifecycle {
   private readonly intentionalConnectionIds = new Set<string>();
   private readonly lastConnectionIds = new Map<string, string>();
   private readonly connectionSpawnedAt = new Map<string, number>();
+  /**
+   * Every process this lifecycle spawned that has not exited, including ones
+   * still in their handshake or whose transport closed. `connections` alone
+   * misses those, and shutdown must reap them all.
+   */
+  private readonly processes = new Map<ChildProcessWithoutNullStreams, string>();
+  /** Set by terminateAll: shutdown is underway and no new provider may start. */
+  private terminated = false;
 
   constructor(deps: ConnectionLifecycleDeps) {
     this.deps = deps;
@@ -209,6 +217,7 @@ export class ConnectionLifecycle {
   }
 
   async acquire(descriptor: AcpAgentDescriptor): Promise<LiveConnection> {
+    if (this.terminated) throw new Error("Agent connections are shut down");
     const cached = this.connections.get(descriptor.id);
     if (cached) return cached;
     let pending = this.spawning.get(descriptor.id);
@@ -222,34 +231,42 @@ export class ConnectionLifecycle {
     }
     try {
       const live = await pending;
+      // terminateAll already reaped this process while its handshake finished.
+      if (this.terminated) throw new Error("Agent connections are shut down");
       this.connections.set(descriptor.id, live);
       if (isNewSpawn) {
         this.deps.onConnected?.(descriptor.id, Date.now() - spawnStartedAt, descriptor.installKind);
       }
       return live;
     } catch (err) {
-      if (isNewSpawn) {
+      // A spawn cut short by shutdown is not a connection failure.
+      if (isNewSpawn && !this.terminated) {
         this.deps.onConnectFailed?.(descriptor.id, err instanceof Error ? err.name : undefined);
       }
       throw err;
     }
   }
 
-  /** Mark every live connection intentional and tear the processes down. */
+  /**
+   * Shutdown: mark every live connection intentional, close the transports,
+   * and terminate every provider process this lifecycle started (with its
+   * process group). Later spawns are refused.
+   */
   async terminateAll(): Promise<void> {
+    this.terminated = true;
     const liveConnections = [...this.connections.values()];
     this.connections.clear();
-    await Promise.all(
-      liveConnections.map(async (live) => {
-        this.intentionalConnectionIds.add(live.connectionId);
-        try {
-          live.connection.close();
-        } catch {
-          // ignore
-        }
-        await terminateChildProcess(live.process);
-      }),
-    );
+    this.activeConnection = null;
+    for (const live of liveConnections) {
+      try {
+        live.connection.close();
+      } catch {
+        // ignore
+      }
+    }
+    const processes = [...this.processes];
+    for (const [, connectionId] of processes) this.intentionalConnectionIds.add(connectionId);
+    await Promise.all(processes.map(([child]) => terminateProviderProcess(child)));
   }
 
   /**
@@ -267,7 +284,7 @@ export class ConnectionLifecycle {
     } catch {
       // ignore
     }
-    await terminateChildProcess(live.process);
+    await terminateProviderProcess(live.process);
     this.deps.invalidateAgentSessions(agentId);
   }
 
@@ -291,15 +308,17 @@ export class ConnectionLifecycle {
           "Antigravity is still downloading for first use. Try again once the download finishes.",
         );
     }
+    // Checked after the install wait and right before spawning, with no await
+    // in between, so nothing can start once terminateAll has taken its list.
+    if (this.terminated) throw new Error("Agent connections are shut down");
     const { command, args, env } = resolveAgentSpawn(descriptor);
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
-    const child = spawn(command, args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-      ...(useShell && { shell: true }),
-    }) as ChildProcessWithoutNullStreams;
-
+    const child = spawnProviderProcess(command, args, { env, shell: useShell });
     const connectionId = randomUUID();
+    if (child.pid !== undefined) {
+      this.processes.set(child, connectionId);
+      child.once("exit", () => this.processes.delete(child));
+    }
     const spawnedAt = Date.now();
     const previousConnectionId = this.lastConnectionIds.get(descriptor.id) ?? null;
     let stderrTail = "";
@@ -449,7 +468,7 @@ export class ConnectionLifecycle {
       } catch {
         // best effort
       }
-      await terminateChildProcess(child);
+      await terminateProviderProcess(child);
       throw err;
     }
 

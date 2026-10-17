@@ -145,6 +145,9 @@ import { getPipperLibraryPath } from "./paths";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 import { launchLauncherInstaller } from "./launcher-update-install.ts";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
+import { runShutdownSteps } from "./bounded-shutdown.ts";
+import { waitForPidsToExit } from "./child-process.ts";
+import { killAllProviderProcessesSync } from "./provider-processes.ts";
 import {
   PIPPER_LAUNCHER_MAC_MANIFEST_URL,
   PIPPER_LAUNCHER_WINDOWS_MANIFEST_URL,
@@ -197,8 +200,18 @@ function disposePtySession(session: RendererPtySession): void {
   session.exitDisposable.dispose();
 }
 
+/**
+ * Shells signalled by killAllPtyProcesses that may not have exited yet. Each
+ * entry removes itself once its shells are gone (SIGKILL after 1 s), so quit
+ * can wait for them without holding pids that could be reused later.
+ */
+const stoppingPtyShells = new Set<Promise<void>>();
+
+/** Stops every renderer terminal. */
 function killAllPtyProcesses(reason: string): void {
+  const pids: number[] = [];
   for (const [id, session] of ptyProcesses) {
+    pids.push(session.process.pid);
     try {
       session.process.kill();
     } catch (error) {
@@ -207,6 +220,11 @@ function killAllPtyProcesses(reason: string): void {
     disposePtySession(session);
   }
   ptyProcesses.clear();
+  if (pids.length === 0) return;
+  const stopped: Promise<void> = waitForPidsToExit(pids, 1_000).finally(() =>
+    stoppingPtyShells.delete(stopped),
+  );
+  stoppingPtyShells.add(stopped);
 }
 
 function resolveWindowsShell(): string {
@@ -3496,18 +3514,31 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-/** Prevents re-entrant will-quit after we flush analytics and call app.quit(). */
-let analyticsQuitFlushed = false;
-/** True while the async dispose/flush chain from will-quit is in flight. */
-let analyticsQuitInProgress = false;
+/**
+ * Overall budget for the will-quit cleanup chain. Each step has its own bound
+ * inside it; whatever is still pending at the deadline is abandoned.
+ */
+const QUIT_CLEANUP_DEADLINE_MS = 10_000;
+/** Hard backstop past the deadline, should `app.quit()` itself not exit. */
+const QUIT_FORCE_EXIT_GRACE_MS = 3_000;
+/** Prevents re-entrant will-quit after cleanup finished and we call app.quit(). */
+let quitCleanupFinished = false;
+/** True once the bounded dispose/flush chain from will-quit has started. */
+let quitCleanupStarted = false;
+
+// Anything that ends the process without the will-quit chain (app.exit, a
+// fatal path) still must not leave provider processes behind.
+process.on("exit", () => {
+  killAllProviderProcessesSync();
+});
 
 app.on("will-quit", (event) => {
   // Ensure PostHog identify / $set person-profile batches flush before the
   // process exits. Without this, short sessions can drop email/avatar entirely.
-  if (analyticsQuitFlushed) return;
+  if (quitCleanupFinished) return;
   event.preventDefault();
-  if (analyticsQuitInProgress) return;
-  analyticsQuitInProgress = true;
+  if (quitCleanupStarted) return;
+  quitCleanupStarted = true;
 
   authCallbackServer?.close();
   launcherUpdateManager?.stopPeriodicChecks();
@@ -3526,35 +3557,37 @@ app.on("will-quit", (event) => {
   killAllPtyProcesses("Quit");
   monitorService?.stop();
 
-  void (async () => {
-    try {
-      await agentManager?.dispose();
-    } catch (err) {
-      console.error("[Main] Failed to dispose agent manager on quit:", err);
-    }
-    try {
-      await remoteAccess?.dispose();
-    } catch (err) {
-      console.error("[Main] Failed to stop remote server on quit:", err);
-    }
-    try {
-      await sleeplessController?.dispose();
-    } catch (err) {
-      console.error("[Main] Failed to disarm Sleepless on quit:", err);
-    }
-    try {
-      await shutdownAnalytics();
-    } catch (err) {
-      console.error("[Main] Failed to flush analytics on quit:", err);
-    } finally {
-      try {
-        await shutdownTelemetry();
-      } catch (err) {
-        console.error("[Main] Failed to flush observability telemetry on quit:", err);
-      }
-      analyticsQuitFlushed = true;
-      analyticsQuitInProgress = false;
-      app.quit();
-    }
-  })();
+  // Quit must always complete. runShutdownSteps already resolves by the
+  // deadline; this covers a quit that still does not exit after it.
+  setTimeout(() => {
+    console.error("[Main] Quit did not complete; terminating providers and exiting");
+    killAllProviderProcessesSync();
+    app.exit(0);
+  }, QUIT_CLEANUP_DEADLINE_MS + QUIT_FORCE_EXIT_GRACE_MS);
+
+  void runShutdownSteps(
+    [
+      // Shells exit on SIGHUP within milliseconds; never leave one running.
+      // Includes shells stopped when the windows closed just before quit.
+      { name: "terminal shells", timeoutMs: 1_500, run: () => Promise.all(stoppingPtyShells) },
+      // Snapshot flush (bounded inside dispose) plus provider SIGTERM → SIGKILL.
+      { name: "agent manager", timeoutMs: 8_000, run: () => agentManager?.dispose() },
+      {
+        // Reap whatever dispose could not reach in time before slower,
+        // network-bound steps run.
+        name: "provider processes",
+        timeoutMs: 1_000,
+        run: () => killAllProviderProcessesSync(),
+      },
+      { name: "remote server", timeoutMs: 2_000, run: () => remoteAccess?.dispose() },
+      { name: "Sleepless", timeoutMs: 2_000, run: () => sleeplessController?.dispose() },
+      { name: "analytics flush", timeoutMs: 2_000, run: () => shutdownAnalytics() },
+      { name: "telemetry flush", timeoutMs: 2_000, run: () => shutdownTelemetry() },
+    ],
+    { deadlineMs: QUIT_CLEANUP_DEADLINE_MS },
+  ).finally(() => {
+    killAllProviderProcessesSync();
+    quitCleanupFinished = true;
+    app.quit();
+  });
 });

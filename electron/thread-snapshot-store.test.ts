@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Thread } from "../contracts/threads.ts";
@@ -332,6 +332,51 @@ describe("ThreadSnapshotStore", () => {
     expect(
       Object.fromEntries([...payloads].map(([id, payload]) => [id, payload.rawOutput])),
     ).toEqual({ a: "alpha", b: "new-beta", c: "charlie" });
+  });
+
+  test("a write whose base generation is gone fails instead of hanging, keeping the stored row", async () => {
+    const store = new ThreadSnapshotStore({ rootPath: root, database });
+    const slice = createEmptySessionSlice({
+      toolCalls: { a: { toolCallId: "a", title: "A", hasPayload: true } },
+    });
+    const first = await store.write({
+      threadId: thread.id,
+      agentSessionId: thread.agent_session_id,
+      agentId: thread.agent_id,
+      slice,
+      payloads: new Map([["a", { rawOutput: "alpha" }]]),
+    });
+    rmSync(first!.payloadPath);
+
+    // Before the fix, `pipe()` swallowed the ENOENT and both promises stayed
+    // pending forever, which stalled app shutdown on the snapshot flush.
+    const bounded = <T>(promise: Promise<T>) =>
+      Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("still pending after 2 s")), 2_000),
+        ),
+      ]);
+    await expect(bounded(store.loadPayloads(first!))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      bounded(
+        store.write({
+          threadId: thread.id,
+          agentSessionId: thread.agent_session_id,
+          agentId: thread.agent_id,
+          slice,
+          payloads: new Map(),
+          baseSnapshot: first!,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT", path: first!.payloadPath });
+
+    expect(
+      database
+        .prepare("SELECT payload_path FROM thread_snapshots WHERE thread_id = ?")
+        .get(thread.id),
+    ).toEqual({ payload_path: first!.payloadPath });
+    expect(readdirSync(root).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
   test("keeps the in-memory preload cache within entry and byte budgets", async () => {
