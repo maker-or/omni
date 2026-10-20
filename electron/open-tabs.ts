@@ -1,7 +1,12 @@
 import type { BrowserWindow } from "electron";
 import type { OpenTabsState } from "../contracts/threads.ts";
 import type { MonitorTabEvent } from "../contracts/monitor.ts";
-import { enqueueLaunchStateMutation, readLaunchState, writeLaunchState } from "./launch-state.ts";
+import {
+  applyNavigationCommit,
+  mutateLaunchState,
+  readLaunchState,
+  type LaunchState,
+} from "./launch-state.ts";
 
 const MAX_HISTORY = 100;
 
@@ -85,8 +90,7 @@ function normalize(state: OpenTabsState): OpenTabsState {
   };
 }
 
-export async function readOpenTabsState(): Promise<OpenTabsState> {
-  const state = await readLaunchState();
+function tabsOf(state: LaunchState): OpenTabsState {
   return normalize({
     openThreadIds: state.openThreadIds,
     activeThreadId: state.activeThreadId ?? state.threadId,
@@ -94,17 +98,38 @@ export async function readOpenTabsState(): Promise<OpenTabsState> {
   });
 }
 
-async function writeOpenTabsState(next: OpenTabsState): Promise<OpenTabsState> {
-  const current = await readLaunchState();
+function withTabs(current: LaunchState, next: OpenTabsState): LaunchState {
   const normalized = normalize(next);
-  await writeLaunchState({
+  return {
     ...current,
     threadId: normalized.activeThreadId,
     openThreadIds: normalized.openThreadIds,
     activeThreadId: normalized.activeThreadId,
     threadSwitchHistory: normalized.threadSwitchHistory,
+  };
+}
+
+export async function readOpenTabsState(): Promise<OpenTabsState> {
+  return tabsOf(await readLaunchState());
+}
+
+/**
+ * Every open-tabs read-modify-write goes through the shared launch-state
+ * mutation queue (see launch-state.ts): `tabs:open`, `tabs:close`,
+ * `tabs:setActive`, `agent:switchThread`, and workspace selection updates are
+ * independent IPC handlers that the renderer can fire concurrently, and they
+ * all persist into the same launch-state.json. `update` returns the next tab
+ * set; the result is the committed tab set after one write at most.
+ */
+async function mutateOpenTabs(
+  update: (current: OpenTabsState) => OpenTabsState,
+): Promise<{ previous: OpenTabsState; next: OpenTabsState }> {
+  let previous: OpenTabsState | null = null;
+  const committed = await mutateLaunchState((current) => {
+    previous = tabsOf(current);
+    return withTabs(current, update(previous));
   });
-  return normalized;
+  return { previous: previous!, next: tabsOf(committed) };
 }
 
 export function broadcastOpenTabsChanged(window: BrowserWindow | null, state: OpenTabsState): void {
@@ -113,24 +138,14 @@ export function broadcastOpenTabsChanged(window: BrowserWindow | null, state: Op
   }
 }
 
-// Every open-tabs read-modify-write below goes through the shared
-// launch-state mutation queue (see launch-state.ts): `tabs:open`,
-// `tabs:close`, `tabs:setActive`, `agent:switchThread`, and workspace
-// selection updates are independent IPC handlers that the renderer can fire
-// concurrently, and they all persist into the same launch-state.json.
-const enqueueMutation = enqueueLaunchStateMutation;
-
 export async function openThreadTab(threadId: string): Promise<OpenTabsState> {
-  return enqueueMutation(async () => {
-    const current = await readOpenTabsState();
-    const next = await writeOpenTabsState({
-      ...current,
-      openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
-      activeThreadId: threadId,
-    });
-    notifyTabEvent("open", threadId, next);
-    return next;
-  });
+  const { next } = await mutateOpenTabs((current) => ({
+    ...current,
+    openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
+    activeThreadId: threadId,
+  }));
+  notifyTabEvent("open", threadId, next);
+  return next;
 }
 
 /**
@@ -144,8 +159,7 @@ export async function closeThreadTab(
   threadId: string,
   isPeer?: (threadId: string) => boolean,
 ): Promise<OpenTabsState> {
-  return enqueueMutation(async () => {
-    const current = await readOpenTabsState();
+  const { next } = await mutateOpenTabs((current) => {
     const openThreadIds = current.openThreadIds.filter((id) => id !== threadId);
     let activeThreadId = current.activeThreadId;
     if (current.activeThreadId === threadId) {
@@ -157,14 +171,10 @@ export async function closeThreadTab(
         current.threadSwitchHistory,
       );
     }
-    const next = await writeOpenTabsState({
-      ...current,
-      openThreadIds,
-      activeThreadId,
-    });
-    notifyTabEvent("close", threadId, next);
-    return next;
+    return { ...current, openThreadIds, activeThreadId };
   });
+  notifyTabEvent("close", threadId, next);
+  return next;
 }
 
 /**
@@ -176,8 +186,7 @@ export async function closeThreadTab(
  */
 export async function removeThreadTabs(threadIds: string[]): Promise<OpenTabsState> {
   const removed = new Set(threadIds);
-  return enqueueMutation(async () => {
-    const current = await readOpenTabsState();
+  const { previous, next } = await mutateOpenTabs((current) => {
     const openThreadIds = current.openThreadIds.filter((id) => !removed.has(id));
     const threadSwitchHistory = current.threadSwitchHistory.filter((id) => !removed.has(id));
     let activeThreadId = current.activeThreadId;
@@ -189,44 +198,67 @@ export async function removeThreadTabs(threadIds: string[]): Promise<OpenTabsSta
         threadSwitchHistory,
       );
     }
-    const next = await writeOpenTabsState({ openThreadIds, activeThreadId, threadSwitchHistory });
-    for (const id of threadIds) {
-      if (current.openThreadIds.includes(id)) notifyTabEvent("close", id, next);
-    }
-    return next;
+    return { openThreadIds, activeThreadId, threadSwitchHistory };
   });
+  for (const id of threadIds) {
+    if (previous.openThreadIds.includes(id)) notifyTabEvent("close", id, next);
+  }
+  return next;
 }
 
 export async function setActiveThreadTab(threadId: string | null): Promise<OpenTabsState> {
-  return enqueueMutation(async () => {
-    const current = await readOpenTabsState();
-    if (!threadId) {
-      const next = await writeOpenTabsState({ ...current, activeThreadId: null });
-      notifyTabEvent("activate", current.activeThreadId ?? "", next);
-      return next;
-    }
-    const next = await writeOpenTabsState({
-      ...current,
-      openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
-      activeThreadId: threadId,
-    });
-    notifyTabEvent("activate", threadId, next);
-    return next;
-  });
+  const { previous, next } = await mutateOpenTabs((current) =>
+    threadId
+      ? {
+          ...current,
+          openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
+          activeThreadId: threadId,
+        }
+      : { ...current, activeThreadId: null },
+  );
+  notifyTabEvent("activate", threadId ?? previous.activeThreadId ?? "", next);
+  return next;
+}
+
+function switchedTabs(current: OpenTabsState, threadId: string): OpenTabsState {
+  return {
+    openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
+    activeThreadId: threadId,
+    threadSwitchHistory: [threadId, ...current.threadSwitchHistory.filter((id) => id !== threadId)],
+  };
 }
 
 export async function recordThreadSwitch(threadId: string): Promise<OpenTabsState> {
-  return enqueueMutation(async () => {
-    const current = await readOpenTabsState();
-    const next = await writeOpenTabsState({
-      openThreadIds: ensureThreadIdAtFront(current.openThreadIds, threadId),
-      activeThreadId: threadId,
-      threadSwitchHistory: [
-        threadId,
-        ...current.threadSwitchHistory.filter((id) => id !== threadId),
-      ],
-    });
-    notifyTabEvent("activate", threadId, next);
-    return next;
-  });
+  const { next } = await mutateOpenTabs((current) => switchedTabs(current, threadId));
+  notifyTabEvent("activate", threadId, next);
+  return next;
+}
+
+export interface ThreadNavigation {
+  projectId: string;
+  threadId: string;
+  /** The thread's workspace, persisted as the project's canonical selection. */
+  workspacePath: string | null;
+}
+
+/**
+ * Commit a thread activation — project, active thread, workspace selection,
+ * open tab and MRU history — as one atomic launch-state write. Returns the
+ * committed tab set and the full authoritative state (with its revision).
+ */
+export async function commitThreadNavigation(
+  navigation: ThreadNavigation,
+): Promise<{ tabs: OpenTabsState; state: LaunchState }> {
+  const state = await mutateLaunchState((current) =>
+    withTabs(
+      applyNavigationCommit(current, {
+        projectId: navigation.projectId,
+        workspace: { projectId: navigation.projectId, path: navigation.workspacePath },
+      }),
+      switchedTabs(tabsOf(current), navigation.threadId),
+    ),
+  );
+  const tabs = tabsOf(state);
+  notifyTabEvent("activate", navigation.threadId, tabs);
+  return { tabs, state };
 }

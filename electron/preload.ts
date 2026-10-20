@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DatabaseCompactionResult, WorkspaceDiskUsageReport } from "../contracts/storage.ts";
 import type { Project, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import type { GitHubApi } from "../contracts/github.ts";
 import type { GitBranch, Worktree, WorktreeSetupProgress } from "../contracts/worktrees.ts";
@@ -32,13 +33,15 @@ import type {
 } from "../contracts/launcher-updates.ts";
 import type {
   MonitorConnectionEpisode,
+  MonitorDemand,
   MonitorDiffIngestion,
   MonitorIncident,
+  MonitorLiveMessage,
   MonitorLiveSnapshot,
+  MonitorLiveState,
   MonitorRendererFreezeReport,
   MonitorRendererTelemetry,
   MonitorSessionCacheEvent,
-  MonitorSampleTick,
   MonitorRecordedSession,
   MonitorSession,
   MonitorSwitchRecord,
@@ -46,6 +49,7 @@ import type {
   MonitorTabEvent,
   MonitorTabMismatchReport,
 } from "../contracts/monitor.ts";
+import { applyMonitorLiveMessage } from "../contracts/monitor.ts";
 import type { MonitorService } from "./monitor/service.ts";
 import type { SleeplessPreferences, SleeplessStatus } from "../contracts/sleepless.ts";
 import type {
@@ -73,7 +77,28 @@ export interface CreateProjectInput {
 
 export type ThinkingLevel = "low" | "medium" | "high";
 
+let liveState: MonitorLiveState | null = null;
+const liveCallbacks = new Set<(snapshot: MonitorLiveSnapshot) => void>();
+
+function handleLiveMessage(_event: Electron.IpcRendererEvent, message: MonitorLiveMessage): void {
+  const next = applyMonitorLiveMessage(liveState, message);
+  if (!next) {
+    // A delta that does not follow our revision: ask for a full snapshot.
+    ipcRenderer.send("monitor:resync");
+    return;
+  }
+  liveState = next;
+  for (const callback of liveCallbacks) callback(next.snapshot);
+  ipcRenderer.send("monitor:ack", next.revision);
+}
+
 const api = {
+  storage: {
+    compactDatabase: (): Promise<DatabaseCompactionResult> =>
+      ipcRenderer.invoke("storage:compactDatabase"),
+    workspaceUsage: (): Promise<WorkspaceDiskUsageReport> =>
+      ipcRenderer.invoke("storage:workspaceUsage"),
+  },
   launch: {
     complete: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("launch:complete", projectId),
@@ -201,8 +226,15 @@ const api = {
     create: (input: CreateProjectInput): Promise<Project> =>
       ipcRenderer.invoke("projects:create", input),
     getActive: (): Promise<Project | null> => ipcRenderer.invoke("projects:getActive"),
-    listFiles: (projectId?: string, worktreePath?: string | null): Promise<string[]> =>
-      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null),
+    listFiles: (
+      projectId?: string,
+      worktreePath?: string | null,
+      requestId?: string | null,
+    ): Promise<string[]> =>
+      ipcRenderer.invoke("projects:listFiles", projectId, worktreePath ?? null, requestId ?? null),
+    cancelListFiles: (requestId: string): void => {
+      ipcRenderer.send("projects:cancelListFiles", requestId);
+    },
     getFileTree: (): Promise<ProjectFileTreeSnapshot> => ipcRenderer.invoke("projects:getFileTree"),
     setActive: (projectId: string): Promise<void> =>
       ipcRenderer.invoke("projects:setActive", projectId),
@@ -222,6 +254,9 @@ const api = {
     },
   },
   worktrees: {
+    getAutoInstall: (): Promise<boolean> => ipcRenderer.invoke("worktrees:getAutoInstall"),
+    setAutoInstall: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke("worktrees:setAutoInstall", enabled),
     list: (projectId: string): Promise<Worktree[]> =>
       ipcRenderer.invoke("worktrees:list", projectId),
     create: (input: { projectId: string; name: string }): Promise<Worktree> =>
@@ -449,9 +484,11 @@ const api = {
       cancelled?: boolean;
     }): Promise<void> => ipcRenderer.invoke("agent:respondToPermission", response),
     listAgents: (): Promise<AcpAgentDescriptor[]> => ipcRenderer.invoke("agent:listAgents"),
-    getModelCatalogs: (): Promise<
-      Record<string, Array<{ modelId: string; name: string; provider?: string }>>
-    > => ipcRenderer.invoke("agent:getModelCatalogs"),
+    /** Cached catalogs; `refresh` names the only providers that may be started for theirs. */
+    getModelCatalogs: (options?: {
+      refresh?: string[];
+    }): Promise<Record<string, Array<{ modelId: string; name: string; provider?: string }>>> =>
+      ipcRenderer.invoke("agent:getModelCatalogs", options),
     probeAgent: (agentId: string): Promise<AgentProbeResult> =>
       ipcRenderer.invoke("agent:probeAgent", agentId),
     authenticate: (agentId: string, methodId: string): Promise<void> =>
@@ -584,17 +621,33 @@ const api = {
     getSwitchTimeline: (): Promise<ReturnType<MonitorService["getSwitchTimeline"]>> =>
       ipcRenderer.invoke("monitor:getSwitchTimeline"),
     openWindow: (): Promise<void> => ipcRenderer.invoke("monitor:openWindow"),
+    /**
+     * Subscribes to the live feed. Main sends a full snapshot first and deltas
+     * afterwards; each applied message is acknowledged so main can bound how
+     * far this window falls behind.
+     */
     onLive: (callback: (snapshot: MonitorLiveSnapshot) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, snapshot: MonitorLiveSnapshot) =>
-        callback(snapshot);
-      ipcRenderer.on("monitor:live", listener);
-      return () => ipcRenderer.removeListener("monitor:live", listener);
+      liveCallbacks.add(callback);
+      if (liveCallbacks.size === 1) {
+        liveState = null;
+        ipcRenderer.on("monitor:live", handleLiveMessage);
+        ipcRenderer.send("monitor:subscribe");
+      } else if (liveState) {
+        callback(liveState.snapshot);
+      }
+      return () => {
+        if (!liveCallbacks.delete(callback) || liveCallbacks.size > 0) return;
+        ipcRenderer.removeListener("monitor:live", handleLiveMessage);
+        ipcRenderer.send("monitor:unsubscribe");
+        liveState = null;
+      };
     },
-    onTick: (callback: (tick: MonitorSampleTick) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, tick: MonitorSampleTick) =>
-        callback(tick);
-      ipcRenderer.on("monitor:tick", listener);
-      return () => ipcRenderer.removeListener("monitor:tick", listener);
+    getDemand: (): Promise<MonitorDemand> => ipcRenderer.invoke("monitor:getDemand"),
+    onDemand: (callback: (demand: MonitorDemand) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, demand: MonitorDemand) =>
+        callback(demand);
+      ipcRenderer.on("monitor:demand", listener);
+      return () => ipcRenderer.removeListener("monitor:demand", listener);
     },
     onIncident: (callback: (incident: MonitorIncident) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, incident: MonitorIncident) =>

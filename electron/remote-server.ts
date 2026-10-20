@@ -1015,7 +1015,7 @@ export class RemoteServer {
         if (
           !thread?.worktree_path ||
           !project ||
-          !isLiveWorktree(thread.worktree_path, project.path)
+          !(await isLiveWorktree(thread.worktree_path, project.path))
         ) {
           throw new RemoteTaskError(
             "This thread has no live isolated workspace. Restore its worktree on your Mac, or start a new thread.",

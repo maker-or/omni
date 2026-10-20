@@ -1,10 +1,5 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { parentPort } from "node:worker_threads";
-import type {
-  MonitorProcessDescriptor,
-  MonitorProcessSample,
-  MonitorSampleTick,
-} from "../../contracts/monitor.ts";
 import {
   ensureMonitorTables,
   finishMonitorSession,
@@ -15,9 +10,10 @@ import {
   insertMonitorSession,
   insertRendererTelemetry,
   insertSampleBatch,
-  pruneOldSamples,
 } from "./db.ts";
-import { samplePid, type RawProcessMetrics } from "./platform-sampler.ts";
+import { collectProcessTick, samplerStats } from "./platform-sampler.ts";
+import { pruneMonitorData } from "./retention.ts";
+import { migrateLegacyMonitorStep, openMonitorDatabase } from "./storage.ts";
 import type { WorkerCommand } from "./worker-client.ts";
 
 type IncomingCommand = WorkerCommand & { id: number };
@@ -29,66 +25,27 @@ function send(id: number, ok: boolean, result?: unknown, error?: string): void {
   parentPort?.postMessage({ id, ok, result, error });
 }
 
-async function collectTick(
-  descriptors: MonitorProcessDescriptor[],
-  mainPid: number,
-  mainProcessMetrics?: RawProcessMetrics,
-): Promise<MonitorSampleTick> {
-  const timestamp = Date.now();
-  const uniqueByPid = new Map<number, MonitorProcessDescriptor>();
-  for (const descriptor of descriptors) {
-    if (!uniqueByPid.has(descriptor.pid)) uniqueByPid.set(descriptor.pid, descriptor);
-  }
-
-  const processes: MonitorProcessSample[] = [];
-  await Promise.all(
-    [...uniqueByPid.entries()].map(async ([pid, descriptor]) => {
-      // Windows has no cross-process sampler in this app. Preserve the main
-      // process metric by sampling it in the parent and passing it here.
-      const metrics =
-        pid === mainPid && mainProcessMetrics ? mainProcessMetrics : await samplePid(pid);
-      if (!metrics) return;
-      processes.push({
-        pid,
-        role: descriptor.role,
-        label: descriptor.label,
-        agentId: descriptor.agentId,
-        threadId: descriptor.threadId,
-        threadIds: descriptor.threadIds ?? (descriptor.threadId ? [descriptor.threadId] : []),
-        streamingThreadIds: descriptor.streamingThreadIds ?? [],
-        sessionId: descriptor.sessionId,
-        isStreaming: descriptor.isStreaming,
-        ...metrics,
-      });
-    }),
-  );
-
-  processes.sort((a, b) => a.label.localeCompare(b.label));
-  return { timestamp, processes };
-}
-
 async function handle(command: IncomingCommand): Promise<void> {
   try {
     switch (command.type) {
       case "init": {
         db?.close();
-        db = new DatabaseSync(command.dbPath);
-        db.exec("PRAGMA foreign_keys = ON;");
-        db.exec("PRAGMA journal_mode = WAL;");
-        db.exec("PRAGMA busy_timeout = 5000;");
+        db = openMonitorDatabase(command.dbPath);
         initializeMonitorDb(db);
         ensureMonitorTables();
         send(command.id, true);
+        if (command.legacyDbPath) scheduleLegacyMigration(db, command.legacyDbPath);
         return;
       }
       case "sample": {
-        const tick = await collectTick(
+        const tick = await collectProcessTick(
           command.descriptors,
           command.mainPid,
+          { threadDetail: command.threadDetail },
           command.mainProcessMetrics,
         );
         if (command.sessionId) insertSampleBatch(command.sessionId, tick);
-        send(command.id, true, tick);
+        send(command.id, true, { tick, sampler: samplerStats() });
         return;
       }
       case "start-recording":
@@ -119,8 +76,7 @@ async function handle(command: IncomingCommand): Promise<void> {
         send(command.id, true);
         return;
       case "prune":
-        pruneOldSamples(command.retentionMs);
-        send(command.id, true);
+        send(command.id, true, db ? pruneMonitorData(db, command.policy) : null);
         return;
       case "shutdown":
         db?.close();
@@ -132,6 +88,24 @@ async function handle(command: IncomingCommand): Promise<void> {
   } catch (error) {
     send(command.id, false, undefined, error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * Move monitor rows left in the application database by earlier builds.
+ * Each step is queued behind pending commands, so samples and telemetry keep
+ * flowing while the backlog drains.
+ */
+function scheduleLegacyMigration(connection: DatabaseSync, legacyDbPath: string): void {
+  commandQueue = commandQueue.then(() => {
+    if (db !== connection) return;
+    let done = true;
+    try {
+      done = migrateLegacyMonitorStep(connection, legacyDbPath);
+    } catch (error) {
+      console.warn("[Monitor] Legacy diagnostics migration paused:", error);
+    }
+    if (!done) setImmediate(() => scheduleLegacyMigration(connection, legacyDbPath));
+  });
 }
 
 parentPort?.on("message", (command: IncomingCommand) => {

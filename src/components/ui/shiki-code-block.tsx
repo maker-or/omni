@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import type { HighlighterCore } from "shiki/core";
 import { cn } from "@/lib/utils";
+import { highlightedCodeCache } from "@/lib/highlight-cache";
 
 interface ShikiCodeBlockProps {
   code: string;
@@ -8,7 +9,6 @@ interface ShikiCodeBlockProps {
   isStreaming?: boolean;
 }
 
-const highlightedCodeCache = new Map<string, string>();
 let highlighterPromise: Promise<HighlighterCore> | null = null;
 const loadedLanguages = new Set<string>();
 

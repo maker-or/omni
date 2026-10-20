@@ -111,21 +111,32 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
             )}
             {images && images.length > 0 && (
               <div className="flex flex-wrap justify-start gap-2">
-                {images.map((image) => (
-                  <button
-                    key={image.id}
-                    type="button"
-                    className="block overflow-hidden rounded-md border border-border outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    onClick={() => onImageClick?.(image)}
-                    aria-label={`Open ${image.name ?? "attached image"}`}
-                  >
-                    <img
-                      src={`data:${image.mimeType};base64,${image.data}`}
-                      alt={image.name ?? "Attached image"}
-                      className="size-24 object-cover"
+                {images.map((image) =>
+                  // Stored images of a restored thread load right after paint.
+                  !image.data ? (
+                    <div
+                      key={image.id}
+                      role="img"
+                      aria-label="Loading image"
+                      aria-busy="true"
+                      className="size-24 animate-pulse rounded-md border border-border bg-muted"
                     />
-                  </button>
-                ))}
+                  ) : (
+                    <button
+                      key={image.id}
+                      type="button"
+                      className="block overflow-hidden rounded-md border border-border outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      onClick={() => onImageClick?.(image)}
+                      aria-label={`Open ${image.name ?? "attached image"}`}
+                    >
+                      <img
+                        src={`data:${image.mimeType};base64,${image.data}`}
+                        alt={image.name ?? "Attached image"}
+                        className="size-24 object-cover"
+                      />
+                    </button>
+                  ),
+                )}
               </div>
             )}
             {children != null && children !== "" && (

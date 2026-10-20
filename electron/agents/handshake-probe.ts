@@ -14,12 +14,13 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AcpAgentDescriptor, AgentProbeResult } from "../../contracts/acp.ts";
 import { getAgentDescriptor, resolveAgentSpawn } from "./registry.ts";
 import { ensureAntigravityInstalled } from "./antigravity-official.ts";
+import { spawnProviderProcess, terminateProviderProcess } from "../provider-processes.ts";
 
 /** Covers initialize + throwaway session/new (Codex init alone can take a few seconds). */
 const DEFAULT_PROBE_TIMEOUT_MS = 20_000;
@@ -72,11 +73,7 @@ export async function probeAgentHandshake(
     const { command, args, env } = resolveAgentSpawn(descriptor);
     spawnCommand = command;
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
-    child = spawn(command, args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-      ...(useShell && { shell: true }),
-    }) as ChildProcessWithoutNullStreams;
+    child = spawnProviderProcess(command, args, { env, shell: useShell });
   } catch (err) {
     return {
       agentId: descriptor.id,
@@ -196,15 +193,10 @@ export async function probeAgentHandshake(
     settled = true;
     if (timeoutHandle) clearTimeout(timeoutHandle);
     child.stderr.off("data", onStderr);
-    child.removeAllListeners("error");
-    child.removeAllListeners("exit");
-    if (!child.killed) {
-      try {
-        child.kill();
-      } catch {
-        // Process may already be gone.
-      }
-    }
+    // The exit/error listeners above are inert once settled; they stay
+    // attached because the provider registry listens for exit too. This also
+    // stops anything the agent started (its process group).
+    void terminateProviderProcess(child);
     // probeCwd is intentionally left on disk briefly; OS temp cleaner removes it.
     // Avoid recursive rm here so a hostile agent cannot trick us into deleting more.
     void probeCwd;

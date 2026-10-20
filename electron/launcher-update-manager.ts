@@ -7,6 +7,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  type Dirent,
 } from "node:fs";
 import { open } from "node:fs/promises";
 import os from "node:os";
@@ -109,6 +110,30 @@ export class LauncherUpdateManager {
     );
   }
 
+  /** Downloaded installers are expendable; only the current pending one is useful. */
+  private pruneDownloads(keepPath: string | null): void {
+    const pattern = launcherManagedDownloadPattern(this.platform);
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(this.downloadsPath, { withFileTypes: true });
+    } catch (error) {
+      console.warn("[Launcher] Could not list downloads for cleanup:", error);
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !pattern.test(entry.name)) continue;
+      const path = join(this.downloadsPath, entry.name);
+      if (keepPath && resolve(path) === resolve(keepPath)) continue;
+      try {
+        rmSync(path, { force: true });
+      } catch (error) {
+        // Windows may still have an installer open. Retry next recovery;
+        // cleanup must never prevent installing a verified update.
+        console.warn("[Launcher] Could not remove an obsolete installer:", error);
+      }
+    }
+  }
+
   getState(): LauncherUpdateState {
     return structuredClone(this.state);
   }
@@ -188,6 +213,7 @@ export class LauncherUpdateManager {
     }
     this.state.updated_at = new Date().toISOString();
     writeLauncherUpdateStateAtomic(this.statePath, this.state);
+    this.pruneDownloads(this.state.downloaded_path);
     this.options.broadcastState(this.getState());
     return this.getState();
   }
@@ -358,6 +384,7 @@ export class LauncherUpdateManager {
       if (!hashesMatch(actual, manifest.sha256))
         throw new Error("Installer SHA-256 verification failed.");
       renameSync(partial, final);
+      this.pruneDownloads(final);
       this.options.broadcastProgress({
         received_bytes: received,
         total_bytes: total,

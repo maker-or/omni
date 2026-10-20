@@ -27,6 +27,8 @@ export function DiffIngestor() {
   const previousRunningThreadIds = useRef<Set<string>>(new Set());
   const wasStreaming = useRef(false);
   const previousOpen = useRef(false);
+  /** Active thread whose file texts were evicted and must be rebuilt. */
+  const pendingRestore = useRef<string | null>(null);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -50,6 +52,10 @@ export function DiffIngestor() {
 
     void (async () => {
       if (activeChanged) {
+        // Evicted file texts are refetched on demand: rebuild them once the
+        // thread is shown again so the diff count and panel stay accurate.
+        pendingRestore.current =
+          useDiffStore.getState().threads[activeThreadId]?.evicted === true ? activeThreadId : null;
         activateThread(activeThreadId);
         baselineToolCallIds.current[activeThreadId] = new Set(Object.keys(typedToolCalls));
         previousActiveThreadId.current = activeThreadId;
@@ -120,7 +126,9 @@ export function DiffIngestor() {
 
       // Full diff extraction is an explicit-view operation. A settled turn can
       // refresh an already-open panel once, but never on intermediate chunks.
-      const shouldLoadLatest = isOpen && (!previousOpen.current || activeChanged || justSettled);
+      const restoring = pendingRestore.current === activeThreadId;
+      const shouldLoadLatest =
+        restoring || (isOpen && (!previousOpen.current || activeChanged || justSettled));
       if (shouldLoadLatest && !isStreaming) {
         const allDiffIds = Object.values(typedToolCalls)
           .filter((toolCall) => toolCall.hasDiff)
@@ -128,6 +136,7 @@ export function DiffIngestor() {
         const resolvedForPanel = await resolveToolCalls(activeThreadId, typedToolCalls, allDiffIds);
         if (cancelled) return;
         const metrics = ingestToolCalls(activeThreadId, resolvedForPanel, true);
+        if (restoring) pendingRestore.current = null;
         if (metrics) {
           const threadCount = Object.keys(threadToolCalls).filter((id) => id !== "__none__").length;
           recordDiffIngestion({ ...metrics, threadCount, toolCallCount: metrics.toolCallCount });

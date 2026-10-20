@@ -29,17 +29,23 @@ import { createProject, getProject, listProjects } from "./projects";
 import { logMain } from "./main-log";
 import {
   continueWorktreeOnNewBranch,
-  createWorktree,
   foreignGitEnv,
   gitBinary,
   listBranches,
   listWorktrees,
   removeWorktree,
-  resolveInstallCommand,
   samePath,
   switchWorktreeBranch,
 } from "./worktree-manager";
-import type { WorktreeSetupProgress } from "../contracts/worktrees.ts";
+import { getWorktreeAutoInstall, setWorktreeAutoInstall } from "./worktree-preferences.ts";
+import {
+  cancelWorkspaceSetup,
+  createWorkspace,
+  setWorkspaceSetupProgressSink,
+} from "./workspace-lifecycle.ts";
+import { compactWhenIdle, type DatabaseCompactionResult } from "./database-compaction.ts";
+import { applicationStorage } from "./storage-maintenance.ts";
+import { scanWorkspaceDiskUsage } from "./workspace-disk-usage.ts";
 import {
   commitWorkspace,
   configureGithubPrSnapshotCache,
@@ -54,6 +60,7 @@ import {
 } from "./git-workspace";
 import type { ProjectFileGitStatus, ProjectFileTreeSnapshot } from "../contracts/projects.ts";
 import { getActiveProjectId, setActiveProjectId } from "./session";
+import { ProjectFileLister } from "./project-file-list.ts";
 import { AUTH_CALLBACK_SUCCESS_HTML } from "./auth-callback-success";
 import {
   isAllowedClerkAuthUrl,
@@ -142,6 +149,9 @@ import { getPipperLibraryPath } from "./paths";
 import { LauncherUpdateManager } from "./launcher-update-manager";
 import { launchLauncherInstaller } from "./launcher-update-install.ts";
 import { resolveLauncherUpdateManifestUrl } from "./launcher-update-config.ts";
+import { runShutdownSteps } from "./bounded-shutdown.ts";
+import { waitForPidsToExit } from "./child-process.ts";
+import { killAllProviderProcessesSync } from "./provider-processes.ts";
 import {
   PIPPER_LAUNCHER_MAC_MANIFEST_URL,
   PIPPER_LAUNCHER_WINDOWS_MANIFEST_URL,
@@ -194,8 +204,18 @@ function disposePtySession(session: RendererPtySession): void {
   session.exitDisposable.dispose();
 }
 
+/**
+ * Shells signalled by killAllPtyProcesses that may not have exited yet. Each
+ * entry removes itself once its shells are gone (SIGKILL after 1 s), so quit
+ * can wait for them without holding pids that could be reused later.
+ */
+const stoppingPtyShells = new Set<Promise<void>>();
+
+/** Stops every renderer terminal. */
 function killAllPtyProcesses(reason: string): void {
+  const pids: number[] = [];
   for (const [id, session] of ptyProcesses) {
+    pids.push(session.process.pid);
     try {
       session.process.kill();
     } catch (error) {
@@ -204,6 +224,11 @@ function killAllPtyProcesses(reason: string): void {
     disposePtySession(session);
   }
   ptyProcesses.clear();
+  if (pids.length === 0) return;
+  const stopped: Promise<void> = waitForPidsToExit(pids, 1_000).finally(() =>
+    stoppingPtyShells.delete(stopped),
+  );
+  stoppingPtyShells.add(stopped);
 }
 
 function resolveWindowsShell(): string {
@@ -219,55 +244,7 @@ function resolveWindowsShell(): string {
   return "powershell.exe";
 }
 
-const FILE_MENTION_IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".next",
-  ".turbo",
-  ".cache",
-]);
-
-async function listProjectFiles(projectPath: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      {
-        cwd: projectPath,
-        maxBuffer: 1024 * 1024 * 4,
-      },
-    );
-    const paths = Array.from(new Set(String(stdout).split(/\r?\n/).filter(Boolean))).sort();
-    // An empty Git result can still mean this is an uninitialized repository
-    // or a folder whose files are not visible to Git. Use the filesystem
-    // fallback in that case instead of returning an empty mention catalog.
-    if (paths.length > 0) return paths;
-    throw new Error("Git returned no project files");
-  } catch {
-    const results: string[] = [];
-    const walk = (dir: string, prefix = "") => {
-      if (results.length >= 5000) return;
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.name.startsWith(".") && entry.name !== ".env") continue;
-        if (FILE_MENTION_IGNORED_DIRS.has(entry.name)) continue;
-        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-        const absolute = join(dir, entry.name);
-        if (entry.isDirectory()) walk(absolute, relative);
-        else if (entry.isFile()) results.push(relative);
-      }
-    };
-    try {
-      walk(projectPath);
-    } catch {
-      return [];
-    }
-    return results.sort();
-  }
-}
+const projectFileLister = new ProjectFileLister();
 
 function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStatus"] {
   const entries: ProjectFileTreeSnapshot["gitStatus"] = [];
@@ -302,7 +279,7 @@ function parseProjectGitStatus(output: string): ProjectFileTreeSnapshot["gitStat
 
 async function listProjectFileTree(projectPath: string): Promise<ProjectFileTreeSnapshot> {
   const [paths, gitStatus] = await Promise.all([
-    listProjectFiles(projectPath),
+    projectFileLister.list(projectPath),
     // Resolved binary + sanitized env: a bare "git" silently fails (empty
     // status decorations) when a GUI launch strips PATH.
     execFileAsync(gitBinary(), ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
@@ -337,7 +314,7 @@ if (!gotSingleInstanceLock) {
   app.quit();
 }
 
-if (!app.isDefaultProtocolClient("pipper")) {
+if (!benchmarkEnabled && !app.isDefaultProtocolClient("pipper")) {
   app.setAsDefaultProtocolClient("pipper");
 }
 
@@ -447,6 +424,8 @@ function startStartupAgentActivation(reason: "first-paint" | "fallback"): void {
     });
 }
 let monitorService: MonitorService | null = null;
+/** webContents ids whose navigation/destroy listeners end their live-feed subscription. */
+const liveFeedSenders = new Set<number>();
 let launcherUpdateManager: LauncherUpdateManager | null = null;
 let sleeplessController: SleeplessController | null = null;
 let remoteAccess: RemoteAccessController | null = null;
@@ -837,7 +816,7 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
 
-  const target = listWorktrees(project.path).find((worktree) =>
+  const target = (await listWorktrees(project.path)).find((worktree) =>
     samePath(worktree.path, targetPath),
   );
   if (!target) throw new Error("Worktree is no longer available");
@@ -869,80 +848,7 @@ async function activateProjectWorktree(projectId: string, targetPath: string) {
   return { thread, worktree: target };
 }
 
-const WORKTREE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
-
-type WorktreeInstallOutcome = Pick<WorktreeSetupProgress, "status" | "manager" | "message">;
-
-/**
- * Install a freshly created worktree's dependencies in the background so the
- * workspace is ready to run without a manual install. The package manager is
- * detected from the worktree's lockfile; progress is broadcast to the
- * renderer (`worktrees:setupProgress`) for toasts. Never throws — a failed
- * install must not undo the created worktree, it just reports; the outcome is
- * also returned so callers that must wait (restore) can act on it.
- */
-async function installWorktreeDependencies(
-  projectId: string,
-  worktreePath: string,
-  workspaceName: string,
-): Promise<WorktreeInstallOutcome> {
-  const report = (progress: WorktreeInstallOutcome): WorktreeInstallOutcome => {
-    broadcastToWindows("worktrees:setupProgress", {
-      projectId,
-      worktreePath,
-      workspaceName,
-      ...progress,
-    } satisfies WorktreeSetupProgress);
-    return progress;
-  };
-
-  const install = resolveInstallCommand(worktreePath);
-  if (!install) return report({ status: "skipped" });
-
-  report({ status: "installing", manager: install.manager });
-  try {
-    await new Promise<void>((resolvePromise, rejectPromise) => {
-      const child = spawn(install.command, install.args, {
-        cwd: worktreePath,
-        env: process.env,
-        shell: process.platform === "win32",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let outputTail = "";
-      const collect = (chunk: Buffer) => {
-        outputTail = (outputTail + chunk.toString()).slice(-4000);
-      };
-      child.stdout?.on("data", collect);
-      child.stderr?.on("data", collect);
-      const timeout = setTimeout(() => {
-        child.kill();
-        rejectPromise(new Error(`${install.manager} install timed out after 10 minutes.`));
-      }, WORKTREE_INSTALL_TIMEOUT_MS);
-      child.on("error", (err) => {
-        clearTimeout(timeout);
-        rejectPromise(
-          new Error(`Could not run ${install.manager}: ${err.message}. Is it installed?`),
-        );
-      });
-      child.on("close", (code) => {
-        clearTimeout(timeout);
-        if (code === 0) resolvePromise();
-        else {
-          const tail = outputTail.trim().split("\n").slice(-8).join("\n");
-          rejectPromise(new Error(`${install.manager} install exited with code ${code}.\n${tail}`));
-        }
-      });
-    });
-    return report({ status: "installed", manager: install.manager });
-  } catch (err) {
-    console.error(`[Worktree] Dependency install failed for ${worktreePath}:`, err);
-    return report({
-      status: "failed",
-      manager: install.manager,
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
+let databaseCompaction: Promise<DatabaseCompactionResult> | null = null;
 
 /**
  * Predicate for "tab in the same (project, workspace) as this thread", used
@@ -1445,6 +1351,8 @@ function initializeMonitorService(): void {
       }),
     getRunningThreadIds: () => agentManager?.getRunningThreadIds() ?? [],
     onBroadcast: (channel, payload) => broadcastToMonitor(channel, payload),
+    // Renderer observers switch DOM census/mutation tracking on demand.
+    onDemandChange: (demand) => broadcastToWindows("monitor:demand", demand),
   });
   monitorService.start();
 
@@ -1885,27 +1793,36 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "projects:listFiles",
-    async (_event, projectId?: string, worktreePath?: string | null) => {
+    async (event, projectId?: string, worktreePath?: string | null, requestId?: string | null) => {
+      // Request ids are scoped per renderer so one window cannot cancel
+      // another window's scan.
+      const scopedRequestId = requestId ? `${event.sender.id}:${requestId}` : null;
+      const list = (path: string) => projectFileLister.listForRequest(path, scopedRequestId);
       if (projectId) {
         const project = getProject(projectId);
         const cwd = worktreePath && fs.existsSync(worktreePath) ? worktreePath : project?.path;
-        return cwd && fs.existsSync(cwd) ? listProjectFiles(cwd) : [];
+        return cwd && fs.existsSync(cwd) ? list(cwd) : [];
       }
-      if (worktreePath && fs.existsSync(worktreePath)) return listProjectFiles(worktreePath);
+      if (worktreePath && fs.existsSync(worktreePath)) return list(worktreePath);
       // Follow the active worktree's cwd, not the project root, so file paths
       // reflect the selected workspace. Falls back to the project root.
-      const cwd = requireAgentManager().getActiveCwd();
-      if (cwd && fs.existsSync(cwd)) return listProjectFiles(cwd);
+      const cwd = await requireAgentManager().getActiveCwd();
+      if (cwd && fs.existsSync(cwd)) return list(cwd);
       const id = getActiveProjectId();
       const project = id ? getProject(id) : null;
       if (!project || !fs.existsSync(project.path)) return [];
-      return listProjectFiles(project.path);
+      return list(project.path);
     },
   );
 
+  ipcMain.on("projects:cancelListFiles", (event, requestId: unknown) => {
+    if (typeof requestId !== "string" || !requestId) return;
+    projectFileLister.cancel(`${event.sender.id}:${requestId}`);
+  });
+
   ipcMain.handle("projects:getFileTree", async () => {
     // Keep the flyout aligned with the currently selected worktree.
-    const cwd = requireAgentManager().getActiveCwd();
+    const cwd = await requireAgentManager().getActiveCwd();
     if (cwd && fs.existsSync(cwd)) return listProjectFileTree(cwd);
     const id = getActiveProjectId();
     const project = id ? getProject(id) : null;
@@ -1956,6 +1873,20 @@ function registerIpc(): void {
     // alongside the linked worktrees.
     return listWorktrees(project.path);
   });
+  ipcMain.handle("worktrees:getAutoInstall", () => getWorktreeAutoInstall());
+  ipcMain.handle("worktrees:setAutoInstall", (_event, enabled: boolean) =>
+    setWorktreeAutoInstall(enabled),
+  );
+  // Read-only: reports per-workspace source vs. dependency/build bytes.
+  ipcMain.handle("storage:workspaceUsage", () => scanWorkspaceDiskUsage());
+  ipcMain.handle("storage:compactDatabase", () => {
+    databaseCompaction ??= compactWhenIdle(join(app.getPath("userData"), "omni.sqlite")).finally(
+      () => {
+        databaseCompaction = null;
+      },
+    );
+    return databaseCompaction;
+  });
 
   ipcMain.handle("worktrees:switch", async (_event, input: { projectId: string; path: string }) => {
     const { thread } = await activateProjectWorktree(input.projectId, input.path);
@@ -1979,13 +1910,13 @@ function registerIpc(): void {
       const project = getProject(input.projectId);
       if (!project) throw new Error(`Project not found: ${input.projectId}`);
 
-      const worktree = switchWorktreeBranch(project.path, input.path, input.branch);
+      const worktree = await switchWorktreeBranch(project.path, input.path, input.branch);
       try {
         const { thread } = await activateProjectWorktree(input.projectId, worktree.path);
         return { thread, worktree };
       } catch (err) {
         // Activation failed: restore the worktree state to match the mutated Git branch
-        const restoredWorktree = listWorktrees(project.path).find((w) =>
+        const restoredWorktree = (await listWorktrees(project.path)).find((w) =>
           samePath(w.path, input.path),
         );
         if (restoredWorktree) {
@@ -1996,36 +1927,39 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("worktrees:create", (_event, input: { projectId: string; name: string }) => {
-    const project = getProject(input.projectId);
-    if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const worktree = createWorktree({
-      projectPath: project.path,
-      projectId: project.id,
+  setWorkspaceSetupProgressSink((progress) =>
+    broadcastToWindows("worktrees:setupProgress", progress),
+  );
+  ipcMain.handle("worktrees:create", async (_event, input: { projectId: string; name: string }) => {
+    // Shared with remote/phone creation: the user's setup policy installs
+    // dependencies in the background (installs can take minutes; the create
+    // itself stays snappy) and streams progress to the renderer for toasts.
+    const { project, worktree } = await createWorkspace({
+      projectId: input.projectId,
       name: input.name,
+      activation: "foreground",
     });
     captureAnalytics("worktree_created", {
       windowType: "main",
       properties: { project_id: project.id },
     });
-    // A fresh worktree must be usable without a manual `bun/npm install` —
-    // kick that off in the background (installs can take minutes; the create
-    // itself stays snappy) and stream progress to the renderer for toasts.
-    void installWorktreeDependencies(project.id, worktree.path, input.name);
     // Return the same annotated Git view used by the title bar, rather than
     // a locally invented display label for the newly-created checkout.
     return (
-      listWorktrees(project.path).find((item) => samePath(item.path, worktree.path)) ?? worktree
+      (await listWorktrees(project.path)).find((item) => samePath(item.path, worktree.path)) ??
+      worktree
     );
   });
 
   // First-party git for the advanced workspace UI. Every handler re-resolves
   // the worktree from the project's live worktree list so a stale renderer
   // path can never operate on an unrelated checkout.
-  function resolveWorkspaceTarget(projectId: string, path: string) {
+  async function resolveWorkspaceTarget(projectId: string, path: string) {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
-    const target = listWorktrees(project.path).find((worktree) => samePath(worktree.path, path));
+    const target = (await listWorktrees(project.path)).find((worktree) =>
+      samePath(worktree.path, path),
+    );
     if (!target) throw new Error("Workspace is no longer available");
     return target;
   }
@@ -2034,7 +1968,7 @@ function registerIpc(): void {
     "git:status",
     async (_event, input: { projectId: string; path: string; force?: boolean }) => {
       try {
-        const target = resolveWorkspaceTarget(input.projectId, input.path);
+        const target = await resolveWorkspaceTarget(input.projectId, input.path);
         return await getWorkspaceGitStatus(target.path, { force: input.force === true });
       } catch (err) {
         logMain(
@@ -2047,13 +1981,13 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "git:commit",
-    (_event, input: { projectId: string; path: string; message: string }) => {
+    async (_event, input: { projectId: string; path: string; message: string }) => {
       logMain(
         `[Main] git:commit project=${input.projectId} path=${input.path} msgLen=${input.message?.length ?? 0}`,
       );
       try {
-        const target = resolveWorkspaceTarget(input.projectId, input.path);
-        const hash = commitWorkspace(target.path, input.message);
+        const target = await resolveWorkspaceTarget(input.projectId, input.path);
+        const hash = await commitWorkspace(target.path, input.message);
         logMain(`[Main] git:commit ok ${hash}`);
         captureAnalytics("workspace_committed", {
           windowType: "main",
@@ -2070,7 +2004,7 @@ function registerIpc(): void {
   ipcMain.handle("git:push", async (_event, input: { projectId: string; path: string }) => {
     logMain(`[Main] git:push project=${input.projectId} path=${input.path}`);
     try {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      const target = await resolveWorkspaceTarget(input.projectId, input.path);
       await pushWorkspace(target.path);
       logMain(`[Main] git:push ok`);
       captureAnalytics("workspace_pushed", {
@@ -2090,7 +2024,7 @@ function registerIpc(): void {
       _event,
       input: { projectId: string; path: string; title: string; body?: string; draft?: boolean },
     ) => {
-      const target = resolveWorkspaceTarget(input.projectId, input.path);
+      const target = await resolveWorkspaceTarget(input.projectId, input.path);
       const url = await createWorkspacePr(
         target.path,
         input.title,
@@ -2105,12 +2039,12 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle("git:merge", (_event, input: { projectId: string; path: string }) => {
+  ipcMain.handle("git:merge", async (_event, input: { projectId: string; path: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const target = await resolveWorkspaceTarget(input.projectId, input.path);
     if (!target.branch) throw new Error("Workspace has no branch to merge.");
-    const base = mergeWorkspaceBranch(project.path, target.branch);
+    const base = await mergeWorkspaceBranch(project.path, target.branch);
     captureAnalytics("workspace_merged", {
       windowType: "main",
       properties: { project_id: input.projectId },
@@ -2120,7 +2054,7 @@ function registerIpc(): void {
 
   // Merge the open GitHub PR for the workspace branch (checks-gated in the UI).
   ipcMain.handle("git:mergePr", async (_event, input: { projectId: string; path: string }) => {
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const target = await resolveWorkspaceTarget(input.projectId, input.path);
     const status = await getWorkspaceGitStatus(target.path, { force: true });
     if (status.prDataState !== "fresh") {
       throw new Error("GitHub could not be refreshed. Reconnect before merging.");
@@ -2136,7 +2070,7 @@ function registerIpc(): void {
 
   // Draft PR → ready for review. Checks-agnostic: it only flips the GitHub flag.
   ipcMain.handle("git:markPrReady", async (_event, input: { projectId: string; path: string }) => {
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
+    const target = await resolveWorkspaceTarget(input.projectId, input.path);
     const status = await getWorkspaceGitStatus(target.path, { force: true });
     if (status.prDataState !== "fresh") {
       throw new Error("GitHub could not be refreshed. Reconnect before updating the pull request.");
@@ -2150,7 +2084,7 @@ function registerIpc(): void {
   // Whether a project root can host a workspace worktree. Read by the
   // create-workspace dialog before it offers a name, so a project with no
   // repo (or no commits) gets its fix instead of a raw git error.
-  ipcMain.handle("git:projectRepoState", (_event, projectId: string) => {
+  ipcMain.handle("git:projectRepoState", async (_event, projectId: string) => {
     const project = getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
     return getProjectRepoState(project.path);
@@ -2158,10 +2092,10 @@ function registerIpc(): void {
 
   ipcMain.handle(
     "git:init",
-    (_event, input: { projectId: string; name?: string | null; email?: string | null }) => {
+    async (_event, input: { projectId: string; name?: string | null; email?: string | null }) => {
       const project = getProject(input.projectId);
       if (!project) throw new Error(`Project not found: ${input.projectId}`);
-      const state = getProjectRepoState(project.path);
+      const state = await getProjectRepoState(project.path);
       // `ready` and `broken` are refused before the action runs: one is already
       // usable and the other must never have a repository created inside it
       // (see WorkspaceRepoState). Only `absent` and `unborn` have a fix here.
@@ -2171,7 +2105,7 @@ function registerIpc(): void {
           "This project's git state could not be read. The folder may have been moved or removed outside Pipper.",
         );
       }
-      initProjectRepo(project.path, { name: input.name, email: input.email });
+      await initProjectRepo(project.path, { name: input.name, email: input.email });
       captureAnalytics("project_git_initialized", {
         windowType: "main",
         properties: { project_id: project.id },
@@ -2187,24 +2121,27 @@ function registerIpc(): void {
   );
 
   // Continue after merge: new branch off the fresh base, same worktree.
-  ipcMain.handle("worktrees:continue", (_event, input: { projectId: string; path: string }) => {
-    const project = getProject(input.projectId);
-    if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const target = resolveWorkspaceTarget(input.projectId, input.path);
-    if (target.isProjectRoot) throw new Error("The project root cannot be continued.");
-    const worktree = continueWorktreeOnNewBranch(project.path, target.path);
-    logMain(`[Main] worktrees:continue path=${target.path} branch=${worktree.branch}`);
-    captureAnalytics("workspace_continued", {
-      windowType: "main",
-      properties: { project_id: input.projectId },
-    });
-    return worktree;
-  });
+  ipcMain.handle(
+    "worktrees:continue",
+    async (_event, input: { projectId: string; path: string }) => {
+      const project = getProject(input.projectId);
+      if (!project) throw new Error(`Project not found: ${input.projectId}`);
+      const target = await resolveWorkspaceTarget(input.projectId, input.path);
+      if (target.isProjectRoot) throw new Error("The project root cannot be continued.");
+      const worktree = await continueWorktreeOnNewBranch(project.path, target.path);
+      logMain(`[Main] worktrees:continue path=${target.path} branch=${worktree.branch}`);
+      captureAnalytics("workspace_continued", {
+        windowType: "main",
+        properties: { project_id: input.projectId },
+      });
+      return worktree;
+    },
+  );
 
   ipcMain.handle("worktrees:delete", async (_event, input: { projectId: string; path: string }) => {
     const project = getProject(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
-    const target = listWorktrees(project.path).find(
+    const target = (await listWorktrees(project.path)).find(
       (worktree) => !worktree.isProjectRoot && samePath(worktree.path, input.path),
     );
     if (!target) throw new Error("Workspace is no longer available");
@@ -2218,9 +2155,12 @@ function registerIpc(): void {
     const deletedThreadIds = new Set(threads.map((thread) => thread.id));
     const cleanupErrors: unknown[] = [];
 
+    // Stop a queued or running dependency install so it cannot keep writing
+    // into (or later recreate files in) the workspace being removed.
+    await cancelWorkspaceSetup(target.path);
     // Remove the Git worktree first. If Git refuses because of a lock,
     // permissions, or a concurrent change, no chats have been deleted yet.
-    const removed = removeWorktree(project.path, target.path, project.id);
+    const removed = await removeWorktree(project.path, target.path, project.id);
     // Terminals are owned by renderer workspace buckets. Notify it as soon
     // as Git removes the worktree, even if later chat cleanup fails.
     broadcastToWindows("worktrees:deleted", { projectId: project.id, path: target.path });
@@ -2259,7 +2199,9 @@ function registerIpc(): void {
       // live worktree list (the same value a root switch persists), not
       // `project.path`: for a project registered at a repository subdirectory
       // the two can differ, and the selection must name a real workspace.
-      const rootWorktree = listWorktrees(project.path).find((worktree) => worktree.isProjectRoot);
+      const rootWorktree = (await listWorktrees(project.path)).find(
+        (worktree) => worktree.isProjectRoot,
+      );
       await updateWorkspaceSelection(project.id, rootWorktree?.path ?? project.path);
     } catch (error) {
       console.error(
@@ -2684,7 +2626,13 @@ function registerIpc(): void {
     requireAgentManager().respondToPermission(response),
   );
   ipcMain.handle("agent:listAgents", () => requireAgentManager().listAgents());
-  ipcMain.handle("agent:getModelCatalogs", () => requireAgentManager().getModelCatalogs());
+  ipcMain.handle("agent:getModelCatalogs", (_event, options?: { refresh?: unknown }) =>
+    requireAgentManager().getModelCatalogs({
+      refresh: Array.isArray(options?.refresh)
+        ? options.refresh.filter((id): id is string => typeof id === "string").slice(0, 8)
+        : undefined,
+    }),
+  );
   ipcMain.handle("agent:probeAgent", async (_event, agentId: string) => {
     const result = await probeAgentById(agentId, { clientVersion: app.getVersion() });
     if (result.status !== "ready") {
@@ -2953,6 +2901,34 @@ function registerIpc(): void {
 
   ipcMain.handle("monitor:isEnabled", () => isMonitorEnabled());
   ipcMain.handle("monitor:getLive", () => monitorService?.getLiveSnapshot() ?? null);
+  ipcMain.handle("monitor:getDemand", () => monitorService?.getDemand() ?? { detailed: false });
+  // Live feed: full snapshot on subscribe, then deltas; acks bound in-flight messages.
+  ipcMain.on("monitor:subscribe", (event) => {
+    const sender = event.sender;
+    if (!monitorService || sender.isDestroyed()) return;
+    const id = sender.id;
+    monitorService.subscribeLive(id, (message) => {
+      if (sender.isDestroyed()) {
+        monitorService?.unsubscribeLive(id);
+        return;
+      }
+      sender.send("monitor:live", message);
+    });
+    if (liveFeedSenders.has(id)) return;
+    // A reload or close ends the subscription; the new page subscribes again.
+    liveFeedSenders.add(id);
+    const end = () => monitorService?.unsubscribeLive(id);
+    sender.on("did-navigate", end);
+    sender.once("destroyed", () => {
+      liveFeedSenders.delete(id);
+      end();
+    });
+  });
+  ipcMain.on("monitor:unsubscribe", (event) => monitorService?.unsubscribeLive(event.sender.id));
+  ipcMain.on("monitor:ack", (event, revision: number) =>
+    monitorService?.acknowledgeLive(event.sender.id, revision),
+  );
+  ipcMain.on("monitor:resync", (event) => monitorService?.resyncLive(event.sender.id));
   ipcMain.handle("monitor:getIncidents", () => monitorService?.getIncidents() ?? []);
   ipcMain.handle(
     "monitor:getConnectionEpisodes",
@@ -3185,6 +3161,8 @@ app.whenReady().then(async () => {
     attention: { isFocused: () => mainWindowFocused },
     notify: osNotifier,
   });
+  // Database maintenance waits for agent turns to finish (see R15).
+  applicationStorage.setBusyProbe(() => (agentManager?.getRunningThreadIds().length ?? 0) > 0);
   sleeplessController = new SleeplessController({
     platform: process.platform,
     settingsPath: join(app.getPath("userData"), "sleepless.json"),
@@ -3391,18 +3369,31 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-/** Prevents re-entrant will-quit after we flush analytics and call app.quit(). */
-let analyticsQuitFlushed = false;
-/** True while the async dispose/flush chain from will-quit is in flight. */
-let analyticsQuitInProgress = false;
+/**
+ * Overall budget for the will-quit cleanup chain. Each step has its own bound
+ * inside it; whatever is still pending at the deadline is abandoned.
+ */
+const QUIT_CLEANUP_DEADLINE_MS = 10_000;
+/** Hard backstop past the deadline, should `app.quit()` itself not exit. */
+const QUIT_FORCE_EXIT_GRACE_MS = 3_000;
+/** Prevents re-entrant will-quit after cleanup finished and we call app.quit(). */
+let quitCleanupFinished = false;
+/** True once the bounded dispose/flush chain from will-quit has started. */
+let quitCleanupStarted = false;
+
+// Anything that ends the process without the will-quit chain (app.exit, a
+// fatal path) still must not leave provider processes behind.
+process.on("exit", () => {
+  killAllProviderProcessesSync();
+});
 
 app.on("will-quit", (event) => {
   // Ensure PostHog identify / $set person-profile batches flush before the
   // process exits. Without this, short sessions can drop email/avatar entirely.
-  if (analyticsQuitFlushed) return;
+  if (quitCleanupFinished) return;
   event.preventDefault();
-  if (analyticsQuitInProgress) return;
-  analyticsQuitInProgress = true;
+  if (quitCleanupStarted) return;
+  quitCleanupStarted = true;
 
   authCallbackServer?.close();
   launcherUpdateManager?.stopPeriodicChecks();
@@ -3421,35 +3412,41 @@ app.on("will-quit", (event) => {
   killAllPtyProcesses("Quit");
   monitorService?.stop();
 
-  void (async () => {
-    try {
-      await agentManager?.dispose();
-    } catch (err) {
-      console.error("[Main] Failed to dispose agent manager on quit:", err);
-    }
-    try {
-      await remoteAccess?.dispose();
-    } catch (err) {
-      console.error("[Main] Failed to stop remote server on quit:", err);
-    }
-    try {
-      await sleeplessController?.dispose();
-    } catch (err) {
-      console.error("[Main] Failed to disarm Sleepless on quit:", err);
-    }
-    try {
-      await shutdownAnalytics();
-    } catch (err) {
-      console.error("[Main] Failed to flush analytics on quit:", err);
-    } finally {
-      try {
-        await shutdownTelemetry();
-      } catch (err) {
-        console.error("[Main] Failed to flush observability telemetry on quit:", err);
-      }
-      analyticsQuitFlushed = true;
-      analyticsQuitInProgress = false;
-      app.quit();
-    }
-  })();
+  // Quit must always complete. runShutdownSteps already resolves by the
+  // deadline; this covers a quit that still does not exit after it.
+  setTimeout(() => {
+    console.error("[Main] Quit did not complete; terminating providers and exiting");
+    killAllProviderProcessesSync();
+    app.exit(0);
+  }, QUIT_CLEANUP_DEADLINE_MS + QUIT_FORCE_EXIT_GRACE_MS);
+
+  void runShutdownSteps(
+    [
+      // Shells exit on SIGHUP within milliseconds; never leave one running.
+      // Includes shells stopped when the windows closed just before quit.
+      { name: "terminal shells", timeoutMs: 1_500, run: () => Promise.all(stoppingPtyShells) },
+      // Snapshot flush (bounded inside dispose) plus provider SIGTERM → SIGKILL.
+      { name: "agent manager", timeoutMs: 8_000, run: () => agentManager?.dispose() },
+      {
+        // Reap whatever dispose could not reach in time before slower,
+        // network-bound steps run.
+        name: "provider processes",
+        timeoutMs: 1_000,
+        run: () => killAllProviderProcessesSync(),
+      },
+      { name: "remote server", timeoutMs: 2_000, run: () => remoteAccess?.dispose() },
+      { name: "Sleepless", timeoutMs: 2_000, run: () => sleeplessController?.dispose() },
+      { name: "analytics flush", timeoutMs: 2_000, run: () => shutdownAnalytics() },
+      { name: "telemetry flush", timeoutMs: 2_000, run: () => shutdownTelemetry() },
+    ],
+    { deadlineMs: QUIT_CLEANUP_DEADLINE_MS },
+  ).finally(() => {
+    killAllProviderProcessesSync();
+    quitCleanupFinished = true;
+    // Cleanup is complete, so exit directly. A second app.quit() issued while
+    // Electron is still unwinding the quit this handler prevented is ignored
+    // (the steps can all settle within a millisecond), which left the app
+    // running until the backstop below.
+    app.exit(0);
+  });
 });

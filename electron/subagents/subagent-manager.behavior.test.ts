@@ -171,6 +171,9 @@ describe("subagent runs", () => {
     expect(finished?.parentSessionId).toBe("orchestrator-session");
     expect(finished?.agentId).toBe("agent-a");
     expect(finished?.resultPreview).toContain("Report");
+    const retained = [...(manager as any).runs.values()][0];
+    expect(retained.slice.entries).toHaveLength(0);
+    expect(retained.connection).toBeNull();
     // Renderer got activity events.
     expect(made.events.some((e) => e.type === "subagent-runs")).toBe(true);
   });
@@ -229,6 +232,8 @@ describe("subagent runs", () => {
       expect(fake.cancelled).toEqual(["sub-session-1"]);
       expect((manager as any).activeRuns).toBe(0);
       expect(manager.getRunSnapshots()[0].status).toBe("cancelled");
+      expect([...(manager as any).runs.values()][0].slice.entries).toHaveLength(0);
+      expect([...(manager as any).runs.values()][0].connection).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -372,6 +377,154 @@ describe("subagent runs", () => {
         options: [],
       } as never),
     ).toBeNull();
+  });
+
+  test("cancelling during session/new never prompts and closes the late session", async () => {
+    let releaseNew!: () => void;
+    const requests: string[] = [];
+    const fake = makeFakeAgent({ onPrompt: () => {} });
+    const request = fake.connection.agent.request;
+    fake.connection.agent.request = async (method: unknown, params: any) => {
+      if (method === acp.methods.agent.session.new) {
+        requests.push("new");
+        await new Promise<void>((resolve) => {
+          releaseNew = resolve;
+        });
+      } else if (method === acp.methods.agent.session.prompt) {
+        requests.push("prompt");
+      }
+      return request(method, params);
+    };
+    const made = await makeManager(fake);
+    manager = made.manager;
+    const attached = await manager.attachMcpServers([], {}, { cwd: "/repo", depth: 0 });
+    manager.bindSession(attached.token!, "orchestrator-session");
+
+    const pending = (manager as any).runSubagent(attached.token, {
+      agent_id: "agent-a",
+      task: "slow start",
+    }) as Promise<string>;
+    await vi.waitFor(() => expect(requests).toEqual(["new"]));
+    manager.cancelRunsForParent("orchestrator-session");
+    await expect(pending).rejects.toThrow(/cancelled/);
+    expect((manager as any).activeRuns).toBe(0);
+
+    releaseNew();
+    await vi.waitFor(() => expect(fake.closed).toEqual(["sub-session-1"]));
+    expect(requests).toEqual(["new"]);
+  });
+
+  test("a cancelled queued run settles without waiting for a slot", async () => {
+    const fake = makeFakeAgent({ onPrompt: () => new Promise<void>(() => {}) });
+    const made = await makeManager(fake);
+    manager = made.manager;
+    await manager.setConfig({ maxConcurrent: 1 });
+    const busy = await manager.attachMcpServers([], {}, { cwd: "/repo", depth: 0 });
+    manager.bindSession(busy.token!, "busy-orchestrator");
+    const waiting = await manager.attachMcpServers([], {}, { cwd: "/repo", depth: 0 });
+    manager.bindSession(waiting.token!, "waiting-orchestrator");
+
+    void (manager as any)
+      .runSubagent(busy.token, { agent_id: "agent-a", task: "hold the slot" })
+      .catch(() => {});
+    await vi.waitFor(() => expect(manager!.getRunSnapshots()[0]?.status).toBe("running"));
+    const queued = (manager as any).runSubagent(waiting.token, {
+      agent_id: "agent-a",
+      task: "never admitted",
+    }) as Promise<string>;
+    manager.cancelRunsForParent("waiting-orchestrator");
+
+    await expect(queued).rejects.toThrow(/cancelled/);
+    expect((manager as any).slotWaiters).toHaveLength(0);
+    expect((manager as any).activeRuns).toBe(1);
+  });
+
+  test("a delegating subagent lends its slot so a nested child can run", async () => {
+    const childUrls = new Map<string, string>();
+    const prompted: string[] = [];
+    const fake = makeFakeAgent({ onPrompt: () => {} });
+    let counter = 0;
+    fake.connection.agent.request = async (method: unknown, params: any) => {
+      if (method === acp.methods.agent.session.new) {
+        const id = `sub-session-${++counter}`;
+        const entry = params.mcpServers.find((s: any) => s.name === "pipper-subagents");
+        if (entry) childUrls.set(id, endpointUrl([entry]));
+        return { sessionId: id };
+      }
+      if (method === acp.methods.agent.session.prompt) {
+        prompted.push(params.sessionId);
+        if (params.sessionId === "sub-session-1") {
+          const nested = await callSpawn(childUrls.get("sub-session-1")!, {
+            agent_id: "agent-a",
+            task: "child",
+          });
+          expect(nested.isError).toBeUndefined();
+        }
+        return { stopReason: "end_turn" };
+      }
+      return {};
+    };
+    const made = await makeManager(fake);
+    manager = made.manager;
+    await manager.setConfig({ maxConcurrent: 1, maxDepth: 2 });
+    const attached = await manager.attachMcpServers([], {}, { cwd: "/repo", depth: 0 });
+
+    const result = await callSpawn(endpointUrl(attached.servers), {
+      agent_id: "agent-a",
+      task: "parent",
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(prompted).toEqual(["sub-session-1", "sub-session-2"]);
+    expect((manager as any).activeRuns).toBe(0);
+    expect(manager.getRunSnapshots().map((r) => r.status)).toEqual(["finished", "finished"]);
+  });
+
+  test("a retried call attaches to the run in flight and collects its report afterwards", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prompted: string[] = [];
+    const fake = makeFakeAgent({
+      onPrompt: async (sessionId) => {
+        prompted.push(sessionId);
+        await gate;
+        manager!.handleSessionUpdate(sessionId, {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "done once" },
+        } as never);
+      },
+    });
+    const made = await makeManager(fake);
+    manager = made.manager;
+    const attached = await manager.attachMcpServers(
+      [],
+      { mcpCapabilities: { http: true } },
+      { cwd: "/repo", depth: 0 },
+    );
+    manager.bindSession(attached.token!, "orchestrator-session");
+    const url = endpointUrl(attached.servers);
+    const args = { agent_id: "agent-a", task: "long task" };
+
+    // The client times out and retries while the first call is still running.
+    const original = callSpawn(url, args);
+    await vi.waitFor(() => expect(prompted).toHaveLength(1));
+    const retry = callSpawn(url, args);
+    release();
+    const [first, second] = await Promise.all([original, retry]);
+    expect(first.content[0].text).toBe("done once");
+    expect(second.content[0].text).toBe("done once");
+
+    // A retry after the run finished collects the retained report.
+    const late = await callSpawn(url, args);
+    expect(late.content[0].text).toBe("done once");
+    expect(prompted).toEqual(["sub-session-1"]);
+    expect(manager.getRunSnapshots()).toHaveLength(1);
+
+    // A different task from the same session is a new run.
+    await callSpawn(url, { agent_id: "agent-a", task: "another task" });
+    expect(prompted).toEqual(["sub-session-1", "sub-session-2"]);
   });
 
   test("updates for unknown sessions are not swallowed", async () => {
